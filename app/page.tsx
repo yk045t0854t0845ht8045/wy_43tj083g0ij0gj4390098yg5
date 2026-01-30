@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { motion, AnimatePresence, LayoutGroup, useReducedMotion } from "framer-motion";
 
 export default function ShopifyLandingPage() {
-  const [email, setEmail] = useState("");
+   const [email, setEmail] = useState("");
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
@@ -15,6 +15,22 @@ export default function ShopifyLandingPage() {
 
   // ✅ Tooltips (Pricing)
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
+
+  // ✅ Cookies (ilha dinâmica: o mesmo card se transforma)
+  const COOKIE_KEY = "wyzer_cookie_consent_v1";
+  const [cookieReady, setCookieReady] = useState(false);
+  const [cookiesAccepted, setCookiesAccepted] = useState(false);
+  const [cookieAccepting, setCookieAccepting] = useState(false);
+
+  // ✅ controla a animação: cookies descem -> troca estado -> signup sobe
+  const [cookieExiting, setCookieExiting] = useState(false);
+
+  // ✅ trava altura do card preto no tamanho do "Criar conta"
+  const signupMeasureRef = useRef<HTMLDivElement | null>(null);
+  const [stickyIslandHeight, setStickyIslandHeight] = useState<number | null>(null);
+
+  // Se quiser forçar o "modo cookies" só quando o sticky estiver visível:
+  const shouldShowCookiesInSticky = cookieReady && !cookiesAccepted;
 
   // ✅ Animações alinhadas (premium / consistentes)
   const prefersReducedMotion = useReducedMotion();
@@ -30,18 +46,44 @@ export default function ShopifyLandingPage() {
     []
   );
 
+  function encodeEmailToUrlToken(email: string) {
+  // base64url(utf8(email))
+  const utf8 = encodeURIComponent(email.trim());
+  const b64 = typeof window !== "undefined" ? window.btoa(utf8) : "";
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function getLoginOrigin() {
+  // ✅ você pediu assim no localhost:
+  // return "http://login.localhost:3000";
+
+  // ✅ modo premium: permite trocar por env em produção (Vercel)
+  return process.env.NEXT_PUBLIC_LOGIN_ORIGIN || "http://login.localhost:3000";
+}
+
+function goToLoginWithEmail(email: string) {
+  const clean = email.trim();
+  if (!clean) return;
+
+  const token = encodeEmailToUrlToken(clean);
+  const target = `${getLoginOrigin()}/mail/${token}`;
+
+  window.location.assign(target);
+}
+
   const VIEWPORT = useMemo(() => ({ once: true, amount: 0.25 }), []);
 
-  // ✅ Transições “Apple-like” (suaves, sem “piscadas” quando o sticky entra/sai)
-  const SPRING_SOFT = useMemo(
+   const SPRING_SOFT = useMemo(
     () =>
       prefersReducedMotion
         ? ({ duration: 0 } as const)
         : ({
             type: "spring",
-            stiffness: 520,
-            damping: 46,
-            mass: 0.9,
+            stiffness: 430,
+            damping: 42,
+            mass: 1.05,
+            restDelta: 0.2,
+            restSpeed: 0.2,
           } as const),
     [prefersReducedMotion]
   );
@@ -52,9 +94,11 @@ export default function ShopifyLandingPage() {
         ? ({ duration: 0 } as const)
         : ({
             type: "spring",
-            stiffness: 620,
-            damping: 54,
-            mass: 0.85,
+            stiffness: 520,
+            damping: 48,
+            mass: 0.95,
+            restDelta: 0.2,
+            restSpeed: 0.2,
           } as const),
     [prefersReducedMotion]
   );
@@ -135,6 +179,82 @@ export default function ShopifyLandingPage() {
     [prefersReducedMotion, SPRING_SOFT, SPRING_SNAP]
   );
 
+    const cookiePanelVariants = useMemo(
+    () => ({
+      initial: { opacity: 0, y: 10, filter: "blur(10px)" },
+      show: {
+        opacity: 1,
+        y: 0,
+        filter: "blur(0px)",
+        transition: prefersReducedMotion
+          ? { duration: 0 }
+          : {
+              opacity: { duration: 0.18, ease: "linear" },
+              y: { ...SPRING_SOFT },
+              filter: { duration: 0.22, ease: "easeOut" },
+            },
+      },
+      // ✅ saída padrão (quando troca normal)
+      exit: {
+        opacity: 0,
+        y: 14,
+        filter: "blur(10px)",
+        transition: prefersReducedMotion
+          ? { duration: 0 }
+          : {
+              opacity: { duration: 0.12, ease: "linear" },
+              y: { ...SPRING_SNAP },
+              filter: { duration: 0.14, ease: "easeIn" },
+            },
+      },
+      // ✅ saída premium: desce mais e suaviza (usado no clique)
+      drop: {
+        opacity: 0,
+        y: 60,
+        filter: "blur(12px)",
+        transition: prefersReducedMotion
+          ? { duration: 0 }
+          : {
+              opacity: { duration: 0.14, ease: "linear" },
+              y: { duration: 0.42, ease: [0.2, 0.85, 0.2, 1] },
+              filter: { duration: 0.22, ease: "easeIn" },
+            },
+      },
+    }),
+    [prefersReducedMotion, SPRING_SOFT, SPRING_SNAP]
+  );
+
+  const signupPanelVariants = useMemo(
+    () => ({
+      initial: { opacity: 0, y: -18, filter: "blur(10px)" }, // ✅ começa de cima
+      show: {
+        opacity: 1,
+        y: 0,
+        filter: "blur(0px)",
+        transition: prefersReducedMotion
+          ? { duration: 0 }
+          : {
+              opacity: { duration: 0.18, ease: "linear" },
+              y: { ...SPRING_SOFT },
+              filter: { duration: 0.22, ease: "easeOut" },
+            },
+      },
+      exit: {
+        opacity: 0,
+        y: 10,
+        filter: "blur(10px)",
+        transition: prefersReducedMotion
+          ? { duration: 0 }
+          : {
+              opacity: { duration: 0.12, ease: "linear" },
+              y: { ...SPRING_SNAP },
+              filter: { duration: 0.14, ease: "easeIn" },
+            },
+      },
+    }),
+    [prefersReducedMotion, SPRING_SOFT, SPRING_SNAP]
+  );
+
   useEffect(() => {
     const el = heroRef.current;
     if (!el) return;
@@ -154,6 +274,69 @@ export default function ShopifyLandingPage() {
     io.observe(el);
     return () => io.disconnect();
   }, []);
+
+    // ✅ Lê consentimento (localStorage + cookie fallback)
+  useEffect(() => {
+    try {
+      const ls = localStorage.getItem(COOKIE_KEY);
+      const cookieHit =
+        typeof document !== "undefined" &&
+        document.cookie.split("; ").some((c) => c.startsWith(`${COOKIE_KEY}=1`));
+
+      const accepted = ls === "1" || cookieHit;
+      setCookiesAccepted(accepted);
+      setCookieReady(true);
+    } catch {
+      // Se der erro (ex: privacy mode), ainda libera render
+      setCookieReady(true);
+      setCookiesAccepted(false);
+    }
+  }, []);
+
+    useEffect(() => {
+    if (!signupMeasureRef.current) return;
+
+    const el = signupMeasureRef.current;
+
+    const update = () => {
+      const h = el.getBoundingClientRect().height;
+      if (!Number.isFinite(h) || h <= 0) return;
+      setStickyIslandHeight(Math.round(h));
+    };
+
+    update();
+
+    // ✅ mantém perfeito se fonte/viewport mudar
+    const ro = new ResizeObserver(() => update());
+    ro.observe(el);
+
+    return () => ro.disconnect();
+  }, []);
+
+    const acceptCookies = async () => {
+    if (cookieAccepting || cookieExiting) return;
+    setCookieAccepting(true);
+
+    try {
+      // ✅ localStorage
+      localStorage.setItem(COOKIE_KEY, "1");
+
+      // ✅ cookie (1 ano)
+      const isHttps = typeof location !== "undefined" && location.protocol === "https:";
+      document.cookie = `${COOKIE_KEY}=1; Path=/; Max-Age=31536000; SameSite=Lax${isHttps ? "; Secure" : ""}`;
+    } catch {}
+
+    // ✅ 1) inicia saída do card de cookies (desce)
+    setCookieExiting(true);
+
+    // ✅ 2) quando a animação terminar, troca para signup
+    window.setTimeout(() => {
+      setCookiesAccepted(true);      // agora shouldShowCookiesInSticky vira false
+      setCookieAccepting(false);
+      setCookieExiting(false);       // limpa pro futuro
+    }, prefersReducedMotion ? 0 : 420);
+  };
+
 
   useEffect(() => {
     if (!mobileNavOpen) return;
@@ -1163,34 +1346,134 @@ export default function ShopifyLandingPage() {
                     WebkitBackfaceVisibility: "hidden",
                   }}
                 >
-                  <h2 className="text-white mb-1.5 text-[1.6rem] sm:text-[2rem] md:text-[1.7rem] font-medium t43g">
-                    Crie sua conta gratuitamente
-                  </h2>
+  {/* ✅ ILHA DINÂMICA: o mesmo card se transforma (Cookies ↔ Signup) */}
+                  <motion.div
+    className="flex flex-col "
+    style={{
+      // ✅ trava no tamanho do "Criar conta" (evita o card crescer antes da troca)
+      height: stickyIslandHeight ? `${stickyIslandHeight}px` : undefined,
+      willChange: "height",
+      backfaceVisibility: "hidden",
+      WebkitBackfaceVisibility: "hidden",
+    }}
+                  >
+                   <AnimatePresence initial={false} mode="wait">
+                       {shouldShowCookiesInSticky ? (
+   <motion.div
+  key="cookie"
+  variants={cookiePanelVariants}
+  initial="initial"
+  animate={cookieExiting ? "drop" : "show"}
+  exit="exit"
+  style={{
+    willChange: "transform, opacity, filter",
+    backfaceVisibility: "hidden",
+    WebkitBackfaceVisibility: "hidden",
+  }}
+>
+  {/* ✅ não deixa o conteúdo empurrar a altura do card */}
+  <div className="h-full pr-1" style={{ scrollbarGutter: "stable" }}>
+    <h2 className="text-white mb-1.5 text-[1.35rem] sm:text-[1.65rem] md:text-[1.5rem] font-medium tracking-tight">
+      Consentimento de Cookies
+    </h2>
 
-                  <p className="text-[#8a8a8a] text-[12px] sm:text-[13px] md:text-[0.7rem] font-medium t43g mb-5">
-                    Você concorda em receber e-mails de marketing.
-                  </p>
+    <p className="text-[#8a8a8a] text-[12px] sm:text-[13px] font-medium mb-3">
+      Usamos cookies para melhorar sua experiência, segurança e desempenho.
+    </p>
 
-                  <div className="mt-auto pb-3">
-                    <div className="relative group w-full sm:w-[calc(100%+60px)] sm:-mx-[30px]">
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="Digite seu e-mail"
-                        className="w-full bg-[#171717] border border-[#454545] border-2 rounded-full px-6 py-4 text-white placeholder-[#6a6a6a] focus:outline-none hover:border-[#6a6a6a] focus:border-lime-400 pr-16 transition-all duration-300 ease-out text-base"
-                      />
-                      <motion.button
-                        type="submit"
-                        whileHover={prefersReducedMotion ? undefined : { scale: 1.05 }}
-                        whileTap={prefersReducedMotion ? undefined : { scale: 0.97 }}
-                        transition={{ duration: DUR.sm, ease: EASE }}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent hover:bg-white/10 rounded-full p-3 transition-all duration-300 ease-out group-hover:translate-x-0.5"
-                      >
-                        <ArrowRight className="w-5 h-5 text-white transition-transform duration-300 group-hover:translate-x-0.5" />
-                      </motion.button>
-                    </div>
-                  </div>
+    <p className="text-white/70 text-[12px] sm:text-[13px] leading-relaxed">
+      Ao continuar navegando, você concorda com o uso de cookies conforme nossa política.
+      Você pode ajustar suas preferências no navegador a qualquer momento.
+    </p>
+
+    <div className="mt-4 pb-4">
+      <motion.button
+        type="button"
+        onClick={acceptCookies}
+        disabled={cookieAccepting}
+        whileHover={prefersReducedMotion || cookieAccepting ? undefined : { y: -2, scale: 1.01 }}
+        whileTap={prefersReducedMotion || cookieAccepting ? undefined : { scale: 0.98 }}
+        transition={{ duration: prefersReducedMotion ? 0 : DUR.sm, ease: EASE }}
+        className={[
+          "group relative w-full bg-[#171717] border border-[#454545] border-2 rounded-full px-6 py-4 text-white",
+          "hover:border-[#6a6a6a] focus:outline-none focus:border-lime-400 transition-all duration-300 ease-out",
+          "text-[13px] font-semibold shadow-[0_18px_55px_rgba(0,0,0,0.12)] hover:shadow-[0_22px_70px_rgba(0,0,0,0.16)] pr-16 transform-gpu",
+          cookieAccepting ? "opacity-80" : "",
+        ].join(" ")}
+        style={{ willChange: "transform" }}
+      >
+        <span className="relative z-10">{cookieAccepting ? "Confirmando..." : "Entendi e continuar"}</span>
+
+        <motion.span
+          whileHover={prefersReducedMotion || cookieAccepting ? undefined : { scale: 1.06 }}
+          whileTap={prefersReducedMotion || cookieAccepting ? undefined : { scale: 0.96 }}
+          transition={{ duration: prefersReducedMotion ? 0 : DUR.sm, ease: EASE }}
+          className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent group-hover:bg-white/10 rounded-full p-3 transition-all duration-300 ease-out group-hover:translate-x-0.5"
+        >
+          <ArrowRight className="w-5 h-5 text-white transition-transform duration-300 group-hover:translate-x-0.5" />
+        </motion.span>
+      </motion.button>
+    </div>
+  </div>
+</motion.div>
+                      ) : (
+<motion.div
+  key="signup"
+  variants={signupPanelVariants}
+  initial="initial"
+  animate="show"
+  exit="exit"
+  style={{
+    willChange: "transform, opacity, filter",
+    backfaceVisibility: "hidden",
+    WebkitBackfaceVisibility: "hidden",
+  }}
+>
+  {/* ✅ mede a altura real do signup pra travar o card */}
+  <div ref={signupMeasureRef}>
+    <h2 className="text-white mb-1.5 text-[1.6rem] sm:text-[2rem] md:text-[1.7rem] font-medium t43g">
+      Crie sua conta gratuitamente
+    </h2>
+
+    <p className="text-[#8a8a8a] text-[12px] sm:text-[13px] md:text-[0.7rem] font-medium t43g mb-5">
+      Você concorda em receber e-mails de marketing.
+    </p>
+
+<div className="mt-auto pb-3">
+  <form
+    onSubmit={(e) => {
+      e.preventDefault();
+      goToLoginWithEmail(email);
+    }}
+    className="relative group w-full sm:w-[calc(100%+60px)] sm:-mx-[30px]"
+  >
+    <input
+      type="email"
+      inputMode="email"
+      autoComplete="email"
+      value={email}
+      onChange={(e) => setEmail(e.target.value)}
+      placeholder="Digite seu e-mail"
+      className="w-full bg-[#171717] border border-[#454545] border-2 rounded-full px-6 py-4 text-white placeholder-[#6a6a6a] focus:outline-none hover:border-[#6a6a6a] focus:border-lime-400 pr-16 transition-all duration-300 ease-out text-base"
+    />
+
+    <motion.button
+      type="submit"
+      whileHover={prefersReducedMotion ? undefined : { scale: 1.05 }}
+      whileTap={prefersReducedMotion ? undefined : { scale: 0.97 }}
+      transition={{ duration: DUR.sm, ease: EASE }}
+      className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent hover:bg-white/10 rounded-full p-3 transition-all duration-300 ease-out group-hover:translate-x-0.5"
+      aria-label="Continuar"
+    >
+      <ArrowRight className="w-5 h-5 text-white transition-transform duration-300 group-hover:translate-x-0.5" />
+    </motion.button>
+  </form>
+</div>
+  </div>
+</motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
                 </motion.div>
               </motion.div>
             </div>
@@ -1357,24 +1640,34 @@ export default function ShopifyLandingPage() {
                     </div>
 
                     <div className="mt-8 flex justify-center">
-                      <div className="relative w-full max-w-[520px]">
-                        <input
-                          type="email"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          placeholder="Digite seu e-mail"
-                          className="w-full bg-[#171717] border border-[#454545] border-2 rounded-full px-6 py-4 text-white placeholder-[#6a6a6a] focus:outline-none hover:border-[#6a6a6a] focus:border-lime-400 pr-16 transition-all duration-300 ease-out text-base"
-                        />
-                        <motion.button
-                          type="submit"
-                          whileHover={prefersReducedMotion ? undefined : { scale: 1.06 }}
-                          whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
-                          transition={{ duration: DUR.sm, ease: EASE }}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent hover:bg-white/10 rounded-full p-3 transition-all duration-300 ease-out"
-                        >
-                          <ArrowRight className="w-5 h-5 text-white" />
-                        </motion.button>
-                      </div>
+                     <form
+  onSubmit={(e) => {
+    e.preventDefault();
+    goToLoginWithEmail(email);
+  }}
+  className="relative w-full max-w-[520px]"
+>
+  <input
+    type="email"
+    inputMode="email"
+    autoComplete="email"
+    value={email}
+    onChange={(e) => setEmail(e.target.value)}
+    placeholder="Digite seu e-mail"
+    className="w-full bg-[#171717] border border-[#454545] border-2 rounded-full px-6 py-4 text-white placeholder-[#6a6a6a] focus:outline-none hover:border-[#6a6a6a] focus:border-lime-400 pr-16 transition-all duration-300 ease-out text-base"
+  />
+
+  <motion.button
+    type="submit"
+    whileHover={prefersReducedMotion ? undefined : { scale: 1.06 }}
+    whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
+    transition={{ duration: DUR.sm, ease: EASE }}
+    className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent hover:bg-white/10 rounded-full p-3 transition-all duration-300 ease-out"
+    aria-label="Continuar"
+  >
+    <ArrowRight className="w-5 h-5 text-white" />
+  </motion.button>
+</form>
                     </div>
 
                     <div className="mt-4 text-[12px] text-white/60">Você concorda em receber e-mails de marketing.</div>

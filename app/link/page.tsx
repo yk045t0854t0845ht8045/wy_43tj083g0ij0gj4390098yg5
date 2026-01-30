@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useRef, useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { ArrowRight } from "lucide-react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 
 // Verified Badge Component (Instagram Oficial)
@@ -25,6 +26,8 @@ function VerifiedBadge() {
     </motion.svg>
   );
 }
+
+
 
 // Social Icons with VIBRANT brand colors - SVG paths for each platform
 const socialIcons: Record<
@@ -361,6 +364,11 @@ function AnimatedIcon({
   );
 }
 
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
+
+
 // Inline Video Preview Component - INSIDE the button, tilted 25deg with fade to left
 function InlineVideoPreview({
   videoUrl,
@@ -582,9 +590,13 @@ function LinkButton({
   );
 }
 
+
+
 // Main Page Component
 export default function LinkPage() {
   const prefersReducedMotion = useReducedMotion();
+
+  
 
   const EASE = useMemo(() => [0.2, 0.8, 0.2, 1] as const, []);
   const DUR = useMemo(
@@ -596,6 +608,85 @@ export default function LinkPage() {
       xl: 0.9,
     }),
     []
+  );
+
+    // ✅ Cookie consent (Dinâmica no bottom - centralizado)
+  const COOKIE_KEY = "wyzer_cookie_consent_v1";
+  const [cookieReady, setCookieReady] = useState(false);
+  const [showCookieConsent, setShowCookieConsent] = useState(false);
+
+  const [cookieAccepting, setCookieAccepting] = useState(false);
+  const cookieTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (cookieTimerRef.current) window.clearInterval(cookieTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(COOKIE_KEY);
+      setShowCookieConsent(v !== "1");
+    } catch {
+      setShowCookieConsent(true);
+    } finally {
+      setCookieReady(true);
+    }
+  }, []);
+
+  const acceptCookies = useCallback(() => {
+    if (cookieAccepting) return;
+
+    setCookieAccepting(true);
+
+    try {
+      localStorage.setItem(COOKIE_KEY, "1");
+    } catch {}
+
+    // micro delay pra ficar “premium”
+    window.setTimeout(() => {
+      setShowCookieConsent(false);
+      setCookieAccepting(false);
+    }, prefersReducedMotion ? 0 : 220);
+  }, [COOKIE_KEY, cookieAccepting, prefersReducedMotion]);
+
+  const cookieWrapVariants = useMemo(
+    () => ({
+      hidden: { opacity: 0, y: 40 },
+      show: {
+        opacity: 1,
+        y: 0,
+        transition: { duration: prefersReducedMotion ? 0 : 0.55, ease: EASE },
+      },
+      exit: {
+        opacity: 0,
+        y: 56,
+        transition: { duration: prefersReducedMotion ? 0 : 0.45, ease: EASE },
+      },
+    }),
+    [EASE, prefersReducedMotion]
+  );
+
+  const cookieCardVariants = useMemo(
+    () => ({
+      hidden: { opacity: 0, y: 22, scale: 0.985, filter: "blur(10px)" },
+      show: {
+        opacity: 1,
+        y: 0,
+        scale: 1,
+        filter: "blur(0px)",
+        transition: { duration: prefersReducedMotion ? 0 : 0.6, ease: EASE },
+      },
+      exit: {
+        opacity: 0,
+        y: 36,
+        scale: 0.992,
+        filter: "blur(10px)",
+        transition: { duration: prefersReducedMotion ? 0 : 0.5, ease: EASE },
+      },
+    }),
+    [EASE, prefersReducedMotion]
   );
 
   const links = useMemo(
@@ -619,6 +710,8 @@ export default function LinkPage() {
     ],
     []
   );
+
+
 
   return (
     <main className="min-h-screen bg-white relative overflow-hidden overflow-x-hidden">
@@ -953,6 +1046,99 @@ export default function LinkPage() {
           />
         </motion.div>
       </motion.a>
+
+
+        {/* ✅ CONSENTIMENTO DE COOKIES (Dinâmica Apple / sobe de baixo) */}
+      <AnimatePresence initial={false} mode="sync" presenceAffectsLayout={false}>
+        {cookieReady && showCookieConsent && (
+          <motion.div
+            variants={cookieWrapVariants}
+            initial="hidden"
+            animate="show"
+            exit="exit"
+            className="fixed inset-x-0 bottom-0 z-[70] pointer-events-none"
+            style={{
+              paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 14px)",
+              willChange: "transform, opacity",
+              contain: "layout paint",
+              backfaceVisibility: "hidden",
+              WebkitBackfaceVisibility: "hidden",
+            }}
+          >
+            {/* ✅ centralizado no bottom */}
+            <div className="mx-auto w-full max-w-[1100px] px-4 sm:px-6">
+              <div className="w-full flex justify-center">
+                <motion.div
+                  whileHover={prefersReducedMotion || cookieAccepting ? undefined : { y: -1, scale: 1.003 }}
+                  whileTap={prefersReducedMotion || cookieAccepting ? undefined : { scale: 0.997 }}
+                  transition={{ duration: prefersReducedMotion ? 0 : DUR.md, ease: EASE }}
+                  className="pointer-events-auto relative transform-gpu w-full max-w-[640px]"
+                  style={{ willChange: "transform", backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden" }}
+                >
+                  <motion.div
+                    variants={cookieCardVariants}
+                    initial="hidden"
+                    animate="show"
+                    exit="exit"
+                    transition={{ duration: prefersReducedMotion ? 0 : DUR.lg, ease: EASE }}
+                    className="bg-black rounded-[40px] px-6 sm:px-10 md:px-10 pt-6 pb-5 w-full mt-2 relative z-10 transition-all duration-500 ease-out flex flex-col ring-1 ring-white/10 shadow-[0_18px_55px_rgba(0,0,0,0.18)] transform-gpu"
+                    style={{
+                      willChange: "transform, opacity, filter",
+                      backfaceVisibility: "hidden",
+                      WebkitBackfaceVisibility: "hidden",
+                    }}
+                  >
+                    <h2 className="text-white mb-1.5 text-[1.35rem] sm:text-[1.65rem] md:text-[1.5rem] font-medium tracking-tight">
+                      Consentimento de Cookies
+                    </h2>
+
+                    <p className="text-[#8a8a8a] text-[12px] sm:text-[13px] font-medium mb-3">
+                      Usamos cookies para melhorar sua experiência, segurança e desempenho.
+                    </p>
+
+                    <p className="text-white/70 text-[12px] sm:text-[13px] leading-relaxed">
+                      Ao continuar navegando, você concorda com o uso de cookies conforme nossa política. Você pode ajustar
+                      suas preferências no navegador a qualquer momento.
+                    </p>
+
+                    <div className="mt-4">
+                      <motion.button
+                        type="button"
+                        onClick={acceptCookies}
+                        disabled={cookieAccepting}
+                        whileHover={prefersReducedMotion || cookieAccepting ? undefined : { y: -2, scale: 1.01 }}
+                        whileTap={prefersReducedMotion || cookieAccepting ? undefined : { scale: 0.98 }}
+                        transition={{ duration: prefersReducedMotion ? 0 : DUR.sm, ease: EASE }}
+                        className={cx(
+                          "group relative w-full bg-[#171717] border border-[#454545] border-2 rounded-full px-6 py-4 text-white",
+                          "hover:border-[#6a6a6a] focus:outline-none focus:border-lime-400 transition-all duration-300 ease-out",
+                          "text-[13px] font-semibold shadow-[0_18px_55px_rgba(0,0,0,0.12)] hover:shadow-[0_22px_70px_rgba(0,0,0,0.16)] pr-16 transform-gpu",
+                          cookieAccepting ? "opacity-80 cursor-not-allowed" : ""
+                        )}
+                        style={{ willChange: "transform" }}
+                      >
+                        <span className="relative z-10">
+                          {cookieAccepting ? "Entendi e continuar" : "Entendi e continuar"}
+                        </span>
+
+                        <motion.span
+                          whileHover={prefersReducedMotion || cookieAccepting ? undefined : { scale: 1.06 }}
+                          whileTap={prefersReducedMotion || cookieAccepting ? undefined : { scale: 0.96 }}
+                          transition={{ duration: prefersReducedMotion ? 0 : DUR.sm, ease: EASE }}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent group-hover:bg-white/10 rounded-full p-3 transition-all duration-300 ease-out group-hover:translate-x-0.5"
+                        >
+                          <ArrowRight className="w-5 h-5 text-white transition-transform duration-300 group-hover:translate-x-0.5" />
+                        </motion.span>
+                      </motion.button>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </main>
   );
 }

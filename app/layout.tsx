@@ -49,6 +49,8 @@ export default function RootLayout({
           rel="stylesheet"
         />
 
+        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7049845214661996" crossOrigin="anonymous"></script>
+
         {/* Site Icon / Favicons */}
         <link rel="icon" href="/logo.ico" sizes="any" />
         <link rel="icon" type="image/svg+xml" href="/logo.svg" />

@@ -10,18 +10,13 @@ function isStaticAssetPath(pathname: string) {
   );
 }
 
-// ✅ Proxy (antes: middleware)
 export default function proxy(req: NextRequest) {
   const hostHeader = (req.headers.get("host") || "").toLowerCase();
-  const host = hostHeader.split(":")[0]; // remove porta
+  const host = hostHeader.split(":")[0];
   const url = req.nextUrl.clone();
 
-  // ✅ Não mexe em assets estáticos
-  if (isStaticAssetPath(url.pathname)) {
-    return NextResponse.next();
-  }
+  if (isStaticAssetPath(url.pathname)) return NextResponse.next();
 
-  // ✅ Não mexe em rotas internas/arquivos comuns
   if (
     url.pathname.startsWith("/_next") ||
     url.pathname.startsWith("/api") ||
@@ -42,19 +37,13 @@ export default function proxy(req: NextRequest) {
     host.startsWith("link.") ||
     (host.startsWith("link-") && host.endsWith(".vercel.app"));
 
-  // ✅ Bloqueia acesso ao /link no domínio principal
   if (!isLinkSubdomain && url.pathname.startsWith("/link")) {
     url.pathname = "/404";
     return NextResponse.rewrite(url);
   }
 
-  // ✅ Se for link subdomain, reescreve para /link
   if (isLinkSubdomain) {
-    // já está em /link?
-    if (url.pathname === "/link" || url.pathname.startsWith("/link/")) {
-      return NextResponse.next();
-    }
-
+    if (url.pathname === "/link" || url.pathname.startsWith("/link/")) return NextResponse.next();
     const incomingPath = url.pathname === "/" ? "" : url.pathname;
     url.pathname = `/link${incomingPath}`;
     return NextResponse.rewrite(url);
@@ -70,19 +59,13 @@ export default function proxy(req: NextRequest) {
     host.startsWith("terms.") ||
     (host.startsWith("terms-") && host.endsWith(".vercel.app"));
 
-  // ✅ Bloqueia /terms no domínio principal
   if (!isTermsSubdomain && url.pathname.startsWith("/terms")) {
     url.pathname = "/404";
     return NextResponse.rewrite(url);
   }
 
-  // ✅ Se for terms subdomain, reescreve para /terms
   if (isTermsSubdomain) {
-    // já está em /terms?
-    if (url.pathname === "/terms" || url.pathname.startsWith("/terms/")) {
-      return NextResponse.next();
-    }
-
+    if (url.pathname === "/terms" || url.pathname.startsWith("/terms/")) return NextResponse.next();
     const incomingPath = url.pathname === "/" ? "" : url.pathname;
     url.pathname = `/terms${incomingPath}`;
     return NextResponse.rewrite(url);
@@ -98,24 +81,41 @@ export default function proxy(req: NextRequest) {
     host.startsWith("policy.") ||
     (host.startsWith("policy-") && host.endsWith(".vercel.app"));
 
-  // ✅ Bloqueia /policy no domínio principal
   if (!isPolicySubdomain && url.pathname.startsWith("/policy")) {
     url.pathname = "/404";
     return NextResponse.rewrite(url);
   }
 
-  // ✅ Se for policy subdomain, reescreve para /policy
   if (isPolicySubdomain) {
-    // já está em /policy?
-    if (url.pathname === "/policy" || url.pathname.startsWith("/policy/")) {
-      return NextResponse.next();
-    }
-
+    if (url.pathname === "/policy" || url.pathname.startsWith("/policy/")) return NextResponse.next();
     const incomingPath = url.pathname === "/" ? "" : url.pathname;
     url.pathname = `/policy${incomingPath}`;
     return NextResponse.rewrite(url);
   }
 
-  // ✅ Domínio normal segue normal
+  // -----------------------------
+  // ✅ SUBDOMÍNIO LOGIN -> /login/*
+  // -----------------------------
+  const isLoginSubdomain =
+    host === "login.localhost" ||
+    host === "login.wyzer.com.br" ||
+    host === "login.vercel.app" ||
+    host.startsWith("login.") ||
+    (host.startsWith("login-") && host.endsWith(".vercel.app"));
+
+  // ✅ Só aplica rewrite especial se for login subdomain
+  if (isLoginSubdomain) {
+    // ✅ já está em /login? segue normal
+    if (url.pathname === "/login" || url.pathname.startsWith("/login/")) {
+      return NextResponse.next();
+    }
+
+    // ✅ mantém URL como "/" ou "/mail/ABC" etc,
+    // mas internamente serve a partir de "/login/..."
+    const incomingPath = url.pathname === "/" ? "" : url.pathname;
+    url.pathname = `/login${incomingPath}`;
+    return NextResponse.rewrite(url);
+  }
+
   return NextResponse.next();
 }
