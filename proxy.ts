@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export const config = {
-  matcher: [
-    "/((?!api|_next|favicon.ico|robots.txt|sitemap.xml).*)",
-  ],
+  matcher: ["/((?!api|_next|favicon.ico|robots.txt|sitemap.xml).*)"],
 };
 
 function isStaticAssetPath(pathname: string) {
@@ -72,7 +70,7 @@ export default function proxy(req: NextRequest) {
     host.startsWith("terms.") ||
     (host.startsWith("terms-") && host.endsWith(".vercel.app"));
 
-  // ✅ (Opcional, mas recomendo) Bloqueia /terms no domínio principal
+  // ✅ Bloqueia /terms no domínio principal
   if (!isTermsSubdomain && url.pathname.startsWith("/terms")) {
     url.pathname = "/404";
     return NextResponse.rewrite(url);
@@ -87,6 +85,34 @@ export default function proxy(req: NextRequest) {
 
     const incomingPath = url.pathname === "/" ? "" : url.pathname;
     url.pathname = `/terms${incomingPath}`;
+    return NextResponse.rewrite(url);
+  }
+
+  // -----------------------------
+  // ✅ SUBDOMÍNIO POLICY -> /policy/*
+  // -----------------------------
+  const isPolicySubdomain =
+    host === "policy.localhost" ||
+    host === "policy.wyzer.com.br" ||
+    host === "policy.vercel.app" ||
+    host.startsWith("policy.") ||
+    (host.startsWith("policy-") && host.endsWith(".vercel.app"));
+
+  // ✅ Bloqueia /policy no domínio principal
+  if (!isPolicySubdomain && url.pathname.startsWith("/policy")) {
+    url.pathname = "/404";
+    return NextResponse.rewrite(url);
+  }
+
+  // ✅ Se for policy subdomain, reescreve para /policy
+  if (isPolicySubdomain) {
+    // já está em /policy?
+    if (url.pathname === "/policy" || url.pathname.startsWith("/policy/")) {
+      return NextResponse.next();
+    }
+
+    const incomingPath = url.pathname === "/" ? "" : url.pathname;
+    url.pathname = `/policy${incomingPath}`;
     return NextResponse.rewrite(url);
   }
 
