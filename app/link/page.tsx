@@ -9,8 +9,8 @@ function VerifiedBadge() {
     <motion.svg
       aria-label="Verificado"
       role="img"
-      width="27"
-      height="27"
+      width="22"
+      height="22"
       viewBox="0 0 40 40"
       initial={{ scale: 0, rotate: -180 }}
       animate={{ scale: 1, rotate: 0 }}
@@ -251,7 +251,7 @@ function AnimatedIcon({
 
   return (
     <motion.div
-      className="relative w-7 h-7"
+      className="relative w-6 h-6"
       style={{
         perspective: "200px",
         transformStyle: "preserve-3d",
@@ -506,7 +506,7 @@ function LinkButton({
         onBlur={() => setIsHovered(false)}
         whileHover={prefersReducedMotion ? undefined : { y: -4, scale: 1.02 }}
         whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
-        className="group relative inline-flex w-full items-center rounded-full px-3 py-4 text-[21px] font-semibold transition-all duration-500 ease-out transform-gpu bg-[#171717] text-white border-2 border-[#404040] shadow-[0_18px_55px_rgba(0,0,0,0.12)] focus:outline-none focus:ring-2 focus:ring-white/40 focus:ring-offset-2 focus:ring-offset-white overflow-hidden"
+        className="group relative inline-flex w-full items-center rounded-full px-3 py-3.5 text-[18px] font-semibold transition-all duration-500 ease-out transform-gpu bg-[#171717] text-white border-2 border-[#404040] shadow-[0_18px_55px_rgba(0,0,0,0.12)] focus:outline-none focus:ring-2 focus:ring-white/40 focus:ring-offset-2 focus:ring-offset-white overflow-hidden"
         style={{
           willChange: "transform",
           borderColor: isHovered ? `${iconData?.color}80` : undefined,
@@ -537,7 +537,7 @@ function LinkButton({
 
         {/* Icon Container - LEFT with 3D Animation */}
         <motion.span
-          className="relative z-10 flex items-center justify-center w-16 h-16 rounded-full bg-white/[0.08] border border-white/[0.12] transition-all duration-500"
+          className="relative z-10 flex items-center justify-center w-14 h-14 rounded-full bg-white/[0.08] border border-white/[0.12] transition-all duration-500"
           style={{
             borderColor: isHovered ? `${iconData?.color}60` : undefined,
             backgroundColor: isHovered ? `${iconData?.color}20` : undefined,
@@ -552,7 +552,7 @@ function LinkButton({
         </motion.span>
 
         {/* Label - CENTER */}
-        <span className="relative z-10 flex-1 text-center pr-20 text-white/95 tracking-tight transition-all duration-500 group-hover:text-white font-medium">
+        <span className="relative z-10 flex-1 text-center pr-16 text-white/95 tracking-tight transition-all duration-500 group-hover:text-white font-medium">
           {name}
         </span>
 
@@ -616,6 +616,9 @@ export default function LinkPage() {
         href: "https://www.linkedin.com/in/wyzer-bot-6336353a9/",
       },
       { name: "GitHub", href: "https://github.com/WyzerBot" },
+      { name: "Website", href: "https://example.com" },
+      { name: "Loja Online", href: "https://shop.example.com" },
+      { name: "Contato", href: "mailto:contato@example.com" },
     ],
     []
   );
@@ -649,17 +652,17 @@ export default function LinkPage() {
         />
       </div>
 
-      <div className="relative z-10 flex flex-col items-center justify-start min-h-screen px-6 py-24 sm:py-28">
+      <div className="relative z-10 flex flex-col items-center justify-start min-h-screen px-6 py-20 sm:py-24">
         {/* Profile Section */}
         <motion.div
-          className="flex flex-col items-center mb-20"
+          className="flex flex-col items-center mb-16"
           initial={{ opacity: 0, y: -16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: DUR.lg, ease: EASE }}
         >
           {/* Avatar */}
           <motion.div
-            className="relative mb-12"
+            className="relative mb-10"
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{
@@ -671,7 +674,7 @@ export default function LinkPage() {
           >
             {/* Animated Ring - Outer with gradient */}
             <motion.div
-              className="absolute -inset-[6px] rounded-full"
+              className="absolute -inset-[5px] rounded-full"
               style={{
                 background:
                   "conic-gradient(from 0deg, #171717, #555, #171717, #888, #171717)",
@@ -683,7 +686,7 @@ export default function LinkPage() {
 
             {/* Secondary Ring with shimmer */}
             <motion.div
-              className="absolute -inset-[6px] rounded-full"
+              className="absolute -inset-[5px] rounded-full"
               style={{
                 background:
                   "conic-gradient(from 180deg, transparent, rgba(255,255,255,0.25), transparent)",
@@ -694,14 +697,14 @@ export default function LinkPage() {
             />
 
             {/* Avatar Container */}
-            <div className="relative w-48 h-48 sm:w-56 sm:h-56 rounded-full bg-white p-[6px]">
+            <div className="relative w-44 h-44 sm:w-52 sm:h-52 rounded-full bg-white p-[5px]">
               <motion.div
                 className="w-full h-full rounded-full bg-transparent flex items-center justify-center overflow-hidden shadow-[inset_0_2px_30px_rgba(255,255,255,0.08)]"
                 whileHover={prefersReducedMotion ? undefined : { scale: 1.03 }}
                 transition={{ duration: 0.3 }}
               >
                 <img
-                  src="https://www.wyzer.com.br/lg/socials/t43h79r349737tg.png"
+                  src="/lg/socials/t43h79r349737tg.png"
                   alt="Logo"
                   className="w-full h-full object-cover rounded-full select-none"
                   draggable={false}
@@ -711,7 +714,7 @@ export default function LinkPage() {
 
             {/* Online Indicator with pulse */}
             <motion.div
-              className="absolute bottom-3 right-3 w-9 h-9 rounded-full border-[4px] border-white bg-emerald-500 shadow-lg"
+              className="absolute bottom-3 right-3 w-8 h-8 rounded-full border-[4px] border-white bg-emerald-500 shadow-lg"
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               transition={{ delay: 0.7, type: "spring", stiffness: 300 }}
@@ -736,12 +739,12 @@ export default function LinkPage() {
 
           {/* Name with Verified Badge */}
           <motion.div
-            className="flex items-center gap-3 mb-3"
+            className="flex items-center gap-3 mb-2.5"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.35, duration: DUR.md, ease: EASE }}
           >
-            <h1 className="text-[39px] sm:text-[48px] font-bold text-[#0a0a0a] tracking-tight">
+            <h1 className="text-[34px] sm:text-[42px] font-bold text-[#0a0a0a] tracking-tight">
               Wyzer
             </h1>
             <VerifiedBadge />
@@ -749,7 +752,7 @@ export default function LinkPage() {
 
           {/* Username */}
           <motion.p
-            className="text-[#666] text-[18px] font-medium mb-6 tracking-tight"
+            className="text-[#666] text-[16px] font-medium mb-5 tracking-tight"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.42, duration: DUR.md, ease: EASE }}
@@ -759,17 +762,18 @@ export default function LinkPage() {
 
           {/* Bio Description */}
           <motion.p
-            className="text-[#444]/80 text-center text-[20px] leading-relaxed max-w-[820px] px-4 text-balance"
+            className="text-[#444]/80 text-center text-[18px] leading-relaxed max-w-[680px] px-4 text-balance"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.48, duration: DUR.md, ease: EASE }}
           >
-            IA para atendimentos inteligentes. Automatize conversas, capture leads e transforme mensagens em vendas com uma plataforma simples, moderna e poderosa.
+            Designer & Developer criando experiencias digitais excepcionais.
+            Transformando ideias em realidade com precisao e elegancia.
           </motion.p>
 
           {/* Stats */}
           <motion.div
-            className="flex items-center gap-12 sm:gap-14 mt-12 px-14 py-7 bg-[#fafafa] rounded-2xl border border-[#eaeaea] shadow-[0_4px_32px_rgba(0,0,0,0.05)]"
+            className="flex items-center gap-10 sm:gap-12 mt-10 px-12 py-6 bg-[#fafafa] rounded-2xl border border-[#eaeaea] shadow-[0_4px_32px_rgba(0,0,0,0.05)]"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.55, duration: DUR.lg, ease: EASE }}
@@ -791,10 +795,10 @@ export default function LinkPage() {
                 }}
                 whileHover={prefersReducedMotion ? undefined : { scale: 1.05 }}
               >
-                <p className="text-3xl sm:text-4xl font-bold text-[#0a0a0a] tracking-tight">
+                <p className="text-2xl sm:text-3xl font-bold text-[#0a0a0a] tracking-tight">
                   {stat.value}
                 </p>
-                <p className="text-[16px] text-[#888] font-medium tracking-wider uppercase mt-2">
+                <p className="text-[14px] text-[#888] font-medium tracking-wider uppercase mt-2">
                   {stat.label}
                 </p>
               </motion.div>
@@ -804,7 +808,7 @@ export default function LinkPage() {
 
         {/* Links Section */}
         <nav
-          className="w-full max-w-xl space-y-5 px-2"
+          className="w-full max-w-lg space-y-4 px-2"
           aria-label="Links das redes sociais"
         >
           {links.map((link, index) => (
@@ -822,25 +826,25 @@ export default function LinkPage() {
 
         {/* Footer */}
         <motion.footer
-          className="mt-28 text-center"
+          className="mt-24 text-center"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 1.8, duration: DUR.lg, ease: EASE }}
         >
-          <p className="text-[16px] text-[#aaa] tracking-wide">
+          <p className="text-[14px] text-[#aaa] tracking-wide">
             Feito com amor para vocês seguidores! ❤️
           </p>
           <motion.div
-            className="mt-6 flex items-center justify-center gap-3"
+            className="mt-5 flex items-center justify-center gap-3"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 1.95, duration: DUR.md, ease: EASE }}
           >
-            <span className="text-[14px] text-[#ccc] tracking-[0.12em] uppercase font-medium">
+            <span className="text-[12px] text-[#ccc] tracking-[0.12em] uppercase font-medium">
               Powered by
             </span>
             <motion.span
-              className="text-[14px] text-[#666] font-bold tracking-[0.01em] uppercase"
+              className="text-[12px] text-[#666] font-bold tracking-[0.01em] uppercase"
               whileHover={{ color: "#171717" }}
             >
               Wyze Code
@@ -854,7 +858,7 @@ export default function LinkPage() {
         href="https://seulink.com" // <-- troque pelo seu link
         target="_blank"
         rel="noopener noreferrer"
-        className="fixed bottom-7 right-7 z-50"
+        className="fixed bottom-6 right-6 z-50"
         initial={{ opacity: 0, y: 26, scale: 0.98, filter: "blur(6px)" }}
         animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
         transition={{
@@ -870,7 +874,7 @@ export default function LinkPage() {
         style={{ willChange: "transform" }}
       >
         <motion.div
-          className="group relative overflow-hidden rounded-full bg-black px-6 py-4 border-2 border-[#404040] shadow-[0_18px_55px_rgba(0,0,0,0.18)]"
+          className="group relative overflow-hidden rounded-full bg-black px-5 py-3.5 border-2 border-[#404040] shadow-[0_18px_55px_rgba(0,0,0,0.18)]"
           initial={false}
           animate={prefersReducedMotion ? undefined : { y: [0, -1, 0] }}
           transition={
@@ -885,19 +889,19 @@ export default function LinkPage() {
             aria-hidden="true"
           />
 
-          <div className="relative z-10 flex items-center gap-6">
+          <div className="relative z-10 flex items-center gap-5">
             <div className="flex flex-col leading-tight">
-              <span className="text-[18px] text-white/92 font-semibold tracking-tight">
+              <span className="text-[15px] text-white/92 font-semibold tracking-tight">
                 Quer uma página como essa?
               </span>
-              <span className="text-[16px] text-white/60 font-medium tracking-tight">
+              <span className="text-[14px] text-white/60 font-medium tracking-tight">
                 Com seu link personalizado — clique aqui
               </span>
             </div>
 
             {/* Action pill (mesmo estilo de borda dos botões) */}
             <motion.span
-              className="ml-auto inline-flex items-center justify-center rounded-full bg-white/10 border-2 border-[#404040] w-14 h-14"
+              className="ml-auto inline-flex items-center justify-center rounded-full bg-white/10 border-2 border-[#404040] w-12 h-12"
               initial={false}
               animate={prefersReducedMotion ? undefined : { x: [0, 1.5, 0] }}
               transition={
@@ -907,7 +911,7 @@ export default function LinkPage() {
               }
               aria-hidden="true"
             >
-              <svg viewBox="0 0 24 24" className="w-6 h-6 text-white/90">
+              <svg viewBox="0 0 24 24" className="w-5 h-5 text-white/90">
                 <path
                   fill="currentColor"
                   d="M13.5 5.5a1 1 0 0 1 1.414 0l5.086 5.086a1 1 0 0 1 0 1.414l-5.086 5.086a1 1 0 1 1-1.414-1.414L16.172 13H4a1 1 0 1 1 0-2h12.172l-2.672-2.672a1 1 0 0 1 0-1.414Z"
@@ -937,13 +941,13 @@ export default function LinkPage() {
 
           {/* micro shimmer apenas no hover (bem corporativo) */}
           <motion.div
-            className="absolute -inset-y-10 -left-32 w-60 rotate-[18deg] pointer-events-none opacity-0 group-hover:opacity-100"
+            className="absolute -inset-y-10 -left-32 w-56 rotate-[18deg] pointer-events-none opacity-0 group-hover:opacity-100"
             style={{
               background:
                 "linear-gradient(to right, transparent, rgba(255,255,255,0.10), transparent)",
             }}
             initial={false}
-            animate={prefersReducedMotion ? undefined : { x: [-160, 420] }}
+            animate={prefersReducedMotion ? undefined : { x: [-160, 400] }}
             transition={
               prefersReducedMotion
                 ? undefined

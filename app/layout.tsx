@@ -24,7 +24,6 @@ export const metadata: Metadata = {
     ],
     shortcut: ["/favicon.ico"],
   },
-  manifest: "/site.webmanifest",
 };
 
 export default function RootLayout({
@@ -56,7 +55,6 @@ export default function RootLayout({
         <link rel="icon" type="image/png" href="/favicon.png" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="mask-icon" href="/safari-pinned-tab.svg" color="#0A0A0A" />
-        <link rel="manifest" href="/site.webmanifest" />
       </head>
       <body className="antialiased">{children}</body>
     </html>
