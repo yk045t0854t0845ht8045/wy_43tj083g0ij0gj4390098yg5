@@ -136,7 +136,7 @@ const socialIcons: Record<
     color: "#25D366",
     gradient: "linear-gradient(135deg, #25D366 0%, #128C7E 100%)",
     videoUrl:
-      "/videos/buttons/your personal messages are end-to-end encrypted so no one can see them, not even us.mp4",
+      "/videos/buttons/pifg490304m09fg439gh4390yt.mp4",
   },
   TikTok: {
     path: (
@@ -616,9 +616,6 @@ export default function LinkPage() {
         href: "https://www.linkedin.com/in/wyzer-bot-6336353a9/",
       },
       { name: "GitHub", href: "https://github.com/WyzerBot" },
-      { name: "Website", href: "https://example.com" },
-      { name: "Loja Online", href: "https://shop.example.com" },
-      { name: "Contato", href: "mailto:contato@example.com" },
     ],
     []
   );
