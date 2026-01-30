@@ -182,6 +182,30 @@ export default function TermsPage() {
     };
   }, [computeSectionTops]);
 
+  useEffect(() => {
+  // força estética: ".../terms/#/top" em vez de ".../terms#/top"
+  // só roda no client
+  const ensurePrettyHash = () => {
+    const h = window.location.hash || "";
+    if (!h.startsWith("#/")) return;
+
+    const path = window.location.pathname.replace(/\/+$/, "");
+    const desired = `${path}/${h}`; // => "/terms/#/top"
+
+    // se já estiver certo, não faz nada
+    const current = `${window.location.pathname}${window.location.hash}`;
+    if (current === desired) return;
+
+    history.replaceState(null, "", desired);
+  };
+
+  ensurePrettyHash();
+
+  // opcional: se hash mudar por navegação (back/forward), mantém estética
+  window.addEventListener("hashchange", ensurePrettyHash);
+  return () => window.removeEventListener("hashchange", ensurePrettyHash);
+}, []);
+
   // ✅ Scrollspy “instantâneo” e estável
   useEffect(() => {
     const OFFSET = 140; // compensação do topo/scroll-mt
@@ -215,7 +239,7 @@ if (window.scrollY < 120) {
 
         if (bestId && bestId !== activeId) {
           setActiveId(bestId);
-          history.replaceState(null, "", toHashRoute(bestId));
+         history.replaceState(null, "", toHashRoute(bestId)); // "#/bestId"
         }
       });
     };
@@ -329,9 +353,8 @@ history.replaceState(null, "", toHashRoute(targetId));
   );
 
 function toHashRoute(id: string) {
-  // força ficar sempre ".../terms/#/top" (com "/" antes do "#")
-  const basePath = window.location.pathname.replace(/\/+$/, ""); // remove "/" no final
-  return `${basePath}/#/${id}`;
+  // NÃO usa window aqui (SSR safe)
+  return `#/${id}`;
 }
 
 function parseHashRoute() {
