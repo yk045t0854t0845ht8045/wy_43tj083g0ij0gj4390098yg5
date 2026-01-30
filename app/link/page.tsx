@@ -851,7 +851,7 @@ export default function LinkPage() {
 
       {/* CTA Floating (bottom-right) - colocar ANTES do </main> */}
       <motion.a
-        href="https://seulink.com" // <-- troque pelo seu link
+        href="https://wyzer.com.br" // <-- troque pelo seu link
         target="_blank"
         rel="noopener noreferrer"
         className="fixed bottom-6 right-6 z-50"
