@@ -30,7 +30,7 @@ export default function proxy(req: NextRequest) {
   if (
     url.pathname.startsWith("/_next") ||
     url.pathname.startsWith("/api") ||
-    url.pathname === "/favicon.ico" ||
+    url.pathname === "/logo.ico" ||
     url.pathname === "/robots.txt" ||
     url.pathname === "/sitemap.xml"
   ) {

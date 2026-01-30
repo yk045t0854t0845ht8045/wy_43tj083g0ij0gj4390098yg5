@@ -18,11 +18,11 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/favicon.ico", sizes: "any" },
-      { url: "/favicon.png", type: "image/png" },
-      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/logo.ico", sizes: "any" },
+      { url: "/logo.png", type: "image/png" },
+      { url: "/logo.svg", type: "image/svg+xml" },
     ],
-    shortcut: ["/favicon.ico"],
+    shortcut: ["/logo.ico"],
   },
 };
 
@@ -50,9 +50,9 @@ export default function RootLayout({
         />
 
         {/* Site Icon / Favicons */}
-        <link rel="icon" href="/favicon.ico" sizes="any" />
-        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-        <link rel="icon" type="image/png" href="/favicon.png" />
+        <link rel="icon" href="/logo.ico" sizes="any" />
+        <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+        <link rel="icon" type="image/png" href="/logo.png" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="mask-icon" href="/safari-pinned-tab.svg" color="#0A0A0A" />
       </head>

@@ -767,8 +767,7 @@ export default function LinkPage() {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.48, duration: DUR.md, ease: EASE }}
           >
-            Designer & Developer criando experiencias digitais excepcionais.
-            Transformando ideias em realidade com precisao e elegancia.
+            Gere atendimentos envolventes prontos para vender. Automatize conversas, capture leads, organize o funil e colabore com facilidade — com IA de nível enterprise que entende contexto e entrega respostas consistentes.
           </motion.p>
 
           {/* Stats */}
