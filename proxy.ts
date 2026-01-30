@@ -2,14 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const config = {
   matcher: [
-    // Mantém seu matcher, mas o bloqueio real de assets será feito dentro do middleware
     "/((?!api|_next|favicon.ico|robots.txt|sitemap.xml).*)",
   ],
 };
 
 function isStaticAssetPath(pathname: string) {
-  // Arquivos estáticos comuns + fontes + mapas + mídia
-  // (se quiser, dá pra adicionar mais extensões aqui)
   return /\.(?:png|svg|jpg|jpeg|gif|webp|avif|ico|css|js|mjs|map|txt|xml|json|pdf|mp4|webm|mp3|wav|ogg|woff|woff2|ttf|otf|eot)$/i.test(
     pathname
   );
@@ -21,12 +18,12 @@ export default function proxy(req: NextRequest) {
   const host = hostHeader.split(":")[0]; // remove porta
   const url = req.nextUrl.clone();
 
-  // ✅ Não mexe em assets estáticos (senão quebra /logo.png -> /link/logo.png)
+  // ✅ Não mexe em assets estáticos
   if (isStaticAssetPath(url.pathname)) {
     return NextResponse.next();
   }
 
-  // ✅ Não mexe em rotas internas/arquivos comuns (redundância extra de segurança)
+  // ✅ Não mexe em rotas internas/arquivos comuns
   if (
     url.pathname.startsWith("/_next") ||
     url.pathname.startsWith("/api") ||
@@ -37,12 +34,15 @@ export default function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // -----------------------------
+  // ✅ SUBDOMÍNIO LINK -> /link/*
+  // -----------------------------
   const isLinkSubdomain =
     host === "link.wyzer.com.br" ||
     host === "link.localhost" ||
     host === "link.vercel.app" ||
-    host.startsWith("link.") || // cobre link.* (inclui preview deployments)
-    (host.startsWith("link-") && host.endsWith(".vercel.app")); // fallback pra alguns formatos
+    host.startsWith("link.") ||
+    (host.startsWith("link-") && host.endsWith(".vercel.app"));
 
   // ✅ Bloqueia acesso ao /link no domínio principal
   if (!isLinkSubdomain && url.pathname.startsWith("/link")) {
@@ -50,19 +50,46 @@ export default function proxy(req: NextRequest) {
     return NextResponse.rewrite(url);
   }
 
+  // ✅ Se for link subdomain, reescreve para /link
+  if (isLinkSubdomain) {
+    // já está em /link?
+    if (url.pathname === "/link" || url.pathname.startsWith("/link/")) {
+      return NextResponse.next();
+    }
+
+    const incomingPath = url.pathname === "/" ? "" : url.pathname;
+    url.pathname = `/link${incomingPath}`;
+    return NextResponse.rewrite(url);
+  }
+
+  // -----------------------------
+  // ✅ SUBDOMÍNIO TERMS -> /terms/*
+  // -----------------------------
+  const isTermsSubdomain =
+    host === "terms.localhost" ||
+    host === "terms.wyzer.com.br" ||
+    host === "terms.vercel.app" ||
+    host.startsWith("terms.") ||
+    (host.startsWith("terms-") && host.endsWith(".vercel.app"));
+
+  // ✅ (Opcional, mas recomendo) Bloqueia /terms no domínio principal
+  if (!isTermsSubdomain && url.pathname.startsWith("/terms")) {
+    url.pathname = "/404";
+    return NextResponse.rewrite(url);
+  }
+
+  // ✅ Se for terms subdomain, reescreve para /terms
+  if (isTermsSubdomain) {
+    // já está em /terms?
+    if (url.pathname === "/terms" || url.pathname.startsWith("/terms/")) {
+      return NextResponse.next();
+    }
+
+    const incomingPath = url.pathname === "/" ? "" : url.pathname;
+    url.pathname = `/terms${incomingPath}`;
+    return NextResponse.rewrite(url);
+  }
+
   // ✅ Domínio normal segue normal
-  if (!isLinkSubdomain) {
-    return NextResponse.next();
-  }
-
-  // ✅ Já está em /link/... ? não reescreve de novo (evita duplicar /link/link/..)
-  if (url.pathname === "/link" || url.pathname.startsWith("/link/")) {
-    return NextResponse.next();
-  }
-
-  // ✅ Subdomínio: "/" -> "/link" e "/foo" -> "/link/foo"
-  const incomingPath = url.pathname === "/" ? "" : url.pathname;
-  url.pathname = `/link${incomingPath}`;
-
-  return NextResponse.rewrite(url);
+  return NextResponse.next();
 }
