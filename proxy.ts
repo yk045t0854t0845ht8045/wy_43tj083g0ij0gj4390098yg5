@@ -15,7 +15,8 @@ function isStaticAssetPath(pathname: string) {
   );
 }
 
-export default function middleware(req: NextRequest) {
+// ✅ Proxy (antes: middleware)
+export default function proxy(req: NextRequest) {
   const hostHeader = (req.headers.get("host") || "").toLowerCase();
   const host = hostHeader.split(":")[0]; // remove porta
   const url = req.nextUrl.clone();
