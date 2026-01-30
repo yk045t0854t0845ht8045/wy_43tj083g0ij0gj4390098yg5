@@ -266,7 +266,7 @@ if (window.scrollY < 120) {
 
   // ✅ Ao carregar: respeita hash e garante active correto
   useEffect(() => {
-    const hashId = parseHashRoute(location.hash || "");
+const hashId = parseHashRoute();
 const valid = sections.some((s) => s.id === hashId);
 const targetId = valid ? hashId : "top";
 
@@ -328,18 +328,23 @@ history.replaceState(null, "", toHashRoute(targetId));
     <li className="text-[16px] sm:text-[17px] md:text-[17.5px] leading-[1.85] text-black/60">{children}</li>
   );
 
-  function toHashRoute(id: string) {
-  return `#/${id}`;
+function toHashRoute(id: string) {
+  // força ficar sempre ".../terms/#/top" (com "/" antes do "#")
+  const basePath = window.location.pathname.replace(/\/+$/, ""); // remove "/" no final
+  return `${basePath}/#/${id}`;
 }
 
-function parseHashRoute(rawHash: string) {
-  // aceita "#/top" e também "#top" (fallback)
-  const h = (rawHash || "").trim();
+function parseHashRoute() {
+  // 1) pega do hash normal
+  const h = (window.location.hash || "").trim();
+  if (h.startsWith("#/")) return h.slice(2);
+  if (h.startsWith("#")) return h.slice(1);
 
-  if (h.startsWith("#/")) return h.slice(2); // "#/top" -> "top"
-  if (h.startsWith("#")) return h.slice(1);  // "#top" -> "top"
-
-  return "";
+  // 2) fallback: se alguém chegar em "/terms/#/top", alguns ambientes podem “guardar” isso
+  // no pathname + hash em formatos estranhos. Esse fallback garante.
+  const full = `${window.location.pathname}${window.location.hash}`;
+  const m = full.match(/\/#\/([^/?#]+)/);
+  return m?.[1] ?? "";
 }
 
   // ✅ Sidebar item
