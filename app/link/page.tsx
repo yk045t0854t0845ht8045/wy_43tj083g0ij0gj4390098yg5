@@ -701,7 +701,7 @@ export default function LinkPage() {
                 transition={{ duration: 0.3 }}
               >
                 <img
-                  src="/lg/socials/t43h79r349737tg.png"
+                  src="https://www.wyzer.com.br/lg/socials/t43h79r349737tg.png"
                   alt="Logo"
                   className="w-full h-full object-cover rounded-full select-none"
                   draggable={false}
