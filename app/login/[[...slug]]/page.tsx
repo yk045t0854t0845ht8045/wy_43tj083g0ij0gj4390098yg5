@@ -808,7 +808,7 @@ export default function LinkLoginPage() {
   const holdTimerRef = useRef<number | null>(null); // ✅ acorda sozinho após HOLD
 
 
-  const computeBottomLinksHide = useCallback(() => {
+   const computeBottomLinksHide = useCallback(() => {
     if (typeof window === "undefined") return;
 
     const clearHoldTimer = () => {
@@ -818,14 +818,8 @@ export default function LinkLoginPage() {
       }
     };
 
-    // ✅ Mobile nunca esconde
-    if (window.matchMedia("(max-width: 640px)").matches) {
-      clearHoldTimer();
-      holdUntilRef.current = 0;
-      lastDecisionRef.current = false;
-      setHideBottomLinks(false);
-      return;
-    }
+    // ✅ Mobile também pode esconder (com thresholds próprios)
+    const isMobile = window.matchMedia("(max-width: 640px)").matches;
 
     const btn = continueBtnRef.current;
     const bottom = bottomLinksRef.current;
@@ -842,8 +836,10 @@ export default function LinkLoginPage() {
     const btnRect = btn.getBoundingClientRect();
     const bottomRect = bottom.getBoundingClientRect();
 
-    // botão precisa estar realmente visível
-    const vh = window.innerHeight || 0;
+    // botão precisa estar realmente visível (no mobile, visualViewport é mais fiel)
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    const vh = (vv?.height ?? window.innerHeight) || 0;
+
     const btnVisible =
       btnRect.width > 0 &&
       btnRect.height > 0 &&
@@ -861,15 +857,13 @@ export default function LinkLoginPage() {
 
     const gap = bottomRect.top - btnRect.bottom;
 
-    // ✅ thresholds
-    const HARD_HIDE_PX = 10;  // encostou/quase encostou = esconde
-    const SHOW_PX = 56;       // volta quando afastar bem
-    const FAR_SHOW_PX = 120;  // volta IMEDIATO se afastou muito (mesmo em hold)
-    const HOLD_MS = 420;      // anti flicker
+    // ✅ thresholds (mobile mais forte)
+    const HARD_HIDE_PX = isMobile ? 18 : 10;
+    const SHOW_PX = isMobile ? 82 : 56;
+    const FAR_SHOW_PX = isMobile ? 170 : 120;
+    const HOLD_MS = isMobile ? 520 : 420;
 
     const now = performance.now();
-
-    // se encostou
     const hardHide = gap < HARD_HIDE_PX;
 
     let next = lastDecisionRef.current;
@@ -878,30 +872,26 @@ export default function LinkLoginPage() {
       next = true;
       holdUntilRef.current = now + HOLD_MS;
 
-      // ✅ agenda reavaliação automática quando o HOLD acabar (sem precisar mexer na tela)
+      // ✅ agenda reavaliação automática quando o HOLD acabar
       clearHoldTimer();
       const wait = Math.max(0, holdUntilRef.current - now + 20);
       holdTimerRef.current = window.setTimeout(() => {
-        // re-checa e se não estiver perto, volta automaticamente em tempo real
         computeBottomLinksHide();
       }, wait);
     } else {
       const inHold = now < holdUntilRef.current;
 
-      // ✅ se já afastou MUITO, libera imediatamente (tempo real, mesmo dentro do hold)
+      // ✅ se já afastou MUITO, libera imediatamente (mesmo dentro do hold)
       if (gap > FAR_SHOW_PX) {
         clearHoldTimer();
         holdUntilRef.current = 0;
         next = false;
       } else if (inHold) {
-        // ainda tá no hold e não afastou muito: mantém escondido
         next = true;
       } else if (gap > SHOW_PX) {
-        // afastou o suficiente: mostra em tempo real
         clearHoldTimer();
         next = false;
       } else {
-        // zona neutra: mantém decisão anterior
         next = lastDecisionRef.current;
       }
     }
