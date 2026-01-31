@@ -801,16 +801,27 @@ export default function LinkLoginPage() {
   const bottomLinksRef = useRef<HTMLDivElement | null>(null);
   const [hideBottomLinks, setHideBottomLinks] = useState(false);
 
-  const rafRef = useRef<number | null>(null);
+   const rafRef = useRef<number | null>(null);
   const settleFramesRef = useRef(0);
   const holdUntilRef = useRef(0);
   const lastDecisionRef = useRef(false);
+  const holdTimerRef = useRef<number | null>(null); // ✅ acorda sozinho após HOLD
+
 
   const computeBottomLinksHide = useCallback(() => {
     if (typeof window === "undefined") return;
 
+    const clearHoldTimer = () => {
+      if (holdTimerRef.current) {
+        window.clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
+      }
+    };
+
     // ✅ Mobile nunca esconde
     if (window.matchMedia("(max-width: 640px)").matches) {
+      clearHoldTimer();
+      holdUntilRef.current = 0;
       lastDecisionRef.current = false;
       setHideBottomLinks(false);
       return;
@@ -821,6 +832,8 @@ export default function LinkLoginPage() {
 
     // se não tem os elementos montados (outros steps), não esconde
     if (!btn || !bottom) {
+      clearHoldTimer();
+      holdUntilRef.current = 0;
       lastDecisionRef.current = false;
       setHideBottomLinks(false);
       return;
@@ -837,46 +850,66 @@ export default function LinkLoginPage() {
       btnRect.bottom > 0 &&
       btnRect.top < vh;
 
+    // ✅ se o botão saiu da tela, os links devem voltar IMEDIATO
     if (!btnVisible) {
+      clearHoldTimer();
+      holdUntilRef.current = 0;
       lastDecisionRef.current = false;
       setHideBottomLinks(false);
       return;
     }
 
-    // distância do botão até o topo do rodapé
     const gap = bottomRect.top - btnRect.bottom;
 
-    // ✅ Zonas inteligentes:
-    // HARD_HIDE: se encostou/chegou muito perto => esconde IMEDIATO e segura um pouco
-    // SHOW: só volta quando afastar bastante (histerese forte)
-    const HARD_HIDE_PX = 10; // encostou/quase encostou
-    const SHOW_PX = 64;      // só volta quando afastar bem (evita piscar)
-    const HOLD_MS = 420;     // segura escondido após detectar encosto (zoom rápido)
+    // ✅ thresholds
+    const HARD_HIDE_PX = 10;  // encostou/quase encostou = esconde
+    const SHOW_PX = 56;       // volta quando afastar bem
+    const FAR_SHOW_PX = 120;  // volta IMEDIATO se afastou muito (mesmo em hold)
+    const HOLD_MS = 420;      // anti flicker
 
     const now = performance.now();
 
+    // se encostou
     const hardHide = gap < HARD_HIDE_PX;
-    const canShow = gap > SHOW_PX;
 
     let next = lastDecisionRef.current;
 
     if (hardHide) {
       next = true;
       holdUntilRef.current = now + HOLD_MS;
-    } else if (now < holdUntilRef.current) {
-      // mantém escondido durante o hold
-      next = true;
-    } else if (canShow) {
-      next = false;
+
+      // ✅ agenda reavaliação automática quando o HOLD acabar (sem precisar mexer na tela)
+      clearHoldTimer();
+      const wait = Math.max(0, holdUntilRef.current - now + 20);
+      holdTimerRef.current = window.setTimeout(() => {
+        // re-checa e se não estiver perto, volta automaticamente em tempo real
+        computeBottomLinksHide();
+      }, wait);
     } else {
-      // zona “meio termo”: mantém decisão anterior
-      next = lastDecisionRef.current;
+      const inHold = now < holdUntilRef.current;
+
+      // ✅ se já afastou MUITO, libera imediatamente (tempo real, mesmo dentro do hold)
+      if (gap > FAR_SHOW_PX) {
+        clearHoldTimer();
+        holdUntilRef.current = 0;
+        next = false;
+      } else if (inHold) {
+        // ainda tá no hold e não afastou muito: mantém escondido
+        next = true;
+      } else if (gap > SHOW_PX) {
+        // afastou o suficiente: mostra em tempo real
+        clearHoldTimer();
+        next = false;
+      } else {
+        // zona neutra: mantém decisão anterior
+        next = lastDecisionRef.current;
+      }
     }
 
     lastDecisionRef.current = next;
     setHideBottomLinks(next);
   }, []);
-
+  
   const scheduleBottomLinksCheck = useCallback((boostFrames = 10) => {
     // roda várias vezes após zoom/resize pra pegar o layout final
     settleFramesRef.current = Math.max(settleFramesRef.current, boostFrames);
@@ -939,6 +972,10 @@ export default function LinkLoginPage() {
 
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
+
+      if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+
       ro?.disconnect();
     };
   }, [
