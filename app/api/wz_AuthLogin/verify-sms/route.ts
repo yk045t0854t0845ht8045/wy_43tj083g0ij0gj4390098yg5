@@ -117,7 +117,7 @@ export async function POST(req: Request) {
 
     // ✅ validações fortes antes de salvar
     if (!isValidCPF(cpf)) {
-      return NextResponse.json({ ok: false, error: "CPF inválido." }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "CPF inválido. Tente novamente." }, { status: 400 });
     }
 
     if (!phoneE164 || !isValidE164BRMobile(phoneE164)) {
@@ -166,11 +166,11 @@ export async function POST(req: Request) {
     }
 
     if (confCpf.data?.id && String(confCpf.data.email || "").toLowerCase() !== email) {
-      return NextResponse.json({ ok: false, error: "Esse CPF já possui cadastro." }, { status: 409 });
+      return NextResponse.json({ ok: false, error: "Este CPF já possui uma conta." }, { status: 409 });
     }
 
     if (confPhone.data?.id && String(confPhone.data.email || "").toLowerCase() !== email) {
-      return NextResponse.json({ ok: false, error: "Esse telefone já possui cadastro." }, { status: 409 });
+      return NextResponse.json({ ok: false, error: "Este número já possui uma conta." }, { status: 409 });
     }
 
     // upsert wz_users

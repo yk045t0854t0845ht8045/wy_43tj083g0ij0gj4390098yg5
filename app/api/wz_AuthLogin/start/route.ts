@@ -136,7 +136,7 @@ export async function POST(req: Request) {
 
       if (!isValidCPF(cpf)) {
         return NextResponse.json(
-          { ok: false, error: "CPF inválido." },
+          { ok: false, error: "CPF inválido. Tente novamente." },
           { status: 400 },
         );
       }
@@ -146,7 +146,7 @@ export async function POST(req: Request) {
           {
             ok: false,
             error:
-              "Telefone inválido. Use um celular BR válido com DDD (11 dígitos).",
+              "Formato de celular inválido. . Inclua o DDD.",
           },
           { status: 400 },
         );
@@ -158,7 +158,7 @@ export async function POST(req: Request) {
           {
             ok: false,
             error:
-              "Telefone inválido. Use um celular BR válido com DDD (11 dígitos).",
+              "Formato de celular inválido. . Inclua o DDD.",
           },
           { status: 400 },
         );
@@ -191,14 +191,14 @@ export async function POST(req: Request) {
 
       if (dupCpf.data?.id) {
         return NextResponse.json(
-          { ok: false, error: "Esse CPF já possui cadastro." },
+          { ok: false, error: "Este CPF já possui uma conta." },
           { status: 409 },
         );
       }
 
       if (dupPhone.data?.id) {
         return NextResponse.json(
-          { ok: false, error: "Esse telefone já possui cadastro." },
+          { ok: false, error: "Este número já possui uma conta." },
           { status: 409 },
         );
       }
