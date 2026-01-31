@@ -89,7 +89,7 @@ function isHttpsFromReq(req?: Request) {
   const p = getProtoFromReq(req);
   if (p === "https") return true;
   if (p === "http") return false;
-  // fallback
+
   try {
     const u = new URL(req?.url || "http://localhost");
     return u.protocol === "https:";
@@ -102,14 +102,11 @@ function cookieDomainFromReq(req?: Request) {
   // ✅ Em produção sempre compartilhado entre login.* e dashboard.*
   if (process.env.NODE_ENV === "production") return "wyzer.com.br";
 
-  // ✅ Em dev (localhost), não forçar domain (browsers não gostam de .localhost)
-  // deixe host-only
+  // ✅ Em dev (localhost), não forçar domain
   const host = getHostFromReq(req);
   if (!host) return undefined;
 
-  // se for algo tipo *.wyzer.com.br mesmo em dev/stage:
   if (host === "wyzer.com.br" || host.endsWith(".wyzer.com.br")) return "wyzer.com.br";
-
   return undefined;
 }
 
@@ -193,7 +190,6 @@ function getGeo(headers: HeadersLike) {
   const region = firstNonEmpty(headers.get("x-vercel-ip-country-region")).toUpperCase();
   const city = firstNonEmpty(headers.get("x-vercel-ip-city")).toUpperCase();
 
-  // fallback genérico (caso tenha outro proxy)
   const altCountry = firstNonEmpty(headers.get("x-geo-country"), headers.get("x-country")).toUpperCase();
   const altRegion = firstNonEmpty(headers.get("x-geo-region"), headers.get("x-region")).toUpperCase();
   const altCity = firstNonEmpty(headers.get("x-geo-city"), headers.get("x-city")).toUpperCase();
@@ -221,18 +217,15 @@ function fingerprintFromHeaders(headers: HeadersLike) {
 }
 
 function validateBinding(payload: SessionPayloadV2, headers?: HeadersLike) {
-  // ✅ Compat: se o dev não passou headers, NÃO derruba tudo.
-  // (Pra segurança máxima: sempre passe headers nas páginas/rotas que importam.)
+  // ✅ Compat: se não passar headers, não derruba
   if (!headers) return true;
 
   const fp = fingerprintFromHeaders(headers);
 
-  // se token tem bind, precisa bater
   if (payload.ua && fp.uaHash && payload.ua !== fp.uaHash) return false;
   if (payload.ip && fp.ipHash && payload.ip !== fp.ipHash) return false;
   if (payload.geo && fp.geoHash && payload.geo !== fp.geoHash) return false;
 
-  // se token exige UA e request não tem UA -> invalida
   if (payload.ua && !fp.uaHash) return false;
 
   return true;
@@ -282,9 +275,7 @@ export function setSessionCookie(
     email: String(session.email),
     iat: now,
     exp,
-    // ✅ UA sempre que possível
     ua: fp.uaHash || undefined,
-    // ✅ IP/GEO só se existirem (Vercel normalmente fornece)
     ip: fp.ipHash || undefined,
     geo: fp.geoHash || undefined,
   };
@@ -310,6 +301,21 @@ export function clearSessionCookie(res: NextResponse, req?: Request) {
   const domain = cookieDomainFromReq(req);
   const secure = isHttpsFromReq(req) || process.env.NODE_ENV === "production";
 
+  // ✅ 1) apaga cookie com Domain (produção)
+  if (domain) {
+    res.cookies.set({
+      name: SESSION_COOKIE_NAME,
+      value: "",
+      httpOnly: true,
+      sameSite: "lax",
+      secure,
+      path: "/",
+      domain,
+      maxAge: 0,
+    });
+  }
+
+  // ✅ 2) apaga cookie host-only (caso tenha sobrado de builds antigos / dev / etc)
   res.cookies.set({
     name: SESSION_COOKIE_NAME,
     value: "",
@@ -317,7 +323,28 @@ export function clearSessionCookie(res: NextResponse, req?: Request) {
     sameSite: "lax",
     secure,
     path: "/",
+    maxAge: 0,
+  });
+
+  // ✅ 3) compat extra: se em algum momento existiu variação de nome (não quebra)
+  // (Se não existir no browser, não faz nada.)
+  res.cookies.set({
+    name: "wz_session",
+    value: "",
+    httpOnly: true,
+    sameSite: "lax",
+    secure,
+    path: "/",
     ...(domain ? { domain } : {}),
+    maxAge: 0,
+  });
+  res.cookies.set({
+    name: "wz_session",
+    value: "",
+    httpOnly: true,
+    sameSite: "lax",
+    secure,
+    path: "/",
     maxAge: 0,
   });
 }
