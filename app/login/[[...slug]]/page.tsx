@@ -1534,24 +1534,24 @@ export default function LinkLoginPage() {
                   className="mt-10"
                 >
                   <div className="flex flex-col items-center justify-center text-center">
-{/* GIF / Lottie (DotLottie) */}
-<motion.div
-  className="h-28 w-28 rounded-2xl overflow-hidden ring-1 ring-black/10 bg-white"
-  initial={{ opacity: 0, scale: 0.92 }}
-  animate={{ opacity: 1, scale: 1 }}
-  transition={{
-    duration: prefersReducedMotion ? 0 : 0.25,
-    ease: EASE,
-  }}
->
-  <DotLottieReact
-    src="https://lottie.host/486672b2-c90e-4b34-bf26-62286504b54d/cmJkEq0miI.lottie"
-    loop
-    autoplay
-    className="h-full w-full"
-  />
-  <span className="sr-only">Sucesso</span>
-</motion.div>
+                    {/* GIF / Lottie (DotLottie) */}
+                    <motion.div
+                      className="h-40 w-40 rounded-2xl overflow-hidden"
+                      initial={{ opacity: 0, scale: 0.92 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{
+                        duration: prefersReducedMotion ? 0 : 0.25,
+                        ease: EASE,
+                      }}
+                    >
+                      <DotLottieReact
+                        src="https://lottie.host/486672b2-c90e-4b34-bf26-62286504b54d/cmJkEq0miI.lottie"
+                        loop
+                        autoplay
+                        className="h-full w-full"
+                      />
+                      <span className="sr-only">Sucesso</span>
+                    </motion.div>
 
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
