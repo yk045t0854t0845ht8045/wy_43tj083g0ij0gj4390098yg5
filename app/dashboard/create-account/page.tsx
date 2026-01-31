@@ -1,6 +1,5 @@
 import { headers } from "next/headers";
 import Link from "next/link";
-import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session";
 
 export const dynamic = "force-dynamic";
 
@@ -26,21 +25,54 @@ function pickHostHeader(h: { get(name: string): string | null }) {
   return h.get("x-forwarded-host") || h.get("host");
 }
 
+type SessionBackResponse =
+  | { ok: false }
+  | { ok: true; session: { userId: string; email: string } };
+
 export default async function CreateAccountDashboardPage() {
   // ✅ Next 16: garanta await para evitar "vermelho" e problemas de tipagem
   const h = await headers();
-
-  const cookieHeader = h.get("cookie");
 
   // ✅ "HeaderLike" compatível com teu _session (só precisa de .get)
   const headerLike: { get(name: string): string | null } = {
     get: (name: string) => h.get(name),
   };
 
-  // ✅ passa headers para validar bind UA/IP quando ligado por ENV
-  const session = readSessionFromCookieHeader(cookieHeader, headerLike);
+  // ✅ busca sessão via back-end dedicado (API route)
+  let sessionData: SessionBackResponse | null = null;
 
-  if (!session) {
+  try {
+    // ✅ forward dos headers importantes para manter bind UA/IP
+    const forwarded = new Headers();
+    forwarded.set("accept", "application/json");
+
+    const cookie = h.get("cookie");
+    if (cookie) forwarded.set("cookie", cookie);
+
+    const ua = h.get("user-agent");
+    if (ua) forwarded.set("user-agent", ua);
+
+    const xff = h.get("x-forwarded-for");
+    if (xff) forwarded.set("x-forwarded-for", xff);
+
+    const xfhost = h.get("x-forwarded-host");
+    if (xfhost) forwarded.set("x-forwarded-host", xfhost);
+
+    const host = h.get("host");
+    if (host) forwarded.set("host", host);
+
+    const res = await fetch("/api/wz_AuthLogin/session_dashboard_back", {
+      method: "GET",
+      headers: forwarded,
+      cache: "no-store",
+    });
+
+    sessionData = (await res.json()) as SessionBackResponse;
+  } catch {
+    sessionData = { ok: false };
+  }
+
+  if (!sessionData || sessionData.ok === false) {
     const hostHeader = pickHostHeader(headerLike);
     const loginUrl = buildLoginUrl(hostHeader);
 
@@ -66,6 +98,8 @@ export default async function CreateAccountDashboardPage() {
       </div>
     );
   }
+
+  const session = sessionData.session;
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center px-6">
