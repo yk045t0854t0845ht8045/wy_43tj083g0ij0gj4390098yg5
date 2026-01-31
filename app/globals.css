@@ -161,3 +161,57 @@
   line-height: 1;
   max-width: 100%;
 }
+
+
+
+/* -----------------------------------------------------------
+   Wyzer — Autofill Style Neutralizer
+   Objetivo: impedir o autofill do navegador (Chrome/Edge/Safari/Firefox)
+   de alterar cores, fundo, bordas e sombras dos inputs.
+----------------------------------------------------------- */
+
+:root {
+  --wz-autofill-bg: transparent;
+  --wz-autofill-text: currentColor;
+  --wz-autofill-caret: currentColor;
+}
+
+/* WebKit (Chrome/Edge/Safari) */
+input:-webkit-autofill,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: var(--wz-autofill-text) !important;
+  caret-color: var(--wz-autofill-caret) !important;
+
+  /* Remove o amarelo/verde do autofill (sobrepõe o paint interno) */
+  -webkit-box-shadow: 0 0 0px 1000px var(--wz-autofill-bg) inset !important;
+  box-shadow: 0 0 0px 1000px var(--wz-autofill-bg) inset !important;
+
+  background-color: transparent !important;
+  background-image: none !important;
+  border-color: inherit !important;
+
+  filter: none !important;
+
+  /* Hack clássico para não “piscar” a cor do autofill */
+  transition: background-color 9999s ease-out 0s, color 9999s ease-out 0s;
+}
+
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill:focus,
+select:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--wz-autofill-text) !important;
+  caret-color: var(--wz-autofill-caret) !important;
+  -webkit-box-shadow: 0 0 0px 1000px var(--wz-autofill-bg) inset !important;
+  box-shadow: 0 0 0px 1000px var(--wz-autofill-bg) inset !important;
+}
+
+/* Firefox */
+input:-moz-autofill,
+textarea:-moz-autofill,
+select:-moz-autofill {
+  color: var(--wz-autofill-text) !important;
+  caret-color: var(--wz-autofill-caret) !important;
+  box-shadow: 0 0 0px 1000px var(--wz-autofill-bg) inset !important;
+  filter: none !important;
+}

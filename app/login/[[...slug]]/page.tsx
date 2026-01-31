@@ -121,12 +121,16 @@ function CodeBoxes({
   onChange,
   onComplete,
   disabled,
+  loading,
+  reduced,
 }: {
   length: number;
   value: string;
   onChange: (v: string) => void;
   onComplete?: (v: string) => void;
   disabled?: boolean;
+  loading?: boolean; // ✅ novo
+  reduced?: boolean; // ✅ novo (pra girar suave ou não)
 }) {
   const refs = useRef<Array<HTMLInputElement | null>>([]);
 
@@ -152,7 +156,7 @@ function CodeBoxes({
   const focus = (idx: number) => refs.current[idx]?.focus();
 
   return (
-    <div className="mt-6 flex items-center justify-center gap-3">
+    <div className="relative mt-6 flex items-center justify-center gap-3">
       {digits.map((d, i) => (
         <input
           key={i}
@@ -164,11 +168,13 @@ function CodeBoxes({
           autoComplete="one-time-code"
           value={d}
           onChange={(e) => {
+            if (disabled) return; // ✅ trava também o handler
             const ch = onlyDigits(e.target.value).slice(-1);
             setAt(i, ch);
             if (ch && i < length - 1) focus(i + 1);
           }}
           onKeyDown={(e) => {
+            if (disabled) return; // ✅ trava
             if (e.key === "Backspace") {
               if (digits[i]) {
                 setAt(i, "");
@@ -181,10 +187,9 @@ function CodeBoxes({
             if (e.key === "ArrowRight" && i < length - 1) focus(i + 1);
           }}
           onPaste={(e) => {
+            if (disabled) return; // ✅ trava
             e.preventDefault();
-            const pasted = onlyDigits(
-              e.clipboardData.getData("text") || "",
-            ).slice(0, length);
+            const pasted = onlyDigits(e.clipboardData.getData("text") || "").slice(0, length);
             if (!pasted) return;
             onChange(pasted);
             const nextIndex = Math.min(pasted.length, length - 1);
@@ -194,9 +199,30 @@ function CodeBoxes({
             "h-14 w-14 rounded-[14px] bg-[#f3f3f3] ring-1 ring-black/5 text-center text-[18px] font-semibold text-black",
             "focus:outline-none focus:ring-2 focus:ring-black/20",
             "transition-all duration-200",
+            disabled ? "opacity-70 cursor-not-allowed" : "",
           )}
         />
       ))}
+
+      {/* ✅ Overlay de validação (spinner central) */}
+      <AnimatePresence initial={false}>
+        {!!loading && (
+          <motion.div
+            key="codebox-loading"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: reduced ? 0 : 0.18 }}
+            className="absolute inset-0 flex items-center justify-center"
+            style={{ pointerEvents: "none" }}
+          >
+            <div className="absolute inset-0 rounded-[18px] bg-white/55 backdrop-blur-[2px]" />
+            <div className="relative z-10">
+              <SpinnerMini reduced={!!reduced} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -257,10 +283,12 @@ const [showPassword, setShowPassword] = useState(false);
   const [emailSuccessOpen, setEmailSuccessOpen] = useState(false);
   const emailSuccessTimerRef = useRef<number | null>(null);
 
-  // ui states
-  const [busy, setBusy] = useState(false);
-  const [msgError, setMsgError] = useState<string | null>(null);
-  const [resendCooldown, setResendCooldown] = useState(0);
+ // ui states
+const [busy, setBusy] = useState(false);
+const [verifyingEmailCodeBusy, setVerifyingEmailCodeBusy] = useState(false); // ✅ novo (só validação do email code)
+const [msgError, setMsgError] = useState<string | null>(null);
+const [resendCooldown, setResendCooldown] = useState(0);
+
 
   const lastCheckedRef = useRef<string>("");
   const abortRef = useRef<AbortController | null>(null);
@@ -612,59 +640,60 @@ const [showPassword, setShowPassword] = useState(false);
 
   const [phoneMaskFromServer, setPhoneMaskFromServer] = useState<string>("");
 
-  const verifyEmailCode = useCallback(
-    async (code?: string) => {
-      const c = onlyDigits(code ?? emailCode).slice(0, 7);
-      if (c.length !== 7 || busy) return;
+const verifyEmailCode = useCallback(
+  async (code?: string) => {
+    const c = onlyDigits(code ?? emailCode).slice(0, 7);
+    if (c.length !== 7 || busy || verifyingEmailCodeBusy) return;
 
-      setBusy(true);
-      setMsgError(null);
+    setVerifyingEmailCodeBusy(true); // ✅ trava e mostra loader no code
+    setBusy(true);
+    setMsgError(null);
 
-      try {
-        const res = await fetch("/api/wz_AuthLogin/verify-email", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: email.trim().toLowerCase(), code: c, password }),
-        });
+    try {
+      const res = await fetch("/api/wz_AuthLogin/verify-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), code: c, password }),
+      });
 
-        const j = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(j?.error || "Código inválido.");
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.error || "Código inválido.");
 
-        if (j?.next === "sms") {
-          setPhoneMaskFromServer(String(j?.phoneMask || ""));
-          setEmailSuccessOpen(true);
-          setStep("emailSuccess");
+      if (j?.next === "sms") {
+        setPhoneMaskFromServer(String(j?.phoneMask || ""));
+        setEmailSuccessOpen(true);
+        setStep("emailSuccess");
 
-          if (emailSuccessTimerRef.current) {
-            window.clearTimeout(emailSuccessTimerRef.current);
-            emailSuccessTimerRef.current = null;
-          }
-
-          emailSuccessTimerRef.current = window.setTimeout(
-            () => {
-              setEmailSuccessOpen(false);
-              setStep("smsCode");
-              setSmsCode("");
-              setResendCooldown(35);
-              emailSuccessTimerRef.current = null;
-            },
-            prefersReducedMotion ? 0 : 900,
-          );
-
-          return;
+        if (emailSuccessTimerRef.current) {
+          window.clearTimeout(emailSuccessTimerRef.current);
+          emailSuccessTimerRef.current = null;
         }
 
-        // sem sms
-        const nextUrl = String(j?.nextUrl || "/app");
-        router.push(nextUrl);
-      } catch (err: any) {
-        setMsgError(err?.message || "Erro inesperado.");
-      } finally {
-        setBusy(false);
+        emailSuccessTimerRef.current = window.setTimeout(
+          () => {
+            setEmailSuccessOpen(false);
+            setStep("smsCode");
+            setSmsCode("");
+            setResendCooldown(35);
+            emailSuccessTimerRef.current = null;
+          },
+          prefersReducedMotion ? 0 : 1500, // ✅ dura mais
+        );
+
+        return;
       }
-    },
-    [email, emailCode, busy, router, prefersReducedMotion],
-  );
+
+      const nextUrl = String(j?.nextUrl || "/app");
+      router.push(nextUrl);
+    } catch (err: any) {
+      setMsgError(err?.message || "Erro inesperado.");
+    } finally {
+      setBusy(false);
+      setVerifyingEmailCodeBusy(false); // ✅ destrava
+    }
+  },
+  [email, emailCode, busy, verifyingEmailCodeBusy, router, prefersReducedMotion, password],
+);
 
   const verifySmsCode = useCallback(
     async (code?: string) => {
@@ -1193,12 +1222,14 @@ if (/^https?:\/\//i.test(nextUrl)) {
                   className="mt-10"
                 >
                   <CodeBoxes
-                    length={7}
-                    value={emailCode}
-                    onChange={setEmailCode}
-                    onComplete={(v) => verifyEmailCode(v)}
-                    disabled={busy}
-                  />
+  length={7}
+  value={emailCode}
+  onChange={setEmailCode}
+  onComplete={(v) => verifyEmailCode(v)}
+  disabled={busy || verifyingEmailCodeBusy}            // ✅ trava inputs
+  loading={verifyingEmailCodeBusy}                    // ✅ loader central
+  reduced={!!prefersReducedMotion}
+/>
 
                   <AnimatePresence initial={false}>
                     {!!msgError && (
@@ -1236,14 +1267,20 @@ if (/^https?:\/\//i.test(nextUrl)) {
                   </div>
 
                   <div className="mt-6 flex items-center justify-center">
-                    <button
-                      type="button"
-                      onClick={resetAll}
-                      className="text-[13px] font-semibold text-black/55 hover:text-black/75 transition-colors inline-flex items-center gap-2"
-                    >
-                      <Undo2 className="h-4 w-4" />
-                      Trocar e-mail
-                    </button>
+<button
+  type="button"
+  onClick={resetAll}
+  disabled={busy || verifyingEmailCodeBusy}           // ✅ não deixa “remover o código” no meio
+  className={cx(
+    "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
+    busy || verifyingEmailCodeBusy
+      ? "text-black/35 cursor-not-allowed"
+      : "text-black/55 hover:text-black/75"
+  )}
+>
+  <Undo2 className="h-4 w-4" />
+  Trocar e-mail
+</button>
                   </div>
                 </motion.div>
               )}
@@ -1381,11 +1418,39 @@ if (/^https?:\/\//i.test(nextUrl)) {
         </motion.div>
       </div>
 
+      {/* Bottom links (igual imagem) */}
+<div className="fixed inset-x-0 bottom-0 z-[30] pointer-events-none">
+  <div
+    className="pointer-events-auto mx-auto w-full max-w-[560px] px-4"
+    style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 22px)" }}
+  >
+    <div className="flex flex-col items-center justify-center gap-4">
+      <a
+        href="/ajuda"
+        className={cx(
+          "inline-flex items-center justify-center rounded-[14px] px-7 py-3",
+          "bg-[#f3f3f3] ring-1 ring-black/5",
+          "text-[15px] font-semibold text-black/80 hover:text-black",
+          "hover:bg-[#ededed] transition-colors"
+        )}
+      >
+        Ajuda
+      </a>
+
+      <div className="flex items-center justify-center gap-10 text-[15px] text-black/55">
+        <a href="/termos" className="hover:text-black transition-colors">Termos</a>
+        <a href="/privacidade" className="hover:text-black transition-colors">Privacidade</a>
+        <a href="/cookies" className="hover:text-black transition-colors">Cookies</a>
+      </div>
+    </div>
+  </div>
+</div>
+
       {/* Cookies (mantido) */}
       <AnimatePresence
-        initial={false}
-        mode="sync"
-        presenceAffectsLayout={false}
+  initial={false}
+  mode="sync"
+  presenceAffectsLayout={false}
       >
         {cookieReady && showCookieConsent && (
           <motion.div
