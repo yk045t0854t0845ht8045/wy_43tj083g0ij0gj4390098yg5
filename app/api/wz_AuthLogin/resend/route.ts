@@ -1,8 +1,17 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../_supabase";
-import { sha, gen7, newSalt, maskPhoneE164 } from "../_codes";
+import { sha, gen7, newSalt, maskPhoneE164, isValidE164BRMobile } from "../_codes";
 import { sendSmsCode } from "../_sms";
 import { sendLoginCodeEmail } from "../_email";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+  Pragma: "no-cache",
+  Expires: "0",
+};
 
 function isValidEmail(v: string) {
   const s = (v || "").trim();
@@ -23,10 +32,10 @@ export async function POST(req: Request) {
     const step = normalizeStep(String(body?.step || ""));
 
     if (!isValidEmail(email))
-      return NextResponse.json({ ok: false, error: "E-mail inválido." }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "E-mail inválido." }, { status: 400, headers: NO_STORE_HEADERS });
 
     if (step !== "email" && step !== "sms") {
-      return NextResponse.json({ ok: false, error: "Etapa inválida para reenvio." }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Etapa inválida para reenvio." }, { status: 400, headers: NO_STORE_HEADERS });
     }
 
     const sb = supabaseAdmin();
@@ -35,7 +44,7 @@ export async function POST(req: Request) {
     const pendRow = pend.data;
 
     if (!pendRow) {
-      return NextResponse.json({ ok: false, error: "Sessão inválida. Reinicie." }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Sessão inválida. Reinicie." }, { status: 400, headers: NO_STORE_HEADERS });
     }
 
     if (step === "email") {
@@ -61,16 +70,24 @@ export async function POST(req: Request) {
         consumed: false,
       });
 
-      if (error) return NextResponse.json({ ok: false, error: "Falha ao gerar e-mail." }, { status: 500 });
+      if (error) return NextResponse.json({ ok: false, error: "Falha ao gerar e-mail." }, { status: 500, headers: NO_STORE_HEADERS });
 
       await sendLoginCodeEmail(email, code);
-      return NextResponse.json({ ok: true }, { status: 200 });
+      return NextResponse.json({ ok: true }, { status: 200, headers: NO_STORE_HEADERS });
     }
 
     // step === sms
     const phoneE164 = String(pendRow?.phone_e164 || "");
     if (!phoneE164) {
-      return NextResponse.json({ ok: false, error: "Nenhum telefone encontrado para SMS." }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Nenhum telefone encontrado para SMS." }, { status: 400, headers: NO_STORE_HEADERS });
+    }
+
+    // ✅ valida antes de reenviar
+    if (!isValidE164BRMobile(phoneE164)) {
+      return NextResponse.json(
+        { ok: false, error: "Telefone inválido para SMS. Use um celular BR válido com DDD." },
+        { status: 400, headers: NO_STORE_HEADERS }
+      );
     }
 
     await sb
@@ -95,13 +112,13 @@ export async function POST(req: Request) {
       consumed: false,
     });
 
-    if (smsErr) return NextResponse.json({ ok: false, error: "Falha ao gerar SMS." }, { status: 500 });
+    if (smsErr) return NextResponse.json({ ok: false, error: "Falha ao gerar SMS." }, { status: 500, headers: NO_STORE_HEADERS });
 
     await sendSmsCode(phoneE164, smsCode);
 
-    return NextResponse.json({ ok: true, phoneMask: maskPhoneE164(phoneE164) }, { status: 200 });
+    return NextResponse.json({ ok: true, phoneMask: maskPhoneE164(phoneE164) }, { status: 200, headers: NO_STORE_HEADERS });
   } catch (e: any) {
     console.error("[resend] error:", e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro inesperado." }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || "Erro inesperado." }, { status: 500, headers: NO_STORE_HEADERS });
   }
 }

@@ -336,27 +336,38 @@ export default function LinkLoginPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tokenFromRoute]);
 
-  useEffect(() => {
-    // Se cookie de sessão existir (httpOnly não dá pra ler),
-    // então criamos um endpoint "me" se quiser. Como não temos, fazemos o check via fetch.
-    (async () => {
-      try {
-        const r = await fetch("/api/wz_AuthLogin/me", { method: "GET" });
-        if (r.ok) {
-          const j = await r.json().catch(() => ({}));
-          if (j?.ok) {
-            if (typeof window !== "undefined") {
-              const isLocal = window.location.hostname.endsWith("wyzer.com.br");
-              const target = isLocal
-                ? "http://dashboard.wyzer.com.br/create-account"
-                : "https://dashboard.wyzer.com.br/create-account";
-              window.location.href = target;
-            }
-          }
-        }
-      } catch {}
-    })();
-  }, [router]);
+useEffect(() => {
+  if (typeof window === "undefined") return;
+
+  const host = window.location.hostname.toLowerCase();
+
+  // ✅ Evita loop: não auto-redireciona a partir do login/link
+  const isLoginHost =
+    host === "login.wyzer.com.br" ||
+    host === "login.localhost" ||
+    host === "localhost";
+
+  const isLinkHost = host.startsWith("link.");
+
+  if (isLoginHost || isLinkHost) return;
+
+  (async () => {
+    try {
+      const r = await fetch("/api/wz_AuthLogin/me", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      if (!r.ok) return;
+
+      const j = await r.json().catch(() => ({}));
+      if (!j?.ok) return;
+
+      // ✅ Se estiver em algum host que já lê sessão, manda para o dashboard
+      window.location.assign("/create-account");
+    } catch {}
+  })();
+}, []);
 
   // cooldown resend
   useEffect(() => {
@@ -656,8 +667,13 @@ export default function LinkLoginPage() {
           return;
         }
 
-        const nextUrl = String(j?.nextUrl || "/app");
-        router.push(nextUrl);
+const nextUrl = String(j?.nextUrl || "/app");
+
+if (/^https?:\/\//i.test(nextUrl)) {
+  window.location.assign(nextUrl);
+} else {
+  router.push(nextUrl);
+}
       } catch (err: any) {
         setMsgError(err?.message || "Erro inesperado.");
       } finally {
@@ -1534,24 +1550,24 @@ export default function LinkLoginPage() {
                   className="mt-10"
                 >
                   <div className="flex flex-col items-center justify-center text-center">
-                    {/* GIF / Lottie (DotLottie) */}
-                    <motion.div
-                      className="h-40 w-40 rounded-2xl overflow-hidden"
-                      initial={{ opacity: 0, scale: 0.92 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{
-                        duration: prefersReducedMotion ? 0 : 0.25,
-                        ease: EASE,
-                      }}
-                    >
-                      <DotLottieReact
-                        src="https://lottie.host/486672b2-c90e-4b34-bf26-62286504b54d/cmJkEq0miI.lottie"
-                        loop
-                        autoplay
-                        className="h-full w-full"
-                      />
-                      <span className="sr-only">Sucesso</span>
-                    </motion.div>
+{/* GIF / Lottie (DotLottie) */}
+<motion.div
+  className="h-40 w-40 rounded-2xl overflow-hidden"
+  initial={{ opacity: 0, scale: 0.92 }}
+  animate={{ opacity: 1, scale: 1 }}
+  transition={{
+    duration: prefersReducedMotion ? 0 : 0.25,
+    ease: EASE,
+  }}
+>
+  <DotLottieReact
+    src="https://lottie.host/486672b2-c90e-4b34-bf26-62286504b54d/cmJkEq0miI.lottie"
+    loop
+    autoplay
+    className="h-full w-full"
+  />
+  <span className="sr-only">Sucesso</span>
+</motion.div>
 
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}

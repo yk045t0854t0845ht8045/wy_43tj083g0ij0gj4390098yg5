@@ -11,6 +11,15 @@ import {
 } from "../_codes";
 import { sendLoginCodeEmail } from "../_email";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+  Pragma: "no-cache",
+  Expires: "0",
+};
+
 function isValidEmail(v: string) {
   const s = (v || "").trim();
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(s);
@@ -61,16 +70,10 @@ export async function POST(req: Request) {
     const phoneDigits = onlyDigits(String(body?.phone || "")).slice(0, 11);
 
     if (!isValidEmail(email)) {
-      return NextResponse.json(
-        { ok: false, error: "E-mail inválido." },
-        { status: 400 },
-      );
+      return NextResponse.json({ ok: false, error: "E-mail inválido." }, { status: 400, headers: NO_STORE_HEADERS });
     }
     if (!password || password.length < 6) {
-      return NextResponse.json(
-        { ok: false, error: "Senha inválida." },
-        { status: 400 },
-      );
+      return NextResponse.json({ ok: false, error: "Senha inválida." }, { status: 400, headers: NO_STORE_HEADERS });
     }
 
     const admin = supabaseAdmin();
@@ -99,10 +102,7 @@ export async function POST(req: Request) {
       if (signErr || !signIn?.user?.id) {
         const msg = String((signErr as any)?.message || "");
         if (!/email not confirmed/i.test(msg)) {
-          return NextResponse.json(
-            { ok: false, error: "Senha incorreta." },
-            { status: 401 },
-          );
+          return NextResponse.json({ ok: false, error: "Senha incorreta." }, { status: 401, headers: NO_STORE_HEADERS });
         }
       }
 
@@ -118,64 +118,39 @@ export async function POST(req: Request) {
 
       if (pendErr) {
         console.error("[start] pending upsert error:", pendErr);
-        return NextResponse.json(
-          { ok: false, error: "Falha ao iniciar login." },
-          { status: 500 },
-        );
+        return NextResponse.json({ ok: false, error: "Falha ao iniciar login." }, { status: 500, headers: NO_STORE_HEADERS });
       }
     }
 
     // ✅ REGISTER: valida CPF real + telefone BR válido (celular) + bloqueia duplicados
     if (flow === "register") {
       if (fullName.trim().length < 4) {
-        return NextResponse.json(
-          { ok: false, error: "Informe seu nome completo." },
-          { status: 400 },
-        );
+        return NextResponse.json({ ok: false, error: "Informe seu nome completo." }, { status: 400, headers: NO_STORE_HEADERS });
       }
 
       if (!isValidCPF(cpf)) {
-        return NextResponse.json(
-          { ok: false, error: "CPF inválido. Tente novamente." },
-          { status: 400 },
-        );
+        return NextResponse.json({ ok: false, error: "CPF inválido. Tente novamente." }, { status: 400, headers: NO_STORE_HEADERS });
       }
 
       if (!isValidBRMobilePhoneDigits(phoneDigits)) {
         return NextResponse.json(
-          {
-            ok: false,
-            error:
-              "Formato de celular inválido. . Inclua o DDD.",
-          },
-          { status: 400 },
+          { ok: false, error: "Formato de celular inválido. . Inclua o DDD." },
+          { status: 400, headers: NO_STORE_HEADERS },
         );
       }
 
       const phoneE164 = toE164BRMobile(phoneDigits);
       if (!phoneE164) {
         return NextResponse.json(
-          {
-            ok: false,
-            error:
-              "Formato de celular inválido. . Inclua o DDD.",
-          },
-          { status: 400 },
+          { ok: false, error: "Formato de celular inválido. . Inclua o DDD." },
+          { status: 400, headers: NO_STORE_HEADERS },
         );
       }
 
       // ✅ bloqueia duplicados antes de criar pending/auth
       const [dupCpf, dupPhone] = await Promise.all([
-        admin
-          .from("wz_users")
-          .select("id,email")
-          .eq("cpf", cpf)
-          .maybeSingle(),
-        admin
-          .from("wz_users")
-          .select("id,email")
-          .eq("phone_e164", phoneE164)
-          .maybeSingle(),
+        admin.from("wz_users").select("id,email").eq("cpf", cpf).maybeSingle(),
+        admin.from("wz_users").select("id,email").eq("phone_e164", phoneE164).maybeSingle(),
       ]);
 
       if (dupCpf.error || dupPhone.error) {
@@ -183,24 +158,15 @@ export async function POST(req: Request) {
           cpf: dupCpf.error,
           phone: dupPhone.error,
         });
-        return NextResponse.json(
-          { ok: false, error: "Falha ao validar cadastro." },
-          { status: 500 },
-        );
+        return NextResponse.json({ ok: false, error: "Falha ao validar cadastro." }, { status: 500, headers: NO_STORE_HEADERS });
       }
 
       if (dupCpf.data?.id) {
-        return NextResponse.json(
-          { ok: false, error: "Este CPF já possui uma conta." },
-          { status: 409 },
-        );
+        return NextResponse.json({ ok: false, error: "Este CPF já possui uma conta." }, { status: 409, headers: NO_STORE_HEADERS });
       }
 
       if (dupPhone.data?.id) {
-        return NextResponse.json(
-          { ok: false, error: "Este número já possui uma conta." },
-          { status: 409 },
-        );
+        return NextResponse.json({ ok: false, error: "Este número já possui uma conta." }, { status: 409, headers: NO_STORE_HEADERS });
       }
 
       let authUserId = await findAuthUserIdByEmail(admin, email);
@@ -221,10 +187,7 @@ export async function POST(req: Request) {
           if (code === "email_exists" || /already been registered/i.test(msg)) {
             authUserId = await findAuthUserIdByEmail(admin, email);
           } else {
-            return NextResponse.json(
-              { ok: false, error: "Falha ao criar usuário de autenticação." },
-              { status: 500 },
-            );
+            return NextResponse.json({ ok: false, error: "Falha ao criar usuário de autenticação." }, { status: 500, headers: NO_STORE_HEADERS });
           }
         } else {
           authUserId = created.data?.user?.id ? String(created.data.user.id) : null;
@@ -247,10 +210,7 @@ export async function POST(req: Request) {
 
       if (pendErr) {
         console.error("[start] pending upsert error:", pendErr);
-        return NextResponse.json(
-          { ok: false, error: "Falha ao iniciar cadastro." },
-          { status: 500 },
-        );
+        return NextResponse.json({ ok: false, error: "Falha ao iniciar cadastro." }, { status: 500, headers: NO_STORE_HEADERS });
       }
     }
 
@@ -280,19 +240,13 @@ export async function POST(req: Request) {
 
     if (chErr) {
       console.error("[start] challenge insert error:", chErr);
-      return NextResponse.json(
-        { ok: false, error: "Falha ao gerar código." },
-        { status: 500 },
-      );
+      return NextResponse.json({ ok: false, error: "Falha ao gerar código." }, { status: 500, headers: NO_STORE_HEADERS });
     }
 
     await sendLoginCodeEmail(email, emailCode);
-    return NextResponse.json({ ok: true, next: "email" }, { status: 200 });
+    return NextResponse.json({ ok: true, next: "email" }, { status: 200, headers: NO_STORE_HEADERS });
   } catch (e: any) {
     console.error("[start] error:", e);
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Erro inesperado." },
-      { status: 500 },
-    );
+    return NextResponse.json({ ok: false, error: e?.message || "Erro inesperado." }, { status: 500, headers: NO_STORE_HEADERS });
   }
 }
