@@ -1412,18 +1412,6 @@ export default function LinkLoginPage() {
           }}
         >
           <div className="flex flex-col items-center justify-center gap-4">
-            <a
-              href="/ajuda"
-              className={cx(
-                "inline-flex items-center justify-center rounded-[14px] px-7 py-3",
-                "bg-[#f3f3f3] ring-1 ring-black/5",
-                "text-[15px] font-semibold text-black/80 hover:text-black",
-                "hover:bg-[#ededed] transition-colors",
-              )}
-            >
-              Ajuda
-            </a>
-
             <div className="flex items-center justify-center gap-10 text-[15px] text-black/55">
               <a href="/termos" className="hover:text-black transition-colors">
                 Termos

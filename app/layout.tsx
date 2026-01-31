@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { SpeedInsights } from "@vercel/speed-insights/next"
 
 export const metadata: Metadata = {
   title: "Wyzer - Sistema de Automação para WhatsApp",
@@ -59,6 +60,7 @@ export default function RootLayout({
         <link rel="mask-icon" href="/safari-pinned-tab.svg" color="#0A0A0A" />
       </head>
       <body className="antialiased">{children}</body>
+      <SpeedInsights/>
     </html>
   );
 }
