@@ -204,7 +204,7 @@ export async function POST(req: Request) {
 
     // ✅ aqui agora salva o cookie para .wyzer.com.br (compartilhado)
     const res = NextResponse.json({ ok: true, nextUrl }, { status: 200 });
-    setSessionCookie(res, { userId: String(userId), email }, req);
+    setSessionCookie(res, { userId: String(userId), email });
 
     return res;
   } catch (e: any) {

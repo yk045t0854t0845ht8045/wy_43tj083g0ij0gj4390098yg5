@@ -75,7 +75,7 @@ export async function GET(req: Request) {
 
     // ✅ aqui sim salva cookie no host do dashboard
     const res = NextResponse.redirect(new URL(safeNext, url.origin));
-    setSessionCookie(res, { userId, email }, req);
+    setSessionCookie(res, { userId, email });
     return res;
   } catch (e: any) {
     console.error("[exchange] error:", e);
