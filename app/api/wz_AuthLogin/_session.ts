@@ -3,9 +3,7 @@ import crypto from "crypto";
 import { NextResponse } from "next/server";
 
 export const SESSION_COOKIE_NAME = "wz_session_v1";
-
-// 7 dias (igual seu exemplo)
-const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 dias
 
 type HeadersLike = { get(name: string): string | null | undefined };
 
@@ -23,10 +21,10 @@ type SessionPayloadV2 = {
   iat: number;
   exp: number;
 
-  // binds (hashes) — não expõem IP/UA/cidade em texto
-  ua?: string;   // hash(User-Agent)
-  ip?: string;   // hash(IP prefix)
-  geo?: string;  // hash(country|region|city)
+  // binds (hashes)
+  ua?: string;  // hash(User-Agent)
+  ip?: string;  // hash(IP prefix)
+  geo?: string; // hash(country|region|city)
 };
 
 function base64UrlEncode(input: Buffer | string) {
@@ -74,103 +72,50 @@ function firstNonEmpty(...vals: Array<string | null | undefined>) {
   return "";
 }
 
-function getClientIp(headers: HeadersLike) {
-  // Vercel/Proxies comuns
-  const xff = firstNonEmpty(headers.get("x-forwarded-for"));
-  if (xff) return xff.split(",")[0].trim();
-
-  const realIp = firstNonEmpty(headers.get("x-real-ip"), headers.get("cf-connecting-ip"));
-  return realIp.trim();
+function getHostFromReq(req?: Request) {
+  if (!req) return "";
+  const xfHost = firstNonEmpty(req.headers.get("x-forwarded-host"));
+  const host = firstNonEmpty(xfHost, req.headers.get("host"));
+  return host.split(",")[0].trim().toLowerCase();
 }
 
-function normalizeIp(ipRaw: string) {
-  const ip = String(ipRaw || "").trim();
-
-  // remove porta se vier "1.2.3.4:1234"
-  if (/^\d+\.\d+\.\d+\.\d+:\d+$/.test(ip)) return ip.split(":")[0];
-
-  // ipv6 pode vir com porta tipo "[::1]:1234"
-  if (ip.startsWith("[") && ip.includes("]:")) return ip.slice(1).split("]:")[0];
-
-  return ip;
+function getProtoFromReq(req?: Request) {
+  if (!req) return "";
+  const xfProto = firstNonEmpty(req.headers.get("x-forwarded-proto")).toLowerCase();
+  return xfProto;
 }
 
-function ipPrefix(ipRaw: string) {
-  const ip = normalizeIp(ipRaw);
-
-  // IPv4 => /24
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(ip)) {
-    const parts = ip.split(".");
-    return parts.slice(0, 3).join("."); // a.b.c
-  }
-
-  // IPv6 => /64 (primeiros 4 hextetos)
-  if (ip.includes(":")) {
-    const parts = ip.split(":").filter(Boolean);
-    return parts.slice(0, 4).join(":");
-  }
-
-  return "";
-}
-
-function getGeo(headers: HeadersLike) {
-  // Vercel Edge headers (quando em produção na Vercel)
-  const country = firstNonEmpty(headers.get("x-vercel-ip-country"), headers.get("cf-ipcountry")).toUpperCase();
-  const region = firstNonEmpty(headers.get("x-vercel-ip-country-region")).toUpperCase();
-  const city = firstNonEmpty(headers.get("x-vercel-ip-city")).toUpperCase();
-
-  // alguns provedores setam variações
-  const altCity = firstNonEmpty(headers.get("x-geo-city"), headers.get("x-city")).toUpperCase();
-  const altRegion = firstNonEmpty(headers.get("x-geo-region"), headers.get("x-region")).toUpperCase();
-  const altCountry = firstNonEmpty(headers.get("x-geo-country"), headers.get("x-country")).toUpperCase();
-
-  return {
-    country: country || altCountry,
-    region: region || altRegion,
-    city: city || altCity,
-  };
-}
-
-function fingerprintFromHeaders(headers: HeadersLike) {
-  const ua = firstNonEmpty(headers.get("user-agent"));
-  const ip = getClientIp(headers);
-  const ipPfx = ipPrefix(ip);
-
-  const geo = getGeo(headers);
-  const geoStr = `${geo.country || ""}|${geo.region || ""}|${geo.city || ""}`;
-
-  // hashes (não expõe valores reais no cookie)
-  const uaHash = ua ? sha256B64(ua) : "";
-  const ipHash = ipPfx ? sha256B64(ipPfx) : "";
-  const geoHash = geoStr !== "||" ? sha256B64(geoStr) : "";
-
-  return { uaHash, ipHash, geoHash };
-}
-
-function cookieDomainFromHost(hostname: string) {
-  const h = (hostname || "").toLowerCase();
-
-  // Produção: compartilha entre login.* e dashboard.*
-  if (h === "wyzer.com.br" || h.endsWith(".wyzer.com.br")) return ".wyzer.com.br";
-
-  // Em localhost: NÃO depende de Domain (muitos browsers não respeitam .localhost)
-  // então deixa host-only e use seu flow de exchange quando precisar.
-  return undefined;
-}
-
-function isProdUrl(urlStr: string) {
+function isHttpsFromReq(req?: Request) {
+  const p = getProtoFromReq(req);
+  if (p === "https") return true;
+  if (p === "http") return false;
+  // fallback
   try {
-    const u = new URL(urlStr);
+    const u = new URL(req?.url || "http://localhost");
     return u.protocol === "https:";
   } catch {
     return process.env.NODE_ENV === "production";
   }
 }
 
+function cookieDomainFromReq(req?: Request) {
+  // ✅ Em produção sempre compartilhado entre login.* e dashboard.*
+  if (process.env.NODE_ENV === "production") return "wyzer.com.br";
+
+  // ✅ Em dev (localhost), não forçar domain (browsers não gostam de .localhost)
+  // deixe host-only
+  const host = getHostFromReq(req);
+  if (!host) return undefined;
+
+  // se for algo tipo *.wyzer.com.br mesmo em dev/stage:
+  if (host === "wyzer.com.br" || host.endsWith(".wyzer.com.br")) return "wyzer.com.br";
+
+  return undefined;
+}
+
 function getCookieValue(cookieHeader: string | null, name: string) {
   if (!cookieHeader) return null;
   const parts = cookieHeader.split(";");
-
   for (const p of parts) {
     const [k, ...rest] = p.trim().split("=");
     if (k === name) return rest.join("=");
@@ -208,20 +153,86 @@ function parseAndVerifyToken(token: string): SessionPayloadV2 | null {
   }
 }
 
-function validateBinding(payload: SessionPayloadV2, headers?: HeadersLike) {
-  // Se o token tem bind e não tenho headers para validar => invalida
-  if ((payload.ua || payload.ip || payload.geo) && !headers) return false;
+function getClientIp(headers: HeadersLike) {
+  const xff = firstNonEmpty(headers.get("x-forwarded-for"));
+  if (xff) return xff.split(",")[0].trim();
 
+  const realIp = firstNonEmpty(headers.get("x-real-ip"), headers.get("cf-connecting-ip"));
+  return realIp.trim();
+}
+
+function normalizeIp(ipRaw: string) {
+  const ip = String(ipRaw || "").trim();
+
+  if (/^\d+\.\d+\.\d+\.\d+:\d+$/.test(ip)) return ip.split(":")[0];
+  if (ip.startsWith("[") && ip.includes("]:")) return ip.slice(1).split("]:")[0];
+
+  return ip;
+}
+
+function ipPrefix(ipRaw: string) {
+  const ip = normalizeIp(ipRaw);
+
+  // IPv4 => /24
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(ip)) {
+    const parts = ip.split(".");
+    return parts.slice(0, 3).join(".");
+  }
+
+  // IPv6 => /64
+  if (ip.includes(":")) {
+    const parts = ip.split(":").filter(Boolean);
+    return parts.slice(0, 4).join(":");
+  }
+
+  return "";
+}
+
+function getGeo(headers: HeadersLike) {
+  const country = firstNonEmpty(headers.get("x-vercel-ip-country"), headers.get("cf-ipcountry")).toUpperCase();
+  const region = firstNonEmpty(headers.get("x-vercel-ip-country-region")).toUpperCase();
+  const city = firstNonEmpty(headers.get("x-vercel-ip-city")).toUpperCase();
+
+  // fallback genérico (caso tenha outro proxy)
+  const altCountry = firstNonEmpty(headers.get("x-geo-country"), headers.get("x-country")).toUpperCase();
+  const altRegion = firstNonEmpty(headers.get("x-geo-region"), headers.get("x-region")).toUpperCase();
+  const altCity = firstNonEmpty(headers.get("x-geo-city"), headers.get("x-city")).toUpperCase();
+
+  return {
+    country: country || altCountry,
+    region: region || altRegion,
+    city: city || altCity,
+  };
+}
+
+function fingerprintFromHeaders(headers: HeadersLike) {
+  const ua = firstNonEmpty(headers.get("user-agent"));
+  const ip = getClientIp(headers);
+  const ipPfx = ipPrefix(ip);
+
+  const geo = getGeo(headers);
+  const geoStr = `${geo.country || ""}|${geo.region || ""}|${geo.city || ""}`;
+
+  const uaHash = ua ? sha256B64(ua) : "";
+  const ipHash = ipPfx ? sha256B64(ipPfx) : "";
+  const geoHash = geoStr !== "||" ? sha256B64(geoStr) : "";
+
+  return { uaHash, ipHash, geoHash };
+}
+
+function validateBinding(payload: SessionPayloadV2, headers?: HeadersLike) {
+  // ✅ Compat: se o dev não passou headers, NÃO derruba tudo.
+  // (Pra segurança máxima: sempre passe headers nas páginas/rotas que importam.)
   if (!headers) return true;
 
   const fp = fingerprintFromHeaders(headers);
 
-  // Se o bind existe no token, ele precisa bater.
+  // se token tem bind, precisa bater
   if (payload.ua && fp.uaHash && payload.ua !== fp.uaHash) return false;
   if (payload.ip && fp.ipHash && payload.ip !== fp.ipHash) return false;
   if (payload.geo && fp.geoHash && payload.geo !== fp.geoHash) return false;
 
-  // Se token exige bind mas a request não tem info nenhuma (raro), invalida
+  // se token exige UA e request não tem UA -> invalida
   if (payload.ua && !fp.uaHash) return false;
 
   return true;
@@ -271,24 +282,17 @@ export function setSessionCookie(
     email: String(session.email),
     iat: now,
     exp,
-    // binds: se existirem, entram no token
+    // ✅ UA sempre que possível
     ua: fp.uaHash || undefined,
+    // ✅ IP/GEO só se existirem (Vercel normalmente fornece)
     ip: fp.ipHash || undefined,
     geo: fp.geoHash || undefined,
   };
 
   const token = buildToken(payload);
 
-  const host = (() => {
-    try {
-      return new URL(req?.url || "http://localhost").hostname;
-    } catch {
-      return "localhost";
-    }
-  })();
-
-  const domain = cookieDomainFromHost(host);
-  const secure = req ? isProdUrl(req.url) : process.env.NODE_ENV === "production";
+  const domain = cookieDomainFromReq(req);
+  const secure = isHttpsFromReq(req) || process.env.NODE_ENV === "production";
 
   res.cookies.set({
     name: SESSION_COOKIE_NAME,
@@ -298,22 +302,13 @@ export function setSessionCookie(
     secure,
     path: "/",
     ...(domain ? { domain } : {}),
-    // expira junto do payload
     maxAge: SESSION_TTL_SECONDS,
   });
 }
 
 export function clearSessionCookie(res: NextResponse, req?: Request) {
-  const host = (() => {
-    try {
-      return new URL(req?.url || "http://localhost").hostname;
-    } catch {
-      return "localhost";
-    }
-  })();
-
-  const domain = cookieDomainFromHost(host);
-  const secure = req ? isProdUrl(req.url) : process.env.NODE_ENV === "production";
+  const domain = cookieDomainFromReq(req);
+  const secure = isHttpsFromReq(req) || process.env.NODE_ENV === "production";
 
   res.cookies.set({
     name: SESSION_COOKIE_NAME,
