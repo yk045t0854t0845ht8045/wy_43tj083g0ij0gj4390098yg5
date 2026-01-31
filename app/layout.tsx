@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import "./globals.css";
 import { SpeedInsights } from "@vercel/speed-insights/next"
 
@@ -58,9 +59,18 @@ export default function RootLayout({
         <link rel="icon" type="image/png" href="/logo.png" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="mask-icon" href="/safari-pinned-tab.svg" color="#0A0A0A" />
-      </head>
-      <body className="antialiased">{children}</body>
-      <SpeedInsights/>
-    </html>
+  </head>
+  <body className="antialiased">{children}</body>
+  <SpeedInsights/>
+  <Script async src="https://www.googletagmanager.com/gtag/js?id=G-YGYCF968SD" />
+  <Script id="google-analytics">
+    {`
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){window.dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-YGYCF968SD');
+    `}
+  </Script>
+</html>
   );
 }
