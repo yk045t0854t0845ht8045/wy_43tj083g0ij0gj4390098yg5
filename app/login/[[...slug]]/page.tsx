@@ -799,6 +799,10 @@ export default function LinkLoginPage() {
       // ---------- BOTTOM LINKS: esconder quando o "Continuar" encostar (zoom rápido / sem flicker) ----------
   const continueBtnRef = useRef<HTMLButtonElement | null>(null);
   const bottomLinksRef = useRef<HTMLDivElement | null>(null);
+
+  // ✅ novo: ref do painel onde estão os inputs/steps
+const centerPanelRef = useRef<HTMLDivElement | null>(null);
+
   const [hideBottomLinks, setHideBottomLinks] = useState(false);
 
    const rafRef = useRef<number | null>(null);
@@ -808,80 +812,134 @@ export default function LinkLoginPage() {
   const holdTimerRef = useRef<number | null>(null); // ✅ acorda sozinho após HOLD
 
 
-   const computeBottomLinksHide = useCallback(() => {
-    if (typeof window === "undefined") return;
+ const computeBottomLinksHide = useCallback(() => {
+  if (typeof window === "undefined") return;
 
-    const clearHoldTimer = () => {
-      if (holdTimerRef.current) {
-        window.clearTimeout(holdTimerRef.current);
-        holdTimerRef.current = null;
-      }
-    };
-
-    // ✅ Mobile também pode esconder (com thresholds próprios)
-    const isMobile = window.matchMedia("(max-width: 640px)").matches;
-
-    const btn = continueBtnRef.current;
-    const bottom = bottomLinksRef.current;
-
-    // se não tem os elementos montados (outros steps), não esconde
-    if (!btn || !bottom) {
-      clearHoldTimer();
-      holdUntilRef.current = 0;
-      lastDecisionRef.current = false;
-      setHideBottomLinks(false);
-      return;
+  const clearHoldTimer = () => {
+    if (holdTimerRef.current) {
+      window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
     }
+  };
 
+  const isMobile = window.matchMedia("(max-width: 640px)").matches;
+
+  const btn = continueBtnRef.current; // pode ser null em outros steps
+  const bottom = bottomLinksRef.current;
+  const root = centerPanelRef.current;
+
+  // bottom precisa existir; sem ele não tem o que calcular
+  if (!bottom) {
+    clearHoldTimer();
+    holdUntilRef.current = 0;
+    lastDecisionRef.current = false;
+    setHideBottomLinks(false);
+    return;
+  }
+
+  const bottomRect = bottom.getBoundingClientRect();
+
+  // viewport height mais fiel no mobile
+  const vv = typeof window !== "undefined" ? window.visualViewport : null;
+  const vh = (vv?.height ?? window.innerHeight) || 0;
+
+  // ✅ NOVO: se BottomLinks encostar em QUALQUER parte do painel (ícone/título/textos/inputs), esconde
+  const overlapWithPanel = (() => {
+    if (!root) return false;
+
+    const r = root.getBoundingClientRect();
+
+    // se painel fora da viewport, ignora
+    if (r.bottom <= 0 || r.top >= vh) return false;
+
+    const xOverlap =
+      Math.min(bottomRect.right, r.right) - Math.max(bottomRect.left, r.left);
+    const yOverlap =
+      Math.min(bottomRect.bottom, r.bottom) - Math.max(bottomRect.top, r.top);
+
+    return xOverlap > 8 && yOverlap > 8;
+  })();
+
+  // ✅ mantém também a proteção específica de interativos (caso queira)
+  const overlapWithInteractive = (() => {
+    if (!root) return false;
+
+    const nodes = Array.from(
+      root.querySelectorAll<HTMLElement>(
+        'input, textarea, select, button, [role="button"], a[href]'
+      )
+    );
+
+    for (const el of nodes) {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) continue;
+      if (r.bottom <= 0 || r.top >= vh) continue;
+
+      const xOverlap =
+        Math.min(bottomRect.right, r.right) - Math.max(bottomRect.left, r.left);
+      const yOverlap =
+        Math.min(bottomRect.bottom, r.bottom) - Math.max(bottomRect.top, r.top);
+
+      if (xOverlap > 8 && yOverlap > 8) return true;
+    }
+    return false;
+  })();
+
+  // thresholds (mobile mais forte)
+  const HARD_HIDE_PX = isMobile ? 18 : 10;
+  const SHOW_PX = isMobile ? 82 : 56;
+  const FAR_SHOW_PX = isMobile ? 170 : 120;
+  const HOLD_MS = isMobile ? 520 : 420;
+
+  // lógica do botão só se ele existir
+  let btnVisible = false;
+  let gap = Number.POSITIVE_INFINITY;
+
+  if (btn) {
     const btnRect = btn.getBoundingClientRect();
-    const bottomRect = bottom.getBoundingClientRect();
-
-    // botão precisa estar realmente visível (no mobile, visualViewport é mais fiel)
-    const vv = typeof window !== "undefined" ? window.visualViewport : null;
-    const vh = (vv?.height ?? window.innerHeight) || 0;
-
-    const btnVisible =
+    btnVisible =
       btnRect.width > 0 &&
       btnRect.height > 0 &&
       btnRect.bottom > 0 &&
       btnRect.top < vh;
 
-    // ✅ se o botão saiu da tela, os links devem voltar IMEDIATO
-    if (!btnVisible) {
+    if (btnVisible) {
+      gap = bottomRect.top - btnRect.bottom;
+    }
+  }
+
+  const now = performance.now();
+
+  // ✅ hardHide agora considera:
+  // (1) encostou no painel (texto/ícone/etc) OU
+  // (2) encostou em inputs/botões OU
+  // (3) encostou no botão continuar
+  const hardHide =
+    overlapWithPanel ||
+    overlapWithInteractive ||
+    (btnVisible && gap < HARD_HIDE_PX);
+
+  let next = lastDecisionRef.current;
+
+  if (hardHide) {
+    next = true;
+    holdUntilRef.current = now + HOLD_MS;
+
+    clearHoldTimer();
+    const wait = Math.max(0, holdUntilRef.current - now + 20);
+    holdTimerRef.current = window.setTimeout(() => {
+      computeBottomLinksHide();
+    }, wait);
+  } else {
+    const inHold = now < holdUntilRef.current;
+
+    // ✅ só libera quando NÃO estiver encostando em nada do painel
+    if (!btnVisible && !overlapWithPanel && !overlapWithInteractive) {
       clearHoldTimer();
       holdUntilRef.current = 0;
-      lastDecisionRef.current = false;
-      setHideBottomLinks(false);
-      return;
-    }
-
-    const gap = bottomRect.top - btnRect.bottom;
-
-    // ✅ thresholds (mobile mais forte)
-    const HARD_HIDE_PX = isMobile ? 18 : 10;
-    const SHOW_PX = isMobile ? 82 : 56;
-    const FAR_SHOW_PX = isMobile ? 170 : 120;
-    const HOLD_MS = isMobile ? 520 : 420;
-
-    const now = performance.now();
-    const hardHide = gap < HARD_HIDE_PX;
-
-    let next = lastDecisionRef.current;
-
-    if (hardHide) {
-      next = true;
-      holdUntilRef.current = now + HOLD_MS;
-
-      // ✅ agenda reavaliação automática quando o HOLD acabar
-      clearHoldTimer();
-      const wait = Math.max(0, holdUntilRef.current - now + 20);
-      holdTimerRef.current = window.setTimeout(() => {
-        computeBottomLinksHide();
-      }, wait);
-    } else {
-      const inHold = now < holdUntilRef.current;
-
-      // ✅ se já afastou MUITO, libera imediatamente (mesmo dentro do hold)
+      next = false;
+    } else if (btnVisible) {
+      // regra antiga por proximidade do botão (com histerese)
       if (gap > FAR_SHOW_PX) {
         clearHoldTimer();
         holdUntilRef.current = 0;
@@ -894,11 +952,21 @@ export default function LinkLoginPage() {
       } else {
         next = lastDecisionRef.current;
       }
+    } else {
+      // sem botão visível e sem overlap: mostra
+      if (!inHold) {
+        clearHoldTimer();
+        holdUntilRef.current = 0;
+        next = false;
+      } else {
+        next = lastDecisionRef.current;
+      }
     }
+  }
 
-    lastDecisionRef.current = next;
-    setHideBottomLinks(next);
-  }, []);
+  lastDecisionRef.current = next;
+  setHideBottomLinks(next);
+}, []);
   
   const scheduleBottomLinksCheck = useCallback((boostFrames = 10) => {
     // roda várias vezes após zoom/resize pra pegar o layout final
@@ -938,12 +1006,15 @@ export default function LinkLoginPage() {
 
     // ✅ Observa mudanças reais de layout (inclusive após fontes)
     let ro: ResizeObserver | null = null;
-    try {
-      ro = new ResizeObserver(() => scheduleBottomLinksCheck(12));
-      ro.observe(document.documentElement);
-      if (continueBtnRef.current) ro.observe(continueBtnRef.current);
-      if (bottomLinksRef.current) ro.observe(bottomLinksRef.current);
-    } catch {}
+try {
+  ro = new ResizeObserver(() => scheduleBottomLinksCheck(12));
+  ro.observe(document.documentElement);
+  if (continueBtnRef.current) ro.observe(continueBtnRef.current);
+  if (bottomLinksRef.current) ro.observe(bottomLinksRef.current);
+
+  // ✅ novo
+  if (centerPanelRef.current) ro.observe(centerPanelRef.current);
+} catch {}
 
     // ✅ Quando fontes carregam, o layout muda (evita pisca pós F5)
     const fontsAny: any = (document as any).fonts;
@@ -1083,7 +1154,10 @@ export default function LinkLoginPage() {
           className="w-full max-w-[640px]"
           style={{ willChange: "transform, opacity, filter" }}
         >
-          <div className="mx-auto w-full max-w-[560px] transform-gpu scale-[0.98] sm:scale-[1.0] md:scale-[1.02] origin-center">
+         <div
+  ref={centerPanelRef}
+  className="mx-auto w-full max-w-[560px] transform-gpu scale-[0.98] sm:scale-[1.0] md:scale-[1.02] origin-center"
+>
             <div className="text-center">
               <div className="mx-auto mb-5 inline-flex h-14 w-14 items-center justify-center rounded-full bg-black/[0.04] ring-1 ring-black/5 shrink-0">
                 {TitleIcon}
