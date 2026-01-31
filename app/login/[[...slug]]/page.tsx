@@ -199,10 +199,9 @@ function CodeBoxes({
           onPaste={(e) => {
             if (disabled) return; // ✅ trava
             e.preventDefault();
-            const pasted = onlyDigits(e.clipboardData.getData("text") || "").slice(
-              0,
-              length,
-            );
+            const pasted = onlyDigits(
+              e.clipboardData.getData("text") || "",
+            ).slice(0, length);
             if (!pasted) return;
             onChange(pasted);
             const nextIndex = Math.min(pasted.length, length - 1);
@@ -296,11 +295,13 @@ export default function LinkLoginPage() {
   const [emailSuccessOpen, setEmailSuccessOpen] = useState(false);
   const emailSuccessTimerRef = useRef<number | null>(null);
 
-  // ui states
-  const [busy, setBusy] = useState(false);
-  const [verifyingEmailCodeBusy, setVerifyingEmailCodeBusy] = useState(false); // ✅ novo (só validação do email code)
-  const [msgError, setMsgError] = useState<string | null>(null);
-  const [resendCooldown, setResendCooldown] = useState(0);
+ // ui states
+const [busy, setBusy] = useState(false);
+const [verifyingEmailCodeBusy, setVerifyingEmailCodeBusy] = useState(false); // ✅ novo (só validação do email code)
+const [verifyingSmsCodeBusy, setVerifyingSmsCodeBusy] = useState(false); // ✅ novo (só validação do sms code)
+const [msgError, setMsgError] = useState<string | null>(null);
+const [resendCooldown, setResendCooldown] = useState(0);
+
 
   const lastCheckedRef = useRef<string>("");
   const abortRef = useRef<AbortController | null>(null);
@@ -675,44 +676,47 @@ export default function LinkLoginPage() {
     ],
   );
 
-  const verifySmsCode = useCallback(
-    async (code?: string) => {
-      const c = onlyDigits(code ?? smsCode).slice(0, 7);
-      if (c.length !== 7 || busy) return;
+ const verifySmsCode = useCallback(
+  async (code?: string) => {
+    const c = onlyDigits(code ?? smsCode).slice(0, 7);
+    if (c.length !== 7 || busy || verifyingSmsCodeBusy) return;
 
-      setBusy(true);
-      setMsgError(null);
+    setVerifyingSmsCodeBusy(true); // ✅ trava e mostra loader no code
+    setBusy(true);
+    setMsgError(null);
 
-      try {
-        const res = await fetch("/api/wz_AuthLogin/verify-sms", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: email.trim().toLowerCase(),
-            code: c,
-            password,
-          }),
-        });
+    try {
+      const res = await fetch("/api/wz_AuthLogin/verify-sms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          code: c,
+          password,
+        }),
+      });
 
-        const j = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(j?.error || "Código inválido.");
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.error || "Código inválido.");
 
-        const nextUrl = String(j?.nextUrl || "/app");
-        if (/^https?:\/\//i.test(nextUrl)) {
-          window.location.assign(nextUrl);
-        } else {
-          router.push(nextUrl);
-        }
-      } catch (err: any) {
-        setMsgError(err?.message || "Erro inesperado.");
-      } finally {
-        setBusy(false);
+      const nextUrl = String(j?.nextUrl || "/app");
+      if (/^https?:\/\//i.test(nextUrl)) {
+        window.location.assign(nextUrl);
+      } else {
+        router.push(nextUrl);
       }
-    },
-    [email, smsCode, busy, router, password],
-  );
+    } catch (err: any) {
+      setMsgError(err?.message || "Erro inesperado.");
+    } finally {
+      setBusy(false);
+      setVerifyingSmsCodeBusy(false); // ✅ destrava
+    }
+  },
+  [email, smsCode, busy, verifyingSmsCodeBusy, router, password],
+);
 
-   const resend = useCallback(async () => {
+
+  const resend = useCallback(async () => {
     if (busy || resendCooldown > 0) return;
     setBusy(true);
     setMsgError(null);
@@ -734,7 +738,6 @@ export default function LinkLoginPage() {
       setBusy(false);
     }
   }, [busy, resendCooldown, email, step]);
-
 
   // ---------- COOKIES (mantive seu sistema) ----------
 
@@ -796,196 +799,200 @@ export default function LinkLoginPage() {
     );
   }, [COOKIE_KEY, cookieAccepting, prefersReducedMotion]);
 
-      // ---------- BOTTOM LINKS: esconder quando o "Continuar" encostar (zoom rápido / sem flicker) ----------
+  // ---------- BOTTOM LINKS: esconder quando o "Continuar" encostar (zoom rápido / sem flicker) ----------
   const continueBtnRef = useRef<HTMLButtonElement | null>(null);
   const bottomLinksRef = useRef<HTMLDivElement | null>(null);
 
   // ✅ novo: ref do painel onde estão os inputs/steps
-const centerPanelRef = useRef<HTMLDivElement | null>(null);
+  const centerPanelRef = useRef<HTMLDivElement | null>(null);
 
   const [hideBottomLinks, setHideBottomLinks] = useState(false);
 
-   const rafRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
   const settleFramesRef = useRef(0);
   const holdUntilRef = useRef(0);
   const lastDecisionRef = useRef(false);
   const holdTimerRef = useRef<number | null>(null); // ✅ acorda sozinho após HOLD
 
+  const computeBottomLinksHide = useCallback(() => {
+    if (typeof window === "undefined") return;
 
- const computeBottomLinksHide = useCallback(() => {
-  if (typeof window === "undefined") return;
+    const clearHoldTimer = () => {
+      if (holdTimerRef.current) {
+        window.clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
+      }
+    };
 
-  const clearHoldTimer = () => {
-    if (holdTimerRef.current) {
-      window.clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
+    const isMobile = window.matchMedia("(max-width: 640px)").matches;
+
+    const btn = continueBtnRef.current; // pode ser null em outros steps
+    const bottom = bottomLinksRef.current;
+    const root = centerPanelRef.current;
+
+    // bottom precisa existir; sem ele não tem o que calcular
+    if (!bottom) {
+      clearHoldTimer();
+      holdUntilRef.current = 0;
+      lastDecisionRef.current = false;
+      setHideBottomLinks(false);
+      return;
     }
-  };
 
-  const isMobile = window.matchMedia("(max-width: 640px)").matches;
+    const bottomRect = bottom.getBoundingClientRect();
 
-  const btn = continueBtnRef.current; // pode ser null em outros steps
-  const bottom = bottomLinksRef.current;
-  const root = centerPanelRef.current;
+    // viewport height mais fiel no mobile
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    const vh = (vv?.height ?? window.innerHeight) || 0;
 
-  // bottom precisa existir; sem ele não tem o que calcular
-  if (!bottom) {
-    clearHoldTimer();
-    holdUntilRef.current = 0;
-    lastDecisionRef.current = false;
-    setHideBottomLinks(false);
-    return;
-  }
+    // ✅ NOVO: se BottomLinks encostar em QUALQUER parte do painel (ícone/título/textos/inputs), esconde
+    const overlapWithPanel = (() => {
+      if (!root) return false;
 
-  const bottomRect = bottom.getBoundingClientRect();
+      const r = root.getBoundingClientRect();
 
-  // viewport height mais fiel no mobile
-  const vv = typeof window !== "undefined" ? window.visualViewport : null;
-  const vh = (vv?.height ?? window.innerHeight) || 0;
-
-  // ✅ NOVO: se BottomLinks encostar em QUALQUER parte do painel (ícone/título/textos/inputs), esconde
-  const overlapWithPanel = (() => {
-    if (!root) return false;
-
-    const r = root.getBoundingClientRect();
-
-    // se painel fora da viewport, ignora
-    if (r.bottom <= 0 || r.top >= vh) return false;
-
-    const xOverlap =
-      Math.min(bottomRect.right, r.right) - Math.max(bottomRect.left, r.left);
-    const yOverlap =
-      Math.min(bottomRect.bottom, r.bottom) - Math.max(bottomRect.top, r.top);
-
-    return xOverlap > 8 && yOverlap > 8;
-  })();
-
-  // ✅ mantém também a proteção específica de interativos (caso queira)
-  const overlapWithInteractive = (() => {
-    if (!root) return false;
-
-    const nodes = Array.from(
-      root.querySelectorAll<HTMLElement>(
-        'input, textarea, select, button, [role="button"], a[href]'
-      )
-    );
-
-    for (const el of nodes) {
-      const r = el.getBoundingClientRect();
-      if (r.width <= 0 || r.height <= 0) continue;
-      if (r.bottom <= 0 || r.top >= vh) continue;
+      // se painel fora da viewport, ignora
+      if (r.bottom <= 0 || r.top >= vh) return false;
 
       const xOverlap =
         Math.min(bottomRect.right, r.right) - Math.max(bottomRect.left, r.left);
       const yOverlap =
         Math.min(bottomRect.bottom, r.bottom) - Math.max(bottomRect.top, r.top);
 
-      if (xOverlap > 8 && yOverlap > 8) return true;
+      return xOverlap > 8 && yOverlap > 8;
+    })();
+
+    // ✅ mantém também a proteção específica de interativos (caso queira)
+    const overlapWithInteractive = (() => {
+      if (!root) return false;
+
+      const nodes = Array.from(
+        root.querySelectorAll<HTMLElement>(
+          'input, textarea, select, button, [role="button"], a[href]',
+        ),
+      );
+
+      for (const el of nodes) {
+        const r = el.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) continue;
+        if (r.bottom <= 0 || r.top >= vh) continue;
+
+        const xOverlap =
+          Math.min(bottomRect.right, r.right) -
+          Math.max(bottomRect.left, r.left);
+        const yOverlap =
+          Math.min(bottomRect.bottom, r.bottom) -
+          Math.max(bottomRect.top, r.top);
+
+        if (xOverlap > 8 && yOverlap > 8) return true;
+      }
+      return false;
+    })();
+
+    // thresholds (mobile mais forte)
+    const HARD_HIDE_PX = isMobile ? 18 : 10;
+    const SHOW_PX = isMobile ? 82 : 56;
+    const FAR_SHOW_PX = isMobile ? 170 : 120;
+    const HOLD_MS = isMobile ? 520 : 420;
+
+    // lógica do botão só se ele existir
+    let btnVisible = false;
+    let gap = Number.POSITIVE_INFINITY;
+
+    if (btn) {
+      const btnRect = btn.getBoundingClientRect();
+      btnVisible =
+        btnRect.width > 0 &&
+        btnRect.height > 0 &&
+        btnRect.bottom > 0 &&
+        btnRect.top < vh;
+
+      if (btnVisible) {
+        gap = bottomRect.top - btnRect.bottom;
+      }
     }
-    return false;
-  })();
 
-  // thresholds (mobile mais forte)
-  const HARD_HIDE_PX = isMobile ? 18 : 10;
-  const SHOW_PX = isMobile ? 82 : 56;
-  const FAR_SHOW_PX = isMobile ? 170 : 120;
-  const HOLD_MS = isMobile ? 520 : 420;
+    const now = performance.now();
 
-  // lógica do botão só se ele existir
-  let btnVisible = false;
-  let gap = Number.POSITIVE_INFINITY;
+    // ✅ hardHide agora considera:
+    // (1) encostou no painel (texto/ícone/etc) OU
+    // (2) encostou em inputs/botões OU
+    // (3) encostou no botão continuar
+    const hardHide =
+      overlapWithPanel ||
+      overlapWithInteractive ||
+      (btnVisible && gap < HARD_HIDE_PX);
 
-  if (btn) {
-    const btnRect = btn.getBoundingClientRect();
-    btnVisible =
-      btnRect.width > 0 &&
-      btnRect.height > 0 &&
-      btnRect.bottom > 0 &&
-      btnRect.top < vh;
+    let next = lastDecisionRef.current;
 
-    if (btnVisible) {
-      gap = bottomRect.top - btnRect.bottom;
-    }
-  }
+    if (hardHide) {
+      next = true;
+      holdUntilRef.current = now + HOLD_MS;
 
-  const now = performance.now();
-
-  // ✅ hardHide agora considera:
-  // (1) encostou no painel (texto/ícone/etc) OU
-  // (2) encostou em inputs/botões OU
-  // (3) encostou no botão continuar
-  const hardHide =
-    overlapWithPanel ||
-    overlapWithInteractive ||
-    (btnVisible && gap < HARD_HIDE_PX);
-
-  let next = lastDecisionRef.current;
-
-  if (hardHide) {
-    next = true;
-    holdUntilRef.current = now + HOLD_MS;
-
-    clearHoldTimer();
-    const wait = Math.max(0, holdUntilRef.current - now + 20);
-    holdTimerRef.current = window.setTimeout(() => {
-      computeBottomLinksHide();
-    }, wait);
-  } else {
-    const inHold = now < holdUntilRef.current;
-
-    // ✅ só libera quando NÃO estiver encostando em nada do painel
-    if (!btnVisible && !overlapWithPanel && !overlapWithInteractive) {
       clearHoldTimer();
-      holdUntilRef.current = 0;
-      next = false;
-    } else if (btnVisible) {
-      // regra antiga por proximidade do botão (com histerese)
-      if (gap > FAR_SHOW_PX) {
-        clearHoldTimer();
-        holdUntilRef.current = 0;
-        next = false;
-      } else if (inHold) {
-        next = true;
-      } else if (gap > SHOW_PX) {
-        clearHoldTimer();
-        next = false;
-      } else {
-        next = lastDecisionRef.current;
-      }
+      const wait = Math.max(0, holdUntilRef.current - now + 20);
+      holdTimerRef.current = window.setTimeout(() => {
+        computeBottomLinksHide();
+      }, wait);
     } else {
-      // sem botão visível e sem overlap: mostra
-      if (!inHold) {
+      const inHold = now < holdUntilRef.current;
+
+      // ✅ só libera quando NÃO estiver encostando em nada do painel
+      if (!btnVisible && !overlapWithPanel && !overlapWithInteractive) {
         clearHoldTimer();
         holdUntilRef.current = 0;
         next = false;
+      } else if (btnVisible) {
+        // regra antiga por proximidade do botão (com histerese)
+        if (gap > FAR_SHOW_PX) {
+          clearHoldTimer();
+          holdUntilRef.current = 0;
+          next = false;
+        } else if (inHold) {
+          next = true;
+        } else if (gap > SHOW_PX) {
+          clearHoldTimer();
+          next = false;
+        } else {
+          next = lastDecisionRef.current;
+        }
       } else {
-        next = lastDecisionRef.current;
+        // sem botão visível e sem overlap: mostra
+        if (!inHold) {
+          clearHoldTimer();
+          holdUntilRef.current = 0;
+          next = false;
+        } else {
+          next = lastDecisionRef.current;
+        }
       }
     }
-  }
 
-  lastDecisionRef.current = next;
-  setHideBottomLinks(next);
-}, []);
-  
-  const scheduleBottomLinksCheck = useCallback((boostFrames = 10) => {
-    // roda várias vezes após zoom/resize pra pegar o layout final
-    settleFramesRef.current = Math.max(settleFramesRef.current, boostFrames);
+    lastDecisionRef.current = next;
+    setHideBottomLinks(next);
+  }, []);
 
-    if (rafRef.current) return;
+  const scheduleBottomLinksCheck = useCallback(
+    (boostFrames = 10) => {
+      // roda várias vezes após zoom/resize pra pegar o layout final
+      settleFramesRef.current = Math.max(settleFramesRef.current, boostFrames);
 
-    const loop = () => {
-      rafRef.current = null;
-      computeBottomLinksHide();
+      if (rafRef.current) return;
 
-      if (settleFramesRef.current > 0) {
-        settleFramesRef.current -= 1;
-        rafRef.current = requestAnimationFrame(loop);
-      }
-    };
+      const loop = () => {
+        rafRef.current = null;
+        computeBottomLinksHide();
 
-    rafRef.current = requestAnimationFrame(loop);
-  }, [computeBottomLinksHide]);
+        if (settleFramesRef.current > 0) {
+          settleFramesRef.current -= 1;
+          rafRef.current = requestAnimationFrame(loop);
+        }
+      };
+
+      rafRef.current = requestAnimationFrame(loop);
+    },
+    [computeBottomLinksHide],
+  );
 
   // useLayoutEffect evita “piscar” no primeiro paint após F5
   useLayoutEffect(() => {
@@ -1006,15 +1013,15 @@ const centerPanelRef = useRef<HTMLDivElement | null>(null);
 
     // ✅ Observa mudanças reais de layout (inclusive após fontes)
     let ro: ResizeObserver | null = null;
-try {
-  ro = new ResizeObserver(() => scheduleBottomLinksCheck(12));
-  ro.observe(document.documentElement);
-  if (continueBtnRef.current) ro.observe(continueBtnRef.current);
-  if (bottomLinksRef.current) ro.observe(bottomLinksRef.current);
+    try {
+      ro = new ResizeObserver(() => scheduleBottomLinksCheck(12));
+      ro.observe(document.documentElement);
+      if (continueBtnRef.current) ro.observe(continueBtnRef.current);
+      if (bottomLinksRef.current) ro.observe(bottomLinksRef.current);
 
-  // ✅ novo
-  if (centerPanelRef.current) ro.observe(centerPanelRef.current);
-} catch {}
+      // ✅ novo
+      if (centerPanelRef.current) ro.observe(centerPanelRef.current);
+    } catch {}
 
     // ✅ Quando fontes carregam, o layout muda (evita pisca pós F5)
     const fontsAny: any = (document as any).fonts;
@@ -1139,8 +1146,6 @@ try {
 
   return (
     <div className="min-h-screen bg-white relative overflow-hidden">
-
-
       {/* Centro */}
       <div className="relative z-10 min-h-screen flex items-start sm:items-center justify-center px-4 pt-[calc(env(safe-area-inset-top,0px)+44px)] sm:pt-20 pb-[calc(env(safe-area-inset-bottom,0px)+260px)] sm:pb-[calc(env(safe-area-inset-bottom,0px)+240px)]">
         <motion.div
@@ -1154,10 +1159,10 @@ try {
           className="w-full max-w-[640px]"
           style={{ willChange: "transform, opacity, filter" }}
         >
-         <div
-  ref={centerPanelRef}
-  className="mx-auto w-full max-w-[560px] transform-gpu scale-[0.98] sm:scale-[1.0] md:scale-[1.02] origin-center"
->
+          <div
+            ref={centerPanelRef}
+            className="mx-auto w-full max-w-[560px] transform-gpu scale-[0.98] sm:scale-[1.0] md:scale-[1.02] origin-center"
+          >
             <div className="text-center">
               <div className="mx-auto mb-5 inline-flex h-14 w-14 items-center justify-center rounded-full bg-black/[0.04] ring-1 ring-black/5 shrink-0">
                 {TitleIcon}
@@ -1182,7 +1187,9 @@ try {
                     </span>
                   </>
                 ) : step === "emailSuccess" ? (
-                  <>Verificação concluída. Vamos confirmar seu número por SMS.</>
+                  <>
+                    Verificação concluída. Vamos confirmar seu número por SMS.
+                  </>
                 ) : step === "smsCode" ? (
                   <>
                     <span className="text-black/75">
@@ -1586,12 +1593,14 @@ try {
                   className="mt-10"
                 >
                   <CodeBoxes
-                    length={7}
-                    value={smsCode}
-                    onChange={setSmsCode}
-                    onComplete={(v) => verifySmsCode(v)}
-                    disabled={busy}
-                  />
+  length={7}
+  value={smsCode}
+  onChange={setSmsCode}
+  onComplete={(v) => verifySmsCode(v)}
+  disabled={busy || verifyingSmsCodeBusy} // ✅ trava inputs
+  loading={verifyingSmsCodeBusy} // ✅ loader central
+  reduced={!!prefersReducedMotion}
+/>
 
                   <AnimatePresence initial={false}>
                     {!!msgError && (
@@ -1612,16 +1621,16 @@ try {
 
                   <div className="mt-8 flex items-center justify-center">
                     <button
-                      type="button"
-                      onClick={resend}
-                      disabled={busy || resendCooldown > 0}
-                      className={cx(
-                        "text-[14px] font-semibold text-black/80 hover:text-black transition-colors",
-                        busy || resendCooldown > 0
-                          ? "opacity-50 cursor-not-allowed"
-                          : "",
-                      )}
-                    >
+  type="button"
+  onClick={resend}
+  disabled={busy || verifyingSmsCodeBusy || resendCooldown > 0}
+  className={cx(
+    "text-[14px] font-semibold text-black/80 hover:text-black transition-colors",
+    busy || verifyingSmsCodeBusy || resendCooldown > 0
+      ? "opacity-50 cursor-not-allowed"
+      : "",
+  )}
+>
                       {resendCooldown > 0
                         ? `Reenviar código (${resendCooldown}s)`
                         : "Reenviar código"}
@@ -1629,11 +1638,17 @@ try {
                   </div>
 
                   <div className="mt-6 flex items-center justify-center">
-                    <button
-                      type="button"
-                      onClick={resetAll}
-                      className="text-[13px] font-semibold text-black/55 hover:text-black/75 transition-colors inline-flex items-center gap-2"
-                    >
+<button
+  type="button"
+  onClick={resetAll}
+  disabled={busy || verifyingSmsCodeBusy} // ✅ não deixa resetar no meio
+  className={cx(
+    "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
+    busy || verifyingSmsCodeBusy
+      ? "text-black/35 cursor-not-allowed"
+      : "text-black/55 hover:text-black/75",
+  )}
+>
                       <Undo2 className="h-4 w-4" />
                       Trocar e-mail
                     </button>
@@ -1645,54 +1660,68 @@ try {
         </motion.div>
       </div>
 
-{/* Bottom links (igual imagem) */}
-<motion.div
-  initial={false}
-  animate={
-    hideBottomLinks
-      ? { opacity: 0, y: 10, filter: "blur(8px)" }
-      : { opacity: 1, y: 0, filter: "blur(0px)" }
-  }
-  transition={{
-    duration: prefersReducedMotion ? 0 : hideBottomLinks ? 0.08 : 0.22,
-    ease: EASE,
-  }}
-  className="fixed inset-x-0 bottom-0 z-[30] pointer-events-none"
-  style={{ willChange: "transform, opacity, filter" }}
->
-  <div
-    ref={bottomLinksRef}
-    className={cx(
-      "mx-auto w-full max-w-[560px] px-4",
-      hideBottomLinks ? "pointer-events-none" : "pointer-events-auto"
-    )}
-    style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 22px)" }}
-  >
-    <div className="flex flex-col items-center justify-center gap-4">
-      <a
-        href="/ajuda"
-        className={cx(
-          "inline-flex items-center justify-center rounded-[14px] px-7 py-3",
-          "bg-[#f3f3f3] ring-1 ring-black/5",
-          "text-[15px] font-semibold text-black/80 hover:text-black",
-          "hover:bg-[#ededed] transition-colors"
-        )}
+      {/* Bottom links (igual imagem) */}
+      <motion.div
+        initial={false}
+        animate={
+          hideBottomLinks
+            ? { opacity: 0, y: 10, filter: "blur(8px)" }
+            : { opacity: 1, y: 0, filter: "blur(0px)" }
+        }
+        transition={{
+          duration: prefersReducedMotion ? 0 : hideBottomLinks ? 0.08 : 0.22,
+          ease: EASE,
+        }}
+        className="fixed inset-x-0 bottom-0 z-[30] pointer-events-none"
+        style={{ willChange: "transform, opacity, filter" }}
       >
-        Ajuda
-      </a>
+        <div
+          ref={bottomLinksRef}
+          className={cx(
+            "mx-auto w-full max-w-[560px] px-4",
+            hideBottomLinks ? "pointer-events-none" : "pointer-events-auto",
+          )}
+          style={{
+            paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 22px)",
+          }}
+        >
+          <div className="flex flex-col items-center justify-center gap-4">
+            <a
+              href="/ajuda"
+              className={cx(
+                "inline-flex items-center justify-center rounded-[14px] px-7 py-3",
+                "bg-[#f3f3f3] ring-1 ring-black/5",
+                "text-[15px] font-semibold text-black/80 hover:text-black",
+                "hover:bg-[#ededed] transition-colors",
+              )}
+            >
+              Ajuda
+            </a>
 
-      <div className="flex items-center justify-center gap-10 text-[15px] text-black/55">
-        <a href="/termos" className="hover:text-black transition-colors">Termos</a>
-        <a href="/privacidade" className="hover:text-black transition-colors">Privacidade</a>
-        <a href="/cookies" className="hover:text-black transition-colors">Cookies</a>
-      </div>
-    </div>
-  </div>
-</motion.div>
-
+            <div className="flex items-center justify-center gap-10 text-[15px] text-black/55">
+              <a href="/termos" className="hover:text-black transition-colors">
+                Termos
+              </a>
+              <a
+                href="/privacidade"
+                className="hover:text-black transition-colors"
+              >
+                Privacidade
+              </a>
+              <a href="/cookies" className="hover:text-black transition-colors">
+                Cookies
+              </a>
+            </div>
+          </div>
+        </div>
+      </motion.div>
 
       {/* Cookies (mantido) */}
-      <AnimatePresence initial={false} mode="sync" presenceAffectsLayout={false}>
+      <AnimatePresence
+        initial={false}
+        mode="sync"
+        presenceAffectsLayout={false}
+      >
         {cookieReady && showCookieConsent && (
           <motion.div
             variants={cookieWrapVariants}
@@ -1786,11 +1815,15 @@ try {
                           "group relative w-full bg-[#171717] border border-[#454545] border-2 rounded-full px-6 py-4 text-white",
                           "hover:border-[#6a6a6a] focus:outline-none focus:border-lime-400 transition-all duration-300 ease-out",
                           "text-[13px] font-semibold shadow-[0_18px_55px_rgba(0,0,0,0.12)] hover:shadow-[0_22px_70px_rgba(0,0,0,0.16)] pr-16 transform-gpu",
-                          cookieAccepting ? "opacity-80 cursor-not-allowed" : "",
+                          cookieAccepting
+                            ? "opacity-80 cursor-not-allowed"
+                            : "",
                         )}
                         style={{ willChange: "transform" }}
                       >
-                        <span className="relative z-10">Entendi e continuar</span>
+                        <span className="relative z-10">
+                          Entendi e continuar
+                        </span>
 
                         <motion.span
                           whileHover={

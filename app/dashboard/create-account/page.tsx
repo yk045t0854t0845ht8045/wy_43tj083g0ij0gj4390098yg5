@@ -5,7 +5,9 @@ import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session";
 export const dynamic = "force-dynamic";
 
 function buildLoginUrl(hostHeader: string | null) {
-  const host = String(hostHeader || "").split(":")[0].toLowerCase();
+  const host = String(hostHeader || "")
+    .split(":")[0]
+    .toLowerCase();
 
   // dev
   if (host === "dashboard.wyzer.com.br" || host.endsWith(".wyzer.com.br")) {
@@ -55,9 +57,7 @@ export default async function CreateAccountDashboardPage() {
   return (
     <div className="min-h-screen bg-white flex items-center justify-center px-6">
       <div className="text-center max-w-[520px] w-full">
-        <div className="text-black font-semibold text-[26px]">
-          Conta
-        </div>
+        <div className="text-black font-semibold text-[26px]">Conta</div>
 
         <div className="mt-6 rounded-[18px] bg-black/[0.04] ring-1 ring-black/10 px-5 py-4 text-left">
           <div className="text-[13px] text-black/60">User ID</div>
@@ -71,11 +71,7 @@ export default async function CreateAccountDashboardPage() {
           </div>
         </div>
 
-        <form
-          action="/api/wz_AuthLogin/logout"
-          method="post"
-          className="mt-8"
-        >
+        <form action="/api/wz_AuthLogin/logout" method="post" className="mt-8">
           <button
             type="submit"
             className="w-full rounded-full px-6 py-4 bg-black text-white text-[14px] font-semibold"
