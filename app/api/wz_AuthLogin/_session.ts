@@ -3,16 +3,45 @@ import type { NextRequest } from "next/server";
 
 const COOKIE_NAME = "wz_session_v1";
 
+/**
+ * ✅ NOVO: cookie de device para “amarrar” sessão ao navegador/dispositivo
+ * - httpOnly (não dá pra JS ler)
+ * - estável por bastante tempo
+ */
+const DEVICE_COOKIE_NAME = "wz_device_v1";
+
+// bump de versão do payload (pra você controlar rollout)
+const SESSION_PAYLOAD_VER = 2;
+
 export type SessionPayload = {
   userId: string;
   email: string;
   iat: number;
   exp: number;
+
+  // ✅ NOVO (v2)
+  ver?: number;
+  sid?: string;
+
+  // binds (hashes)
+  did?: string; // hash do device cookie
+  ua?: string; // hash do user-agent
+  ip?: string; // hash do prefixo do IP
 };
 
 function must(name: string, v?: string) {
   if (!v) throw new Error(`Missing env: ${name}`);
   return v;
+}
+
+/**
+ * ✅ HeaderLike: resolve o “vermelho” do TS quando Headers é ReadonlyHeaders,
+ * NextRequest.headers, etc. Aqui a gente só precisa de .get().
+ */
+type HeaderLike = { get(name: string): string | null } | null;
+
+function headerGet(h: HeaderLike, name: string) {
+  return (h ? h.get(name) : null) ?? "";
 }
 
 function b64url(input: Buffer | string) {
@@ -61,9 +90,112 @@ function getCookieDomain() {
   return ".localhost";
 }
 
+// ------------------------------
+// ✅ helpers de bind
+// ------------------------------
+
+function sha256Short(input: string) {
+  // hash curto (estável) pra não guardar UA/IP em claro no cookie
+  const h = crypto
+    .createHash("sha256")
+    .update(String(input || ""), "utf8")
+    .digest();
+  return b64url(h).slice(0, 22); // curto e suficiente
+}
+
+function randomHex(bytes = 16) {
+  return crypto.randomBytes(bytes).toString("hex");
+}
+
+function getUserAgentFromHeaders(h: HeaderLike) {
+  return String(headerGet(h, "user-agent")).trim();
+}
+
+function firstIpFromXff(xff: string) {
+  // x-forwarded-for: "client, proxy1, proxy2"
+  const first = String(xff || "").split(",")[0]?.trim() || "";
+  return first;
+}
+
+function normalizeIp(raw: string) {
+  let ip = String(raw || "").trim();
+
+  // remove porta (ipv4:port)
+  if (/^\d+\.\d+\.\d+\.\d+:\d+$/.test(ip)) ip = ip.split(":")[0];
+
+  // remove brackets ipv6 [::1]:port
+  if (ip.startsWith("[") && ip.includes("]")) {
+    const inside = ip.slice(1, ip.indexOf("]"));
+    ip = inside || ip;
+  }
+
+  return ip;
+}
+
+function ipPrefix(ip: string) {
+  // deixa mais estável: ipv4 /24, ipv6 /64
+  const v = normalizeIp(ip);
+
+  // ipv4
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) {
+    const parts = v.split(".");
+    if (parts.length === 4) return `${parts[0]}.${parts[1]}.${parts[2]}.0`;
+    return v;
+  }
+
+  // ipv6: pega primeiros 4 hextetos (aprox /64)
+  if (v.includes(":")) {
+    const parts = v.split(":").filter(Boolean);
+    const head = parts.slice(0, 4).join(":");
+    return head || v;
+  }
+
+  return v;
+}
+
+function getClientIpFromHeaders(h: HeaderLike) {
+  const xff = String(headerGet(h, "x-forwarded-for")).trim();
+  const xrip = String(headerGet(h, "x-real-ip")).trim();
+  const ip = normalizeIp(firstIpFromXff(xff) || xrip);
+  return ip;
+}
+
+function getEnvBool(name: string, def: boolean) {
+  const v = String(process.env[name] ?? "").trim().toLowerCase();
+  if (!v) return def;
+  if (v === "1" || v === "true" || v === "yes" || v === "on") return true;
+  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
+  return def;
+}
+
+function getBindConfig() {
+  /**
+   * ✅ Ajuste fino por ENV:
+   * - SESSION_BIND_DEVICE (default: true)  -> exige wz_device_v1
+   * - SESSION_BIND_UA     (default: false) -> exige UA igual
+   * - SESSION_BIND_IP     (default: true)  -> exige IP prefixo igual (pode derrubar em rede móvel)
+   * - SESSION_ALLOW_LEGACY(default: true)  -> aceita tokens antigos sem bind até expirarem
+   */
+  return {
+    bindDevice: getEnvBool("SESSION_BIND_DEVICE", true),
+    bindUA: getEnvBool("SESSION_BIND_UA", false),
+    bindIP: getEnvBool("SESSION_BIND_IP", true),
+    allowLegacy: getEnvBool("SESSION_ALLOW_LEGACY", true),
+  };
+}
+
+// ------------------------------
+// ✅ Exported API (mantida)
+// ------------------------------
+
+/**
+ * ✅ Mantém assinatura original e adiciona 3º parâmetro opcional
+ * (não quebra seus calls atuais).
+ */
 export function setSessionCookie(
   res: any,
   params: { userId: string; email: string; ttlDays?: number },
+  reqOrHeaders?: NextRequest | HeaderLike,
 ) {
   const secret = must("SESSION_SECRET", process.env.SESSION_SECRET);
 
@@ -71,19 +203,60 @@ export function setSessionCookie(
   const now = Math.floor(Date.now() / 1000);
   const exp = now + ttlDays * 24 * 60 * 60;
 
+  const isProd = process.env.NODE_ENV === "production";
+  const domain = getCookieDomain();
+
+  const cfg = getBindConfig();
+
+  // ✅ pega headers com segurança (NextRequest ou qualquer objeto com .get)
+  const h: HeaderLike =
+    (reqOrHeaders && (reqOrHeaders as NextRequest).headers
+      ? (reqOrHeaders as NextRequest).headers
+      : (reqOrHeaders as HeaderLike)) || null;
+
+  const cookieHeader = headerGet(h, "cookie");
+  const parsed = parseCookieHeader(cookieHeader);
+
+  // ✅ device cookie (estável)
+  let deviceId = String(parsed[DEVICE_COOKIE_NAME] || "").trim();
+  if (!deviceId) {
+    deviceId = randomHex(20);
+  }
+
+  // Sempre setamos o device cookie (se já existir, o navegador mantém o mesmo valor se for igual;
+  // se não existir, cria; se você quiser evitar override, passe reqOrHeaders com cookie do request).
+  res.cookies.set(DEVICE_COOKIE_NAME, deviceId, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365 * 2, // 2 anos
+    ...(domain ? { domain } : {}),
+  });
+
+  // ✅ binds
+  const ua = getUserAgentFromHeaders(h);
+  const ip = getClientIpFromHeaders(h);
+
   const payload: SessionPayload = {
     userId: String(params.userId),
     email: String(params.email).trim().toLowerCase(),
     iat: now,
     exp,
+
+    // v2
+    ver: SESSION_PAYLOAD_VER,
+    sid: randomHex(16),
+
+    // hashes (não vaza valores crus)
+    ...(cfg.bindDevice ? { did: sha256Short(deviceId) } : {}),
+    ...(cfg.bindUA && ua ? { ua: sha256Short(ua) } : {}),
+    ...(cfg.bindIP && ip ? { ip: sha256Short(ipPrefix(ip)) } : {}),
   };
 
   const body = b64url(JSON.stringify(payload));
   const sig = sign(body, secret);
   const token = `${body}.${sig}`;
-
-  const isProd = process.env.NODE_ENV === "production";
-  const domain = getCookieDomain();
 
   res.cookies.set(COOKIE_NAME, token, {
     httpOnly: true,
@@ -107,10 +280,57 @@ export function clearSessionCookie(res: any) {
     maxAge: 0,
     ...(domain ? { domain } : {}),
   });
+
+  // ❗️Não removo o device cookie por padrão (pra não “trocar o device” toda hora)
 }
 
+function validateBinds(payload: SessionPayload, cookieHeader: string, h: HeaderLike) {
+  const cfg = getBindConfig();
+
+  // legacy (tokens antigos sem ver/did/ip/ua)
+  const hasAnyBind = !!payload?.did || !!payload?.ua || !!payload?.ip;
+  const isLegacy = !payload?.ver || payload.ver < 2 || !hasAnyBind;
+
+  if (isLegacy) {
+    return cfg.allowLegacy;
+  }
+
+  const parsed = parseCookieHeader(cookieHeader);
+
+  // device bind
+  if (cfg.bindDevice) {
+    const deviceId = String(parsed[DEVICE_COOKIE_NAME] || "").trim();
+    if (!deviceId) return false;
+    const expectDid = sha256Short(deviceId);
+    if (!payload.did || payload.did !== expectDid) return false;
+  }
+
+  // UA bind
+  if (cfg.bindUA) {
+    const ua = getUserAgentFromHeaders(h);
+    if (!ua) return false;
+    const expectUa = sha256Short(ua);
+    if (!payload.ua || payload.ua !== expectUa) return false;
+  }
+
+  // IP bind
+  if (cfg.bindIP) {
+    const ip = getClientIpFromHeaders(h);
+    if (!ip) return false;
+    const expectIp = sha256Short(ipPrefix(ip));
+    if (!payload.ip || payload.ip !== expectIp) return false;
+  }
+
+  return true;
+}
+
+/**
+ * ✅ Mantida e com 2º parâmetro opcional p/ validar UA/IP quando você tiver headers.
+ * (Se você chamar só com cookieHeader como antes, continua funcionando.)
+ */
 export function readSessionFromCookieHeader(
   cookieHeader: string | null | undefined,
+  headersForBind?: HeaderLike,
 ): SessionPayload | null {
   const secret = process.env.SESSION_SECRET;
   if (!secret) return null;
@@ -127,8 +347,15 @@ export function readSessionFromCookieHeader(
 
   try {
     const payload = JSON.parse(b64urlToBuf(body).toString("utf8")) as SessionPayload;
+
     if (!payload?.exp || payload.exp < Math.floor(Date.now() / 1000)) return null;
     if (!payload?.userId || !payload?.email) return null;
+
+    // ✅ valida binds (device sempre dá pra validar via cookieHeader)
+    // UA/IP só valida se headersForBind foi passado.
+    const okBinds = validateBinds(payload, String(cookieHeader || ""), headersForBind || null);
+    if (!okBinds) return null;
+
     return payload;
   } catch {
     return null;
@@ -136,11 +363,10 @@ export function readSessionFromCookieHeader(
 }
 
 /**
- * ✅ NOVO: compatível com teu /me
- * Lê cookie do request (NextRequest) e valida.
+ * ✅ compatível com teu /me
+ * Lê cookie do request (NextRequest) e valida (inclui binds).
  */
 export function readSessionFromRequest(req: NextRequest): SessionPayload | null {
-  // preferir header "cookie" (mais universal)
   const cookieHeader = req.headers.get("cookie");
-  return readSessionFromCookieHeader(cookieHeader);
+  return readSessionFromCookieHeader(cookieHeader, req.headers);
 }
