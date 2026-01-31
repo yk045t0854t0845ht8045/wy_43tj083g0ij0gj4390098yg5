@@ -8,7 +8,16 @@ import React, {
   useRef,
 } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { ArrowRight, Check, X, Undo2, Mail, Phone, Eye, EyeOff } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  X,
+  Undo2,
+  Mail,
+  Phone,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 
 function cx(...classes: Array<string | false | null | undefined>) {
@@ -189,7 +198,10 @@ function CodeBoxes({
           onPaste={(e) => {
             if (disabled) return; // ✅ trava
             e.preventDefault();
-            const pasted = onlyDigits(e.clipboardData.getData("text") || "").slice(0, length);
+            const pasted = onlyDigits(e.clipboardData.getData("text") || "").slice(
+              0,
+              length,
+            );
             if (!pasted) return;
             onChange(pasted);
             const nextIndex = Math.min(pasted.length, length - 1);
@@ -267,14 +279,14 @@ export default function LinkLoginPage() {
 
   const [check, setCheck] = useState<EmailCheckState>({ state: "idle" });
 
- // cadastro (novo)
-const [fullName, setFullName] = useState("");
-const [phone, setPhone] = useState("");
-const [cpf, setCpf] = useState("");
+  // cadastro (novo)
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [cpf, setCpf] = useState("");
 
-// ✅ senha (serve pro login e pro registro)
-const [password, setPassword] = useState("");
-const [showPassword, setShowPassword] = useState(false);
+  // ✅ senha (serve pro login e pro registro)
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   // codes
   const [emailCode, setEmailCode] = useState("");
@@ -283,16 +295,14 @@ const [showPassword, setShowPassword] = useState(false);
   const [emailSuccessOpen, setEmailSuccessOpen] = useState(false);
   const emailSuccessTimerRef = useRef<number | null>(null);
 
- // ui states
-const [busy, setBusy] = useState(false);
-const [verifyingEmailCodeBusy, setVerifyingEmailCodeBusy] = useState(false); // ✅ novo (só validação do email code)
-const [msgError, setMsgError] = useState<string | null>(null);
-const [resendCooldown, setResendCooldown] = useState(0);
-
+  // ui states
+  const [busy, setBusy] = useState(false);
+  const [verifyingEmailCodeBusy, setVerifyingEmailCodeBusy] = useState(false); // ✅ novo (só validação do email code)
+  const [msgError, setMsgError] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   const lastCheckedRef = useRef<string>("");
   const abortRef = useRef<AbortController | null>(null);
-
 
   // prefill email from token -> lock + cleanup URL
   useEffect(() => {
@@ -332,15 +342,15 @@ const [resendCooldown, setResendCooldown] = useState(0);
         const r = await fetch("/api/wz_AuthLogin/me", { method: "GET" });
         if (r.ok) {
           const j = await r.json().catch(() => ({}));
-         if (j?.ok) {
-  if (typeof window !== "undefined") {
-    const isLocal = window.location.hostname.endsWith("wyzer.com.br");
-    const target = isLocal
-      ? "http://dashboard.wyzer.com.br/create-account"
-      : "https://dashboard.wyzer.com.br/create-account";
-    window.location.href = target;
-  }
-}
+          if (j?.ok) {
+            if (typeof window !== "undefined") {
+              const isLocal = window.location.hostname.endsWith("wyzer.com.br");
+              const target = isLocal
+                ? "http://dashboard.wyzer.com.br/create-account"
+                : "https://dashboard.wyzer.com.br/create-account";
+              window.location.href = target;
+            }
+          }
         }
       } catch {}
     })();
@@ -480,49 +490,6 @@ const [resendCooldown, setResendCooldown] = useState(0);
             </motion.div>
           )}
 
-          {/* {s === "exists" && (
-            <motion.div
-              key="exists"
-              initial={{ opacity: 0, scale: 0.92 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{
-                duration: prefersReducedMotion ? 0 : 0.18,
-                ease: EASE,
-              }}
-              className="inline-flex items-center justify-center h-9 w-9 rounded-full bg-black/[0.06]"
-            >
-              <motion.div
-                animate={
-                  prefersReducedMotion ? undefined : { scale: [1, 1.06, 1] }
-                }
-                transition={
-                  prefersReducedMotion
-                    ? undefined
-                    : { duration: 0.35, ease: EASE }
-                }
-              >
-                <Check className="h-5 w-5 text-black/70" />
-              </motion.div>
-            </motion.div>
-          )} */}
-
-          {/* {s === "new" && (
-            <motion.div
-              key="new"
-              initial={{ opacity: 0, scale: 0.92 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: prefersReducedMotion ? 0 : 0.18, ease: EASE }}
-              className="inline-flex items-center justify-center h-9 w-9 rounded-full bg-black/[0.06]"
-            >
-              <motion.div
-                animate={prefersReducedMotion ? undefined : { rotate: [0, 6, -6, 0] }}
-                transition={prefersReducedMotion ? undefined : { duration: 0.35, ease: EASE }}
-              >
-                <ArrowRight className="h-5 w-5 text-black/60" />
-              </motion.div>
-            </motion.div>
-          )} */}
-
           {s === "invalid" && email.trim().length > 0 && (
             <motion.div
               key="invalid"
@@ -576,7 +543,7 @@ const [resendCooldown, setResendCooldown] = useState(0);
     return "Faça login ou registre-se para começar.";
   }, [check.state, step]);
 
-    const canStart = useMemo(() => {
+  const canStart = useMemo(() => {
     const eok = isValidEmail(email.trim());
     if (!eok) return false;
     if (check.state === "checking" || check.state === "typing") return false;
@@ -640,60 +607,72 @@ const [resendCooldown, setResendCooldown] = useState(0);
 
   const [phoneMaskFromServer, setPhoneMaskFromServer] = useState<string>("");
 
-const verifyEmailCode = useCallback(
-  async (code?: string) => {
-    const c = onlyDigits(code ?? emailCode).slice(0, 7);
-    if (c.length !== 7 || busy || verifyingEmailCodeBusy) return;
+  const verifyEmailCode = useCallback(
+    async (code?: string) => {
+      const c = onlyDigits(code ?? emailCode).slice(0, 7);
+      if (c.length !== 7 || busy || verifyingEmailCodeBusy) return;
 
-    setVerifyingEmailCodeBusy(true); // ✅ trava e mostra loader no code
-    setBusy(true);
-    setMsgError(null);
+      setVerifyingEmailCodeBusy(true); // ✅ trava e mostra loader no code
+      setBusy(true);
+      setMsgError(null);
 
-    try {
-      const res = await fetch("/api/wz_AuthLogin/verify-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), code: c, password }),
-      });
+      try {
+        const res = await fetch("/api/wz_AuthLogin/verify-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            code: c,
+            password,
+          }),
+        });
 
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j?.error || "Código inválido.");
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j?.error || "Código inválido.");
 
-      if (j?.next === "sms") {
-        setPhoneMaskFromServer(String(j?.phoneMask || ""));
-        setEmailSuccessOpen(true);
-        setStep("emailSuccess");
+        if (j?.next === "sms") {
+          setPhoneMaskFromServer(String(j?.phoneMask || ""));
+          setEmailSuccessOpen(true);
+          setStep("emailSuccess");
 
-        if (emailSuccessTimerRef.current) {
-          window.clearTimeout(emailSuccessTimerRef.current);
-          emailSuccessTimerRef.current = null;
+          if (emailSuccessTimerRef.current) {
+            window.clearTimeout(emailSuccessTimerRef.current);
+            emailSuccessTimerRef.current = null;
+          }
+
+          emailSuccessTimerRef.current = window.setTimeout(
+            () => {
+              setEmailSuccessOpen(false);
+              setStep("smsCode");
+              setSmsCode("");
+              setResendCooldown(35);
+              emailSuccessTimerRef.current = null;
+            },
+            prefersReducedMotion ? 0 : 1500, // ✅ dura mais
+          );
+
+          return;
         }
 
-        emailSuccessTimerRef.current = window.setTimeout(
-          () => {
-            setEmailSuccessOpen(false);
-            setStep("smsCode");
-            setSmsCode("");
-            setResendCooldown(35);
-            emailSuccessTimerRef.current = null;
-          },
-          prefersReducedMotion ? 0 : 1500, // ✅ dura mais
-        );
-
-        return;
+        const nextUrl = String(j?.nextUrl || "/app");
+        router.push(nextUrl);
+      } catch (err: any) {
+        setMsgError(err?.message || "Erro inesperado.");
+      } finally {
+        setBusy(false);
+        setVerifyingEmailCodeBusy(false); // ✅ destrava
       }
-
-      const nextUrl = String(j?.nextUrl || "/app");
-      router.push(nextUrl);
-    } catch (err: any) {
-      setMsgError(err?.message || "Erro inesperado.");
-    } finally {
-      setBusy(false);
-      setVerifyingEmailCodeBusy(false); // ✅ destrava
-    }
-  },
-  [email, emailCode, busy, verifyingEmailCodeBusy, router, prefersReducedMotion, password],
-);
+    },
+    [
+      email,
+      emailCode,
+      busy,
+      verifyingEmailCodeBusy,
+      router,
+      prefersReducedMotion,
+      password,
+    ],
+  );
 
   const verifySmsCode = useCallback(
     async (code?: string) => {
@@ -707,25 +686,29 @@ const verifyEmailCode = useCallback(
         const res = await fetch("/api/wz_AuthLogin/verify-sms", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({ email: email.trim().toLowerCase(), code: c, password }),
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            code: c,
+            password,
+          }),
         });
 
         const j = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(j?.error || "Código inválido.");
 
         const nextUrl = String(j?.nextUrl || "/app");
-if (/^https?:\/\//i.test(nextUrl)) {
-  window.location.assign(nextUrl);
-} else {
-  router.push(nextUrl);
-}
+        if (/^https?:\/\//i.test(nextUrl)) {
+          window.location.assign(nextUrl);
+        } else {
+          router.push(nextUrl);
+        }
       } catch (err: any) {
         setMsgError(err?.message || "Erro inesperado.");
       } finally {
         setBusy(false);
       }
     },
-    [email, smsCode, busy, router],
+    [email, smsCode, busy, router, password],
   );
 
   const resend = useCallback(async () => {
@@ -789,7 +772,9 @@ if (/^https?:\/\//i.test(nextUrl)) {
     try {
       const isHttps =
         typeof location !== "undefined" && location.protocol === "https:";
-      document.cookie = `${COOKIE_KEY}=1; Path=/; Max-Age=31536000; SameSite=Lax${isHttps ? "; Secure" : ""}`;
+      document.cookie = `${COOKIE_KEY}=1; Path=/; Max-Age=31536000; SameSite=Lax${
+        isHttps ? "; Secure" : ""
+      }`;
     } catch {}
 
     if (cookieCloseTimerRef.current) {
@@ -919,7 +904,7 @@ if (/^https?:\/\//i.test(nextUrl)) {
       </motion.div>
 
       {/* Centro */}
-      <div className="relative z-10 min-h-screen flex items-center justify-center px-4">
+      <div className="relative z-10 min-h-screen flex items-start sm:items-center justify-center px-4 pt-10 sm:pt-0 pb-[calc(env(safe-area-inset-bottom,0px)+200px)]">
         <motion.div
           initial={{ opacity: 0, y: 16, filter: "blur(10px)" }}
           animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
@@ -931,7 +916,7 @@ if (/^https?:\/\//i.test(nextUrl)) {
           className="w-full max-w-[640px]"
           style={{ willChange: "transform, opacity, filter" }}
         >
-          <div className="mx-auto w-full max-w-[560px] transform-gpu scale-[1.06] sm:scale-[1.10] md:scale-[1.14] origin-center">
+          <div className="mx-auto w-full max-w-[560px] transform-gpu scale-[0.98] sm:scale-[1.0] md:scale-[1.02] origin-center">
             <div className="text-center">
               <div className="mx-auto mb-5 inline-flex h-14 w-14 items-center justify-center rounded-full bg-black/[0.04] ring-1 ring-black/5">
                 {TitleIcon}
@@ -956,9 +941,7 @@ if (/^https?:\/\//i.test(nextUrl)) {
                     </span>
                   </>
                 ) : step === "emailSuccess" ? (
-                  <>
-                    Verificação concluída. Vamos confirmar seu número por SMS.
-                  </>
+                  <>Verificação concluída. Vamos confirmar seu número por SMS.</>
                 ) : step === "smsCode" ? (
                   <>
                     <span className="text-black/75">
@@ -1096,29 +1079,31 @@ if (/^https?:\/\//i.test(nextUrl)) {
                           />
                         </div>
 
-         <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden relative">
-        <input
-          type={showPassword ? "text" : "password"}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Crie uma senha"
-          className="w-full bg-transparent px-6 py-5 pr-16 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
-          autoComplete="new-password"
-        />
+                        <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden relative">
+                          <input
+                            type={showPassword ? "text" : "password"}
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            placeholder="Crie uma senha"
+                            className="w-full bg-transparent px-6 py-5 pr-16 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
+                            autoComplete="new-password"
+                          />
 
-        <button
-          type="button"
-          onClick={() => setShowPassword((s) => !s)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center justify-center h-10 w-10 rounded-full bg-black/[0.06] hover:bg-black/[0.08] transition-colors"
-          aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
-        >
-          {showPassword ? (
-            <EyeOff className="h-5 w-5 text-black/60" />
-          ) : (
-            <Eye className="h-5 w-5 text-black/60" />
-          )}
-        </button>
-      </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword((s) => !s)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center justify-center h-10 w-10 rounded-full bg-black/[0.06] hover:bg-black/[0.08] transition-colors"
+                            aria-label={
+                              showPassword ? "Ocultar senha" : "Mostrar senha"
+                            }
+                          >
+                            {showPassword ? (
+                              <EyeOff className="h-5 w-5 text-black/60" />
+                            ) : (
+                              <Eye className="h-5 w-5 text-black/60" />
+                            )}
+                          </button>
+                        </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -1166,7 +1151,7 @@ if (/^https?:\/\//i.test(nextUrl)) {
                       "text-[16px] font-semibold shadow-[0_18px_55px_rgba(0,0,0,0.12)] hover:shadow-[0_22px_70px_rgba(0,0,0,0.16)] pr-16 transform-gpu",
                       !canStart || busy
                         ? "opacity-60 cursor-not-allowed select-none pointer-events-none"
-                        : "hover:border-[#6a6a6a] focus:border-lime-400"
+                        : "hover:border-[#6a6a6a] focus:border-lime-400",
                     )}
                     style={{ willChange: "transform" }}
                   >
@@ -1222,14 +1207,14 @@ if (/^https?:\/\//i.test(nextUrl)) {
                   className="mt-10"
                 >
                   <CodeBoxes
-  length={7}
-  value={emailCode}
-  onChange={setEmailCode}
-  onComplete={(v) => verifyEmailCode(v)}
-  disabled={busy || verifyingEmailCodeBusy}            // ✅ trava inputs
-  loading={verifyingEmailCodeBusy}                    // ✅ loader central
-  reduced={!!prefersReducedMotion}
-/>
+                    length={7}
+                    value={emailCode}
+                    onChange={setEmailCode}
+                    onComplete={(v) => verifyEmailCode(v)}
+                    disabled={busy || verifyingEmailCodeBusy} // ✅ trava inputs
+                    loading={verifyingEmailCodeBusy} // ✅ loader central
+                    reduced={!!prefersReducedMotion}
+                  />
 
                   <AnimatePresence initial={false}>
                     {!!msgError && (
@@ -1267,20 +1252,20 @@ if (/^https?:\/\//i.test(nextUrl)) {
                   </div>
 
                   <div className="mt-6 flex items-center justify-center">
-<button
-  type="button"
-  onClick={resetAll}
-  disabled={busy || verifyingEmailCodeBusy}           // ✅ não deixa “remover o código” no meio
-  className={cx(
-    "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
-    busy || verifyingEmailCodeBusy
-      ? "text-black/35 cursor-not-allowed"
-      : "text-black/55 hover:text-black/75"
-  )}
->
-  <Undo2 className="h-4 w-4" />
-  Trocar e-mail
-</button>
+                    <button
+                      type="button"
+                      onClick={resetAll}
+                      disabled={busy || verifyingEmailCodeBusy} // ✅ não deixa “remover o código” no meio
+                      className={cx(
+                        "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
+                        busy || verifyingEmailCodeBusy
+                          ? "text-black/35 cursor-not-allowed"
+                          : "text-black/55 hover:text-black/75",
+                      )}
+                    >
+                      <Undo2 className="h-4 w-4" />
+                      Trocar e-mail
+                    </button>
                   </div>
                 </motion.div>
               )}
@@ -1419,39 +1404,46 @@ if (/^https?:\/\//i.test(nextUrl)) {
       </div>
 
       {/* Bottom links (igual imagem) */}
-<div className="fixed inset-x-0 bottom-0 z-[30] pointer-events-none">
-  <div
-    className="pointer-events-auto mx-auto w-full max-w-[560px] px-4"
-    style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 22px)" }}
-  >
-    <div className="flex flex-col items-center justify-center gap-4">
-      <a
-        href="/ajuda"
-        className={cx(
-          "inline-flex items-center justify-center rounded-[14px] px-7 py-3",
-          "bg-[#f3f3f3] ring-1 ring-black/5",
-          "text-[15px] font-semibold text-black/80 hover:text-black",
-          "hover:bg-[#ededed] transition-colors"
-        )}
-      >
-        Ajuda
-      </a>
+      <div className="fixed inset-x-0 bottom-0 z-[30] pointer-events-none">
+        <div
+          className="pointer-events-auto mx-auto w-full max-w-[560px] px-4"
+          style={{
+            paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 22px)",
+          }}
+        >
+          <div className="flex flex-col items-center justify-center gap-4">
+            <a
+              href="/ajuda"
+              className={cx(
+                "inline-flex items-center justify-center rounded-[14px] px-7 py-3",
+                "bg-[#f3f3f3] ring-1 ring-black/5",
+                "text-[15px] font-semibold text-black/80 hover:text-black",
+                "hover:bg-[#ededed] transition-colors",
+              )}
+            >
+              Ajuda
+            </a>
 
-      <div className="flex items-center justify-center gap-10 text-[15px] text-black/55">
-        <a href="/termos" className="hover:text-black transition-colors">Termos</a>
-        <a href="/privacidade" className="hover:text-black transition-colors">Privacidade</a>
-        <a href="/cookies" className="hover:text-black transition-colors">Cookies</a>
+            <div className="flex items-center justify-center gap-10 text-[15px] text-black/55">
+              <a href="/termos" className="hover:text-black transition-colors">
+                Termos
+              </a>
+              <a
+                href="/privacidade"
+                className="hover:text-black transition-colors"
+              >
+                Privacidade
+              </a>
+              <a href="/cookies" className="hover:text-black transition-colors">
+                Cookies
+              </a>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
-  </div>
-</div>
 
       {/* Cookies (mantido) */}
-      <AnimatePresence
-  initial={false}
-  mode="sync"
-  presenceAffectsLayout={false}
-      >
+      <AnimatePresence initial={false} mode="sync" presenceAffectsLayout={false}>
         {cookieReady && showCookieConsent && (
           <motion.div
             variants={cookieWrapVariants}
@@ -1545,15 +1537,11 @@ if (/^https?:\/\//i.test(nextUrl)) {
                           "group relative w-full bg-[#171717] border border-[#454545] border-2 rounded-full px-6 py-4 text-white",
                           "hover:border-[#6a6a6a] focus:outline-none focus:border-lime-400 transition-all duration-300 ease-out",
                           "text-[13px] font-semibold shadow-[0_18px_55px_rgba(0,0,0,0.12)] hover:shadow-[0_22px_70px_rgba(0,0,0,0.16)] pr-16 transform-gpu",
-                          cookieAccepting
-                            ? "opacity-80 cursor-not-allowed"
-                            : "",
+                          cookieAccepting ? "opacity-80 cursor-not-allowed" : "",
                         )}
                         style={{ willChange: "transform" }}
                       >
-                        <span className="relative z-10">
-                          Entendi e continuar
-                        </span>
+                        <span className="relative z-10">Entendi e continuar</span>
 
                         <motion.span
                           whileHover={

@@ -1726,7 +1726,7 @@ function goToLoginWithEmail(email: string) {
                                       text="Plano ideal para começar com seu time e operar o básico com consistência."
                                     />
                                   </div>
-                                  <div className="text-[12px] text-black/45 mt-0.5">Empresas Pequenas</div>
+                                  <div className="text-[12px] text-black/45 mt-0.5">1° Mensalidade Gratuita</div>
                                 </div>
                               </div>
 
