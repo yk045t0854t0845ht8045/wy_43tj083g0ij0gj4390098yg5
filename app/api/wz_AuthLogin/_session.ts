@@ -1,14 +1,12 @@
 import crypto from "crypto";
 import type { NextRequest } from "next/server";
 
-const COOKIE_NAME = "wz_session_v1";
+const LEGACY_COOKIE_NAME = "wz_session_v1";
+const LEGACY_DEVICE_COOKIE_NAME = "wz_device_v1";
 
-/**
- * ✅ Cookie de device para “amarrar” sessão ao navegador/dispositivo
- * - httpOnly (não dá pra JS ler)
- * - estável por bastante tempo
- */
-const DEVICE_COOKIE_NAME = "wz_device_v1";
+// ✅ modo seguro: host-only + __Host- (não compartilha em .wyzer.com.br)
+const HOST_SESSION_COOKIE_NAME = "__Host-wz_session_v1";
+const HOST_DEVICE_COOKIE_NAME = "__Host-wz_device_v1";
 
 // bump de versão do payload
 const SESSION_PAYLOAD_VER = 2;
@@ -25,8 +23,8 @@ export type SessionPayload = {
 
   // binds (hashes)
   did?: string; // hash do device cookie
-  ua?: string; // hash do user-agent
-  ip?: string; // hash do prefixo do IP
+  ua?: string;  // hash do user-agent
+  ip?: string;  // hash do prefixo do IP
 };
 
 function must(name: string, v?: string) {
@@ -35,15 +33,67 @@ function must(name: string, v?: string) {
 }
 
 /**
- * ✅ HeaderLike: funciona com:
- * - headers() do Next (ReadonlyHeaders)
- * - req.headers (NextRequest / Request)
- * - qualquer objeto com .get()
+ * ✅ HeaderLike: resolve tipagens (ReadonlyHeaders, NextRequest.headers, etc)
+ * Aqui só precisamos de .get().
  */
 type HeaderLike = { get(name: string): string | null } | null;
 
 function headerGet(h: HeaderLike, name: string) {
   return (h ? h.get(name) : null) ?? "";
+}
+
+function getEnvBool(name: string, def: boolean) {
+  const v = String(process.env[name] ?? "").trim().toLowerCase();
+  if (!v) return def;
+  if (v === "1" || v === "true" || v === "yes" || v === "on") return true;
+  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
+  return def;
+}
+
+function getSecurityConfig() {
+  /**
+   * ✅ SESSION_COOKIE_HOST_ONLY=1
+   * - em prod: usa __Host- e SEM domain (host-only)
+   * - isso impede cookie ser compartilhado em subdomínios e reduz ataque por subdomain takeover.
+   *
+   * ⚠️ IMPORTANTE:
+   * - host-only cookie precisa ser setado NO MESMO HOST que vai ler (ex: dashboard.wyzer.com.br)
+   * - se você seta no login.wyzer.com.br, o dashboard NÃO vai receber.
+   */
+  const isProd = process.env.NODE_ENV === "production";
+
+  return {
+    isProd,
+    hostOnly: getEnvBool("SESSION_COOKIE_HOST_ONLY", isProd), // default true em prod
+    sameSite: (String(process.env.SESSION_SAMESITE || "lax").toLowerCase() as
+      | "lax"
+      | "strict"
+      | "none"),
+  };
+}
+
+function pickCookieNames() {
+  const cfg = getSecurityConfig();
+  if (cfg.isProd && cfg.hostOnly) {
+    return {
+      sessionName: HOST_SESSION_COOKIE_NAME,
+      deviceName: HOST_DEVICE_COOKIE_NAME,
+      // host-only: NÃO pode setar Domain
+      domain: undefined as string | undefined,
+    };
+  }
+
+  // legacy (compartilhado por domain)
+  const envDomain = (process.env.SESSION_COOKIE_DOMAIN || "").trim();
+  const domain =
+    envDomain ||
+    (process.env.NODE_ENV === "production" ? ".wyzer.com.br" : ".localhost");
+
+  return {
+    sessionName: LEGACY_COOKIE_NAME,
+    deviceName: LEGACY_DEVICE_COOKIE_NAME,
+    domain,
+  };
 }
 
 function b64url(input: Buffer | string) {
@@ -84,22 +134,8 @@ function parseCookieHeader(cookieHeader: string | null | undefined) {
   return out;
 }
 
-function getCookieDomain() {
-  const env = (process.env.SESSION_COOKIE_DOMAIN || "").trim();
-  if (env) return env;
-
-  if (process.env.NODE_ENV === "production") return ".wyzer.com.br";
-
-  /**
-   * ✅ Dica: em localhost, domain costuma dar dor de cabeça.
-   * Se você estiver usando subdomínios locais (dashboard.localhost etc),
-   * mantenha como ".localhost". Caso contrário, prefira setar SESSION_COOKIE_DOMAIN="" e ajustar.
-   */
-  return ".localhost";
-}
-
 // ------------------------------
-// ✅ helpers de bind
+// ✅ bind helpers
 // ------------------------------
 
 function sha256Short(input: string) {
@@ -114,22 +150,35 @@ function randomHex(bytes = 16) {
   return crypto.randomBytes(bytes).toString("hex");
 }
 
+function getBindConfig() {
+  /**
+   * ✅ Ajuste fino por ENV:
+   * - SESSION_BIND_DEVICE (default: true)
+   * - SESSION_BIND_UA     (default: false)
+   * - SESSION_BIND_IP     (default: true)
+   * - SESSION_ALLOW_LEGACY(default: true)
+   */
+  return {
+    bindDevice: getEnvBool("SESSION_BIND_DEVICE", true),
+    bindUA: getEnvBool("SESSION_BIND_UA", false),
+    bindIP: getEnvBool("SESSION_BIND_IP", true),
+    allowLegacy: getEnvBool("SESSION_ALLOW_LEGACY", true),
+  };
+}
+
 function getUserAgentFromHeaders(h: HeaderLike) {
   return String(headerGet(h, "user-agent")).trim();
 }
 
 function firstIpFromXff(xff: string) {
-  const first = String(xff || "").split(",")[0]?.trim() || "";
-  return first;
+  return String(xff || "").split(",")[0]?.trim() || "";
 }
 
 function normalizeIp(raw: string) {
   let ip = String(raw || "").trim();
 
-  // ipv4:port
   if (/^\d+\.\d+\.\d+\.\d+:\d+$/.test(ip)) ip = ip.split(":")[0];
 
-  // [ipv6]:port
   if (ip.startsWith("[") && ip.includes("]")) {
     const inside = ip.slice(1, ip.indexOf("]"));
     ip = inside || ip;
@@ -141,14 +190,12 @@ function normalizeIp(raw: string) {
 function ipPrefix(ip: string) {
   const v = normalizeIp(ip);
 
-  // ipv4 /24
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) {
     const parts = v.split(".");
     if (parts.length === 4) return `${parts[0]}.${parts[1]}.${parts[2]}.0`;
     return v;
   }
 
-  // ipv6 /64 aproximado
   if (v.includes(":")) {
     const parts = v.split(":").filter(Boolean);
     const head = parts.slice(0, 4).join(":");
@@ -159,50 +206,62 @@ function ipPrefix(ip: string) {
 }
 
 function getClientIpFromHeaders(h: HeaderLike) {
+  // ✅ prioridade pra provedores/CDNs comuns
+  const cf = String(headerGet(h, "cf-connecting-ip")).trim();
+  if (cf) return normalizeIp(cf);
+
+  const real = String(headerGet(h, "x-real-ip")).trim();
   const xff = String(headerGet(h, "x-forwarded-for")).trim();
-  const xrip = String(headerGet(h, "x-real-ip")).trim();
-  const ip = normalizeIp(firstIpFromXff(xff) || xrip);
+  const ip = normalizeIp(firstIpFromXff(xff) || real);
   return ip;
 }
 
-function getEnvBool(name: string, def: boolean) {
-  const v = String(process.env[name] ?? "").trim().toLowerCase();
-  if (!v) return def;
-  if (v === "1" || v === "true" || v === "yes" || v === "on") return true;
-  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
-  return def;
-}
+function validateBinds(payload: SessionPayload, cookieHeader: string, h: HeaderLike) {
+  const cfg = getBindConfig();
+  const names = pickCookieNames();
 
-function getBindConfig() {
-  /**
-   * ✅ Defaults seguros e que NÃO quebram login:
-   * - bindDevice: true  -> evita “trocar só o wz_session_v1” no mesmo navegador
-   * - bindUA: false     -> opcional
-   * - bindIP: false     -> opcional (rede móvel/proxy muda muito e quebra fácil)
-   *
-   * Se você quiser ligar IP/UA depois:
-   * - ative ENV e PASSE req/headers no setSessionCookie (terceiro parâmetro).
-   */
-  return {
-    bindDevice: getEnvBool("SESSION_BIND_DEVICE", true),
-    bindUA: getEnvBool("SESSION_BIND_UA", false),
-    bindIP: getEnvBool("SESSION_BIND_IP", false),
-    allowLegacy: getEnvBool("SESSION_ALLOW_LEGACY", true),
-  };
+  // legacy
+  const hasAnyBind = !!payload?.did || !!payload?.ua || !!payload?.ip;
+  const isLegacy = !payload?.ver || payload.ver < 2 || !hasAnyBind;
+  if (isLegacy) return cfg.allowLegacy;
+
+  const parsed = parseCookieHeader(cookieHeader);
+
+  // device
+  if (cfg.bindDevice) {
+    const deviceId = String(parsed[names.deviceName] || parsed[LEGACY_DEVICE_COOKIE_NAME] || "").trim();
+    if (!deviceId) return false;
+    const expectDid = sha256Short(deviceId);
+    if (!payload.did || payload.did !== expectDid) return false;
+  }
+
+  // UA
+  if (cfg.bindUA) {
+    const ua = getUserAgentFromHeaders(h);
+    if (!ua) return false;
+    const expectUa = sha256Short(ua);
+    if (!payload.ua || payload.ua !== expectUa) return false;
+  }
+
+  // IP
+  if (cfg.bindIP) {
+    const ip = getClientIpFromHeaders(h);
+    if (!ip) return false;
+    const expectIp = sha256Short(ipPrefix(ip));
+    if (!payload.ip || payload.ip !== expectIp) return false;
+  }
+
+  return true;
 }
 
 // ------------------------------
 // ✅ Exported API (mantida)
 // ------------------------------
 
-/**
- * ✅ Mantém assinatura original e adiciona 3º parâmetro opcional
- * (não quebra seus calls atuais).
- */
 export function setSessionCookie(
   res: any,
   params: { userId: string; email: string; ttlDays?: number },
-  reqOrHeaders?: any,
+  reqOrHeaders?: NextRequest | HeaderLike,
 ) {
   const secret = must("SESSION_SECRET", process.env.SESSION_SECRET);
 
@@ -210,37 +269,32 @@ export function setSessionCookie(
   const now = Math.floor(Date.now() / 1000);
   const exp = now + ttlDays * 24 * 60 * 60;
 
-  const isProd = process.env.NODE_ENV === "production";
-  const domain = getCookieDomain();
+  const sec = getSecurityConfig();
+  const names = pickCookieNames();
+  const bindCfg = getBindConfig();
 
-  const cfg = getBindConfig();
-
-  // ✅ pega headers com segurança (NextRequest / Request / ReadonlyHeaders / etc)
   const h: HeaderLike =
-    (reqOrHeaders && reqOrHeaders.headers && typeof reqOrHeaders.headers.get === "function"
-      ? (reqOrHeaders.headers as HeaderLike)
-      : (reqOrHeaders && typeof reqOrHeaders.get === "function"
-        ? (reqOrHeaders as HeaderLike)
-        : null)) || null;
+    (reqOrHeaders && (reqOrHeaders as NextRequest).headers
+      ? (reqOrHeaders as NextRequest).headers
+      : (reqOrHeaders as HeaderLike)) || null;
 
   const cookieHeader = headerGet(h, "cookie");
   const parsed = parseCookieHeader(cookieHeader);
 
   // ✅ device cookie (estável)
-  let deviceId = String(parsed[DEVICE_COOKIE_NAME] || "").trim();
+  let deviceId = String(parsed[names.deviceName] || parsed[LEGACY_DEVICE_COOKIE_NAME] || "").trim();
   if (!deviceId) deviceId = randomHex(20);
 
-  // sempre setamos o device cookie (para existir também no dashboard)
-  res.cookies.set(DEVICE_COOKIE_NAME, deviceId, {
+  // Sempre seta o device cookie no response
+  res.cookies.set(names.deviceName, deviceId, {
     httpOnly: true,
-    secure: isProd,
-    sameSite: "lax",
+    secure: sec.isProd, // em prod sempre secure
+    sameSite: sec.sameSite,
     path: "/",
     maxAge: 60 * 60 * 24 * 365 * 2,
-    ...(domain ? { domain } : {}),
+    ...(names.domain ? { domain: names.domain } : {}),
   });
 
-  // ✅ binds (opcionais)
   const ua = getUserAgentFromHeaders(h);
   const ip = getClientIpFromHeaders(h);
 
@@ -253,88 +307,67 @@ export function setSessionCookie(
     ver: SESSION_PAYLOAD_VER,
     sid: randomHex(16),
 
-    ...(cfg.bindDevice ? { did: sha256Short(deviceId) } : {}),
-    ...(cfg.bindUA && ua ? { ua: sha256Short(ua) } : {}),
-    ...(cfg.bindIP && ip ? { ip: sha256Short(ipPrefix(ip)) } : {}),
+    ...(bindCfg.bindDevice ? { did: sha256Short(deviceId) } : {}),
+    ...(bindCfg.bindUA && ua ? { ua: sha256Short(ua) } : {}),
+    ...(bindCfg.bindIP && ip ? { ip: sha256Short(ipPrefix(ip)) } : {}),
   };
 
   const body = b64url(JSON.stringify(payload));
   const sig = sign(body, secret);
   const token = `${body}.${sig}`;
 
-  res.cookies.set(COOKIE_NAME, token, {
+  res.cookies.set(names.sessionName, token, {
     httpOnly: true,
-    secure: isProd,
-    sameSite: "lax",
+    secure: sec.isProd,
+    sameSite: sec.sameSite,
     path: "/",
     maxAge: exp - now,
-    ...(domain ? { domain } : {}),
+    ...(names.domain ? { domain: names.domain } : {}),
   });
 }
 
 export function clearSessionCookie(res: any) {
-  const isProd = process.env.NODE_ENV === "production";
-  const domain = getCookieDomain();
+  const sec = getSecurityConfig();
+  const names = pickCookieNames();
 
-  res.cookies.set(COOKIE_NAME, "", {
+  // remove session (host e/ou legacy)
+  res.cookies.set(names.sessionName, "", {
     httpOnly: true,
-    secure: isProd,
-    sameSite: "lax",
+    secure: sec.isProd,
+    sameSite: sec.sameSite,
     path: "/",
     maxAge: 0,
-    ...(domain ? { domain } : {}),
+    ...(names.domain ? { domain: names.domain } : {}),
   });
 
-  // ❗️não removo o device cookie por padrão
-}
+  res.cookies.set(LEGACY_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: sec.isProd,
+    sameSite: sec.sameSite,
+    path: "/",
+    maxAge: 0,
+    ...(names.domain ? { domain: names.domain } : {}),
+  });
 
-function validateBinds(payload: SessionPayload, cookieHeader: string, h: HeaderLike) {
-  const cfg = getBindConfig();
-
-  // legacy: tokens antigos sem binds/ver
-  const hasAnyBind = !!payload?.did || !!payload?.ua || !!payload?.ip;
-  const isLegacy = !payload?.ver || payload.ver < 2 || !hasAnyBind;
-
-  if (isLegacy) return cfg.allowLegacy;
-
-  const parsed = parseCookieHeader(cookieHeader);
-
-  // ✅ device bind (principal)
-  if (cfg.bindDevice) {
-    const deviceId = String(parsed[DEVICE_COOKIE_NAME] || "").trim();
-    if (!deviceId) return false;
-    const expectDid = sha256Short(deviceId);
-    if (!payload.did || payload.did !== expectDid) return false;
-  }
-
-  // ✅ UA bind (opcional)
-  if (cfg.bindUA) {
-    const ua = getUserAgentFromHeaders(h);
-    if (!ua) return false;
-    const expectUa = sha256Short(ua);
-    if (!payload.ua || payload.ua !== expectUa) return false;
-  }
-
-  // ✅ IP bind (opcional)
-  if (cfg.bindIP) {
-    const ip = getClientIpFromHeaders(h);
-    if (!ip) return false;
-    const expectIp = sha256Short(ipPrefix(ip));
-    if (!payload.ip || payload.ip !== expectIp) return false;
-  }
-
-  return true;
+  // ❗️device cookie eu não removo por padrão
 }
 
 export function readSessionFromCookieHeader(
   cookieHeader: string | null | undefined,
-  headersForBind?: any,
+  headersForBind?: HeaderLike,
 ): SessionPayload | null {
   const secret = process.env.SESSION_SECRET;
   if (!secret) return null;
 
   const parsed = parseCookieHeader(cookieHeader);
-  const token = parsed[COOKIE_NAME] || "";
+  const names = pickCookieNames();
+
+  // aceita host cookie ou legacy
+  const token =
+    parsed[names.sessionName] ||
+    parsed[LEGACY_COOKIE_NAME] ||
+    "";
+
   if (!token.includes(".")) return null;
 
   const [body, sig] = token.split(".");
@@ -343,21 +376,13 @@ export function readSessionFromCookieHeader(
   const expected = sign(body, secret);
   if (expected !== sig) return null;
 
-  // headers para UA/IP bind (opcional)
-  const h: HeaderLike =
-    (headersForBind && headersForBind.headers && typeof headersForBind.headers.get === "function"
-      ? (headersForBind.headers as HeaderLike)
-      : (headersForBind && typeof headersForBind.get === "function"
-        ? (headersForBind as HeaderLike)
-        : null)) || null;
-
   try {
     const payload = JSON.parse(b64urlToBuf(body).toString("utf8")) as SessionPayload;
 
     if (!payload?.exp || payload.exp < Math.floor(Date.now() / 1000)) return null;
     if (!payload?.userId || !payload?.email) return null;
 
-    const okBinds = validateBinds(payload, String(cookieHeader || ""), h);
+    const okBinds = validateBinds(payload, String(cookieHeader || ""), headersForBind || null);
     if (!okBinds) return null;
 
     return payload;

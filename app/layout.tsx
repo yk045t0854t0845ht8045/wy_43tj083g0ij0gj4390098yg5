@@ -40,8 +40,6 @@ export default function RootLayout({
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <meta name="theme-color" content="#0A0A0A" />
         <meta name="color-scheme" content="dark light" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="format-detection" content="telephone=no, date=no, address=no, email=no" />
 
         <link rel="preconnect" href="https://fonts.googleapis.com" />
