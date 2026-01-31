@@ -20,9 +20,29 @@ export function onlyDigits(v: string) {
   return String(v || "").replace(/\D+/g, "");
 }
 
+/**
+ * ✅ Normaliza telefone BR para DDD+Número (10 ou 11 dígitos).
+ * - Se vier com "55" na frente, remove.
+ * - Se vier maior que 11, mantém os últimos 11 (protege casos tipo +55...).
+ */
+export function normalizePhoneDigitsBR(raw: string) {
+  let d = onlyDigits(raw);
+
+  if (d.startsWith("55") && d.length >= 12) {
+    d = d.slice(2);
+  }
+
+  if (d.length > 11) d = d.slice(-11);
+
+  // aceita 10 ou 11 (DDD+8 ou DDD+9)
+  if (d.length < 10) return "";
+  if (d.length > 11) return d.slice(0, 11);
+  return d;
+}
+
 export function toE164BR(rawDigits: string) {
-  const d = onlyDigits(rawDigits);
-  if (d.length < 10) return null;
+  const d = normalizePhoneDigitsBR(rawDigits);
+  if (!d || d.length < 10) return null;
   return `+55${d}`;
 }
 

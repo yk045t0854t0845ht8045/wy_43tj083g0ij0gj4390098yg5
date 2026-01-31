@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin, supabaseAnon } from "../_supabase";
-import { sha, gen7, newSalt, onlyDigits, toE164BR } from "../_codes";
+import {
+  sha,
+  gen7,
+  newSalt,
+  onlyDigits,
+  toE164BR,
+  normalizePhoneDigitsBR,
+} from "../_codes";
 import { sendLoginCodeEmail } from "../_email";
 
 function isValidEmail(v: string) {
@@ -8,7 +15,10 @@ function isValidEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(s);
 }
 
-async function findAuthUserIdByEmail(sb: ReturnType<typeof supabaseAdmin>, email: string) {
+async function findAuthUserIdByEmail(
+  sb: ReturnType<typeof supabaseAdmin>,
+  email: string,
+) {
   const target = String(email || "").trim().toLowerCase();
   if (!target) return null;
 
@@ -16,20 +26,31 @@ async function findAuthUserIdByEmail(sb: ReturnType<typeof supabaseAdmin>, email
   const MAX_PAGES = 20;
 
   for (let page = 1; page <= MAX_PAGES; page++) {
-    const { data, error } = await sb.auth.admin.listUsers({ page, perPage: PER_PAGE });
+    const { data, error } = await sb.auth.admin.listUsers({
+      page,
+      perPage: PER_PAGE,
+    });
     if (error) {
       console.error("[start] listUsers error:", error);
       return null;
     }
 
     const users = (data?.users || []) as Array<any>;
-    const found = users.find((u) => String(u?.email || "").trim().toLowerCase() === target);
+    const found = users.find(
+      (u) => String(u?.email || "").trim().toLowerCase() === target,
+    );
 
     if (found?.id) return String(found.id);
     if (users.length < PER_PAGE) break;
   }
 
   return null;
+}
+
+function isUniqueViolation(err: any) {
+  const code = String(err?.code || "");
+  const msg = String(err?.message || "").toLowerCase();
+  return code === "23505" || msg.includes("duplicate key");
 }
 
 export async function POST(req: Request) {
@@ -40,44 +61,140 @@ export async function POST(req: Request) {
     const password = String(body?.password || "");
     const fullName = String(body?.fullName || "");
     const cpf = onlyDigits(String(body?.cpf || "")).slice(0, 11);
-    const phoneDigits = onlyDigits(String(body?.phone || "")).slice(0, 11);
+
+    const phoneDigits = normalizePhoneDigitsBR(String(body?.phone || ""));
     const phoneE164 = phoneDigits ? toE164BR(phoneDigits) : null;
 
     if (!isValidEmail(email)) {
-      return NextResponse.json({ ok: false, error: "E-mail inválido." }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "E-mail inválido." },
+        { status: 400 },
+      );
     }
     if (!password || password.length < 6) {
-      return NextResponse.json({ ok: false, error: "Senha inválida." }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Senha inválida." },
+        { status: 400 },
+      );
     }
 
     const admin = supabaseAdmin();
 
-    const { data: existingWz, error: exErr } = await admin
+    // ✅ Busca por e-mail existente no perfil
+    const { data: existingEmailRows, error: exEmailErr } = await admin
       .from("wz_users")
       .select("id,email")
       .eq("email", email)
-      .maybeSingle();
+      .limit(1);
 
-    if (exErr) console.error("[start] wz_users select error:", exErr);
+    if (exEmailErr) console.error("[start] wz_users email select error:", exEmailErr);
+
+    const existingWz = existingEmailRows?.[0] ?? null;
 
     const hasRegisterFields =
-      fullName.trim().length > 0 || cpf.length > 0 || onlyDigits(phoneDigits).length > 0;
+      fullName.trim().length > 0 ||
+      cpf.length > 0 ||
+      normalizePhoneDigitsBR(phoneDigits).length > 0;
 
-    const flow = hasRegisterFields ? "register" : existingWz?.id ? "login" : "register";
+    const flow = hasRegisterFields
+      ? "register"
+      : existingWz?.id
+        ? "login"
+        : "register";
 
+    // =========================
+    // ✅ REGISTER: trava duplicados ANTES de continuar
+    // =========================
+    if (flow === "register") {
+      if (fullName.trim().length < 4) {
+        return NextResponse.json(
+          { ok: false, error: "Informe seu nome completo." },
+          { status: 400 },
+        );
+      }
+      if (cpf.length !== 11) {
+        return NextResponse.json(
+          { ok: false, error: "CPF inválido." },
+          { status: 400 },
+        );
+      }
+      if (!phoneE164 || phoneDigits.length < 10) {
+        return NextResponse.json(
+          { ok: false, error: "Telefone inválido." },
+          { status: 400 },
+        );
+      }
+
+      // ✅ Se já existe e-mail no perfil, não deixa registrar de novo
+      if (existingWz?.id) {
+        return NextResponse.json(
+          { ok: false, error: "Esse e-mail já possui cadastro." },
+          { status: 409 },
+        );
+      }
+
+      // ✅ trava duplicado CPF
+      const { data: cpfRows, error: cpfErr } = await admin
+        .from("wz_users")
+        .select("id,email")
+        .eq("cpf", cpf)
+        .limit(1);
+
+      if (cpfErr) {
+        console.error("[start] cpf select error:", cpfErr);
+        return NextResponse.json(
+          { ok: false, error: "Falha ao validar CPF." },
+          { status: 500 },
+        );
+      }
+      if (cpfRows?.[0]?.id) {
+        return NextResponse.json(
+          { ok: false, error: "Esse CPF já possui cadastro." },
+          { status: 409 },
+        );
+      }
+
+      // ✅ trava duplicado telefone (phone_e164 OU legacy phone)
+      const orPhone = `phone_e164.eq.${phoneE164},phone.eq.${phoneDigits}`;
+      const { data: phoneRows, error: phoneErr } = await admin
+        .from("wz_users")
+        .select("id,email,phone,phone_e164")
+        .or(orPhone)
+        .limit(1);
+
+      if (phoneErr) {
+        console.error("[start] phone select error:", phoneErr);
+        return NextResponse.json(
+          { ok: false, error: "Falha ao validar telefone." },
+          { status: 500 },
+        );
+      }
+      if (phoneRows?.[0]?.id) {
+        return NextResponse.json(
+          { ok: false, error: "Esse telefone já possui cadastro." },
+          { status: 409 },
+        );
+      }
+    }
+
+    // =========================
     // ✅ LOGIN: valida senha ANTES de enviar email code
+    // =========================
     if (flow === "login") {
       const anon = supabaseAnon();
-      const { data: signIn, error: signErr } = await anon.auth.signInWithPassword({
-        email,
-        password,
-      });
+      const { data: signIn, error: signErr } =
+        await anon.auth.signInWithPassword({
+          email,
+          password,
+        });
 
       if (signErr || !signIn?.user?.id) {
-        // se o erro for email não confirmado, ainda pode mandar o code
         const msg = String((signErr as any)?.message || "");
         if (!/email not confirmed/i.test(msg)) {
-          return NextResponse.json({ ok: false, error: "Senha incorreta." }, { status: 401 });
+          return NextResponse.json(
+            { ok: false, error: "Senha incorreta." },
+            { status: 401 },
+          );
         }
       }
 
@@ -93,22 +210,17 @@ export async function POST(req: Request) {
 
       if (pendErr) {
         console.error("[start] pending upsert error:", pendErr);
-        return NextResponse.json({ ok: false, error: "Falha ao iniciar login." }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, error: "Falha ao iniciar login." },
+          { status: 500 },
+        );
       }
     }
 
-    // ✅ REGISTER (mantém)
+    // =========================
+    // ✅ REGISTER: cria/recupera Auth + pending
+    // =========================
     if (flow === "register") {
-      if (fullName.trim().length < 4) {
-        return NextResponse.json({ ok: false, error: "Informe seu nome completo." }, { status: 400 });
-      }
-      if (cpf.length !== 11) {
-        return NextResponse.json({ ok: false, error: "CPF inválido." }, { status: 400 });
-      }
-      if (!phoneE164 || phoneDigits.length < 10) {
-        return NextResponse.json({ ok: false, error: "Telefone inválido." }, { status: 400 });
-      }
-
       let authUserId = await findAuthUserIdByEmail(admin, email);
 
       if (!authUserId) {
@@ -133,7 +245,9 @@ export async function POST(req: Request) {
             );
           }
         } else {
-          authUserId = created.data?.user?.id ? String(created.data.user.id) : null;
+          authUserId = created.data?.user?.id
+            ? String(created.data.user.id)
+            : null;
         }
       }
 
@@ -153,7 +267,10 @@ export async function POST(req: Request) {
 
       if (pendErr) {
         console.error("[start] pending upsert error:", pendErr);
-        return NextResponse.json({ ok: false, error: "Falha ao iniciar cadastro." }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, error: "Falha ao iniciar cadastro." },
+          { status: 500 },
+        );
       }
     }
 
@@ -183,15 +300,19 @@ export async function POST(req: Request) {
 
     if (chErr) {
       console.error("[start] challenge insert error:", chErr);
-      return NextResponse.json({ ok: false, error: "Falha ao gerar código." }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: "Falha ao gerar código." },
+        { status: 500 },
+      );
     }
 
     await sendLoginCodeEmail(email, emailCode);
     return NextResponse.json({ ok: true, next: "email" }, { status: 200 });
   } catch (e: any) {
     console.error("[start] error:", e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro inesperado." }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Erro inesperado." },
+      { status: 500 },
+    );
   }
 }
-
-//redeploy
