@@ -1,38 +1,12 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin, supabaseAnon } from "../_supabase";
-import { sha, gen7, newSalt, maskPhoneE164, onlyDigits } from "../_codes";
+import { sha, gen7, newSalt, maskPhoneE164, onlyDigits, isValidE164BRMobile } from "../_codes";
 import { sendSmsCode } from "../_sms";
 import { setSessionCookie } from "../_session";
 
 function isValidEmail(v: string) {
   const s = (v || "").trim();
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(s);
-}
-
-function getProto(req: Request) {
-  const p = (req.headers.get("x-forwarded-proto") || "").split(",")[0].trim();
-  if (p) return p;
-  return process.env.NODE_ENV === "production" ? "https" : "http";
-}
-
-function buildDashboardOrigin(req: Request) {
-
-  if (process.env.NODE_ENV !== "production") {
-    return "http://dashboard.wyzer.com.br";
-  }
-
-  const proto = getProto(req);
-  const hostHeader =
-    (req.headers.get("x-forwarded-host") || req.headers.get("host") || "").split(",")[0].trim().toLowerCase();
-
-  // ex: login.wyzer.com.br -> dashboard.wyzer.com.br
-  const host = hostHeader.split(":")[0];
-  if (host.endsWith("wyzer.com.br")) {
-    return `${proto}://dashboard.wyzer.com.br`;
-  }
-
-  // fallback
-  return `${proto}://dashboard.wyzer.com.br`;
 }
 
 async function findAuthUserIdByEmail(sb: ReturnType<typeof supabaseAdmin>, email: string) {
@@ -122,41 +96,37 @@ export async function POST(req: Request) {
 
     await sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", ch.id);
 
-   // =========================
-// ✅ LOGIN: valida senha AQUI e finaliza
-// =========================
-if (flow === "login") {
-  const anon = supabaseAnon();
-  const { data: signIn, error: signErr } = await anon.auth.signInWithPassword({ email, password });
+    // ✅ LOGIN: valida senha e finaliza
+    if (flow === "login") {
+      const anon = supabaseAnon();
+      const { data: signIn, error: signErr } = await anon.auth.signInWithPassword({ email, password });
 
-  if (signErr || !signIn?.user?.id) {
-    return NextResponse.json({ ok: false, error: "Senha incorreta." }, { status: 401 });
-  }
+      if (signErr || !signIn?.user?.id) {
+        return NextResponse.json({ ok: false, error: "Senha incorreta." }, { status: 401 });
+      }
 
-  const { data: userRow, error: uErr } = await sb
-    .from("wz_users")
-    .select("id")
-    .eq("email", email)
-    .maybeSingle();
+      const { data: userRow, error: uErr } = await sb
+        .from("wz_users")
+        .select("id")
+        .eq("email", email)
+        .maybeSingle();
 
-  if (uErr || !userRow?.id) {
-    return NextResponse.json({ ok: false, error: "Conta não encontrada." }, { status: 404 });
-  }
+      if (uErr || !userRow?.id) {
+        return NextResponse.json({ ok: false, error: "Conta não encontrada." }, { status: 404 });
+      }
 
-  try {
-    await sb.from("wz_pending_auth").delete().eq("email", email);
-  } catch {}
+      try {
+        await sb.from("wz_pending_auth").delete().eq("email", email);
+      } catch {}
 
-  const nextUrl = "https://dashboard.wyzer.com.br/create-account";
+      const nextUrl = "https://dashboard.wyzer.com.br/create-account";
 
-  const res = NextResponse.json({ ok: true, nextUrl }, { status: 200 });
-  setSessionCookie(res, { userId: String(userRow.id), email });
-  return res;
-}
+      const res = NextResponse.json({ ok: true, nextUrl }, { status: 200 });
+      setSessionCookie(res, { userId: String(userRow.id), email });
+      return res;
+    }
 
-    // =========================
     // ✅ REGISTER: confirma Auth + garante senha no Auth + gera SMS
-    // =========================
     let authUserId = pend.data.auth_user_id ? String(pend.data.auth_user_id) : "";
 
     if (!authUserId) {
@@ -166,17 +136,14 @@ if (flow === "login") {
 
     if (authUserId) {
       try {
-        // ✅ aqui é o ponto chave: usuário provou o email pelo código -> pode setar/atualizar senha no Auth
         await sb.auth.admin.updateUserById(authUserId, {
           email_confirm: true,
           password,
         });
       } catch (err) {
         console.error("[verify-email] auth confirm/update password failed:", err);
-        // segue mesmo assim
       }
 
-      // tenta salvar id de volta no pending
       try {
         await sb
           .from("wz_pending_auth")
@@ -188,6 +155,14 @@ if (flow === "login") {
     const phoneE164 = String(pend.data.phone_e164 || "");
     if (!phoneE164) {
       return NextResponse.json({ ok: false, error: "Telefone não encontrado para SMS." }, { status: 400 });
+    }
+
+    // ✅ valida E.164 BR celular antes de tentar enviar
+    if (!isValidE164BRMobile(phoneE164)) {
+      return NextResponse.json(
+        { ok: false, error: "Telefone inválido para SMS. Use um celular BR válido com DDD." },
+        { status: 400 }
+      );
     }
 
     await sb.from("wz_pending_auth").update({ stage: "sms" }).eq("email", email);

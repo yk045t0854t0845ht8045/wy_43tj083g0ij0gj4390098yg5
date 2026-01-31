@@ -1,117 +1,115 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../_supabase";
-import { onlyDigits, normalizePhoneDigitsBR, toE164BR } from "../_codes";
+import { sha, gen7, newSalt, maskPhoneE164, isValidE164BRMobile } from "../_codes";
+import { sendSmsCode } from "../_sms";
+import { sendLoginCodeEmail } from "../_email";
 
-/**
- * Mantido por compatibilidade.
- * Recomendado: use o fluxo /start + /verify-email + /verify-sms.
- */
 function isValidEmail(v: string) {
   const s = (v || "").trim();
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(s);
 }
 
-function isUniqueViolation(err: any) {
-  const code = String(err?.code || "");
-  const msg = String(err?.message || "").toLowerCase();
-  return code === "23505" || msg.includes("duplicate key");
+function normalizeStep(step: string) {
+  const s = String(step || "").trim();
+  if (s === "emailCode") return "email";
+  if (s === "smsCode") return "sms";
+  return s;
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
-
     const email = String(body?.email || "").trim().toLowerCase();
-    const fullName = String(body?.fullName || "").trim();
-    const phoneDigits = normalizePhoneDigitsBR(String(body?.phone || ""));
-    const phoneE164 = phoneDigits ? toE164BR(phoneDigits) : null;
-    const cpf = onlyDigits(body?.cpf || "").slice(0, 11);
+    const step = normalizeStep(String(body?.step || ""));
 
-    if (!isValidEmail(email)) {
-      return NextResponse.json({ error: "E-mail inválido." }, { status: 400 });
-    }
-    if (fullName.length < 4) {
-      return NextResponse.json({ error: "Nome inválido." }, { status: 400 });
-    }
-    if (!phoneDigits || phoneDigits.length < 10 || !phoneE164) {
-      return NextResponse.json({ error: "Telefone inválido." }, { status: 400 });
-    }
-    if (cpf.length !== 11) {
-      return NextResponse.json({ error: "CPF inválido." }, { status: 400 });
+    if (!isValidEmail(email))
+      return NextResponse.json({ ok: false, error: "E-mail inválido." }, { status: 400 });
+
+    if (step !== "email" && step !== "sms") {
+      return NextResponse.json({ ok: false, error: "Etapa inválida para reenvio." }, { status: 400 });
     }
 
     const sb = supabaseAdmin();
 
-    // ✅ evita duplicar (e-mail, telefone e CPF)
-    const [existingEmail, existingCpf, existingPhone] = await Promise.all([
-      sb.from("wz_users").select("id").eq("email", email).limit(1),
-      sb.from("wz_users").select("id").eq("cpf", cpf).limit(1),
-      sb
-        .from("wz_users")
-        .select("id")
-        .or(`phone_e164.eq.${phoneE164},phone.eq.${phoneDigits}`)
-        .limit(1),
-    ]);
+    const pend = await sb.from("wz_pending_auth").select("*").eq("email", email).maybeSingle();
+    const pendRow = pend.data;
 
-    if (existingEmail.error || existingCpf.error || existingPhone.error) {
-      return NextResponse.json(
-        { error: "Falha ao consultar cadastro." },
-        { status: 500 },
-      );
+    if (!pendRow) {
+      return NextResponse.json({ ok: false, error: "Sessão inválida. Reinicie." }, { status: 400 });
     }
 
-    if (existingEmail.data?.[0]?.id) {
-      return NextResponse.json(
-        { error: "Esse e-mail já possui cadastro." },
-        { status: 409 },
-      );
-    }
-    if (existingCpf.data?.[0]?.id) {
-      return NextResponse.json(
-        { error: "Esse CPF já possui cadastro." },
-        { status: 409 },
-      );
-    }
-    if (existingPhone.data?.[0]?.id) {
-      return NextResponse.json(
-        { error: "Esse telefone já possui cadastro." },
-        { status: 409 },
-      );
-    }
+    if (step === "email") {
+      await sb
+        .from("wz_auth_challenges")
+        .update({ consumed: true })
+        .eq("email", email)
+        .eq("channel", "email")
+        .eq("consumed", false);
 
-    const { data: profile, error: profErr } = await sb
-      .from("wz_users")
-      .insert({
+      const code = gen7();
+      const salt = newSalt();
+      const hash = sha(code, salt);
+      const expiresAt = new Date(Date.now() + 1000 * 60 * 10).toISOString();
+
+      const { error } = await sb.from("wz_auth_challenges").insert({
         email,
-        full_name: fullName,
-        cpf,
-        phone_e164: phoneE164,
-        // (opcional) compat
-        phone: phoneDigits,
-        created_at: new Date().toISOString(),
-      })
-      .select("id")
-      .single();
+        channel: "email",
+        code_hash: hash,
+        salt,
+        expires_at: expiresAt,
+        attempts_left: 7,
+        consumed: false,
+      });
 
-    if (profErr) {
-      if (isUniqueViolation(profErr)) {
-        return NextResponse.json(
-          { error: "E-mail, telefone ou CPF já possui cadastro." },
-          { status: 409 },
-        );
-      }
+      if (error) return NextResponse.json({ ok: false, error: "Falha ao gerar e-mail." }, { status: 500 });
 
+      await sendLoginCodeEmail(email, code);
+      return NextResponse.json({ ok: true }, { status: 200 });
+    }
+
+    // step === sms
+    const phoneE164 = String(pendRow?.phone_e164 || "");
+    if (!phoneE164) {
+      return NextResponse.json({ ok: false, error: "Nenhum telefone encontrado para SMS." }, { status: 400 });
+    }
+
+    // ✅ valida antes de reenviar
+    if (!isValidE164BRMobile(phoneE164)) {
       return NextResponse.json(
-        { error: "Falha ao salvar cadastro." },
-        { status: 500 },
+        { ok: false, error: "Telefone inválido para SMS. Use um celular BR válido com DDD." },
+        { status: 400 }
       );
     }
 
-    return NextResponse.json(
-      { ok: true, userId: profile?.id ?? null, note: "Cadastro criado (rota legacy)." },
-      { status: 200 },
-    );
-  } catch {
-    return NextResponse.json({ error: "Erro inesperado." }, { status: 500 });
+    await sb
+      .from("wz_auth_challenges")
+      .update({ consumed: true })
+      .eq("email", email)
+      .eq("channel", "sms")
+      .eq("consumed", false);
+
+    const smsCode = gen7();
+    const smsSalt = newSalt();
+    const smsHash = sha(smsCode, smsSalt);
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 10).toISOString();
+
+    const { error: smsErr } = await sb.from("wz_auth_challenges").insert({
+      email,
+      channel: "sms",
+      code_hash: smsHash,
+      salt: smsSalt,
+      expires_at: expiresAt,
+      attempts_left: 7,
+      consumed: false,
+    });
+
+    if (smsErr) return NextResponse.json({ ok: false, error: "Falha ao gerar SMS." }, { status: 500 });
+
+    await sendSmsCode(phoneE164, smsCode);
+
+    return NextResponse.json({ ok: true, phoneMask: maskPhoneE164(phoneE164) }, { status: 200 });
+  } catch (e: any) {
+    console.error("[resend] error:", e);
+    return NextResponse.json({ ok: false, error: e?.message || "Erro inesperado." }, { status: 500 });
   }
 }

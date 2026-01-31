@@ -5,8 +5,9 @@ import {
   gen7,
   newSalt,
   onlyDigits,
-  toE164BR,
-  normalizePhoneDigitsBR,
+  toE164BRMobile,
+  isValidCPF,
+  isValidBRMobilePhoneDigits,
 } from "../_codes";
 import { sendLoginCodeEmail } from "../_email";
 
@@ -47,23 +48,17 @@ async function findAuthUserIdByEmail(
   return null;
 }
 
-function isUniqueViolation(err: any) {
-  const code = String(err?.code || "");
-  const msg = String(err?.message || "").toLowerCase();
-  return code === "23505" || msg.includes("duplicate key");
-}
-
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
 
     const email = String(body?.email || "").trim().toLowerCase();
     const password = String(body?.password || "");
+
+    // dados cadastro
     const fullName = String(body?.fullName || "");
     const cpf = onlyDigits(String(body?.cpf || "")).slice(0, 11);
-
-    const phoneDigits = normalizePhoneDigitsBR(String(body?.phone || ""));
-    const phoneE164 = phoneDigits ? toE164BR(phoneDigits) : null;
+    const phoneDigits = onlyDigits(String(body?.phone || "")).slice(0, 11);
 
     if (!isValidEmail(email)) {
       return NextResponse.json(
@@ -80,106 +75,19 @@ export async function POST(req: Request) {
 
     const admin = supabaseAdmin();
 
-    // ✅ Busca por e-mail existente no perfil
-    const { data: existingEmailRows, error: exEmailErr } = await admin
+    // existe perfil?
+    const { data: existingWz, error: exErr } = await admin
       .from("wz_users")
       .select("id,email")
       .eq("email", email)
-      .limit(1);
+      .maybeSingle();
 
-    if (exEmailErr) console.error("[start] wz_users email select error:", exEmailErr);
+    if (exErr) console.error("[start] wz_users select error:", exErr);
 
-    const existingWz = existingEmailRows?.[0] ?? null;
+    // ✅ se já existe em wz_users, sempre é login (não deixa “registrar por cima”)
+    const flow = existingWz?.id ? "login" : "register";
 
-    const hasRegisterFields =
-      fullName.trim().length > 0 ||
-      cpf.length > 0 ||
-      normalizePhoneDigitsBR(phoneDigits).length > 0;
-
-    const flow = hasRegisterFields
-      ? "register"
-      : existingWz?.id
-        ? "login"
-        : "register";
-
-    // =========================
-    // ✅ REGISTER: trava duplicados ANTES de continuar
-    // =========================
-    if (flow === "register") {
-      if (fullName.trim().length < 4) {
-        return NextResponse.json(
-          { ok: false, error: "Informe seu nome completo." },
-          { status: 400 },
-        );
-      }
-      if (cpf.length !== 11) {
-        return NextResponse.json(
-          { ok: false, error: "CPF inválido." },
-          { status: 400 },
-        );
-      }
-      if (!phoneE164 || phoneDigits.length < 10) {
-        return NextResponse.json(
-          { ok: false, error: "Telefone inválido." },
-          { status: 400 },
-        );
-      }
-
-      // ✅ Se já existe e-mail no perfil, não deixa registrar de novo
-      if (existingWz?.id) {
-        return NextResponse.json(
-          { ok: false, error: "Esse e-mail já possui cadastro." },
-          { status: 409 },
-        );
-      }
-
-      // ✅ trava duplicado CPF
-      const { data: cpfRows, error: cpfErr } = await admin
-        .from("wz_users")
-        .select("id,email")
-        .eq("cpf", cpf)
-        .limit(1);
-
-      if (cpfErr) {
-        console.error("[start] cpf select error:", cpfErr);
-        return NextResponse.json(
-          { ok: false, error: "Falha ao validar CPF." },
-          { status: 500 },
-        );
-      }
-      if (cpfRows?.[0]?.id) {
-        return NextResponse.json(
-          { ok: false, error: "Esse CPF já possui cadastro." },
-          { status: 409 },
-        );
-      }
-
-      // ✅ trava duplicado telefone (phone_e164 OU legacy phone)
-      const orPhone = `phone_e164.eq.${phoneE164},phone.eq.${phoneDigits}`;
-      const { data: phoneRows, error: phoneErr } = await admin
-        .from("wz_users")
-        .select("id,email,phone,phone_e164")
-        .or(orPhone)
-        .limit(1);
-
-      if (phoneErr) {
-        console.error("[start] phone select error:", phoneErr);
-        return NextResponse.json(
-          { ok: false, error: "Falha ao validar telefone." },
-          { status: 500 },
-        );
-      }
-      if (phoneRows?.[0]?.id) {
-        return NextResponse.json(
-          { ok: false, error: "Esse telefone já possui cadastro." },
-          { status: 409 },
-        );
-      }
-    }
-
-    // =========================
-    // ✅ LOGIN: valida senha ANTES de enviar email code
-    // =========================
+    // ✅ LOGIN: valida senha antes de mandar o code
     if (flow === "login") {
       const anon = supabaseAnon();
       const { data: signIn, error: signErr } =
@@ -217,10 +125,84 @@ export async function POST(req: Request) {
       }
     }
 
-    // =========================
-    // ✅ REGISTER: cria/recupera Auth + pending
-    // =========================
+    // ✅ REGISTER: valida CPF real + telefone BR válido (celular) + bloqueia duplicados
     if (flow === "register") {
+      if (fullName.trim().length < 4) {
+        return NextResponse.json(
+          { ok: false, error: "Informe seu nome completo." },
+          { status: 400 },
+        );
+      }
+
+      if (!isValidCPF(cpf)) {
+        return NextResponse.json(
+          { ok: false, error: "CPF inválido." },
+          { status: 400 },
+        );
+      }
+
+      if (!isValidBRMobilePhoneDigits(phoneDigits)) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "Telefone inválido. Use um celular BR válido com DDD (11 dígitos).",
+          },
+          { status: 400 },
+        );
+      }
+
+      const phoneE164 = toE164BRMobile(phoneDigits);
+      if (!phoneE164) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "Telefone inválido. Use um celular BR válido com DDD (11 dígitos).",
+          },
+          { status: 400 },
+        );
+      }
+
+      // ✅ bloqueia duplicados antes de criar pending/auth
+      const [dupCpf, dupPhone] = await Promise.all([
+        admin
+          .from("wz_users")
+          .select("id,email")
+          .eq("cpf", cpf)
+          .maybeSingle(),
+        admin
+          .from("wz_users")
+          .select("id,email")
+          .eq("phone_e164", phoneE164)
+          .maybeSingle(),
+      ]);
+
+      if (dupCpf.error || dupPhone.error) {
+        console.error("[start] duplicate check error:", {
+          cpf: dupCpf.error,
+          phone: dupPhone.error,
+        });
+        return NextResponse.json(
+          { ok: false, error: "Falha ao validar cadastro." },
+          { status: 500 },
+        );
+      }
+
+      if (dupCpf.data?.id) {
+        return NextResponse.json(
+          { ok: false, error: "Esse CPF já possui cadastro." },
+          { status: 409 },
+        );
+      }
+
+      if (dupPhone.data?.id) {
+        return NextResponse.json(
+          { ok: false, error: "Esse telefone já possui cadastro." },
+          { status: 409 },
+        );
+      }
+
       let authUserId = await findAuthUserIdByEmail(admin, email);
 
       if (!authUserId) {
@@ -245,9 +227,7 @@ export async function POST(req: Request) {
             );
           }
         } else {
-          authUserId = created.data?.user?.id
-            ? String(created.data.user.id)
-            : null;
+          authUserId = created.data?.user?.id ? String(created.data.user.id) : null;
         }
       }
 
