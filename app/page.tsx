@@ -54,11 +54,8 @@ export default function ShopifyLandingPage() {
 }
 
 function getLoginOrigin() {
-  // ✅ você pediu assim no localhost:
-  // return "http://login.localhost:3000";
 
-  // ✅ modo premium: permite trocar por env em produção (Vercel)
-  return process.env.NEXT_PUBLIC_LOGIN_ORIGIN || "http://login.localhost:3000";
+  return process.env.NEXT_PUBLIC_LOGIN_ORIGIN || "http://login.wyzer.com.br";
 }
 
 function goToLoginWithEmail(email: string) {
@@ -958,8 +955,8 @@ function goToLoginWithEmail(email: string) {
 
             {/* Right actions */}
             <div className="hidden sm:flex items-center gap-4">
-              <a href="/login" className="text-[13px] font-medium text-black/60 hover:text-black/85 transition">
-                Fazer login
+              <a href="http://login.wyzer.com.br" className="text-[13px] font-medium text-black/60 hover:text-black/85 transition">
+                Fazer Login
               </a>
 
               {/* ✅ Sign Up no mesmo estilo dos botões do HERO */}

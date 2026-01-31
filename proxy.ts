@@ -15,8 +15,10 @@ export default function proxy(req: NextRequest) {
   const host = hostHeader.split(":")[0];
   const url = req.nextUrl.clone();
 
+  // ✅ Não mexe em assets estáticos
   if (isStaticAssetPath(url.pathname)) return NextResponse.next();
 
+  // ✅ Não mexe em rotas internas/arquivos comuns
   if (
     url.pathname.startsWith("/_next") ||
     url.pathname.startsWith("/api") ||
@@ -94,6 +96,29 @@ export default function proxy(req: NextRequest) {
   }
 
   // -----------------------------
+  // ✅ SUBDOMÍNIO DASHBOARD -> /dashboard/*
+  // -----------------------------
+  const isDashboardSubdomain =
+    host === "dashboard.localhost" ||
+    host === "dashboard.wyzer.com.br" ||
+    host === "dashboard.vercel.app" ||
+    host.startsWith("dashboard.") ||
+    (host.startsWith("dashboard-") && host.endsWith(".vercel.app"));
+
+  // ✅ BLOQUEIA /dashboard no domínio principal
+  if (!isDashboardSubdomain && url.pathname.startsWith("/dashboard")) {
+    url.pathname = "/404";
+    return NextResponse.rewrite(url);
+  }
+
+  if (isDashboardSubdomain) {
+    if (url.pathname === "/dashboard" || url.pathname.startsWith("/dashboard/")) return NextResponse.next();
+    const incomingPath = url.pathname === "/" ? "" : url.pathname;
+    url.pathname = `/dashboard${incomingPath}`;
+    return NextResponse.rewrite(url);
+  }
+
+  // -----------------------------
   // ✅ SUBDOMÍNIO LOGIN -> /login/*
   // -----------------------------
   const isLoginSubdomain =
@@ -103,15 +128,27 @@ export default function proxy(req: NextRequest) {
     host.startsWith("login.") ||
     (host.startsWith("login-") && host.endsWith(".vercel.app"));
 
-  // ✅ Só aplica rewrite especial se for login subdomain
+  // ✅ BLOQUEIA /login no domínio principal
+  if (!isLoginSubdomain && url.pathname.startsWith("/login")) {
+    url.pathname = "/404";
+    return NextResponse.rewrite(url);
+  }
+
   if (isLoginSubdomain) {
-    // ✅ já está em /login? segue normal
-    if (url.pathname === "/login" || url.pathname.startsWith("/login/")) {
-      return NextResponse.next();
+    // ✅ se já tem cookie de sessão, manda direto pro dashboard
+    const hasSession = !!req.cookies.get("wz_session_v1")?.value;
+
+    if (hasSession && (url.pathname === "/" || url.pathname === "")) {
+      // força troca de host
+      const target =
+        host.endsWith("wyzer.com.br")
+          ? "http://dashboard.wyzer.com.br/create-account"
+          : "https://dashboard.wyzer.com.br/create-account";
+
+      return NextResponse.redirect(target);
     }
 
-    // ✅ mantém URL como "/" ou "/mail/ABC" etc,
-    // mas internamente serve a partir de "/login/..."
+    if (url.pathname === "/login" || url.pathname.startsWith("/login/")) return NextResponse.next();
     const incomingPath = url.pathname === "/" ? "" : url.pathname;
     url.pathname = `/login${incomingPath}`;
     return NextResponse.rewrite(url);
