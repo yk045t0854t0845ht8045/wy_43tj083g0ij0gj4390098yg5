@@ -1,3 +1,5 @@
+// _sms.ts
+
 function must(name: string, value?: string) {
   if (!value) throw new Error(`Missing env: ${name}`);
   return value;
@@ -19,11 +21,14 @@ function normalizeBaseUrl(raw: string) {
 }
 
 export async function sendSmsCode(phoneE164: string, code: string) {
+  // ✅ textbee.dev (Android SMS Gateway)
+  // Base padrão da API: https://api.textbee.dev/api/v1
   const baseUrl = normalizeBaseUrl(
-    must("INFOBIP_BASE_URL", process.env.INFOBIP_BASE_URL),
+    process.env.TEXTBEE_BASE_URL || "https://api.textbee.dev/api/v1",
   );
-  const apiKey = must("INFOBIP_API_KEY", process.env.INFOBIP_API_KEY);
-  const sender = must("INFOBIP_SENDER", process.env.INFOBIP_SENDER);
+
+  const apiKey = must("TEXTBEE_API_KEY", process.env.TEXTBEE_API_KEY);
+  const deviceId = must("TEXTBEE_DEVICE_ID", process.env.TEXTBEE_DEVICE_ID);
 
   const to = normalizeE164(phoneE164);
 
@@ -31,23 +36,18 @@ export async function sendSmsCode(phoneE164: string, code: string) {
     throw new Error("Telefone inválido para SMS. Informe um número válido (E.164).");
   }
 
-  const url = `${baseUrl}/sms/2/text/advanced`;
+  const url = `${baseUrl}/gateway/devices/${deviceId}/send-sms`;
 
   const payload = {
-    messages: [
-      {
-        from: sender,
-        destinations: [{ to }],
-        text: `Wyzer - Seu código de verificação: ${code}`,
-      },
-    ],
+    recipients: [to],
+    message: `Wyzer - Seu código de verificação: ${code}`,
   };
 
   try {
     const res = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: `App ${apiKey}`,
+        "x-api-key": apiKey,
         "Content-Type": "application/json",
         Accept: "application/json",
       },
@@ -56,11 +56,11 @@ export async function sendSmsCode(phoneE164: string, code: string) {
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      console.error("[INFOBIP] sendSmsCode error:", { status: res.status, text });
-      throw new Error("Falha ao enviar SMS. Verifique sua configuração na Infobip.");
+      console.error("[TEXTBEE] sendSmsCode error:", { status: res.status, text });
+      throw new Error("Falha ao enviar SMS. Verifique sua configuração na textbee.dev.");
     }
   } catch (err: any) {
-    console.error("[INFOBIP] sendSmsCode exception:", err?.message || err);
+    console.error("[TEXTBEE] sendSmsCode exception:", err?.message || err);
     throw new Error("Falha ao enviar SMS. Tente novamente em instantes.");
   }
 }
