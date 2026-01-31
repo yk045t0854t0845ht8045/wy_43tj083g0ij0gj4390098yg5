@@ -5,6 +5,7 @@ import React, {
   useState,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
 } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
@@ -711,7 +712,7 @@ export default function LinkLoginPage() {
     [email, smsCode, busy, router, password],
   );
 
-  const resend = useCallback(async () => {
+   const resend = useCallback(async () => {
     if (busy || resendCooldown > 0) return;
     setBusy(true);
     setMsgError(null);
@@ -733,6 +734,9 @@ export default function LinkLoginPage() {
       setBusy(false);
     }
   }, [busy, resendCooldown, email, step]);
+
+
+  // ---------- COOKIES (mantive seu sistema) ----------
 
   // ---------- COOKIES (mantive seu sistema) ----------
   const COOKIE_KEY = "wyzer_cookie_consent_v1";
@@ -791,6 +795,162 @@ export default function LinkLoginPage() {
       prefersReducedMotion ? 0 : 220,
     );
   }, [COOKIE_KEY, cookieAccepting, prefersReducedMotion]);
+
+      // ---------- BOTTOM LINKS: esconder quando o "Continuar" encostar (zoom rápido / sem flicker) ----------
+  const continueBtnRef = useRef<HTMLButtonElement | null>(null);
+  const bottomLinksRef = useRef<HTMLDivElement | null>(null);
+  const [hideBottomLinks, setHideBottomLinks] = useState(false);
+
+  const rafRef = useRef<number | null>(null);
+  const settleFramesRef = useRef(0);
+  const holdUntilRef = useRef(0);
+  const lastDecisionRef = useRef(false);
+
+  const computeBottomLinksHide = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    // ✅ Mobile nunca esconde
+    if (window.matchMedia("(max-width: 640px)").matches) {
+      lastDecisionRef.current = false;
+      setHideBottomLinks(false);
+      return;
+    }
+
+    const btn = continueBtnRef.current;
+    const bottom = bottomLinksRef.current;
+
+    // se não tem os elementos montados (outros steps), não esconde
+    if (!btn || !bottom) {
+      lastDecisionRef.current = false;
+      setHideBottomLinks(false);
+      return;
+    }
+
+    const btnRect = btn.getBoundingClientRect();
+    const bottomRect = bottom.getBoundingClientRect();
+
+    // botão precisa estar realmente visível
+    const vh = window.innerHeight || 0;
+    const btnVisible =
+      btnRect.width > 0 &&
+      btnRect.height > 0 &&
+      btnRect.bottom > 0 &&
+      btnRect.top < vh;
+
+    if (!btnVisible) {
+      lastDecisionRef.current = false;
+      setHideBottomLinks(false);
+      return;
+    }
+
+    // distância do botão até o topo do rodapé
+    const gap = bottomRect.top - btnRect.bottom;
+
+    // ✅ Zonas inteligentes:
+    // HARD_HIDE: se encostou/chegou muito perto => esconde IMEDIATO e segura um pouco
+    // SHOW: só volta quando afastar bastante (histerese forte)
+    const HARD_HIDE_PX = 10; // encostou/quase encostou
+    const SHOW_PX = 64;      // só volta quando afastar bem (evita piscar)
+    const HOLD_MS = 420;     // segura escondido após detectar encosto (zoom rápido)
+
+    const now = performance.now();
+
+    const hardHide = gap < HARD_HIDE_PX;
+    const canShow = gap > SHOW_PX;
+
+    let next = lastDecisionRef.current;
+
+    if (hardHide) {
+      next = true;
+      holdUntilRef.current = now + HOLD_MS;
+    } else if (now < holdUntilRef.current) {
+      // mantém escondido durante o hold
+      next = true;
+    } else if (canShow) {
+      next = false;
+    } else {
+      // zona “meio termo”: mantém decisão anterior
+      next = lastDecisionRef.current;
+    }
+
+    lastDecisionRef.current = next;
+    setHideBottomLinks(next);
+  }, []);
+
+  const scheduleBottomLinksCheck = useCallback((boostFrames = 10) => {
+    // roda várias vezes após zoom/resize pra pegar o layout final
+    settleFramesRef.current = Math.max(settleFramesRef.current, boostFrames);
+
+    if (rafRef.current) return;
+
+    const loop = () => {
+      rafRef.current = null;
+      computeBottomLinksHide();
+
+      if (settleFramesRef.current > 0) {
+        settleFramesRef.current -= 1;
+        rafRef.current = requestAnimationFrame(loop);
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(loop);
+  }, [computeBottomLinksHide]);
+
+  // useLayoutEffect evita “piscar” no primeiro paint após F5
+  useLayoutEffect(() => {
+    scheduleBottomLinksCheck(14);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const onAnyChange = () => scheduleBottomLinksCheck(10);
+
+    window.addEventListener("resize", onAnyChange, { passive: true });
+    window.addEventListener("scroll", onAnyChange, { passive: true });
+
+    // ✅ Zoom do browser / mobile pinch-zoom (quando suportado)
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    vv?.addEventListener("resize", onAnyChange, { passive: true } as any);
+    vv?.addEventListener("scroll", onAnyChange, { passive: true } as any);
+
+    // ✅ Observa mudanças reais de layout (inclusive após fontes)
+    let ro: ResizeObserver | null = null;
+    try {
+      ro = new ResizeObserver(() => scheduleBottomLinksCheck(12));
+      ro.observe(document.documentElement);
+      if (continueBtnRef.current) ro.observe(continueBtnRef.current);
+      if (bottomLinksRef.current) ro.observe(bottomLinksRef.current);
+    } catch {}
+
+    // ✅ Quando fontes carregam, o layout muda (evita pisca pós F5)
+    const fontsAny: any = (document as any).fonts;
+    if (fontsAny?.ready?.then) {
+      fontsAny.ready.then(() => scheduleBottomLinksCheck(12)).catch(() => {});
+    }
+
+    // roda quando estados principais mudarem
+    scheduleBottomLinksCheck(10);
+
+    return () => {
+      window.removeEventListener("resize", onAnyChange);
+      window.removeEventListener("scroll", onAnyChange);
+      vv?.removeEventListener("resize", onAnyChange as any);
+      vv?.removeEventListener("scroll", onAnyChange as any);
+
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+      ro?.disconnect();
+    };
+  }, [
+    scheduleBottomLinksCheck,
+    step,
+    check.state,
+    busy,
+    verifyingEmailCodeBusy,
+    msgError,
+    cookieReady,
+    showCookieConsent,
+  ]);
 
   const cookieWrapVariants = useMemo(
     () => ({
@@ -881,30 +1041,10 @@ export default function LinkLoginPage() {
 
   return (
     <div className="min-h-screen bg-white relative overflow-hidden">
-      {/* Glow discreto */}
-      <motion.div
-        aria-hidden
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: DUR.xl, ease: EASE }}
-        className="pointer-events-none absolute inset-0"
-      >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ duration: 1.25, ease: EASE }}
-          className="absolute -top-48 -left-56 h-[560px] w-[560px] rounded-full bg-[#99e600]/12 blur-[160px]"
-        />
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: -10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ duration: 1.35, ease: EASE, delay: 0.05 }}
-          className="absolute -top-56 right-[-140px] h-[620px] w-[620px] rounded-full bg-black/6 blur-[170px]"
-        />
-      </motion.div>
+
 
       {/* Centro */}
-      <div className="relative z-10 min-h-screen flex items-start sm:items-center justify-center px-4 pt-10 sm:pt-0 pb-[calc(env(safe-area-inset-bottom,0px)+200px)]">
+      <div className="relative z-10 min-h-screen flex items-start sm:items-center justify-center px-4 pt-[calc(env(safe-area-inset-top,0px)+44px)] sm:pt-20 pb-[calc(env(safe-area-inset-bottom,0px)+260px)] sm:pb-[calc(env(safe-area-inset-bottom,0px)+240px)]">
         <motion.div
           initial={{ opacity: 0, y: 16, filter: "blur(10px)" }}
           animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
@@ -918,7 +1058,7 @@ export default function LinkLoginPage() {
         >
           <div className="mx-auto w-full max-w-[560px] transform-gpu scale-[0.98] sm:scale-[1.0] md:scale-[1.02] origin-center">
             <div className="text-center">
-              <div className="mx-auto mb-5 inline-flex h-14 w-14 items-center justify-center rounded-full bg-black/[0.04] ring-1 ring-black/5">
+              <div className="mx-auto mb-5 inline-flex h-14 w-14 items-center justify-center rounded-full bg-black/[0.04] ring-1 ring-black/5 shrink-0">
                 {TitleIcon}
               </div>
 
@@ -1128,6 +1268,7 @@ export default function LinkLoginPage() {
 
                   {/* Continue */}
                   <motion.button
+                    ref={continueBtnRef}
                     type="submit"
                     onClick={startFlow}
                     disabled={!canStart || busy}
@@ -1403,32 +1544,51 @@ export default function LinkLoginPage() {
         </motion.div>
       </div>
 
-      {/* Bottom links (igual imagem) */}
-      <div className="fixed inset-x-0 bottom-0 z-[30] pointer-events-none">
-        <div
-          className="pointer-events-auto mx-auto w-full max-w-[560px] px-4"
-          style={{
-            paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 22px)",
-          }}
-        >
-          <div className="flex flex-col items-center justify-center gap-4">
-            <div className="flex items-center justify-center gap-10 text-[15px] text-black/55">
-              <a href="/termos" className="hover:text-black transition-colors">
-                Termos
-              </a>
-              <a
-                href="/privacidade"
-                className="hover:text-black transition-colors"
-              >
-                Privacidade
-              </a>
-              <a href="/cookies" className="hover:text-black transition-colors">
-                Cookies
-              </a>
-            </div>
-          </div>
-        </div>
+{/* Bottom links (igual imagem) */}
+<motion.div
+  initial={false}
+  animate={
+    hideBottomLinks
+      ? { opacity: 0, y: 10, filter: "blur(8px)" }
+      : { opacity: 1, y: 0, filter: "blur(0px)" }
+  }
+  transition={{
+    duration: prefersReducedMotion ? 0 : hideBottomLinks ? 0.08 : 0.22,
+    ease: EASE,
+  }}
+  className="fixed inset-x-0 bottom-0 z-[30] pointer-events-none"
+  style={{ willChange: "transform, opacity, filter" }}
+>
+  <div
+    ref={bottomLinksRef}
+    className={cx(
+      "mx-auto w-full max-w-[560px] px-4",
+      hideBottomLinks ? "pointer-events-none" : "pointer-events-auto"
+    )}
+    style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 22px)" }}
+  >
+    <div className="flex flex-col items-center justify-center gap-4">
+      <a
+        href="/ajuda"
+        className={cx(
+          "inline-flex items-center justify-center rounded-[14px] px-7 py-3",
+          "bg-[#f3f3f3] ring-1 ring-black/5",
+          "text-[15px] font-semibold text-black/80 hover:text-black",
+          "hover:bg-[#ededed] transition-colors"
+        )}
+      >
+        Ajuda
+      </a>
+
+      <div className="flex items-center justify-center gap-10 text-[15px] text-black/55">
+        <a href="/termos" className="hover:text-black transition-colors">Termos</a>
+        <a href="/privacidade" className="hover:text-black transition-colors">Privacidade</a>
+        <a href="/cookies" className="hover:text-black transition-colors">Cookies</a>
       </div>
+    </div>
+  </div>
+</motion.div>
+
 
       {/* Cookies (mantido) */}
       <AnimatePresence initial={false} mode="sync" presenceAffectsLayout={false}>
