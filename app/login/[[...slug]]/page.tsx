@@ -295,13 +295,12 @@ export default function LinkLoginPage() {
   const [emailSuccessOpen, setEmailSuccessOpen] = useState(false);
   const emailSuccessTimerRef = useRef<number | null>(null);
 
- // ui states
-const [busy, setBusy] = useState(false);
-const [verifyingEmailCodeBusy, setVerifyingEmailCodeBusy] = useState(false); // ✅ novo (só validação do email code)
-const [verifyingSmsCodeBusy, setVerifyingSmsCodeBusy] = useState(false); // ✅ novo (só validação do sms code)
-const [msgError, setMsgError] = useState<string | null>(null);
-const [resendCooldown, setResendCooldown] = useState(0);
-
+  // ui states
+  const [busy, setBusy] = useState(false);
+  const [verifyingEmailCodeBusy, setVerifyingEmailCodeBusy] = useState(false); // ✅ novo (só validação do email code)
+  const [verifyingSmsCodeBusy, setVerifyingSmsCodeBusy] = useState(false); // ✅ novo (só validação do sms code)
+  const [msgError, setMsgError] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   const lastCheckedRef = useRef<string>("");
   const abortRef = useRef<AbortController | null>(null);
@@ -519,7 +518,7 @@ const [resendCooldown, setResendCooldown] = useState(0);
                 duration: prefersReducedMotion ? 0 : 0.18,
                 ease: EASE,
               }}
-              className="ml-2 inline-flex items-center justify-center h-9 w-9 rounded-full bg-black/[0.06] hover:bg-black/[0.08] transition-colors cursor-pointer"
+              className="-mr-[7px] inline-flex items-center justify-center h-9 w-9 rounded-full bg-black/[0.06] hover:bg-black/[0.08] transition-colors cursor-pointer"
               aria-label="Trocar e-mail"
             >
               <Undo2 className="h-5 w-5 text-black/60" />
@@ -676,45 +675,44 @@ const [resendCooldown, setResendCooldown] = useState(0);
     ],
   );
 
- const verifySmsCode = useCallback(
-  async (code?: string) => {
-    const c = onlyDigits(code ?? smsCode).slice(0, 7);
-    if (c.length !== 7 || busy || verifyingSmsCodeBusy) return;
+  const verifySmsCode = useCallback(
+    async (code?: string) => {
+      const c = onlyDigits(code ?? smsCode).slice(0, 7);
+      if (c.length !== 7 || busy || verifyingSmsCodeBusy) return;
 
-    setVerifyingSmsCodeBusy(true); // ✅ trava e mostra loader no code
-    setBusy(true);
-    setMsgError(null);
+      setVerifyingSmsCodeBusy(true); // ✅ trava e mostra loader no code
+      setBusy(true);
+      setMsgError(null);
 
-    try {
-      const res = await fetch("/api/wz_AuthLogin/verify-sms", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          code: c,
-          password,
-        }),
-      });
+      try {
+        const res = await fetch("/api/wz_AuthLogin/verify-sms", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            code: c,
+            password,
+          }),
+        });
 
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j?.error || "Código inválido.");
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j?.error || "Código inválido.");
 
-      const nextUrl = String(j?.nextUrl || "/app");
-      if (/^https?:\/\//i.test(nextUrl)) {
-        window.location.assign(nextUrl);
-      } else {
-        router.push(nextUrl);
+        const nextUrl = String(j?.nextUrl || "/app");
+        if (/^https?:\/\//i.test(nextUrl)) {
+          window.location.assign(nextUrl);
+        } else {
+          router.push(nextUrl);
+        }
+      } catch (err: any) {
+        setMsgError(err?.message || "Erro inesperado.");
+      } finally {
+        setBusy(false);
+        setVerifyingSmsCodeBusy(false); // ✅ destrava
       }
-    } catch (err: any) {
-      setMsgError(err?.message || "Erro inesperado.");
-    } finally {
-      setBusy(false);
-      setVerifyingSmsCodeBusy(false); // ✅ destrava
-    }
-  },
-  [email, smsCode, busy, verifyingSmsCodeBusy, router, password],
-);
-
+    },
+    [email, smsCode, busy, verifyingSmsCodeBusy, router, password],
+  );
 
   const resend = useCallback(async () => {
     if (busy || resendCooldown > 0) return;
@@ -1247,7 +1245,7 @@ const [resendCooldown, setResendCooldown] = useState(0);
                     />
 
                     {/* ✅ loader / checks / reset 100% centralizados */}
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">
+                    <div className="absolute right-5 top-1/2 -translate-y-1/2 flex items-center">
                       {EmailAdornment}
                     </div>
                   </div>
@@ -1593,14 +1591,14 @@ const [resendCooldown, setResendCooldown] = useState(0);
                   className="mt-10"
                 >
                   <CodeBoxes
-  length={7}
-  value={smsCode}
-  onChange={setSmsCode}
-  onComplete={(v) => verifySmsCode(v)}
-  disabled={busy || verifyingSmsCodeBusy} // ✅ trava inputs
-  loading={verifyingSmsCodeBusy} // ✅ loader central
-  reduced={!!prefersReducedMotion}
-/>
+                    length={7}
+                    value={smsCode}
+                    onChange={setSmsCode}
+                    onComplete={(v) => verifySmsCode(v)}
+                    disabled={busy || verifyingSmsCodeBusy} // ✅ trava inputs
+                    loading={verifyingSmsCodeBusy} // ✅ loader central
+                    reduced={!!prefersReducedMotion}
+                  />
 
                   <AnimatePresence initial={false}>
                     {!!msgError && (
@@ -1621,16 +1619,18 @@ const [resendCooldown, setResendCooldown] = useState(0);
 
                   <div className="mt-8 flex items-center justify-center">
                     <button
-  type="button"
-  onClick={resend}
-  disabled={busy || verifyingSmsCodeBusy || resendCooldown > 0}
-  className={cx(
-    "text-[14px] font-semibold text-black/80 hover:text-black transition-colors",
-    busy || verifyingSmsCodeBusy || resendCooldown > 0
-      ? "opacity-50 cursor-not-allowed"
-      : "",
-  )}
->
+                      type="button"
+                      onClick={resend}
+                      disabled={
+                        busy || verifyingSmsCodeBusy || resendCooldown > 0
+                      }
+                      className={cx(
+                        "text-[14px] font-semibold text-black/80 hover:text-black transition-colors",
+                        busy || verifyingSmsCodeBusy || resendCooldown > 0
+                          ? "opacity-50 cursor-not-allowed"
+                          : "",
+                      )}
+                    >
                       {resendCooldown > 0
                         ? `Reenviar código (${resendCooldown}s)`
                         : "Reenviar código"}
@@ -1638,17 +1638,17 @@ const [resendCooldown, setResendCooldown] = useState(0);
                   </div>
 
                   <div className="mt-6 flex items-center justify-center">
-<button
-  type="button"
-  onClick={resetAll}
-  disabled={busy || verifyingSmsCodeBusy} // ✅ não deixa resetar no meio
-  className={cx(
-    "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
-    busy || verifyingSmsCodeBusy
-      ? "text-black/35 cursor-not-allowed"
-      : "text-black/55 hover:text-black/75",
-  )}
->
+                    <button
+                      type="button"
+                      onClick={resetAll}
+                      disabled={busy || verifyingSmsCodeBusy} // ✅ não deixa resetar no meio
+                      className={cx(
+                        "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
+                        busy || verifyingSmsCodeBusy
+                          ? "text-black/35 cursor-not-allowed"
+                          : "text-black/55 hover:text-black/75",
+                      )}
+                    >
                       <Undo2 className="h-4 w-4" />
                       Trocar e-mail
                     </button>

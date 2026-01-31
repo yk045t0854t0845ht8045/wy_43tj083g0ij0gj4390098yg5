@@ -35,13 +35,27 @@ export async function POST(req: Request) {
 
     const sb = supabaseAdmin();
 
-    // evita duplicar
-    const existing = await sb.from("wz_users").select("id").eq("email", email).maybeSingle();
-    if (existing.error) {
+    // ✅ evita duplicar (e-mail, telefone e CPF)
+    // Obs: para 100% de garantia contra corrida (2 requisições ao mesmo tempo),
+    // crie UNIQUE no banco para email/phone/cpf. Ainda assim, fazemos validação aqui.
+    const [existingEmail, existingPhone, existingCpf] = await Promise.all([
+      sb.from("wz_users").select("id").eq("email", email).maybeSingle(),
+      sb.from("wz_users").select("id").eq("phone", phone).maybeSingle(),
+      sb.from("wz_users").select("id").eq("cpf", cpf).maybeSingle(),
+    ]);
+
+    if (existingEmail.error || existingPhone.error || existingCpf.error) {
       return NextResponse.json({ error: "Falha ao consultar cadastro." }, { status: 500 });
     }
-    if (existing.data?.id) {
+
+    if (existingEmail.data?.id) {
       return NextResponse.json({ error: "Esse e-mail já possui cadastro." }, { status: 409 });
+    }
+    if (existingPhone.data?.id) {
+      return NextResponse.json({ error: "Esse telefone já possui cadastro." }, { status: 409 });
+    }
+    if (existingCpf.data?.id) {
+      return NextResponse.json({ error: "Esse CPF já possui cadastro." }, { status: 409 });
     }
 
     // Aqui NÃO cria Auth com senha (fluxo novo faz no /start).
@@ -59,6 +73,18 @@ export async function POST(req: Request) {
       .single();
 
     if (profErr) {
+      // fallback: se existir UNIQUE no banco, aqui pode cair com violação de unicidade
+      const isUniqueViolation =
+        (profErr as any)?.code === "23505" ||
+        String((profErr as any)?.message || "").toLowerCase().includes("duplicate key");
+
+      if (isUniqueViolation) {
+        return NextResponse.json(
+          { error: "E-mail, telefone ou CPF já possui cadastro." },
+          { status: 409 }
+        );
+      }
+
       return NextResponse.json({ error: "Falha ao salvar cadastro." }, { status: 500 });
     }
 
