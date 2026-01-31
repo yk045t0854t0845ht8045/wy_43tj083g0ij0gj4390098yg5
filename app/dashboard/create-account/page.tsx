@@ -24,7 +24,7 @@ function buildLoginUrl(hostHeader: string | null) {
 export default async function CreateAccountDashboardPage() {
   const h = await headers();
   const cookieHeader = h.get("cookie");
-  const session = readSessionFromCookieHeader(cookieHeader);
+  const session = readSessionFromCookieHeader(cookieHeader, { headers: h });
 
   if (!session) {
     const loginUrl = buildLoginUrl(h.get("host"));
