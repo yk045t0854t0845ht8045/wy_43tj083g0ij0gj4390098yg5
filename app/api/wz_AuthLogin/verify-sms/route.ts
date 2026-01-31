@@ -246,7 +246,7 @@ export async function POST(req: Request) {
     const nextUrl = `${getDashboardOrigin()}/create-account`;
 
     const res = NextResponse.json({ ok: true, nextUrl }, { status: 200 });
-    setSessionCookie(res, { userId: String(userId), email });
+setSessionCookie(res, { userId: String(userId), email }, req); // ✅ passa req
 
     return res;
   } catch (e: any) {

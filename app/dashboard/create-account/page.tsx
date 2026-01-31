@@ -5,31 +5,44 @@ import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session";
 export const dynamic = "force-dynamic";
 
 function buildLoginUrl(hostHeader: string | null) {
-  const host = String(hostHeader || "")
-    .split(":")[0]
-    .toLowerCase();
+  const host = String(hostHeader || "").split(":")[0].toLowerCase();
 
-  // dev
-  if (host === "dashboard.wyzer.com.br" || host.endsWith(".wyzer.com.br")) {
-    return "http://login.wyzer.com.br";
+  // local/dev
+  if (host.endsWith(".localhost") || host === "localhost") {
+    return "http://login.localhost:3000/";
   }
 
-  // prod (ajuste se seu domínio final for outro)
+  // prod
   if (host.endsWith(".wyzer.com.br")) {
     return "https://login.wyzer.com.br/";
   }
 
   // fallback
-  return "/";
+  return "https://login.wyzer.com.br/";
+}
+
+function pickHostHeader(h: { get(name: string): string | null }) {
+  // Em proxy/CDN o host real costuma vir em x-forwarded-host
+  return h.get("x-forwarded-host") || h.get("host");
 }
 
 export default async function CreateAccountDashboardPage() {
+  // ✅ Next 16: garanta await para evitar "vermelho" e problemas de tipagem
   const h = await headers();
+
   const cookieHeader = h.get("cookie");
-  const session = readSessionFromCookieHeader(cookieHeader);
+
+  // ✅ "HeaderLike" compatível com teu _session (só precisa de .get)
+  const headerLike: { get(name: string): string | null } = {
+    get: (name: string) => h.get(name),
+  };
+
+  // ✅ passa headers para validar bind UA/IP quando ligado por ENV
+  const session = readSessionFromCookieHeader(cookieHeader, headerLike);
 
   if (!session) {
-    const loginUrl = buildLoginUrl(h.get("host"));
+    const hostHeader = pickHostHeader(headerLike);
+    const loginUrl = buildLoginUrl(hostHeader);
 
     return (
       <div className="min-h-screen bg-white flex items-center justify-center px-6">

@@ -122,7 +122,7 @@ export async function POST(req: Request) {
       const nextUrl = "https://dashboard.wyzer.com.br/create-account";
 
       const res = NextResponse.json({ ok: true, nextUrl }, { status: 200 });
-      setSessionCookie(res, { userId: String(userRow.id), email });
+     setSessionCookie(res, { userId: String(userRow.id), email }, req); // ✅ passa req
       return res;
     }
 
