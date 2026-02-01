@@ -179,14 +179,15 @@ function SearchableSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
+  const [side, setSide] = useState<"down" | "up">("down");
+  const [listMaxH, setListMaxH] = useState(260);
+
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   const flat = useMemo(() => {
     const out: Array<{ group: string; label: string }> = [];
-    for (const g of groups) {
-      for (const opt of g.options) out.push({ group: g.group, label: opt });
-    }
+    for (const g of groups) for (const opt of g.options) out.push({ group: g.group, label: opt });
     return out;
   }, [groups]);
 
@@ -199,7 +200,6 @@ function SearchableSelect({
       .filter((r) => r.ok)
       .sort((a, b) => a.score - b.score);
 
-    // mantém agrupamento visual “normal” (sem layout grandão)
     const byGroup = new Map<string, string[]>();
     for (const r of rows) {
       if (!byGroup.has(r.group)) byGroup.set(r.group, []);
@@ -217,6 +217,31 @@ function SearchableSelect({
   useEffect(() => {
     if (!open) return;
 
+    const recalc = () => {
+      const el = wrapRef.current;
+      if (!el) return;
+
+      const r = el.getBoundingClientRect();
+      const margin = 14;            // “respiro” do viewport
+      const headApprox = 66;        // busca + paddings (aprox)
+      const minList = 180;
+      const maxList = 340;
+
+      const spaceBelow = window.innerHeight - r.bottom - margin;
+      const spaceAbove = r.top - margin;
+
+      const nextSide =
+        spaceBelow < 240 && spaceAbove > spaceBelow ? "up" : "down";
+
+      const available =
+        (nextSide === "down" ? spaceBelow : spaceAbove) - headApprox;
+
+      const nextMaxH = Math.max(minList, Math.min(maxList, available));
+
+      setSide(nextSide);
+      setListMaxH(Number.isFinite(nextMaxH) ? nextMaxH : 260);
+    };
+
     const onDown = (e: MouseEvent | TouchEvent) => {
       const el = wrapRef.current;
       const t = e.target as Node | null;
@@ -228,17 +253,28 @@ function SearchableSelect({
       if (e.key === "Escape") setOpen(false);
     };
 
+    // calcula posição/altura e mantém inteligente
+    requestAnimationFrame(recalc);
+    window.setTimeout(() => searchRef.current?.focus(), 0);
+
     window.addEventListener("mousedown", onDown, { passive: true });
     window.addEventListener("touchstart", onDown, { passive: true });
     window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", recalc);
 
-    // foca busca ao abrir
-    window.setTimeout(() => searchRef.current?.focus(), 0);
+    // captura scroll de qualquer container (não só window)
+    window.addEventListener("scroll", recalc, true);
+
+    const vv = (window as any).visualViewport as VisualViewport | undefined;
+    vv?.addEventListener?.("resize", recalc);
 
     return () => {
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("touchstart", onDown);
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", recalc);
+      window.removeEventListener("scroll", recalc, true);
+      vv?.removeEventListener?.("resize", recalc);
     };
   }, [open]);
 
@@ -257,15 +293,13 @@ function SearchableSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className="block truncate">
-          {value ? value : placeholder}
-        </span>
+        <span className="block truncate">{value ? value : placeholder}</span>
 
         <span className="absolute right-4 inset-y-0 flex items-center justify-center">
           {loading ? (
             <SpinnerMini reduced={!!prefersReducedMotion} />
           ) : (
-            <ChevronDown className="h-5 w-5 text-black/50" />
+            <ChevronDown className={cx("h-5 w-5 text-black/50", open && "rotate-180")} />
           )}
         </span>
       </button>
@@ -273,14 +307,17 @@ function SearchableSelect({
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: 10, filter: "blur(10px)" }}
+            initial={{ opacity: 0, y: side === "down" ? 10 : -10, filter: "blur(10px)" }}
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-            exit={{ opacity: 0, y: 10, filter: "blur(10px)" }}
+            exit={{ opacity: 0, y: side === "down" ? 10 : -10, filter: "blur(10px)" }}
             transition={{
               duration: prefersReducedMotion ? 0 : 0.18,
               ease: EASE,
             }}
-            className="absolute left-0 right-0 mt-2 z-[40]"
+            className={cx(
+              "absolute left-0 right-0 z-[40]",
+              side === "down" ? "top-full mt-2" : "bottom-full mb-2",
+            )}
           >
             <div className="rounded-[18px] bg-white ring-1 ring-black/10 shadow-[0_18px_55px_rgba(0,0,0,0.10)] overflow-hidden">
               {/* barra de busca (topo) */}
@@ -299,8 +336,11 @@ function SearchableSelect({
                 </div>
               </div>
 
-              {/* lista compacta (sem “grandão”) */}
-              <div className="max-h-[260px] overflow-auto px-2 pb-2">
+              {/* lista com altura inteligente */}
+              <div
+                className="overflow-auto px-2 pb-2"
+                style={{ maxHeight: listMaxH }}
+              >
                 {filtered.length === 0 ? (
                   <div className="px-3 py-3 text-[13px] text-black/55">
                     Nenhum resultado.
@@ -308,11 +348,12 @@ function SearchableSelect({
                 ) : (
                   filtered.map((g) => (
                     <div key={g.group} className="pb-2">
-                      <div className="px-3 pt-2 pb-1 text-[11px] font-semibold text-black/45">
+                      <div className="px-3 pt-2 pb-2 text-[11px] font-semibold text-black/45">
                         {g.group}
                       </div>
 
-                      <div className="space-y-1">
+                      {/* ✅ mais espaço entre opções */}
+                      <div className="space-y-2">
                         {g.options.map((opt) => {
                           const active =
                             normalizeText(value) === normalizeText(opt);
@@ -328,7 +369,7 @@ function SearchableSelect({
                               }}
                               className={cx(
                                 "w-full flex items-center justify-between gap-3",
-                                "rounded-[14px] px-4 py-3 text-left text-[13px] font-semibold transition-all",
+                                "rounded-[14px] px-4 py-3.5 text-left text-[13px] font-semibold transition-all",
                                 active
                                   ? "bg-black text-white"
                                   : "bg-[#f3f3f3] ring-1 ring-black/10 text-black/75 hover:text-black hover:bg-[#ededed]",

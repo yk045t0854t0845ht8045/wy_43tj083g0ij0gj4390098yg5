@@ -81,14 +81,15 @@ function SearchableSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
+  const [side, setSide] = useState<"down" | "up">("down");
+  const [listMaxH, setListMaxH] = useState(260);
+
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   const flat = useMemo(() => {
     const out: Array<{ group: string; label: string }> = [];
-    for (const g of groups) {
-      for (const opt of g.options) out.push({ group: g.group, label: opt });
-    }
+    for (const g of groups) for (const opt of g.options) out.push({ group: g.group, label: opt });
     return out;
   }, [groups]);
 
@@ -118,6 +119,31 @@ function SearchableSelect({
   useEffect(() => {
     if (!open) return;
 
+    const recalc = () => {
+      const el = wrapRef.current;
+      if (!el) return;
+
+      const r = el.getBoundingClientRect();
+      const margin = 14;
+      const headApprox = 66;
+      const minList = 180;
+      const maxList = 340;
+
+      const spaceBelow = window.innerHeight - r.bottom - margin;
+      const spaceAbove = r.top - margin;
+
+      const nextSide =
+        spaceBelow < 240 && spaceAbove > spaceBelow ? "up" : "down";
+
+      const available =
+        (nextSide === "down" ? spaceBelow : spaceAbove) - headApprox;
+
+      const nextMaxH = Math.max(minList, Math.min(maxList, available));
+
+      setSide(nextSide);
+      setListMaxH(Number.isFinite(nextMaxH) ? nextMaxH : 260);
+    };
+
     const onDown = (e: MouseEvent | TouchEvent) => {
       const el = wrapRef.current;
       const t = e.target as Node | null;
@@ -129,16 +155,25 @@ function SearchableSelect({
       if (e.key === "Escape") setOpen(false);
     };
 
+    requestAnimationFrame(recalc);
+    window.setTimeout(() => searchRef.current?.focus(), 0);
+
     window.addEventListener("mousedown", onDown, { passive: true });
     window.addEventListener("touchstart", onDown, { passive: true });
     window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", recalc);
+    window.addEventListener("scroll", recalc, true);
 
-    window.setTimeout(() => searchRef.current?.focus(), 0);
+    const vv = (window as any).visualViewport as VisualViewport | undefined;
+    vv?.addEventListener?.("resize", recalc);
 
     return () => {
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("touchstart", onDown);
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", recalc);
+      window.removeEventListener("scroll", recalc, true);
+      vv?.removeEventListener?.("resize", recalc);
     };
   }, [open]);
 
@@ -161,7 +196,7 @@ function SearchableSelect({
           {loading ? (
             <SpinnerMini reduced={!!prefersReducedMotion} />
           ) : (
-            <ChevronDown className="h-5 w-5 text-black/50" />
+            <ChevronDown className={cx("h-5 w-5 text-black/50", open && "rotate-180")} />
           )}
         </span>
       </button>
@@ -169,14 +204,14 @@ function SearchableSelect({
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: 10, filter: "blur(10px)" }}
+            initial={{ opacity: 0, y: side === "down" ? 10 : -10, filter: "blur(10px)" }}
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-            exit={{ opacity: 0, y: 10, filter: "blur(10px)" }}
-            transition={{
-              duration: prefersReducedMotion ? 0 : 0.18,
-              ease: EASE,
-            }}
-            className="absolute left-0 right-0 mt-2 z-[40]"
+            exit={{ opacity: 0, y: side === "down" ? 10 : -10, filter: "blur(10px)" }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.18, ease: EASE }}
+            className={cx(
+              "absolute left-0 right-0 z-[40]",
+              side === "down" ? "top-full mt-2" : "bottom-full mb-2",
+            )}
           >
             <div className="rounded-[18px] bg-white ring-1 ring-black/10 shadow-[0_18px_55px_rgba(0,0,0,0.10)] overflow-hidden">
               <div className="p-2">
@@ -194,22 +229,19 @@ function SearchableSelect({
                 </div>
               </div>
 
-              <div className="max-h-[260px] overflow-auto px-2 pb-2">
+              <div className="overflow-auto px-2 pb-2" style={{ maxHeight: listMaxH }}>
                 {filtered.length === 0 ? (
-                  <div className="px-3 py-3 text-[13px] text-black/55">
-                    Nenhum resultado.
-                  </div>
+                  <div className="px-3 py-3 text-[13px] text-black/55">Nenhum resultado.</div>
                 ) : (
                   filtered.map((g) => (
                     <div key={g.group} className="pb-2">
-                      <div className="px-3 pt-2 pb-1 text-[11px] font-semibold text-black/45">
+                      <div className="px-3 pt-2 pb-2 text-[11px] font-semibold text-black/45">
                         {g.group}
                       </div>
 
-                      <div className="space-y-1">
+                      <div className="space-y-2">
                         {g.options.map((opt) => {
-                          const active =
-                            normalizeText(value) === normalizeText(opt);
+                          const active = normalizeText(value) === normalizeText(opt);
 
                           return (
                             <button
@@ -222,7 +254,7 @@ function SearchableSelect({
                               }}
                               className={cx(
                                 "w-full flex items-center justify-between gap-3",
-                                "rounded-[14px] px-4 py-3 text-left text-[13px] font-semibold transition-all",
+                                "rounded-[14px] px-4 py-3.5 text-left text-[13px] font-semibold transition-all",
                                 active
                                   ? "bg-black text-white"
                                   : "bg-[#f3f3f3] ring-1 ring-black/10 text-black/75 hover:text-black hover:bg-[#ededed]",
@@ -246,6 +278,8 @@ function SearchableSelect({
   );
 }
 
+
+
 function MultiSelect({
   value,
   placeholder,
@@ -265,11 +299,14 @@ function MultiSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
+  const [side, setSide] = useState<"down" | "up">("down");
+  const [listMaxH, setListMaxH] = useState(240);
+
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   const filtered = useMemo(() => {
-    const rows = options
+    return options
       .map((label) => {
         const m = scoreMatch(label, q);
         return { label, ok: m.ok, score: m.score };
@@ -277,11 +314,35 @@ function MultiSelect({
       .filter((r) => r.ok)
       .sort((a, b) => a.score - b.score)
       .map((r) => r.label);
-    return rows;
   }, [options, q]);
 
   useEffect(() => {
     if (!open) return;
+
+    const recalc = () => {
+      const el = wrapRef.current;
+      if (!el) return;
+
+      const r = el.getBoundingClientRect();
+      const margin = 14;
+      const headApprox = 66;
+      const minList = 170;
+      const maxList = 320;
+
+      const spaceBelow = window.innerHeight - r.bottom - margin;
+      const spaceAbove = r.top - margin;
+
+      const nextSide =
+        spaceBelow < 220 && spaceAbove > spaceBelow ? "up" : "down";
+
+      const available =
+        (nextSide === "down" ? spaceBelow : spaceAbove) - headApprox;
+
+      const nextMaxH = Math.max(minList, Math.min(maxList, available));
+
+      setSide(nextSide);
+      setListMaxH(Number.isFinite(nextMaxH) ? nextMaxH : 240);
+    };
 
     const onDown = (e: MouseEvent | TouchEvent) => {
       const el = wrapRef.current;
@@ -294,16 +355,25 @@ function MultiSelect({
       if (e.key === "Escape") setOpen(false);
     };
 
+    requestAnimationFrame(recalc);
+    window.setTimeout(() => searchRef.current?.focus(), 0);
+
     window.addEventListener("mousedown", onDown, { passive: true });
     window.addEventListener("touchstart", onDown, { passive: true });
     window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", recalc);
+    window.addEventListener("scroll", recalc, true);
 
-    window.setTimeout(() => searchRef.current?.focus(), 0);
+    const vv = (window as any).visualViewport as VisualViewport | undefined;
+    vv?.addEventListener?.("resize", recalc);
 
     return () => {
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("touchstart", onDown);
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", recalc);
+      window.removeEventListener("scroll", recalc, true);
+      vv?.removeEventListener?.("resize", recalc);
     };
   }, [open]);
 
@@ -326,7 +396,7 @@ function MultiSelect({
           {loading ? (
             <SpinnerMini reduced={!!prefersReducedMotion} />
           ) : (
-            <ChevronDown className="h-5 w-5 text-black/50" />
+            <ChevronDown className={cx("h-5 w-5 text-black/50", open && "rotate-180")} />
           )}
         </span>
       </button>
@@ -334,14 +404,14 @@ function MultiSelect({
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: 10, filter: "blur(10px)" }}
+            initial={{ opacity: 0, y: side === "down" ? 10 : -10, filter: "blur(10px)" }}
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-            exit={{ opacity: 0, y: 10, filter: "blur(10px)" }}
-            transition={{
-              duration: prefersReducedMotion ? 0 : 0.18,
-              ease: EASE,
-            }}
-            className="absolute left-0 right-0 mt-2 z-[40]"
+            exit={{ opacity: 0, y: side === "down" ? 10 : -10, filter: "blur(10px)" }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.18, ease: EASE }}
+            className={cx(
+              "absolute left-0 right-0 z-[40]",
+              side === "down" ? "top-full mt-2" : "bottom-full mb-2",
+            )}
           >
             <div className="rounded-[18px] bg-white ring-1 ring-black/10 shadow-[0_18px_55px_rgba(0,0,0,0.10)] overflow-hidden">
               <div className="p-2">
@@ -359,13 +429,11 @@ function MultiSelect({
                 </div>
               </div>
 
-              <div className="max-h-[240px] overflow-auto px-2 pb-2">
+              <div className="overflow-auto px-2 pb-2" style={{ maxHeight: listMaxH }}>
                 {filtered.length === 0 ? (
-                  <div className="px-3 py-3 text-[13px] text-black/55">
-                    Nenhum resultado.
-                  </div>
+                  <div className="px-3 py-3 text-[13px] text-black/55">Nenhum resultado.</div>
                 ) : (
-                  <div className="space-y-1">
+                  <div className="space-y-2">
                     {filtered.map((opt) => {
                       const active = value.includes(opt);
                       return (
@@ -373,14 +441,12 @@ function MultiSelect({
                           key={opt}
                           type="button"
                           onClick={() => {
-                            const next = active
-                              ? value.filter((x) => x !== opt)
-                              : [...value, opt];
+                            const next = active ? value.filter((x) => x !== opt) : [...value, opt];
                             onChange(next);
                           }}
                           className={cx(
                             "w-full flex items-center justify-between gap-3",
-                            "rounded-[14px] px-4 py-3 text-left text-[13px] font-semibold transition-all",
+                            "rounded-[14px] px-4 py-3.5 text-left text-[13px] font-semibold transition-all",
                             active
                               ? "bg-black text-white"
                               : "bg-[#f3f3f3] ring-1 ring-black/10 text-black/75 hover:text-black hover:bg-[#ededed]",
@@ -411,6 +477,7 @@ function MultiSelect({
     </div>
   );
 }
+
 
 export default function OnboardCreateAccountClient2({
   email,
