@@ -1,4 +1,3 @@
-// app/api/wz_OnboardSystem/save/route.ts
 import { type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import { readSessionFromRequest } from "@/app/api/wz_AuthLogin/_session";
@@ -8,23 +7,35 @@ import {
   normalizeCompanySize,
   validateCnpjOptional,
   normalizeLanguages,
+  onlyDigits,
+  verifyCnpjExists,
 } from "../_shared";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function isPlainObject(v: any): v is Record<string, any> {
-  return !!v && typeof v === "object" && !Array.isArray(v);
-}
+const ALLOWED_KEYS = new Set([
+  // step-1
+  "companyName",
+  "cnpj",
+  "tradeName",
+  "websiteOrInstagram",
+  "segment",
+  "companySize",
+  // step-2
+  "mainUse",
+  "priorityNow",
+  "hasSupervisor",
+  "serviceHours",
+  "targetResponseTime",
+  "languages",
+]);
 
-function onlyDigits(v: any) {
-  return String(v ?? "").replace(/\D+/g, "");
-}
-
-function capText(v: any, max: number) {
-  const t = normText(v);
-  if (!t) return null;
-  return t.length > max ? t.slice(0, max) : t;
+function clampText(v: string | null, max: number) {
+  if (!v) return null;
+  const s = v.trim();
+  if (!s) return null;
+  return s.length > max ? s.slice(0, max) : s;
 }
 
 export async function POST(req: NextRequest) {
@@ -33,131 +44,153 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json().catch(() => ({}));
-    if (!isPlainObject(body)) {
+
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
       return jsonNoStore({ ok: false, error: "Payload inválido." }, 400);
     }
 
-    // Patch: só atualiza o que vier no body (não apaga o resto)
+    // bloqueia abuso por chaves inesperadas
+    for (const k of Object.keys(body)) {
+      if (!ALLOWED_KEYS.has(k)) {
+        return jsonNoStore({ ok: false, error: `Campo não permitido: ${k}` }, 400);
+      }
+    }
+
     const patch: Record<string, any> = {};
+    const fieldErrors: Record<string, string> = {};
+    const warnings: Record<string, string> = {};
     const now = new Date().toISOString();
 
-    // -------------------------
-    // step-1 (tolerante, sem 400 por digitação)
-    // -------------------------
-    if ("companyName" in body) patch.company_name = capText(body.companyName, 120);
-    if ("tradeName" in body) patch.trade_name = capText(body.tradeName, 120);
+    // step-1
+    if ("companyName" in body) patch.company_name = clampText(normText(body.companyName), 120);
+    if ("tradeName" in body) patch.trade_name = clampText(normText(body.tradeName), 120);
     if ("websiteOrInstagram" in body)
-      patch.website_or_instagram = capText(body.websiteOrInstagram, 180);
-    if ("segment" in body) patch.segment = capText(body.segment, 80);
+      patch.website_or_instagram = clampText(normText(body.websiteOrInstagram), 140);
+    if ("segment" in body) patch.segment = clampText(normText(body.segment), 80);
 
     if ("companySize" in body) {
-      const raw = String(body.companySize ?? "").trim();
-      if (!raw) {
-        patch.company_size = null; // permite limpar
-      } else {
-        const v = normalizeCompanySize(raw);
-        if (v) patch.company_size = v; // inválido -> ignora (não zera)
+      patch.company_size = normalizeCompanySize(body.companySize);
+      // se veio inválido, não trava tudo — só não salva o campo
+      if (body.companySize != null && patch.company_size == null) {
+        fieldErrors.companySize = "Tamanho da empresa inválido.";
+        delete patch.company_size;
       }
     }
 
-    // ✅ CNPJ: NUNCA dá 400 por “incompleto” durante digitação
+    // ===== CNPJ “inteligente” =====
+    // - 0 dígitos: salva null
+    // - 1..13: ignora (não salva, não erra, não trava autosave)
+    // - 14: valida dígitos + verifica existência (sem travar o resto)
     if ("cnpj" in body) {
-      const d = onlyDigits(body.cnpj);
+      const digits = onlyDigits(body.cnpj);
 
-      if (!d.length) {
-        patch.cnpj = null; // limpou
-      } else if (d.length < 14) {
-        // incompleto: ignora (não salva e não dá erro)
-      } else if (d.length === 14) {
-        const cnpjCheck = validateCnpjOptional(d);
-        if (!cnpjCheck.ok) {
-          return jsonNoStore({ ok: false, error: cnpjCheck.message }, 400);
-        }
-        patch.cnpj = cnpjCheck.value;
+      if (digits.length === 0) {
+        patch.cnpj = null;
+      } else if (digits.length < 14) {
+        // ignora enquanto está digitando (evita 400 e evita sobrescrever valor anterior)
+      } else if (digits.length > 14) {
+        fieldErrors.cnpj = "CNPJ inválido.";
       } else {
-        // maior que 14 -> abuso/payload ruim
-        return jsonNoStore({ ok: false, error: "CNPJ inválido." }, 400);
+        // 14 dígitos: valida DV
+        const cnpjCheck = validateCnpjOptional(digits);
+        if (!cnpjCheck.ok || !cnpjCheck.value) {
+          fieldErrors.cnpj = cnpjCheck.message || "CNPJ inválido.";
+        } else {
+          // evita bater em API externa se não mudou
+          const sb = supabaseAdmin();
+          const { data: existingRow } = await sb
+            .from("wz_onboarding")
+            .select("user_id,cnpj")
+            .eq("user_id", s.userId)
+            .maybeSingle();
+
+          const existingCnpj = existingRow?.cnpj ? String(existingRow.cnpj) : null;
+          const incoming = cnpjCheck.value;
+
+          if (existingCnpj && existingCnpj === incoming) {
+            patch.cnpj = incoming;
+          } else {
+            const exists = await verifyCnpjExists(incoming);
+
+            if (exists.ok && exists.found) {
+              patch.cnpj = incoming;
+            } else if (exists.ok && !exists.found) {
+              // confirmado “não encontrado” (nenhum provedor achou)
+              fieldErrors.cnpj = "CNPJ não encontrado.";
+            } else {
+              // indisponível/rate limit/timeout: não trava
+              patch.cnpj = incoming;
+              warnings.cnpj = "Não foi possível verificar agora (rede/limite). Vamos aceitar e seguir.";
+            }
+          }
+        }
       }
     }
 
-    // -------------------------
     // step-2
-    // -------------------------
-    if ("mainUse" in body) patch.main_use = capText(body.mainUse, 120);
-    if ("priorityNow" in body) patch.priority_now = capText(body.priorityNow, 120);
+    if ("mainUse" in body) patch.main_use = clampText(normText(body.mainUse), 60);
+    if ("priorityNow" in body) patch.priority_now = clampText(normText(body.priorityNow), 60);
 
     if ("hasSupervisor" in body) {
       if (body.hasSupervisor === true) patch.has_supervisor = true;
       else if (body.hasSupervisor === false) patch.has_supervisor = false;
-      else if (body.hasSupervisor == null) patch.has_supervisor = null;
-      // valor inválido -> ignora (não dá 400)
+      else patch.has_supervisor = null;
     }
 
-    if ("serviceHours" in body) patch.service_hours = capText(body.serviceHours, 80);
-    if ("targetResponseTime" in body)
-      patch.target_response_time = capText(body.targetResponseTime, 80);
+    if ("serviceHours" in body) patch.service_hours = clampText(normText(body.serviceHours), 60);
+
+    if ("targetResponseTime" in body) {
+      patch.target_response_time = clampText(normText(body.targetResponseTime), 30);
+    }
 
     if ("languages" in body) {
-      if (Array.isArray(body.languages)) {
-        patch.languages = normalizeLanguages(body.languages);
-      } else if (body.languages == null) {
-        patch.languages = null;
-      }
-      // inválido -> ignora
+      patch.languages = normalizeLanguages(body.languages);
     }
 
-    // remove undefined (não manda pro DB)
-    for (const k of Object.keys(patch)) {
-      if (patch[k] === undefined) delete patch[k];
+    // se não sobrou nada pra salvar (ex.: só CNPJ parcial), não grava no banco
+    const hasAnyFieldToPersist = Object.keys(patch).length > 0;
+
+    if (!hasAnyFieldToPersist) {
+      return jsonNoStore(
+        {
+          ok: true,
+          fieldErrors: Object.keys(fieldErrors).length ? fieldErrors : undefined,
+          warnings: Object.keys(warnings).length ? warnings : undefined,
+        },
+        200,
+      );
     }
 
-    // se não tem nada pra salvar (ex.: cnpj incompleto sozinho), responde OK sem escrever no DB
-    const hasRealFields = Object.keys(patch).length > 0;
-    if (!hasRealFields) {
-      return jsonNoStore({ ok: true }, 200);
-    }
-
-    // updated_at só quando realmente vai persistir algo
     patch.updated_at = now;
+    patch.completed = false;
 
     const sb = supabaseAdmin();
 
-    // garante linha criada sem “zerar” campos não enviados
-    const { data: exists, error: exErr } = await sb
+    // upsert: cria/atualiza sem “zerar” campos não enviados
+    const { error } = await sb
       .from("wz_onboarding")
-      .select("user_id,completed")
-      .eq("user_id", s.userId)
-      .maybeSingle();
+      .upsert(
+        {
+          user_id: s.userId,
+          email: s.email,
+          ...patch,
+          created_at: now,
+        },
+        { onConflict: "user_id" },
+      );
 
-    if (exErr) {
-      return jsonNoStore({ ok: false, error: exErr.message }, 500);
+    if (error) {
+      return jsonNoStore({ ok: false, error: error.message }, 500);
     }
 
-    // se já completou, bloqueia update por save (evita abuso e evita “descompletar”)
-    if (exists?.completed === true) {
-      return jsonNoStore({ ok: false, error: "Onboarding já foi finalizado." }, 409);
-    }
-
-    if (exists?.user_id) {
-      const { error } = await sb
-        .from("wz_onboarding")
-        .update(patch)
-        .eq("user_id", s.userId);
-
-      if (error) return jsonNoStore({ ok: false, error: error.message }, 500);
-    } else {
-      const { error } = await sb.from("wz_onboarding").insert({
-        user_id: s.userId,
-        email: s.email,
-        created_at: now,
-        completed: false,
-        ...patch,
-      });
-
-      if (error) return jsonNoStore({ ok: false, error: error.message }, 500);
-    }
-
-    return jsonNoStore({ ok: true }, 200);
+    return jsonNoStore(
+      {
+        ok: true,
+        fieldErrors: Object.keys(fieldErrors).length ? fieldErrors : undefined,
+        warnings: Object.keys(warnings).length ? warnings : undefined,
+      },
+      200,
+    );
   } catch (e: any) {
     return jsonNoStore(
       { ok: false, error: e?.message || "Erro inesperado." },
