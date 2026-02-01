@@ -2,7 +2,7 @@
 import { headers } from "next/headers";
 import Link from "next/link";
 import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session";
-import OnboardCreateAccountClient2 from "./OnboardCreateAccountClient-2";
+import OnboardCreateAccountClient2 from "../_components/OnboardCreateAccountClient-2";
 
 export const dynamic = "force-dynamic";
 

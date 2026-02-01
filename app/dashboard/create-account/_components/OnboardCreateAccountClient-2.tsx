@@ -808,7 +808,7 @@ export default function OnboardCreateAccountClient2({
     window.setTimeout(() => {
       // próximo passo (você me passa depois)
       // router.push("/create-account/step-3");
-      router.push("/");
+     router.push("/create-account/step-3");
     }, prefersReducedMotion ? 0 : 240);
   }, [busy, flushNow, prefersReducedMotion, router]);
 

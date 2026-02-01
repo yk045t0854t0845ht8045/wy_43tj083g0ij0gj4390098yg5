@@ -1,14 +1,20 @@
+// app/api/wz_OnboardSystem/save/route.ts
 import { type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import { readSessionFromRequest } from "@/app/api/wz_AuthLogin/_session";
 import {
   jsonNoStore,
   normText,
+  clampText,
   normalizeCompanySize,
   validateCnpjOptional,
   normalizeLanguages,
   onlyDigits,
   verifyCnpjExists,
+  normalizeAiAutoMode,
+  normalizeBrandTone,
+  normalizeBoolNullable,
+  normalizeIntNullable,
 } from "../_shared";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +28,7 @@ const ALLOWED_KEYS = new Set([
   "websiteOrInstagram",
   "segment",
   "companySize",
+
   // step-2
   "mainUse",
   "priorityNow",
@@ -29,14 +36,21 @@ const ALLOWED_KEYS = new Set([
   "serviceHours",
   "targetResponseTime",
   "languages",
-]);
 
-function clampText(v: string | null, max: number) {
-  if (!v) return null;
-  const s = v.trim();
-  if (!s) return null;
-  return s.length > max ? s.slice(0, max) : s;
-}
+  // step-3
+  "aiAutoMode",
+  "handoffHumanRequest",
+  "handoffAngerUrgency",
+  "handoffAfterMessages",
+  "handoffPricePayment",
+  "brandTone",
+  "msgSignature",
+
+  // extras IA
+  "aiCatalogSummary",
+  "aiKnowledgeLinks",
+  "aiGuardrails",
+]);
 
 export async function POST(req: NextRequest) {
   const s = readSessionFromRequest(req);
@@ -49,7 +63,6 @@ export async function POST(req: NextRequest) {
       return jsonNoStore({ ok: false, error: "Payload inválido." }, 400);
     }
 
-    // bloqueia abuso por chaves inesperadas
     for (const k of Object.keys(body)) {
       if (!ALLOWED_KEYS.has(k)) {
         return jsonNoStore({ ok: false, error: `Campo não permitido: ${k}` }, 400);
@@ -69,35 +82,31 @@ export async function POST(req: NextRequest) {
     if ("segment" in body) patch.segment = clampText(normText(body.segment), 80);
 
     if ("companySize" in body) {
-      patch.company_size = normalizeCompanySize(body.companySize);
-      // se veio inválido, não trava tudo — só não salva o campo
-      if (body.companySize != null && patch.company_size == null) {
+      const cs = normalizeCompanySize(body.companySize);
+      if (body.companySize != null && cs == null) {
         fieldErrors.companySize = "Tamanho da empresa inválido.";
-        delete patch.company_size;
+      } else {
+        patch.company_size = cs;
       }
     }
 
-    // ===== CNPJ “inteligente” =====
-    // - 0 dígitos: salva null
-    // - 1..13: ignora (não salva, não erra, não trava autosave)
-    // - 14: valida dígitos + verifica existência (sem travar o resto)
+    // CNPJ “inteligente” (não trava enquanto digita)
     if ("cnpj" in body) {
       const digits = onlyDigits(body.cnpj);
 
       if (digits.length === 0) {
         patch.cnpj = null;
       } else if (digits.length < 14) {
-        // ignora enquanto está digitando (evita 400 e evita sobrescrever valor anterior)
+        // ignora durante digitação (sem erro, sem salvar parcial)
       } else if (digits.length > 14) {
         fieldErrors.cnpj = "CNPJ inválido.";
       } else {
-        // 14 dígitos: valida DV
         const cnpjCheck = validateCnpjOptional(digits);
         if (!cnpjCheck.ok || !cnpjCheck.value) {
           fieldErrors.cnpj = cnpjCheck.message || "CNPJ inválido.";
         } else {
-          // evita bater em API externa se não mudou
           const sb = supabaseAdmin();
+
           const { data: existingRow } = await sb
             .from("wz_onboarding")
             .select("user_id,cnpj")
@@ -115,10 +124,8 @@ export async function POST(req: NextRequest) {
             if (exists.ok && exists.found) {
               patch.cnpj = incoming;
             } else if (exists.ok && !exists.found) {
-              // confirmado “não encontrado” (nenhum provedor achou)
               fieldErrors.cnpj = "CNPJ não encontrado.";
             } else {
-              // indisponível/rate limit/timeout: não trava
               patch.cnpj = incoming;
               warnings.cnpj = "Não foi possível verificar agora (rede/limite). Vamos aceitar e seguir.";
             }
@@ -132,9 +139,7 @@ export async function POST(req: NextRequest) {
     if ("priorityNow" in body) patch.priority_now = clampText(normText(body.priorityNow), 60);
 
     if ("hasSupervisor" in body) {
-      if (body.hasSupervisor === true) patch.has_supervisor = true;
-      else if (body.hasSupervisor === false) patch.has_supervisor = false;
-      else patch.has_supervisor = null;
+      patch.has_supervisor = normalizeBoolNullable(body.hasSupervisor);
     }
 
     if ("serviceHours" in body) patch.service_hours = clampText(normText(body.serviceHours), 60);
@@ -147,10 +152,38 @@ export async function POST(req: NextRequest) {
       patch.languages = normalizeLanguages(body.languages);
     }
 
-    // se não sobrou nada pra salvar (ex.: só CNPJ parcial), não grava no banco
-    const hasAnyFieldToPersist = Object.keys(patch).length > 0;
+    // step-3
+    if ("aiAutoMode" in body) patch.ai_auto_mode = normalizeAiAutoMode(body.aiAutoMode);
 
-    if (!hasAnyFieldToPersist) {
+    if ("handoffHumanRequest" in body)
+      patch.ai_handoff_human_request = normalizeBoolNullable(body.handoffHumanRequest);
+
+    if ("handoffAngerUrgency" in body)
+      patch.ai_handoff_anger_urgency = normalizeBoolNullable(body.handoffAngerUrgency);
+
+    if ("handoffAfterMessages" in body) {
+      const n = normalizeIntNullable(body.handoffAfterMessages, 1, 50);
+      // se vier algo inválido durante digitação, ignora (não salva, não trava)
+      if (String(body.handoffAfterMessages ?? "").trim().length === 0) {
+        patch.ai_handoff_after_messages = null;
+      } else if (n != null) {
+        patch.ai_handoff_after_messages = n;
+      }
+    }
+
+    if ("handoffPricePayment" in body)
+      patch.ai_handoff_price_payment = normalizeBoolNullable(body.handoffPricePayment);
+
+    if ("brandTone" in body) patch.brand_tone = normalizeBrandTone(body.brandTone);
+    if ("msgSignature" in body) patch.msg_signature = clampText(normText(body.msgSignature), 80);
+
+    // extras IA
+    if ("aiCatalogSummary" in body) patch.ai_catalog_summary = clampText(normText(body.aiCatalogSummary), 260);
+    if ("aiKnowledgeLinks" in body) patch.ai_knowledge_links = clampText(normText(body.aiKnowledgeLinks), 520);
+    if ("aiGuardrails" in body) patch.ai_guardrails = clampText(normText(body.aiGuardrails), 520);
+
+    // Se nada válido sobrou (ex.: só cnpj parcial), não grava
+    if (Object.keys(patch).length === 0) {
       return jsonNoStore(
         {
           ok: true,
@@ -166,7 +199,6 @@ export async function POST(req: NextRequest) {
 
     const sb = supabaseAdmin();
 
-    // upsert: cria/atualiza sem “zerar” campos não enviados
     const { error } = await sb
       .from("wz_onboarding")
       .upsert(
@@ -179,9 +211,7 @@ export async function POST(req: NextRequest) {
         { onConflict: "user_id" },
       );
 
-    if (error) {
-      return jsonNoStore({ ok: false, error: error.message }, 500);
-    }
+    if (error) return jsonNoStore({ ok: false, error: error.message }, 500);
 
     return jsonNoStore(
       {
@@ -192,9 +222,6 @@ export async function POST(req: NextRequest) {
       200,
     );
   } catch (e: any) {
-    return jsonNoStore(
-      { ok: false, error: e?.message || "Erro inesperado." },
-      500,
-    );
+    return jsonNoStore({ ok: false, error: e?.message || "Erro inesperado." }, 500);
   }
 }

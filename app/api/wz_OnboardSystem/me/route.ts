@@ -2,34 +2,10 @@
 import { type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import { readSessionFromRequest } from "@/app/api/wz_AuthLogin/_session";
-import {
-  jsonNoStore,
-  type OnboardData,
-  normalizeCompanySize,
-} from "../_shared";
+import { jsonNoStore, type OnboardData } from "../_shared";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function asText(v: any): string | null {
-  const s = typeof v === "string" ? v.trim() : "";
-  return s.length ? s : null;
-}
-
-function asBool(v: any): boolean | null {
-  return typeof v === "boolean" ? v : null;
-}
-
-function asStringArray(v: any): string[] | null {
-  if (!Array.isArray(v)) return null;
-
-  const out = v
-    .filter((x) => typeof x === "string")
-    .map((x) => x.trim())
-    .filter(Boolean);
-
-  return out.length ? out : null;
-}
 
 export async function GET(req: NextRequest) {
   const s = readSessionFromRequest(req);
@@ -38,10 +14,8 @@ export async function GET(req: NextRequest) {
   try {
     const sb = supabaseAdmin();
 
-    // ✅ IMPORTANTE:
-    // Se seus tipos do Supabase ainda não foram regenerados com as colunas novas,
-    // o TS pode quebrar no .select(). Então a gente "afrouxa" aqui com `as any`.
-    const q = (sb.from("wz_onboarding") as any)
+    const { data, error } = await sb
+      .from("wz_onboarding")
       .select(
         [
           "company_name",
@@ -51,13 +25,24 @@ export async function GET(req: NextRequest) {
           "segment",
           "company_size",
 
-          // step-2
           "main_use",
           "priority_now",
           "has_supervisor",
           "service_hours",
           "target_response_time",
           "languages",
+
+          "ai_auto_mode",
+          "ai_handoff_human_request",
+          "ai_handoff_anger_urgency",
+          "ai_handoff_after_messages",
+          "ai_handoff_price_payment",
+          "brand_tone",
+          "msg_signature",
+
+          "ai_catalog_summary",
+          "ai_knowledge_links",
+          "ai_guardrails",
 
           "completed",
           "updated_at",
@@ -66,47 +51,45 @@ export async function GET(req: NextRequest) {
       .eq("user_id", s.userId)
       .maybeSingle();
 
-    const { data, error } = (await q) as {
-      data: Record<string, any> | null;
-      error: { message?: string } | null;
-    };
-
     if (error) {
-      return jsonNoStore(
-        { ok: false, error: error.message || "Falha ao buscar onboarding." },
-        500,
-      );
+      return jsonNoStore({ ok: false, error: error.message || "Falha ao buscar onboarding." }, 500);
     }
 
-    // ✅ evita qualquer erro de "property does not exist"
-    const row: Record<string, any> = data ?? {};
+    const row: any = data || null;
 
     const payload: OnboardData = {
-      // step-1
-      companyName: asText(row.company_name),
-      cnpj: asText(row.cnpj),
-      tradeName: asText(row.trade_name),
-      websiteOrInstagram: asText(row.website_or_instagram),
-      segment: asText(row.segment),
-      companySize: normalizeCompanySize(row.company_size),
+      companyName: row?.company_name ?? null,
+      cnpj: row?.cnpj ?? null,
+      tradeName: row?.trade_name ?? null,
+      websiteOrInstagram: row?.website_or_instagram ?? null,
+      segment: row?.segment ?? null,
+      companySize: (row?.company_size ?? null) as any,
 
-      // step-2
-      mainUse: asText(row.main_use),
-      priorityNow: asText(row.priority_now),
-      hasSupervisor: asBool(row.has_supervisor),
-      serviceHours: asText(row.service_hours),
-      targetResponseTime: asText(row.target_response_time),
-      languages: asStringArray(row.languages),
+      mainUse: row?.main_use ?? null,
+      priorityNow: row?.priority_now ?? null,
+      hasSupervisor: typeof row?.has_supervisor === "boolean" ? row.has_supervisor : null,
+      serviceHours: row?.service_hours ?? null,
+      targetResponseTime: row?.target_response_time ?? null,
+      languages: Array.isArray(row?.languages) ? row.languages : null,
 
-      completed: !!row.completed,
-      updatedAt: asText(row.updated_at),
+      aiAutoMode: (row?.ai_auto_mode ?? null) as any,
+      handoffHumanRequest: typeof row?.ai_handoff_human_request === "boolean" ? row.ai_handoff_human_request : null,
+      handoffAngerUrgency: typeof row?.ai_handoff_anger_urgency === "boolean" ? row.ai_handoff_anger_urgency : null,
+      handoffAfterMessages: typeof row?.ai_handoff_after_messages === "number" ? row.ai_handoff_after_messages : null,
+      handoffPricePayment: typeof row?.ai_handoff_price_payment === "boolean" ? row.ai_handoff_price_payment : null,
+      brandTone: (row?.brand_tone ?? null) as any,
+      msgSignature: row?.msg_signature ?? null,
+
+      aiCatalogSummary: row?.ai_catalog_summary ?? null,
+      aiKnowledgeLinks: row?.ai_knowledge_links ?? null,
+      aiGuardrails: row?.ai_guardrails ?? null,
+
+      completed: !!row?.completed,
+      updatedAt: row?.updated_at ?? null,
     };
 
     return jsonNoStore({ ok: true, data: payload }, 200);
   } catch (e: any) {
-    return jsonNoStore(
-      { ok: false, error: e?.message || "Erro inesperado." },
-      500,
-    );
+    return jsonNoStore({ ok: false, error: e?.message || "Erro inesperado." }, 500);
   }
 }

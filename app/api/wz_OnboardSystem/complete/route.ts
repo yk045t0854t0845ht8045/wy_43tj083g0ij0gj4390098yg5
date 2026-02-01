@@ -2,7 +2,11 @@
 import { type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import { readSessionFromRequest } from "@/app/api/wz_AuthLogin/_session";
-import { jsonNoStore, validateCompletePayload } from "../_shared";
+import {
+  jsonNoStore,
+  validateCompletePayload,
+  verifyCnpjExists,
+} from "../_shared";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -14,19 +18,102 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    const checked = validateCompletePayload(body);
-    if (!checked.ok) {
-      return jsonNoStore({ ok: false, error: checked.error }, 400);
+    const sb = supabaseAdmin();
+
+    // pega linha atual
+    const { data: row, error: rerr } = await sb
+      .from("wz_onboarding")
+      .select(
+        [
+          "company_name",
+          "cnpj",
+          "trade_name",
+          "website_or_instagram",
+          "segment",
+          "company_size",
+
+          "main_use",
+          "priority_now",
+          "has_supervisor",
+          "service_hours",
+          "target_response_time",
+          "languages",
+
+          "ai_auto_mode",
+          "ai_handoff_human_request",
+          "ai_handoff_anger_urgency",
+          "ai_handoff_after_messages",
+          "ai_handoff_price_payment",
+          "brand_tone",
+          "msg_signature",
+
+          "ai_catalog_summary",
+          "ai_knowledge_links",
+          "ai_guardrails",
+        ].join(","),
+      )
+      .eq("user_id", s.userId)
+      .maybeSingle();
+
+    if (rerr) return jsonNoStore({ ok: false, error: rerr.message }, 500);
+
+    const base = row || ({} as any);
+
+    // mapeia snake_case -> camelCase e aplica body por cima (se vier algo)
+    const merged = {
+      companyName: base.company_name ?? null,
+      cnpj: base.cnpj ?? null,
+      tradeName: base.trade_name ?? null,
+      websiteOrInstagram: base.website_or_instagram ?? null,
+      segment: base.segment ?? null,
+      companySize: base.company_size ?? null,
+
+      mainUse: base.main_use ?? null,
+      priorityNow: base.priority_now ?? null,
+      hasSupervisor: typeof base.has_supervisor === "boolean" ? base.has_supervisor : null,
+      serviceHours: base.service_hours ?? null,
+      targetResponseTime: base.target_response_time ?? null,
+      languages: Array.isArray(base.languages) ? base.languages : null,
+
+      aiAutoMode: base.ai_auto_mode ?? null,
+      handoffHumanRequest: typeof base.ai_handoff_human_request === "boolean" ? base.ai_handoff_human_request : null,
+      handoffAngerUrgency: typeof base.ai_handoff_anger_urgency === "boolean" ? base.ai_handoff_anger_urgency : null,
+      handoffAfterMessages: typeof base.ai_handoff_after_messages === "number" ? base.ai_handoff_after_messages : null,
+      handoffPricePayment: typeof base.ai_handoff_price_payment === "boolean" ? base.ai_handoff_price_payment : null,
+      brandTone: base.brand_tone ?? null,
+      msgSignature: base.msg_signature ?? null,
+
+      aiCatalogSummary: base.ai_catalog_summary ?? null,
+      aiKnowledgeLinks: base.ai_knowledge_links ?? null,
+      aiGuardrails: base.ai_guardrails ?? null,
+
+      ...(body && typeof body === "object" && !Array.isArray(body) ? body : {}),
+    };
+
+    const checked = validateCompletePayload(merged);
+    if (!checked.ok) return jsonNoStore({ ok: false, error: checked.error }, 400);
+
+    // se tiver CNPJ, tenta validar existência novamente no complete
+    const warnings: Record<string, string> = {};
+    if (checked.data.cnpj) {
+      const exists = await verifyCnpjExists(checked.data.cnpj);
+
+      if (exists.ok && !exists.found) {
+        return jsonNoStore({ ok: false, error: "CNPJ não encontrado." }, 400);
+      }
+
+      if (!exists.ok) {
+        warnings.cnpj =
+          "Não foi possível verificar o CNPJ agora (rede/limite). Finalizamos mesmo assim.";
+      }
     }
 
     const now = new Date().toISOString();
-    const sb = supabaseAdmin();
 
     const payload = {
       user_id: s.userId,
       email: s.email,
 
-      // step-1
       company_name: checked.data.companyName,
       cnpj: checked.data.cnpj,
       trade_name: checked.data.tradeName,
@@ -34,7 +121,6 @@ export async function POST(req: NextRequest) {
       segment: checked.data.segment,
       company_size: checked.data.companySize,
 
-      // step-2
       main_use: checked.data.mainUse,
       priority_now: checked.data.priorityNow,
       has_supervisor: checked.data.hasSupervisor,
@@ -42,22 +128,35 @@ export async function POST(req: NextRequest) {
       target_response_time: checked.data.targetResponseTime,
       languages: checked.data.languages,
 
+      ai_auto_mode: checked.data.aiAutoMode,
+      ai_handoff_human_request: checked.data.handoffHumanRequest,
+      ai_handoff_anger_urgency: checked.data.handoffAngerUrgency,
+      ai_handoff_after_messages: checked.data.handoffAfterMessages,
+      ai_handoff_price_payment: checked.data.handoffPricePayment,
+      brand_tone: checked.data.brandTone,
+      msg_signature: checked.data.msgSignature,
+
+      ai_catalog_summary: checked.data.aiCatalogSummary,
+      ai_knowledge_links: checked.data.aiKnowledgeLinks,
+      ai_guardrails: checked.data.aiGuardrails,
+
       completed: true,
       updated_at: now,
+      created_at: now,
     };
 
-    // ✅ evita erro de types se suas colunas ainda não estão no Database types
-    const { error } = await (sb.from("wz_onboarding") as any).upsert(payload, {
-      onConflict: "user_id",
-    });
-
+    const { error } = await sb.from("wz_onboarding").upsert(payload, { onConflict: "user_id" });
     if (error) return jsonNoStore({ ok: false, error: error.message }, 500);
 
-    return jsonNoStore({ ok: true, nextUrl: "/" }, 200);
-  } catch (e: any) {
     return jsonNoStore(
-      { ok: false, error: e?.message || "Erro inesperado." },
-      500,
+      {
+        ok: true,
+        nextUrl: "/",
+        warnings: Object.keys(warnings).length ? warnings : undefined,
+      },
+      200,
     );
+  } catch (e: any) {
+    return jsonNoStore({ ok: false, error: e?.message || "Erro inesperado." }, 500);
   }
 }
