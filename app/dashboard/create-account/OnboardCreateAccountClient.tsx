@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { ArrowRight, Users2 } from "lucide-react";
+import { ArrowRight, Users2, ChevronDown, Check } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 function cx(...classes: Array<string | false | null | undefined>) {
@@ -32,15 +32,15 @@ function SpinnerMini({ reduced }: { reduced: boolean }) {
   return (
     <motion.span
       aria-hidden
-      className="inline-flex items-center justify-center mt-2"
+      className="inline-flex items-center justify-center"
       initial={{ opacity: 0, scale: 0.92 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: reduced ? 0 : 0.18 }}
     >
       <span className="relative h-5 w-5">
-        <span className="absolute inset-0 rounded-full border-2 border-black/15 mt-2" />
+        <span className="absolute inset-0 rounded-full border-2 border-black/15" />
         <motion.span
-          className="absolute inset-0 rounded-full border-2 border-black/50 border-t-transparent mt-2"
+          className="absolute inset-0 rounded-full border-2 border-black/50 border-t-transparent"
           animate={reduced ? undefined : { rotate: 360 }}
           transition={
             reduced
@@ -54,6 +54,84 @@ function SpinnerMini({ reduced }: { reduced: boolean }) {
 }
 
 type CompanySize = "1-5" | "6-20" | "21-100" | "100+";
+
+type TokenPart = { text: string; dim?: boolean };
+
+function tokenizeWebsite(value: string): TokenPart[] {
+  const s = String(value || "");
+  if (!s) return [];
+
+  let rest = s;
+  const parts: TokenPart[] = [];
+
+  // prefix chain: http(s):// -> www. -> (optional) keep rest
+  while (true) {
+    const l = rest.toLowerCase();
+
+    if (l.startsWith("https://")) {
+      parts.push({ text: rest.slice(0, 8), dim: true });
+      rest = rest.slice(8);
+      continue;
+    }
+
+    if (l.startsWith("http://")) {
+      parts.push({ text: rest.slice(0, 7), dim: true });
+      rest = rest.slice(7);
+      continue;
+    }
+
+    if (l.startsWith("www.")) {
+      parts.push({ text: rest.slice(0, 4), dim: true });
+      rest = rest.slice(4);
+      continue;
+    }
+
+    // instagram style: @username (only if it's the very first visible token)
+    if (parts.length === 0 && rest.startsWith("@")) {
+      parts.push({ text: "@", dim: true });
+      rest = rest.slice(1);
+      continue;
+    }
+
+    break;
+  }
+
+  parts.push({ text: rest, dim: false });
+  return parts;
+}
+
+function WebsiteOverlayText({
+  value,
+  className,
+}: {
+  value: string;
+  className?: string;
+}) {
+  const parts = useMemo(() => tokenizeWebsite(value), [value]);
+
+  if (!value) return null;
+
+  return (
+    <div
+      aria-hidden
+      className={cx(
+        "absolute inset-0 px-6 py-5 flex items-center pointer-events-none select-none",
+        className,
+      )}
+    >
+      <div className="w-full truncate text-[15px] sm:text-[16px]">
+        {parts.map((p, i) => (
+          <span
+            key={i}
+            className={cx(p.dim ? "text-black/35" : "text-black/80")}
+          >
+            {p.text}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function OnboardCreateAccountClient({
   email,
@@ -102,18 +180,65 @@ export default function OnboardCreateAccountClient({
   const [saveToastOpen, setSaveToastOpen] = useState(false);
   const [saveToastTick, setSaveToastTick] = useState(0);
 
+  // ✅ Agora vira base do select custom (agrupado e bem mais completo)
   const segmentPresets = useMemo(
     () => [
-      "Estética",
-      "E-commerce",
-      "Clínica",
-      "Imobiliária",
-      "Educação",
-      "Restaurante",
-      "Academia",
-      "Serviços",
-      "SaaS",
-      "Outro",
+      {
+        group: "Saúde & Bem-estar",
+        options: [
+          "Clínica / Consultório",
+          "Odontologia",
+          "Estética & Beleza",
+          "Fisioterapia",
+          "Psicologia",
+          "Nutrição",
+          "Academia / Fitness",
+          "Veterinária / Pet",
+        ],
+      },
+      {
+        group: "Comércio",
+        options: [
+          "E-commerce",
+          "Loja física",
+          "Moda & Acessórios",
+          "Mercado / Conveniência",
+          "Farmácia / Perfumaria",
+          "Eletrônicos / Informática",
+          "Casa & Decoração",
+        ],
+      },
+      {
+        group: "Serviços",
+        options: [
+          "Prestador de serviços",
+          "Agência / Consultoria",
+          "Imobiliária",
+          "Automotivo",
+          "Educação / Cursos",
+          "Eventos",
+          "Jurídico",
+          "Financeiro",
+        ],
+      },
+      {
+        group: "Alimentação & Hospitalidade",
+        options: [
+          "Restaurante",
+          "Delivery",
+          "Cafeteria",
+          "Bar / Balada",
+          "Hotelaria / Turismo",
+        ],
+      },
+      {
+        group: "Tecnologia",
+        options: ["SaaS / Software", "Startup", "TI / Suporte", "Marketing / Mídia"],
+      },
+      {
+        group: "Outros",
+        options: ["Indústria", "Agronegócio", "ONG / Projeto social", "Outro"],
+      },
     ],
     [],
   );
@@ -316,6 +441,68 @@ export default function OnboardCreateAccountClient({
     fireSavedToast,
   ]);
 
+  // ✅ Segmento: select custom
+  const [segmentOpen, setSegmentOpen] = useState(false);
+  const segmentWrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!segmentOpen) return;
+
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      const el = segmentWrapRef.current;
+      const t = e.target as Node | null;
+      if (!el || !t) return;
+      if (!el.contains(t)) setSegmentOpen(false);
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSegmentOpen(false);
+    };
+
+    window.addEventListener("mousedown", onDown, { passive: true });
+    window.addEventListener("touchstart", onDown, { passive: true });
+    window.addEventListener("keydown", onKey);
+
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("touchstart", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [segmentOpen]);
+
+  const RightAdornment = useCallback(
+    ({
+      show,
+      children,
+    }: {
+      show: boolean;
+      children: React.ReactNode;
+    }) => {
+      return (
+        <div className="absolute right-4 inset-y-0 flex items-center justify-center">
+          <AnimatePresence initial={false}>
+            {show && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.92 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.92 }}
+                transition={{
+                  duration: prefersReducedMotion ? 0 : 0.18,
+                  ease: EASE,
+                }}
+                className="flex items-center justify-center"
+                style={{ willChange: "transform, opacity" }}
+              >
+                {children}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      );
+    },
+    [EASE, prefersReducedMotion],
+  );
+
   return (
     <div className="min-h-screen bg-white relative overflow-hidden">
       <div className="relative z-10 min-h-screen flex items-start sm:items-center justify-center px-4 pt-[calc(env(safe-area-inset-top,0px)+44px)] sm:pt-20 pb-[calc(env(safe-area-inset-bottom,0px)+44px)]">
@@ -330,7 +517,7 @@ export default function OnboardCreateAccountClient({
           className="w-full max-w-[640px]"
           style={{ willChange: "transform, opacity, filter" }}
         >
-          <div className="rounded-[28px] p-7 sm:p-9 md:p-10">
+          <div className="rounded-[28px] bg-white ring-1 ring-black/10 p-7 sm:p-9 md:p-10">
             <div className="text-center">
               <div className="mx-auto mb-5 inline-flex h-14 w-14 items-center justify-center rounded-full bg-black/[0.04] ring-1 ring-black/5 shrink-0">
                 <Users2 className="h-6 w-6 text-black/80" />
@@ -382,26 +569,12 @@ export default function OnboardCreateAccountClient({
                           queueSave("companyName", { companyName: v });
                         }}
                         placeholder="Nome da empresa"
-                        className="w-full bg-transparent px-6 py-5 pr-14 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
+                        className="w-full bg-transparent px-6 py-5 pr-16 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
                         autoComplete="organization"
                       />
-                      <div className="absolute right-5 top-1/2 -translate-y-1/2">
-                        <AnimatePresence initial={false}>
-                          {isFieldLoading("companyName") && (
-                            <motion.div
-                              initial={{ opacity: 0, scale: 0.92 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.92 }}
-                              transition={{
-                                duration: prefersReducedMotion ? 0 : 0.18,
-                                ease: EASE,
-                              }}
-                            >
-                              <SpinnerMini reduced={!!prefersReducedMotion} />
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
+                      <RightAdornment show={isFieldLoading("companyName")}>
+                        <SpinnerMini reduced={!!prefersReducedMotion} />
+                      </RightAdornment>
                     </div>
 
                     {/* CNPJ opcional */}
@@ -414,26 +587,12 @@ export default function OnboardCreateAccountClient({
                           queueSave("cnpj", { cnpj: v });
                         }}
                         placeholder="CNPJ (opcional)"
-                        className="w-full bg-transparent px-6 py-5 pr-14 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
+                        className="w-full bg-transparent px-6 py-5 pr-16 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
                         inputMode="numeric"
                       />
-                      <div className="absolute right-5 top-1/2 -translate-y-1/2">
-                        <AnimatePresence initial={false}>
-                          {isFieldLoading("cnpj") && (
-                            <motion.div
-                              initial={{ opacity: 0, scale: 0.92 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.92 }}
-                              transition={{
-                                duration: prefersReducedMotion ? 0 : 0.18,
-                                ease: EASE,
-                              }}
-                            >
-                              <SpinnerMini reduced={!!prefersReducedMotion} />
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
+                      <RightAdornment show={isFieldLoading("cnpj")}>
+                        <SpinnerMini reduced={!!prefersReducedMotion} />
+                      </RightAdornment>
                     </div>
 
                     {/* Nome fantasia opcional */}
@@ -446,29 +605,16 @@ export default function OnboardCreateAccountClient({
                           queueSave("tradeName", { tradeName: v });
                         }}
                         placeholder="Nome fantasia (opcional)"
-                        className="w-full bg-transparent px-6 py-5 pr-14 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
+                        className="w-full bg-transparent px-6 py-5 pr-16 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
                       />
-                      <div className="absolute right-5 top-1/2 -translate-y-1/2">
-                        <AnimatePresence initial={false}>
-                          {isFieldLoading("tradeName") && (
-                            <motion.div
-                              initial={{ opacity: 0, scale: 0.92 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.92 }}
-                              transition={{
-                                duration: prefersReducedMotion ? 0 : 0.18,
-                                ease: EASE,
-                              }}
-                            >
-                              <SpinnerMini reduced={!!prefersReducedMotion} />
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
+                      <RightAdornment show={isFieldLoading("tradeName")}>
+                        <SpinnerMini reduced={!!prefersReducedMotion} />
+                      </RightAdornment>
                     </div>
 
-                    {/* Site/Instagram opcional */}
+                    {/* Site/Instagram opcional (prefix com opacidade diferente) */}
                     <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden md:col-span-2 relative">
+                      <WebsiteOverlayText value={websiteOrInstagram} />
                       <input
                         value={websiteOrInstagram}
                         onChange={(e) => {
@@ -479,84 +625,114 @@ export default function OnboardCreateAccountClient({
                           });
                         }}
                         placeholder="Site ou Instagram (opcional — ajuda no contexto)"
-                        className="w-full bg-transparent px-6 py-5 pr-14 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
+                        className={cx(
+                          "w-full bg-transparent px-6 py-5 pr-16 text-[15px] sm:text-[16px]",
+                          "text-transparent caret-black placeholder-black/45 focus:outline-none",
+                        )}
+                        autoComplete="url"
+                        inputMode="url"
                       />
-                      <div className="absolute right-5 top-1/2 -translate-y-1/2">
-                        <AnimatePresence initial={false}>
-                          {isFieldLoading("websiteOrInstagram") && (
+                      <RightAdornment show={isFieldLoading("websiteOrInstagram")}>
+                        <SpinnerMini reduced={!!prefersReducedMotion} />
+                      </RightAdornment>
+                    </div>
+
+                    {/* Segmento (select custom) */}
+                    <div className="md:col-span-2" ref={segmentWrapRef}>
+                      <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden relative">
+                        <button
+                          type="button"
+                          onClick={() => setSegmentOpen((v) => !v)}
+                          className={cx(
+                            "w-full bg-transparent px-6 py-5 pr-16 text-left",
+                            "text-[15px] sm:text-[16px] focus:outline-none",
+                            segment ? "text-black" : "text-black/45",
+                          )}
+                          aria-haspopup="listbox"
+                          aria-expanded={segmentOpen}
+                        >
+                          {segment || "Segmento (selecione uma opção)"}
+                        </button>
+
+                        {/* loader ou chevron */}
+                        <div className="absolute right-4 inset-y-0 flex items-center justify-center">
+                          {isFieldLoading("segment") ? (
                             <motion.div
                               initial={{ opacity: 0, scale: 0.92 }}
                               animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.92 }}
                               transition={{
                                 duration: prefersReducedMotion ? 0 : 0.18,
                                 ease: EASE,
                               }}
+                              className="flex items-center justify-center"
                             >
                               <SpinnerMini reduced={!!prefersReducedMotion} />
                             </motion.div>
+                          ) : (
+                            <ChevronDown className="h-5 w-5 text-black/50" />
                           )}
-                        </AnimatePresence>
-                      </div>
-                    </div>
-
-                    {/* Segmento */}
-                    <div className="md:col-span-2">
-                      <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden relative">
-                        <input
-                          value={segment}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setSegment(v);
-                            queueSave("segment", { segment: v });
-                          }}
-                          placeholder="Segmento (ex: estética, e-commerce, clínica, etc)"
-                          className="w-full bg-transparent px-6 py-5 pr-14 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
-                        />
-                        <div className="absolute right-5 top-1/2 -translate-y-1/2">
-                          <AnimatePresence initial={false}>
-                            {isFieldLoading("segment") && (
-                              <motion.div
-                                initial={{ opacity: 0, scale: 0.92 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                exit={{ opacity: 0, scale: 0.92 }}
-                                transition={{
-                                  duration: prefersReducedMotion ? 0 : 0.18,
-                                  ease: EASE,
-                                }}
-                              >
-                                <SpinnerMini reduced={!!prefersReducedMotion} />
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
                         </div>
                       </div>
 
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {segmentPresets.map((s) => {
-                          const active =
-                            segment.trim().toLowerCase() === s.toLowerCase();
-                          return (
-                            <button
-                              key={s}
-                              type="button"
-                              onClick={() => {
-                                const next = s === "Outro" ? segment : s;
-                                setSegment(next);
-                                queueSave("segment", { segment: next });
-                              }}
-                              className={cx(
-                                "rounded-full px-4 py-2 text-[13px] font-semibold transition-all",
-                                active
-                                  ? "bg-black text-white"
-                                  : "bg-[#f3f3f3] ring-1 ring-black/10 text-black/70 hover:text-black hover:bg-[#ededed]",
-                              )}
-                            >
-                              {s}
-                            </button>
-                          );
-                        })}
-                      </div>
+                      <AnimatePresence initial={false}>
+                        {segmentOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 10, filter: "blur(10px)" }}
+                            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                            exit={{ opacity: 0, y: 10, filter: "blur(10px)" }}
+                            transition={{
+                              duration: prefersReducedMotion ? 0 : 0.22,
+                              ease: EASE,
+                            }}
+                            className="relative"
+                          >
+                            <div className="absolute left-0 right-0 mt-2 rounded-[18px] bg-white ring-1 ring-black/10 shadow-[0_18px_55px_rgba(0,0,0,0.10)] p-2 z-[30]">
+                              <div className="max-h-[320px] overflow-auto pr-1">
+                                {segmentPresets.map((g) => (
+                                  <div key={g.group} className="mb-2 last:mb-0">
+                                    <div className="px-3 pt-2 pb-1 text-[11px] font-semibold text-black/45">
+                                      {g.group}
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 px-2 pb-2">
+                                      {g.options.map((opt) => {
+                                        const active =
+                                          segment.trim().toLowerCase() ===
+                                          opt.toLowerCase();
+
+                                        return (
+                                          <button
+                                            key={opt}
+                                            type="button"
+                                            onClick={() => {
+                                              setSegment(opt);
+                                              setSegmentOpen(false);
+                                              queueSave("segment", { segment: opt });
+                                            }}
+                                            className={cx(
+                                              "w-full rounded-[14px] px-4 py-3 text-left text-[13px] font-semibold transition-all",
+                                              active
+                                                ? "bg-black text-white"
+                                                : "bg-[#f3f3f3] ring-1 ring-black/10 text-black/75 hover:text-black hover:bg-[#ededed]",
+                                            )}
+                                          >
+                                            <span className="inline-flex items-center justify-between w-full gap-3">
+                                              <span className="truncate">{opt}</span>
+                                              {active && (
+                                                <Check className="h-4 w-4 text-white" />
+                                              )}
+                                            </span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
 
                     {/* Tamanho */}
@@ -686,6 +862,11 @@ export default function OnboardCreateAccountClient({
                         )}
                       </motion.span>
                     </motion.button>
+                  </div>
+
+                  {/* (mantido) userId continua disponível se você quiser usar depois */}
+                  <div className="sr-only" aria-hidden>
+                    {userId}
                   </div>
                 </>
               )}
