@@ -267,7 +267,7 @@ function ToggleRow({
       onClick={onToggle}
       className={cx(
         "w-full flex items-center justify-between gap-3",
-        "rounded-[16px] bg-[#f3f3f3] px-4 py-4",
+        "rounded-[16px] bg-[#f3f3f3] px-5 py-4",
         "text-left text-[13px] font-semibold text-black/75 hover:text-black hover:bg-[#ededed] transition-all",
       )}
     >
