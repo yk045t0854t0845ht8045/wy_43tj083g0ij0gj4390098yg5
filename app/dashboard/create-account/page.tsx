@@ -1,6 +1,8 @@
+// app/create-account/page.tsx
 import { headers } from "next/headers";
 import Link from "next/link";
 import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session";
+import OnboardCreateAccountClient from "./OnboardCreateAccountClient";
 
 export const dynamic = "force-dynamic";
 
@@ -40,10 +42,10 @@ export default async function CreateAccountDashboardPage() {
   // ✅ passa headers para validar bind UA/IP quando ligado por ENV
   const session = readSessionFromCookieHeader(cookieHeader, headerLike);
 
-  if (!session) {
-    const hostHeader = pickHostHeader(headerLike);
-    const loginUrl = buildLoginUrl(hostHeader);
+  const hostHeader = pickHostHeader(headerLike);
+  const loginUrl = buildLoginUrl(hostHeader);
 
+  if (!session) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center px-6">
         <div className="text-center">
@@ -68,31 +70,10 @@ export default async function CreateAccountDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center px-6">
-      <div className="text-center max-w-[520px] w-full">
-        <div className="text-black font-semibold text-[26px]">Conta</div>
-
-        <div className="mt-6 rounded-[18px] bg-black/[0.04] ring-1 ring-black/10 px-5 py-4 text-left">
-          <div className="text-[13px] text-black/60">User ID</div>
-          <div className="text-[15px] font-semibold text-black break-all">
-            {session.userId}
-          </div>
-
-          <div className="mt-4 text-[13px] text-black/60">E-mail</div>
-          <div className="text-[15px] font-semibold text-black break-all">
-            {session.email}
-          </div>
-        </div>
-
-        <form action="/api/wz_AuthLogin/logout" method="post" className="mt-8">
-          <button
-            type="submit"
-            className="w-full rounded-full px-6 py-4 bg-black text-white text-[14px] font-semibold"
-          >
-            Logout
-          </button>
-        </form>
-      </div>
-    </div>
+    <OnboardCreateAccountClient
+      email={session.email}
+      userId={session.userId}
+      loginUrl={loginUrl}
+    />
   );
 }
