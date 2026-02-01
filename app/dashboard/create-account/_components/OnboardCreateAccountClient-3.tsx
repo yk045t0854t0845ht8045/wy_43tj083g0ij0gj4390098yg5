@@ -775,7 +775,7 @@ export default function OnboardCreateAccountClient3({
                                 onBlur={onBlurFlush}
                                 placeholder="Ex: 5"
                                 inputMode="numeric"
-                                className="w-full rounded-[14px] bg-white ring-1 ring-black/10 px-4 py-3 text-[13px] font-semibold text-black/80 placeholder-black/35 focus:outline-none"
+                                className="w-full rounded-[14px] bg-white px-4 py-3 text-[13px] font-semibold text-black/80 placeholder-black/35 focus:outline-none"
                               />
                               <div className="absolute right-3 inset-y-0 flex items-center justify-center">
                                 <AnimatePresence initial={false}>
