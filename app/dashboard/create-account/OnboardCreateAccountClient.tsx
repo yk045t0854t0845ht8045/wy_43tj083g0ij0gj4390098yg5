@@ -2,12 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import {
-  ArrowRight,
-  Users2,
-  Globe,
-  Check,
-} from "lucide-react";
+import { ArrowRight, Users2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 function cx(...classes: Array<string | false | null | undefined>) {
@@ -87,7 +82,6 @@ export default function OnboardCreateAccountClient({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [savedPulse, setSavedPulse] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Campos do onboarding (1 página)
@@ -100,6 +94,13 @@ export default function OnboardCreateAccountClient({
 
   const saveTimerRef = useRef<number | null>(null);
   const saveAbortRef = useRef<AbortController | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  const [dirty, setDirty] = useState<Record<string, boolean>>({});
+  const [savingField, setSavingField] = useState<string | null>(null);
+
+  const [saveToastOpen, setSaveToastOpen] = useState(false);
+  const [saveToastTick, setSaveToastTick] = useState(0);
 
   const segmentPresets = useMemo(
     () => [
@@ -122,7 +123,7 @@ export default function OnboardCreateAccountClient({
     [],
   );
 
-  const canFinish = useMemo(() => {
+  const canContinue = useMemo(() => {
     const okName = companyName.trim().length >= 2;
     const okSeg = segment.trim().length >= 2;
     const okSize = !!companySize;
@@ -154,6 +155,24 @@ export default function OnboardCreateAccountClient({
       return j;
     },
     [hardRedirectToLogin],
+  );
+
+  const fireSavedToast = useCallback(() => {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+
+    setSaveToastTick((t) => t + 1);
+    setSaveToastOpen(true);
+
+    toastTimerRef.current = window.setTimeout(() => {
+      setSaveToastOpen(false);
+    }, 1200);
+  }, []);
+
+  const isFieldLoading = useCallback(
+    (k: string) => {
+      return !!dirty[k] || savingField === k;
+    },
+    [dirty, savingField],
   );
 
   // Carrega dados existentes e se já completou, redireciona pro dashboard “limpo”
@@ -189,12 +208,21 @@ export default function OnboardCreateAccountClient({
   }, [api, router]);
 
   const queueSave = useCallback(
-    (patch: any) => {
+    (fieldKey: string, patch: any) => {
       setError(null);
+
+      // marca como "pendente" (loader no input)
+      const keys = Object.keys(patch || {});
+      setDirty((prev) => {
+        const next = { ...prev };
+        keys.forEach((k) => (next[k] = true));
+        return next;
+      });
 
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = window.setTimeout(async () => {
         setSaving(true);
+        setSavingField(fieldKey);
 
         try {
           if (saveAbortRef.current) saveAbortRef.current.abort();
@@ -215,21 +243,28 @@ export default function OnboardCreateAccountClient({
           const j = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(j?.error || "Falha ao salvar.");
 
-          setSavedPulse(true);
-          window.setTimeout(() => setSavedPulse(false), 700);
+          // limpa loaders desses campos
+          setDirty((prev) => {
+            const next = { ...prev };
+            keys.forEach((k) => (next[k] = false));
+            return next;
+          });
+
+          fireSavedToast();
         } catch (e: any) {
           if (e?.name === "AbortError") return;
           setError(e?.message || "Erro ao salvar.");
         } finally {
           setSaving(false);
+          setSavingField(null);
         }
       }, 520);
     },
-    [hardRedirectToLogin],
+    [hardRedirectToLogin, fireSavedToast],
   );
 
-  const finish = useCallback(async () => {
-    if (!canFinish || busy) return;
+  const continueFlow = useCallback(async () => {
+    if (!canContinue || busy) return;
 
     setBusy(true);
     setError(null);
@@ -244,18 +279,32 @@ export default function OnboardCreateAccountClient({
         companySize,
       };
 
-      const j = await api("/api/wz_OnboardSystem/complete", payload);
-      const nextUrl = String(j?.nextUrl || "/");
-      router.replace(nextUrl);
+      // ✅ NÃO marca como "complete" (vai ter próximos passos)
+      const res = await fetch("/api/wz_OnboardSystem/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.status === 401) {
+        hardRedirectToLogin();
+        return;
+      }
+
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.error || "Falha ao salvar.");
+
+      fireSavedToast();
+
+      // ✅ Próximo passo você vai me passar depois
+      // router.replace("/create-account/step-2");
     } catch (e: any) {
-      setError(e?.message || "Erro ao finalizar.");
+      setError(e?.message || "Erro ao continuar.");
     } finally {
       setBusy(false);
     }
   }, [
-    api,
-    router,
-    canFinish,
+    canContinue,
     busy,
     companyName,
     cnpj,
@@ -263,6 +312,8 @@ export default function OnboardCreateAccountClient({
     websiteOrInstagram,
     segment,
     companySize,
+    hardRedirectToLogin,
+    fireSavedToast,
   ]);
 
   return (
@@ -293,53 +344,6 @@ export default function OnboardCreateAccountClient({
                 Isso leva menos de 1 minuto. Vamos personalizar o seu dashboard.
               </div>
 
-              <div className="mt-4 flex items-center justify-center gap-2 text-[13px] text-black/55">
-                <AnimatePresence initial={false}>
-                  {saving ? (
-                    <motion.div
-                      key="saving"
-                      initial={{ opacity: 0, y: 6, filter: "blur(6px)" }}
-                      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                      exit={{ opacity: 0, y: -6, filter: "blur(6px)" }}
-                      transition={{
-                        duration: prefersReducedMotion ? 0 : 0.18,
-                        ease: EASE,
-                      }}
-                      className="inline-flex items-center gap-2"
-                    >
-                      <SpinnerMini reduced={!!prefersReducedMotion} />
-                      Salvando…
-                    </motion.div>
-                  ) : savedPulse ? (
-                    <motion.div
-                      key="saved"
-                      initial={{ opacity: 0, y: 6, filter: "blur(6px)" }}
-                      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                      exit={{ opacity: 0, y: -6, filter: "blur(6px)" }}
-                      transition={{
-                        duration: prefersReducedMotion ? 0 : 0.18,
-                        ease: EASE,
-                      }}
-                      className="inline-flex items-center gap-2 text-emerald-700"
-                    >
-                      <Check className="h-4 w-4" />
-                      Salvo
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="idle"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ duration: prefersReducedMotion ? 0 : 0.18 }}
-                      className="inline-flex items-center gap-2"
-                    >
-                      <Globe className="h-4 w-4" />
-                      Dados sincronizam automaticamente
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
               <div className="mt-3 text-[12px] text-black/40 font-medium">
                 Logado como{" "}
                 <span className="text-black/60 font-semibold">{email}</span>
@@ -368,72 +372,164 @@ export default function OnboardCreateAccountClient({
               {!loading && (
                 <>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden">
+                    {/* Nome empresa */}
+                    <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden relative">
                       <input
                         value={companyName}
                         onChange={(e) => {
                           const v = e.target.value;
                           setCompanyName(v);
-                          queueSave({ companyName: v });
+                          queueSave("companyName", { companyName: v });
                         }}
                         placeholder="Nome da empresa"
-                        className="w-full bg-transparent px-6 py-5 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
+                        className="w-full bg-transparent px-6 py-5 pr-14 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
                         autoComplete="organization"
                       />
+                      <div className="absolute right-5 top-1/2 -translate-y-1/2">
+                        <AnimatePresence initial={false}>
+                          {isFieldLoading("companyName") && (
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.92 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.92 }}
+                              transition={{
+                                duration: prefersReducedMotion ? 0 : 0.18,
+                                ease: EASE,
+                              }}
+                            >
+                              <SpinnerMini reduced={!!prefersReducedMotion} />
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
                     </div>
 
-                    <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden">
+                    {/* CNPJ opcional */}
+                    <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden relative">
                       <input
                         value={cnpj}
                         onChange={(e) => {
                           const v = formatCnpj(e.target.value);
                           setCnpj(v);
-                          queueSave({ cnpj: v });
+                          queueSave("cnpj", { cnpj: v });
                         }}
                         placeholder="CNPJ (opcional)"
-                        className="w-full bg-transparent px-6 py-5 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
+                        className="w-full bg-transparent px-6 py-5 pr-14 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
                         inputMode="numeric"
                       />
+                      <div className="absolute right-5 top-1/2 -translate-y-1/2">
+                        <AnimatePresence initial={false}>
+                          {isFieldLoading("cnpj") && (
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.92 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.92 }}
+                              transition={{
+                                duration: prefersReducedMotion ? 0 : 0.18,
+                                ease: EASE,
+                              }}
+                            >
+                              <SpinnerMini reduced={!!prefersReducedMotion} />
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
                     </div>
 
-                    <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden md:col-span-2">
+                    {/* Nome fantasia opcional */}
+                    <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden md:col-span-2 relative">
                       <input
                         value={tradeName}
                         onChange={(e) => {
                           const v = e.target.value;
                           setTradeName(v);
-                          queueSave({ tradeName: v });
+                          queueSave("tradeName", { tradeName: v });
                         }}
                         placeholder="Nome fantasia (opcional)"
-                        className="w-full bg-transparent px-6 py-5 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
+                        className="w-full bg-transparent px-6 py-5 pr-14 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
                       />
+                      <div className="absolute right-5 top-1/2 -translate-y-1/2">
+                        <AnimatePresence initial={false}>
+                          {isFieldLoading("tradeName") && (
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.92 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.92 }}
+                              transition={{
+                                duration: prefersReducedMotion ? 0 : 0.18,
+                                ease: EASE,
+                              }}
+                            >
+                              <SpinnerMini reduced={!!prefersReducedMotion} />
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
                     </div>
 
-                    <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden md:col-span-2">
+                    {/* Site/Instagram opcional */}
+                    <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden md:col-span-2 relative">
                       <input
                         value={websiteOrInstagram}
                         onChange={(e) => {
                           const v = e.target.value;
                           setWebsiteOrInstagram(v);
-                          queueSave({ websiteOrInstagram: v });
+                          queueSave("websiteOrInstagram", {
+                            websiteOrInstagram: v,
+                          });
                         }}
                         placeholder="Site ou Instagram (opcional — ajuda no contexto)"
-                        className="w-full bg-transparent px-6 py-5 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
+                        className="w-full bg-transparent px-6 py-5 pr-14 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
                       />
+                      <div className="absolute right-5 top-1/2 -translate-y-1/2">
+                        <AnimatePresence initial={false}>
+                          {isFieldLoading("websiteOrInstagram") && (
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.92 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.92 }}
+                              transition={{
+                                duration: prefersReducedMotion ? 0 : 0.18,
+                                ease: EASE,
+                              }}
+                            >
+                              <SpinnerMini reduced={!!prefersReducedMotion} />
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
                     </div>
 
+                    {/* Segmento */}
                     <div className="md:col-span-2">
-                      <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden">
+                      <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden relative">
                         <input
                           value={segment}
                           onChange={(e) => {
                             const v = e.target.value;
                             setSegment(v);
-                            queueSave({ segment: v });
+                            queueSave("segment", { segment: v });
                           }}
                           placeholder="Segmento (ex: estética, e-commerce, clínica, etc)"
-                          className="w-full bg-transparent px-6 py-5 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
+                          className="w-full bg-transparent px-6 py-5 pr-14 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
                         />
+                        <div className="absolute right-5 top-1/2 -translate-y-1/2">
+                          <AnimatePresence initial={false}>
+                            {isFieldLoading("segment") && (
+                              <motion.div
+                                initial={{ opacity: 0, scale: 0.92 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.92 }}
+                                transition={{
+                                  duration: prefersReducedMotion ? 0 : 0.18,
+                                  ease: EASE,
+                                }}
+                              >
+                                <SpinnerMini reduced={!!prefersReducedMotion} />
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
                       </div>
 
                       <div className="mt-4 flex flex-wrap gap-2">
@@ -447,7 +543,7 @@ export default function OnboardCreateAccountClient({
                               onClick={() => {
                                 const next = s === "Outro" ? segment : s;
                                 setSegment(next);
-                                queueSave({ segment: next });
+                                queueSave("segment", { segment: next });
                               }}
                               className={cx(
                                 "rounded-full px-4 py-2 text-[13px] font-semibold transition-all",
@@ -463,6 +559,7 @@ export default function OnboardCreateAccountClient({
                       </div>
                     </div>
 
+                    {/* Tamanho */}
                     <div className="md:col-span-2 mt-2">
                       <div className="text-black/70 text-[13px] font-semibold mb-3">
                         Tamanho da empresa
@@ -477,7 +574,7 @@ export default function OnboardCreateAccountClient({
                               type="button"
                               onClick={() => {
                                 setCompanySize(s);
-                                queueSave({ companySize: s });
+                                queueSave("companySize", { companySize: s });
                               }}
                               className={cx(
                                 "rounded-[14px] px-4 py-2 text-[13px] font-semibold transition-all",
@@ -500,6 +597,7 @@ export default function OnboardCreateAccountClient({
                     </div>
                   </div>
 
+                  {/* Error */}
                   <AnimatePresence initial={false}>
                     {!!error && (
                       <motion.div
@@ -517,6 +615,7 @@ export default function OnboardCreateAccountClient({
                     )}
                   </AnimatePresence>
 
+                  {/* Bottom actions */}
                   <div className="mt-10 flex items-center justify-between gap-4">
                     <button
                       type="button"
@@ -528,15 +627,15 @@ export default function OnboardCreateAccountClient({
 
                     <motion.button
                       type="button"
-                      onClick={finish}
-                      disabled={!canFinish || busy}
+                      onClick={continueFlow}
+                      disabled={!canContinue || busy}
                       whileHover={
-                        prefersReducedMotion || !canFinish || busy
+                        prefersReducedMotion || !canContinue || busy
                           ? undefined
                           : { y: -2, scale: 1.01 }
                       }
                       whileTap={
-                        prefersReducedMotion || !canFinish || busy
+                        prefersReducedMotion || !canContinue || busy
                           ? undefined
                           : { scale: 0.98 }
                       }
@@ -548,24 +647,24 @@ export default function OnboardCreateAccountClient({
                         "group relative rounded-full px-7 py-3 bg-[#171717] border border-[#454545] border-2 text-white",
                         "focus:outline-none transition-all duration-300 ease-out",
                         "text-[14px] font-semibold shadow-[0_18px_55px_rgba(0,0,0,0.12)] hover:shadow-[0_22px_70px_rgba(0,0,0,0.16)] pr-14 transform-gpu",
-                        !canFinish || busy
+                        !canContinue || busy
                           ? "opacity-60 cursor-not-allowed select-none pointer-events-none"
                           : "hover:border-[#6a6a6a] focus:border-lime-400",
                       )}
                       style={{ willChange: "transform" }}
                     >
                       <span className="relative z-10">
-                        {busy ? "Finalizando..." : "Finalizar"}
+                        {busy ? "Aguarde..." : "Continuar"}
                       </span>
 
                       <motion.span
                         whileHover={
-                          prefersReducedMotion || !canFinish || busy
+                          prefersReducedMotion || !canContinue || busy
                             ? undefined
                             : { scale: 1.06 }
                         }
                         whileTap={
-                          prefersReducedMotion || !canFinish || busy
+                          prefersReducedMotion || !canContinue || busy
                             ? undefined
                             : { scale: 0.96 }
                         }
@@ -575,7 +674,7 @@ export default function OnboardCreateAccountClient({
                         }}
                         className={cx(
                           "absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-2.5 transition-all duration-300 ease-out",
-                          !canFinish || busy
+                          !canContinue || busy
                             ? "bg-transparent"
                             : "bg-transparent group-hover:bg-white/10 group-hover:translate-x-0.5",
                         )}
@@ -588,24 +687,36 @@ export default function OnboardCreateAccountClient({
                       </motion.span>
                     </motion.button>
                   </div>
-
-                  <div className="mt-8 rounded-[18px] bg-black/[0.04] ring-1 ring-black/10 px-5 py-4 text-left">
-                    <div className="text-[13px] text-black/60">User ID</div>
-                    <div className="text-[15px] font-semibold text-black break-all">
-                      {userId}
-                    </div>
-
-                    <div className="mt-4 text-[13px] text-black/60">E-mail</div>
-                    <div className="text-[15px] font-semibold text-black break-all">
-                      {email}
-                    </div>
-                  </div>
                 </>
               )}
             </div>
           </div>
         </motion.div>
       </div>
+
+      {/* ✅ Toast "Salvo com sucesso" (sobe e desce) */}
+      <AnimatePresence initial={false}>
+        {saveToastOpen && (
+          <motion.div
+            key={`saved-${saveToastTick}`}
+            className="fixed inset-x-0 bottom-0 z-[60] flex justify-center px-4 pointer-events-none"
+            style={{
+              paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 18px)",
+            }}
+            initial={{ opacity: 0, y: 18, filter: "blur(8px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            exit={{ opacity: 0, y: 18, filter: "blur(8px)" }}
+            transition={{
+              duration: prefersReducedMotion ? 0 : 0.22,
+              ease: EASE,
+            }}
+          >
+            <div className="rounded-full bg-black text-white text-[13px] font-semibold px-5 py-3 shadow-[0_18px_55px_rgba(0,0,0,0.22)]">
+              Salvo com sucesso
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
