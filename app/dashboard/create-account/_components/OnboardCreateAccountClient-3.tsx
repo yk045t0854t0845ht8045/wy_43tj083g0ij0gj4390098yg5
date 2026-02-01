@@ -543,7 +543,7 @@ export default function OnboardCreateAccountClient3({
         if (!mounted) return;
 
         if (j?.data?.completed) {
-          router.replace("/");
+         router.push("/");
           return;
         }
 
