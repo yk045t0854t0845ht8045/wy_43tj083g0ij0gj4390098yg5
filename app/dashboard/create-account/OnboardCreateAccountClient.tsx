@@ -38,9 +38,9 @@ function SpinnerMini({ reduced }: { reduced: boolean }) {
       transition={{ duration: reduced ? 0 : 0.18 }}
     >
       <span className="relative h-5 w-5">
-        <span className="absolute inset-0 rounded-full border-2 border-black/15" />
+        <span className="absolute inset-0 rounded-full border-2 border-black/15 mt-2" />
         <motion.span
-          className="absolute inset-0 rounded-full border-2 border-black/50 border-t-transparent"
+          className="absolute inset-0 rounded-full border-2 border-black/50 border-t-transparent mt-2"
           animate={reduced ? undefined : { rotate: 360 }}
           transition={
             reduced
