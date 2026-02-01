@@ -7,6 +7,7 @@ import {
   normText,
   normalizeCompanySize,
   validateCnpjOptional,
+  normalizeLanguages,
 } from "../_shared";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,7 @@ export async function POST(req: NextRequest) {
     const patch: Record<string, any> = {};
     const now = new Date().toISOString();
 
+    // step-1
     if ("companyName" in body) patch.company_name = normText(body.companyName);
     if ("tradeName" in body) patch.trade_name = normText(body.tradeName);
     if ("websiteOrInstagram" in body)
@@ -35,8 +37,29 @@ export async function POST(req: NextRequest) {
 
     if ("cnpj" in body) {
       const cnpjCheck = validateCnpjOptional(body.cnpj);
-      if (!cnpjCheck.ok) return jsonNoStore({ ok: false, error: cnpjCheck.message }, 400);
+      if (!cnpjCheck.ok)
+        return jsonNoStore({ ok: false, error: cnpjCheck.message }, 400);
       patch.cnpj = cnpjCheck.value;
+    }
+
+    // step-2
+    if ("mainUse" in body) patch.main_use = normText(body.mainUse);
+    if ("priorityNow" in body) patch.priority_now = normText(body.priorityNow);
+
+    if ("hasSupervisor" in body) {
+      if (body.hasSupervisor === true) patch.has_supervisor = true;
+      else if (body.hasSupervisor === false) patch.has_supervisor = false;
+      else patch.has_supervisor = null;
+    }
+
+    if ("serviceHours" in body) patch.service_hours = normText(body.serviceHours);
+
+    if ("targetResponseTime" in body) {
+      patch.target_response_time = normText(body.targetResponseTime);
+    }
+
+    if ("languages" in body) {
+      patch.languages = normalizeLanguages(body.languages);
     }
 
     patch.updated_at = now;
@@ -71,6 +94,9 @@ export async function POST(req: NextRequest) {
 
     return jsonNoStore({ ok: true }, 200);
   } catch (e: any) {
-    return jsonNoStore({ ok: false, error: e?.message || "Erro inesperado." }, 500);
+    return jsonNoStore(
+      { ok: false, error: e?.message || "Erro inesperado." },
+      500,
+    );
   }
 }
