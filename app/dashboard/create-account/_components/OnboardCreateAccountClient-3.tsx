@@ -231,7 +231,7 @@ function SearchableSelect({
                                 "rounded-[14px] px-4 py-3.5 text-left text-[13px] font-semibold transition-all",
                                 active
                                   ? "bg-black text-white"
-                                  : "bg-[#f3f3f3] ring-1 ring-black/10 text-black/75 hover:text-black hover:bg-[#ededed]",
+                                  : "bg-[#f3f3f3] text-black/75 hover:text-black hover:bg-[#ededed]",
                               )}
                             >
                               <span className="truncate">{opt.label}</span>
@@ -267,7 +267,7 @@ function ToggleRow({
       onClick={onToggle}
       className={cx(
         "w-full flex items-center justify-between gap-3",
-        "rounded-[16px] bg-[#f3f3f3] ring-1 ring-black/10 px-4 py-4",
+        "rounded-[16px] bg-[#f3f3f3] px-4 py-4",
         "text-left text-[13px] font-semibold text-black/75 hover:text-black hover:bg-[#ededed] transition-all",
       )}
     >
@@ -663,7 +663,7 @@ export default function OnboardCreateAccountClient3({
             className="w-full max-w-[640px]"
             style={{ willChange: "transform, opacity, filter" }}
           >
-            <div className="rounded-[28px] bg-white ring-1 ring-black/10 p-7 sm:p-9 md:p-10">
+            <div className="rounded-[28px] bg-white p-7 sm:p-9 md:p-10">
               <div className="text-center">
                 <div className="mx-auto mb-5 inline-flex h-14 w-14 items-center justify-center rounded-full bg-black/[0.04] ring-1 ring-black/5 shrink-0">
                   <Sparkles className="h-6 w-6 text-black/80" />
@@ -758,7 +758,7 @@ export default function OnboardCreateAccountClient3({
                             }}
                           />
 
-                          <div className="rounded-[16px] bg-[#f3f3f3] ring-1 ring-black/10 px-4 py-4">
+                          <div className="rounded-[16px] bg-[#f3f3f3] px-4 py-4">
                             <div className="text-[13px] font-semibold text-black/75 mb-2">
                               Após X mensagens sem resolver
                             </div>
