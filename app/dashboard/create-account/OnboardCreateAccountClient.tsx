@@ -453,6 +453,9 @@ export default function OnboardCreateAccountClient({
   const [saveToastOpen, setSaveToastOpen] = useState(false);
   const [saveToastTick, setSaveToastTick] = useState(0);
 
+  const cnpjIdleTimerRef = useRef<number | null>(null);
+const [cnpjHint, setCnpjHint] = useState<string | null>(null);
+
   const segmentPresets = useMemo(
     () => [
       {
@@ -736,6 +739,7 @@ export default function OnboardCreateAccountClient({
 
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+if (cnpjIdleTimerRef.current) window.clearTimeout(cnpjIdleTimerRef.current);
 
       if (inFlightRef.current?.controller) inFlightRef.current.controller.abort();
     };
@@ -903,18 +907,61 @@ export default function OnboardCreateAccountClient({
 
                       {/* CNPJ opcional */}
                       <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden relative">
-                        <input
-                          value={cnpj}
-                          onChange={(e) => {
-                            const v = formatCnpj(e.target.value);
-                            setCnpj(v);
-                            queueSave({ cnpj: v });
-                          }}
-                          onBlur={onBlurFlush}
-                          placeholder="CNPJ (opcional)"
-                          className="w-full bg-transparent px-6 py-5 pr-16 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
-                          inputMode="numeric"
-                        />
+                       <input
+  value={cnpj}
+  onChange={(e) => {
+    const v = formatCnpj(e.target.value);
+    setCnpj(v);
+    setCnpjHint(null);
+
+    // ✅ não salva enquanto está digitando (só quando estiver completo)
+    if (cnpjIdleTimerRef.current) window.clearTimeout(cnpjIdleTimerRef.current);
+
+    const d = onlyDigits(v);
+
+    // se apagou tudo, salva imediatamente (limpar é ação clara)
+    if (d.length === 0) {
+      queueSave({ cnpj: v });
+      return;
+    }
+
+    // se ainda está incompleto, espera a pessoa parar de digitar
+    cnpjIdleTimerRef.current = window.setTimeout(() => {
+      const dd = onlyDigits(v);
+      if (dd.length === 14) {
+        queueSave({ cnpj: v });
+      }
+      // se não for 14, não salva e não reclama aqui
+    }, 650);
+  }}
+  onBlur={() => {
+    if (cnpjIdleTimerRef.current) window.clearTimeout(cnpjIdleTimerRef.current);
+
+    const d = onlyDigits(cnpj);
+
+    // ✅ só avisa depois que finalizou (blur)
+    if (d.length > 0 && d.length < 14) {
+      setCnpjHint("CNPJ incompleto — termine os 14 dígitos para salvar.");
+      onBlurFlush(); // ainda flush de outros campos
+      return;
+    }
+
+    setCnpjHint(null);
+
+    // se está vazio ou completo, força salvar no blur
+    if (d.length === 0 || d.length === 14) {
+      queueSave({ cnpj });
+      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+      flushNow("blur");
+      return;
+    }
+
+    onBlurFlush();
+  }}
+  placeholder="CNPJ (opcional)"
+  className="w-full bg-transparent px-6 py-5 pr-16 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
+  inputMode="numeric"
+/>
                         <div className="absolute right-4 inset-y-0 flex items-center justify-center">
                           <AnimatePresence initial={false}>
                             {isFieldLoading("cnpj") && (
@@ -933,6 +980,20 @@ export default function OnboardCreateAccountClient({
                           </AnimatePresence>
                         </div>
                       </div>
+
+                      <AnimatePresence initial={false}>
+  {!!cnpjHint && (
+    <motion.div
+      initial={{ opacity: 0, y: 6, filter: "blur(6px)" }}
+      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+      exit={{ opacity: 0, y: 6, filter: "blur(6px)" }}
+      transition={{ duration: prefersReducedMotion ? 0 : 0.18, ease: EASE }}
+      className="mt-2 px-1 text-[12px] font-medium text-black/45"
+    >
+      {cnpjHint}
+    </motion.div>
+  )}
+</AnimatePresence>
 
                       {/* Nome fantasia opcional */}
                       <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden md:col-span-2 relative">
