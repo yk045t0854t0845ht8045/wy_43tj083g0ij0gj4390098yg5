@@ -899,7 +899,7 @@ export default function OnboardCreateAccountClient2({
             className="w-full max-w-[640px]"
             style={{ willChange: "transform, opacity, filter" }}
           >
-            <div className="rounded-[28px] bg-white ring-1 ring-black/10 p-7 sm:p-9 md:p-10">
+            <div className="rounded-[28px] bg-white p-7 sm:p-9 md:p-10">
               <div className="text-center">
                 <div className="mx-auto mb-5 inline-flex h-14 w-14 items-center justify-center rounded-full bg-black/[0.04] ring-1 ring-black/5 shrink-0">
                   <Users2 className="h-6 w-6 text-black/80" />
