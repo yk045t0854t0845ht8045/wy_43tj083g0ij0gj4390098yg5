@@ -4,14 +4,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   ArrowRight,
-  Building2,
-  Headphones,
-  Mail,
-  MessageCircle,
-  Phone,
   Users2,
   Globe,
-  LogOut,
   Check,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -273,7 +267,7 @@ export default function OnboardCreateAccountClient({
 
   return (
     <div className="min-h-screen bg-white relative overflow-hidden">
-      <div className="relative z-10 min-h-screen flex items-start md:items-center justify-center px-4 pt-[calc(env(safe-area-inset-top,0px)+44px)] md:pt-20 pb-[calc(env(safe-area-inset-bottom,0px)+44px)]">
+      <div className="relative z-10 min-h-screen flex items-start sm:items-center justify-center px-4 pt-[calc(env(safe-area-inset-top,0px)+44px)] sm:pt-20 pb-[calc(env(safe-area-inset-bottom,0px)+44px)]">
         <motion.div
           initial={{ opacity: 0, y: 16, filter: "blur(10px)" }}
           animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
@@ -282,423 +276,332 @@ export default function OnboardCreateAccountClient({
               ? { duration: 0 }
               : { duration: DUR.lg, ease: EASE }
           }
-          className="w-full max-w-[1150px]"
+          className="w-full max-w-[640px]"
           style={{ willChange: "transform, opacity, filter" }}
         >
-          <div className="grid grid-cols-1 md:grid-cols-[360px_1fr] gap-6 md:gap-10">
-            {/* LEFT CARD (igual vibe da imagem) */}
-            <div className="rounded-[28px] bg-[#f7f7f7] ring-1 ring-black/5 p-7 md:p-8 flex flex-col min-h-[520px]">
-              <div className="flex items-center gap-3">
-                <div className="h-11 w-11 rounded-[14px] bg-emerald-600/90 flex items-center justify-center shadow-[0_10px_30px_rgba(0,0,0,0.10)] ring-1 ring-black/10">
-                  <Building2 className="h-6 w-6 text-white" />
-                </div>
-                <div className="text-black font-semibold tracking-tight text-[18px]">
-                  Wyzer
-                </div>
+          <div className="rounded-[28px] bg-white ring-1 ring-black/10 p-7 sm:p-9 md:p-10">
+            <div className="text-center">
+              <div className="mx-auto mb-5 inline-flex h-14 w-14 items-center justify-center rounded-full bg-black/[0.04] ring-1 ring-black/5 shrink-0">
+                <Users2 className="h-6 w-6 text-black/80" />
               </div>
 
-              <div className="mt-10 space-y-7">
-                <div>
-                  <div className="text-black font-semibold text-[15px]">
-                    Suporte por e-mail
-                  </div>
-                  <div className="mt-1 text-black/60 text-[13px]">
-                    Respondemos em até 24h.
-                  </div>
-                  <div className="mt-2 inline-flex items-center gap-2 text-[14px] font-semibold text-black/80">
-                    <Mail className="h-4 w-4" />
-                    support@wyzer.com.br
-                  </div>
-                </div>
-
-                <div className="h-px bg-black/10" />
-
-                <div>
-                  <div className="text-black font-semibold text-[15px]">
-                    Chat suporte
-                  </div>
-                  <div className="mt-1 text-black/60 text-[13px]">
-                    Atendimento rápido durante o horário comercial.
-                  </div>
-                  <div className="mt-2 inline-flex items-center gap-2 text-[14px] font-semibold text-black/80">
-                    <MessageCircle className="h-4 w-4" />
-                    Iniciar chat
-                    <span className="ml-1 rounded-full bg-emerald-600/10 text-emerald-700 ring-1 ring-emerald-600/20 px-2 py-0.5 text-[12px] font-semibold">
-                      Online
-                    </span>
-                  </div>
-                </div>
-
-                <div className="h-px bg-black/10" />
-
-                <div>
-                  <div className="text-black font-semibold text-[15px]">
-                    Ligue para nós
-                  </div>
-                  <div className="mt-1 text-black/60 text-[13px]">
-                    Seg–Sex, 9:00–18:00 (BRT).
-                  </div>
-                  <div className="mt-2 flex flex-col gap-1 text-[14px] font-semibold text-black/80">
-                    <span className="inline-flex items-center gap-2">
-                      <Phone className="h-4 w-4" />
-                      +55 (11) 0000-0000
-                    </span>
-                    <span className="inline-flex items-center gap-2">
-                      <Headphones className="h-4 w-4" />
-                      +55 (11) 0000-0000
-                    </span>
-                  </div>
-                </div>
+              <div className="text-black font-semibold tracking-tight text-[26px] sm:text-[30px] md:text-[34px]">
+                Configure sua empresa
               </div>
 
-              <div className="mt-auto pt-8 flex items-center justify-between">
-                <form action="/api/wz_AuthLogin/logout" method="post">
-                  <button
-                    type="submit"
-                    className="inline-flex items-center gap-2 rounded-full px-4 py-2 bg-white ring-1 ring-black/10 text-[13px] font-semibold text-black/70 hover:text-black hover:bg-[#f3f3f3] transition-colors"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Sair
-                  </button>
-                </form>
-
-                <div className="text-[12px] text-black/45 font-medium">
-                  Logado como{" "}
-                  <span className="text-black/65 font-semibold">{email}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* RIGHT (FORM) */}
-            <div className="rounded-[28px] bg-white ring-1 ring-black/10 p-7 md:p-10">
-              <div className="text-center">
-                <div className="mx-auto mb-5 inline-flex h-14 w-14 items-center justify-center rounded-full bg-black/[0.04] ring-1 ring-black/5 shrink-0">
-                  <Users2 className="h-6 w-6 text-black/80" />
-                </div>
-
-                <div className="text-black font-semibold tracking-tight text-[26px] sm:text-[30px] md:text-[34px]">
-                  Configure sua empresa
-                </div>
-
-                <div className="mt-2 text-black/55 text-[14px] sm:text-[15px] md:text-[16px]">
-                  Isso leva menos de 1 minuto. Vamos personalizar o seu dashboard.
-                </div>
-
-                <div className="mt-4 flex items-center justify-center gap-2 text-[13px] text-black/55">
-                  <AnimatePresence initial={false}>
-                    {saving ? (
-                      <motion.div
-                        key="saving"
-                        initial={{ opacity: 0, y: 6, filter: "blur(6px)" }}
-                        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                        exit={{ opacity: 0, y: -6, filter: "blur(6px)" }}
-                        transition={{
-                          duration: prefersReducedMotion ? 0 : 0.18,
-                          ease: EASE,
-                        }}
-                        className="inline-flex items-center gap-2"
-                      >
-                        <SpinnerMini reduced={!!prefersReducedMotion} />
-                        Salvando…
-                      </motion.div>
-                    ) : savedPulse ? (
-                      <motion.div
-                        key="saved"
-                        initial={{ opacity: 0, y: 6, filter: "blur(6px)" }}
-                        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                        exit={{ opacity: 0, y: -6, filter: "blur(6px)" }}
-                        transition={{
-                          duration: prefersReducedMotion ? 0 : 0.18,
-                          ease: EASE,
-                        }}
-                        className="inline-flex items-center gap-2 text-emerald-700"
-                      >
-                        <Check className="h-4 w-4" />
-                        Salvo
-                      </motion.div>
-                    ) : (
-                      <motion.div
-                        key="idle"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ duration: prefersReducedMotion ? 0 : 0.18 }}
-                        className="inline-flex items-center gap-2"
-                      >
-                        <Globe className="h-4 w-4" />
-                        Dados sincronizam automaticamente
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
+              <div className="mt-2 text-black/55 text-[14px] sm:text-[15px] md:text-[16px]">
+                Isso leva menos de 1 minuto. Vamos personalizar o seu dashboard.
               </div>
 
-              <div className="mt-10">
+              <div className="mt-4 flex items-center justify-center gap-2 text-[13px] text-black/55">
                 <AnimatePresence initial={false}>
-                  {loading && (
+                  {saving ? (
                     <motion.div
-                      initial={{ opacity: 0, y: 8, filter: "blur(8px)" }}
+                      key="saving"
+                      initial={{ opacity: 0, y: 6, filter: "blur(6px)" }}
                       animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                      exit={{ opacity: 0, y: 8, filter: "blur(8px)" }}
+                      exit={{ opacity: 0, y: -6, filter: "blur(6px)" }}
                       transition={{
-                        duration: prefersReducedMotion ? 0 : 0.22,
+                        duration: prefersReducedMotion ? 0 : 0.18,
                         ease: EASE,
                       }}
-                      className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 px-6 py-5 flex items-center justify-center gap-2 text-black/60 text-[14px]"
+                      className="inline-flex items-center gap-2"
                     >
                       <SpinnerMini reduced={!!prefersReducedMotion} />
-                      Carregando…
+                      Salvando…
+                    </motion.div>
+                  ) : savedPulse ? (
+                    <motion.div
+                      key="saved"
+                      initial={{ opacity: 0, y: 6, filter: "blur(6px)" }}
+                      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                      exit={{ opacity: 0, y: -6, filter: "blur(6px)" }}
+                      transition={{
+                        duration: prefersReducedMotion ? 0 : 0.18,
+                        ease: EASE,
+                      }}
+                      className="inline-flex items-center gap-2 text-emerald-700"
+                    >
+                      <Check className="h-4 w-4" />
+                      Salvo
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="idle"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: prefersReducedMotion ? 0 : 0.18 }}
+                      className="inline-flex items-center gap-2"
+                    >
+                      <Globe className="h-4 w-4" />
+                      Dados sincronizam automaticamente
                     </motion.div>
                   )}
                 </AnimatePresence>
+              </div>
 
-                {!loading && (
-                  <>
-                    {/* Grid 2 col (desktop) como na imagem */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Nome empresa */}
+              <div className="mt-3 text-[12px] text-black/40 font-medium">
+                Logado como{" "}
+                <span className="text-black/60 font-semibold">{email}</span>
+              </div>
+            </div>
+
+            <div className="mt-10">
+              <AnimatePresence initial={false}>
+                {loading && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8, filter: "blur(8px)" }}
+                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                    exit={{ opacity: 0, y: 8, filter: "blur(8px)" }}
+                    transition={{
+                      duration: prefersReducedMotion ? 0 : 0.22,
+                      ease: EASE,
+                    }}
+                    className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 px-6 py-5 flex items-center justify-center gap-2 text-black/60 text-[14px]"
+                  >
+                    <SpinnerMini reduced={!!prefersReducedMotion} />
+                    Carregando…
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {!loading && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden">
+                      <input
+                        value={companyName}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setCompanyName(v);
+                          queueSave({ companyName: v });
+                        }}
+                        placeholder="Nome da empresa"
+                        className="w-full bg-transparent px-6 py-5 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
+                        autoComplete="organization"
+                      />
+                    </div>
+
+                    <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden">
+                      <input
+                        value={cnpj}
+                        onChange={(e) => {
+                          const v = formatCnpj(e.target.value);
+                          setCnpj(v);
+                          queueSave({ cnpj: v });
+                        }}
+                        placeholder="CNPJ (opcional)"
+                        className="w-full bg-transparent px-6 py-5 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
+                        inputMode="numeric"
+                      />
+                    </div>
+
+                    <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden md:col-span-2">
+                      <input
+                        value={tradeName}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setTradeName(v);
+                          queueSave({ tradeName: v });
+                        }}
+                        placeholder="Nome fantasia (opcional)"
+                        className="w-full bg-transparent px-6 py-5 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden md:col-span-2">
+                      <input
+                        value={websiteOrInstagram}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setWebsiteOrInstagram(v);
+                          queueSave({ websiteOrInstagram: v });
+                        }}
+                        placeholder="Site ou Instagram (opcional — ajuda no contexto)"
+                        className="w-full bg-transparent px-6 py-5 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="md:col-span-2">
                       <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden">
                         <input
-                          value={companyName}
+                          value={segment}
                           onChange={(e) => {
                             const v = e.target.value;
-                            setCompanyName(v);
-                            queueSave({ companyName: v });
+                            setSegment(v);
+                            queueSave({ segment: v });
                           }}
-                          placeholder="Nome da empresa"
-                          className="w-full bg-transparent px-6 py-5 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
-                          autoComplete="organization"
-                        />
-                      </div>
-
-                      {/* CNPJ opcional */}
-                      <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden">
-                        <input
-                          value={cnpj}
-                          onChange={(e) => {
-                            const v = formatCnpj(e.target.value);
-                            setCnpj(v);
-                            queueSave({ cnpj: v });
-                          }}
-                          placeholder="CNPJ (opcional)"
-                          className="w-full bg-transparent px-6 py-5 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
-                          inputMode="numeric"
-                        />
-                      </div>
-
-                      {/* Nome fantasia opcional */}
-                      <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden md:col-span-2">
-                        <input
-                          value={tradeName}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setTradeName(v);
-                            queueSave({ tradeName: v });
-                          }}
-                          placeholder="Nome fantasia (opcional)"
+                          placeholder="Segmento (ex: estética, e-commerce, clínica, etc)"
                           className="w-full bg-transparent px-6 py-5 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
                         />
                       </div>
 
-                      {/* Site/Instagram opcional */}
-                      <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden md:col-span-2">
-                        <input
-                          value={websiteOrInstagram}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setWebsiteOrInstagram(v);
-                            queueSave({ websiteOrInstagram: v });
-                          }}
-                          placeholder="Site ou Instagram (opcional — ajuda no contexto)"
-                          className="w-full bg-transparent px-6 py-5 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
-                        />
-                      </div>
-
-                      {/* Segmento */}
-                      <div className="md:col-span-2">
-                        <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden">
-                          <input
-                            value={segment}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setSegment(v);
-                              queueSave({ segment: v });
-                            }}
-                            placeholder="Segmento (ex: estética, e-commerce, clínica, etc)"
-                            className="w-full bg-transparent px-6 py-5 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
-                          />
-                        </div>
-
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {segmentPresets.map((s) => {
-                            const active =
-                              segment.trim().toLowerCase() === s.toLowerCase();
-                            return (
-                              <button
-                                key={s}
-                                type="button"
-                                onClick={() => {
-                                  const next = s === "Outro" ? segment : s;
-                                  setSegment(next);
-                                  queueSave({ segment: next });
-                                }}
-                                className={cx(
-                                  "rounded-full px-4 py-2 text-[13px] font-semibold transition-all",
-                                  active
-                                    ? "bg-black text-white"
-                                    : "bg-[#f3f3f3] ring-1 ring-black/10 text-black/70 hover:text-black hover:bg-[#ededed]",
-                                )}
-                              >
-                                {s}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Tamanho */}
-                      <div className="md:col-span-2 mt-2">
-                        <div className="text-black/70 text-[13px] font-semibold mb-3">
-                          Tamanho da empresa
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          {sizePresets.map((s) => {
-                            const active = companySize === s;
-                            return (
-                              <button
-                                key={s}
-                                type="button"
-                                onClick={() => {
-                                  setCompanySize(s);
-                                  queueSave({ companySize: s });
-                                }}
-                                className={cx(
-                                  "rounded-[14px] px-4 py-2 text-[13px] font-semibold transition-all",
-                                  active
-                                    ? "bg-black text-white"
-                                    : "bg-[#f3f3f3] ring-1 ring-black/10 text-black/70 hover:text-black hover:bg-[#ededed]",
-                                )}
-                              >
-                                {s === "1-5"
-                                  ? "1–5"
-                                  : s === "6-20"
-                                    ? "6–20"
-                                    : s === "21-100"
-                                      ? "21–100"
-                                      : "100+"}
-                              </button>
-                            );
-                          })}
-                        </div>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {segmentPresets.map((s) => {
+                          const active =
+                            segment.trim().toLowerCase() === s.toLowerCase();
+                          return (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() => {
+                                const next = s === "Outro" ? segment : s;
+                                setSegment(next);
+                                queueSave({ segment: next });
+                              }}
+                              className={cx(
+                                "rounded-full px-4 py-2 text-[13px] font-semibold transition-all",
+                                active
+                                  ? "bg-black text-white"
+                                  : "bg-[#f3f3f3] ring-1 ring-black/10 text-black/70 hover:text-black hover:bg-[#ededed]",
+                              )}
+                            >
+                              {s}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
 
-                    {/* Error */}
-                    <AnimatePresence initial={false}>
-                      {!!error && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 8, filter: "blur(8px)" }}
-                          animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                          exit={{ opacity: 0, y: 8, filter: "blur(8px)" }}
-                          transition={{
-                            duration: prefersReducedMotion ? 0 : 0.22,
-                            ease: EASE,
-                          }}
-                          className="mt-4 rounded-[16px] bg-black/5 ring-1 ring-black/10 px-4 py-3 text-[13px] text-black/70"
-                        >
-                          {error}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                    <div className="md:col-span-2 mt-2">
+                      <div className="text-black/70 text-[13px] font-semibold mb-3">
+                        Tamanho da empresa
+                      </div>
 
-                    {/* Bottom actions (igual vibe da imagem: back + finish) */}
-                    <div className="mt-10 flex items-center justify-between gap-4">
-                      <button
-                        type="button"
-                        onClick={() => router.replace("/")}
-                        className="inline-flex items-center justify-center rounded-full px-6 py-3 bg-white ring-1 ring-black/10 text-black/70 text-[14px] font-semibold hover:text-black hover:bg-[#f7f7f7] transition-colors"
+                      <div className="flex flex-wrap gap-2">
+                        {sizePresets.map((s) => {
+                          const active = companySize === s;
+                          return (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() => {
+                                setCompanySize(s);
+                                queueSave({ companySize: s });
+                              }}
+                              className={cx(
+                                "rounded-[14px] px-4 py-2 text-[13px] font-semibold transition-all",
+                                active
+                                  ? "bg-black text-white"
+                                  : "bg-[#f3f3f3] ring-1 ring-black/10 text-black/70 hover:text-black hover:bg-[#ededed]",
+                              )}
+                            >
+                              {s === "1-5"
+                                ? "1–5"
+                                : s === "6-20"
+                                  ? "6–20"
+                                  : s === "21-100"
+                                    ? "21–100"
+                                    : "100+"}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <AnimatePresence initial={false}>
+                    {!!error && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 8, filter: "blur(8px)" }}
+                        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                        exit={{ opacity: 0, y: 8, filter: "blur(8px)" }}
+                        transition={{
+                          duration: prefersReducedMotion ? 0 : 0.22,
+                          ease: EASE,
+                        }}
+                        className="mt-4 rounded-[16px] bg-black/5 ring-1 ring-black/10 px-4 py-3 text-[13px] text-black/70"
                       >
-                        Voltar
-                      </button>
+                        {error}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
 
-                      <motion.button
-                        type="button"
-                        onClick={finish}
-                        disabled={!canFinish || busy}
+                  <div className="mt-10 flex items-center justify-between gap-4">
+                    <button
+                      type="button"
+                      onClick={() => router.replace("/")}
+                      className="inline-flex items-center justify-center rounded-full px-6 py-3 bg-white ring-1 ring-black/10 text-black/70 text-[14px] font-semibold hover:text-black hover:bg-[#f7f7f7] transition-colors"
+                    >
+                      Voltar
+                    </button>
+
+                    <motion.button
+                      type="button"
+                      onClick={finish}
+                      disabled={!canFinish || busy}
+                      whileHover={
+                        prefersReducedMotion || !canFinish || busy
+                          ? undefined
+                          : { y: -2, scale: 1.01 }
+                      }
+                      whileTap={
+                        prefersReducedMotion || !canFinish || busy
+                          ? undefined
+                          : { scale: 0.98 }
+                      }
+                      transition={{
+                        duration: prefersReducedMotion ? 0 : DUR.sm,
+                        ease: EASE,
+                      }}
+                      className={cx(
+                        "group relative rounded-full px-7 py-3 bg-[#171717] border border-[#454545] border-2 text-white",
+                        "focus:outline-none transition-all duration-300 ease-out",
+                        "text-[14px] font-semibold shadow-[0_18px_55px_rgba(0,0,0,0.12)] hover:shadow-[0_22px_70px_rgba(0,0,0,0.16)] pr-14 transform-gpu",
+                        !canFinish || busy
+                          ? "opacity-60 cursor-not-allowed select-none pointer-events-none"
+                          : "hover:border-[#6a6a6a] focus:border-lime-400",
+                      )}
+                      style={{ willChange: "transform" }}
+                    >
+                      <span className="relative z-10">
+                        {busy ? "Finalizando..." : "Finalizar"}
+                      </span>
+
+                      <motion.span
                         whileHover={
                           prefersReducedMotion || !canFinish || busy
                             ? undefined
-                            : { y: -2, scale: 1.01 }
+                            : { scale: 1.06 }
                         }
                         whileTap={
                           prefersReducedMotion || !canFinish || busy
                             ? undefined
-                            : { scale: 0.98 }
+                            : { scale: 0.96 }
                         }
                         transition={{
                           duration: prefersReducedMotion ? 0 : DUR.sm,
                           ease: EASE,
                         }}
                         className={cx(
-                          "group relative rounded-full px-7 py-3 bg-[#171717] border border-[#454545] border-2 text-white",
-                          "focus:outline-none transition-all duration-300 ease-out",
-                          "text-[14px] font-semibold shadow-[0_18px_55px_rgba(0,0,0,0.12)] hover:shadow-[0_22px_70px_rgba(0,0,0,0.16)] pr-14 transform-gpu",
+                          "absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-2.5 transition-all duration-300 ease-out",
                           !canFinish || busy
-                            ? "opacity-60 cursor-not-allowed select-none pointer-events-none"
-                            : "hover:border-[#6a6a6a] focus:border-lime-400",
+                            ? "bg-transparent"
+                            : "bg-transparent group-hover:bg-white/10 group-hover:translate-x-0.5",
                         )}
-                        style={{ willChange: "transform" }}
                       >
-                        <span className="relative z-10">
-                          {busy ? "Finalizando..." : "Finalizar"}
-                        </span>
+                        {busy ? (
+                          <SpinnerMini reduced={!!prefersReducedMotion} />
+                        ) : (
+                          <ArrowRight className="w-5 h-5 text-white transition-transform duration-300 group-hover:translate-x-0.5" />
+                        )}
+                      </motion.span>
+                    </motion.button>
+                  </div>
 
-                        <motion.span
-                          whileHover={
-                            prefersReducedMotion || !canFinish || busy
-                              ? undefined
-                              : { scale: 1.06 }
-                          }
-                          whileTap={
-                            prefersReducedMotion || !canFinish || busy
-                              ? undefined
-                              : { scale: 0.96 }
-                          }
-                          transition={{
-                            duration: prefersReducedMotion ? 0 : DUR.sm,
-                            ease: EASE,
-                          }}
-                          className={cx(
-                            "absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-2.5 transition-all duration-300 ease-out",
-                            !canFinish || busy
-                              ? "bg-transparent"
-                              : "bg-transparent group-hover:bg-white/10 group-hover:translate-x-0.5",
-                          )}
-                        >
-                          {busy ? (
-                            <SpinnerMini reduced={!!prefersReducedMotion} />
-                          ) : (
-                            <ArrowRight className="w-5 h-5 text-white transition-transform duration-300 group-hover:translate-x-0.5" />
-                          )}
-                        </motion.span>
-                      </motion.button>
+                  <div className="mt-8 rounded-[18px] bg-black/[0.04] ring-1 ring-black/10 px-5 py-4 text-left">
+                    <div className="text-[13px] text-black/60">User ID</div>
+                    <div className="text-[15px] font-semibold text-black break-all">
+                      {userId}
                     </div>
 
-                    {/* Debug opcional (mantém teu exemplo de sessão “visível” se quiser) */}
-                    <div className="mt-8 rounded-[18px] bg-black/[0.04] ring-1 ring-black/10 px-5 py-4 text-left">
-                      <div className="text-[13px] text-black/60">User ID</div>
-                      <div className="text-[15px] font-semibold text-black break-all">
-                        {userId}
-                      </div>
-
-                      <div className="mt-4 text-[13px] text-black/60">E-mail</div>
-                      <div className="text-[15px] font-semibold text-black break-all">
-                        {email}
-                      </div>
+                    <div className="mt-4 text-[13px] text-black/60">E-mail</div>
+                    <div className="text-[15px] font-semibold text-black break-all">
+                      {email}
                     </div>
-                  </>
-                )}
-              </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </motion.div>
