@@ -3,16 +3,19 @@
 import React, { useMemo, useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import {
-  Home,
-  ShoppingBag,
-  Tag,
-  User,
-  Megaphone,
-  BadgePercent,
+  AnimatePresence,
+  LayoutGroup,
+  motion,
+  useReducedMotion,
+} from "framer-motion";
+import {
+  MessageSquare,
+  Workflow,
+  StickyNote,
+  Mail,
+  PhoneCall,
   Image as ImageIcon,
-  Globe,
   BarChart3,
   Store,
   PlusCircle,
@@ -78,26 +81,42 @@ export default function DashboardSidebar({
 
   const primary: NavItem[] = useMemo(
     () => [
-      { href: "/", label: "Início", icon: Home },
-      { href: "/pedidos", label: "Pedidos", icon: ShoppingBag },
-      { href: "/produtos", label: "Produtos", icon: Tag },
-      { href: "/clientes", label: "Clientes", icon: User },
-      { href: "/marketing", label: "Marketing", icon: Megaphone },
-      { href: "/descontos", label: "Descontos", icon: BadgePercent },
-      { href: "/conteudo", label: "Conteúdo", icon: ImageIcon },
-      { href: "/markets", label: "Markets", icon: Globe },
+      { href: "/", label: "Dashboard", icon: BarChart3 },
+      { href: "/inbox", label: "Inbox", icon: MessageSquare },
+      { href: "/inbox?tab=tasks", label: "Tarefas", icon: Workflow },
+      {
+        href: "/base-de-conhecimento?tab=notes",
+        label: "Conhecimentos",
+        icon: StickyNote,
+      },
+      { href: "/mail", label: "Emails", icon: Mail },
+      { href: "/analytics", label: "Relatórios", icon: BarChart3 },
+      { href: "/automacoes", label: "Automações", icon: Workflow },
+      { href: "/automacoes?tab=workflows", label: "Workflows", icon: Workflow },
       { href: "/analises", label: "Análises", icon: BarChart3 },
     ],
     [],
   );
 
   const salesChannels: NavItem[] = useMemo(
-    () => [{ href: "/loja-virtual", label: "Loja virtual", icon: Store }],
+    () => [
+      { href: "/canais", label: "Canais WhatsApp", icon: PhoneCall },
+      { href: "/integracoes", label: "Integrações", icon: Store },
+      { href: "/wyzerai", label: "WyzerAI", icon: Store },
+      { href: "/wyzerai", label: "WyzerAI", icon: Store },
+    ],
     [],
   );
 
   const apps: NavItem[] = useMemo(
-    () => [{ href: "/apps/adicionar", label: "Adicionar", icon: PlusCircle, disabled: true }],
+    () => [
+      {
+        href: "/apps/adicionar",
+        label: "Adicionar",
+        icon: PlusCircle,
+        disabled: true,
+      },
+    ],
     [],
   );
 
@@ -119,13 +138,7 @@ export default function DashboardSidebar({
     if (anyAppsActive) setOpenApps(true);
   }, [anySalesActive, anyAppsActive]);
 
-  const Row = ({
-    item,
-    dense,
-  }: {
-    item: NavItem;
-    dense?: boolean;
-  }) => {
+  const Row = ({ item, dense }: { item: NavItem; dense?: boolean }) => {
     const active = item.href ? isActive(item.href) : false;
     const Icon = item.icon;
 
@@ -137,8 +150,12 @@ export default function DashboardSidebar({
           "rounded-xl",
           item.disabled ? "opacity-40" : "opacity-100",
         )}
-        whileHover={item.disabled || prefersReducedMotion ? undefined : { scale: 1.01 }}
-        whileTap={item.disabled || prefersReducedMotion ? undefined : { scale: 0.995 }}
+        whileHover={
+          item.disabled || prefersReducedMotion ? undefined : { scale: 1.01 }
+        }
+        whileTap={
+          item.disabled || prefersReducedMotion ? undefined : { scale: 0.995 }
+        }
         transition={{ duration: prefersReducedMotion ? 0 : DUR.xs, ease: EASE }}
       >
         {/* Active pill (igual da imagem) */}
@@ -150,7 +167,10 @@ export default function DashboardSidebar({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: prefersReducedMotion ? 0 : DUR.sm, ease: EASE }}
+              transition={{
+                duration: prefersReducedMotion ? 0 : DUR.sm,
+                ease: EASE,
+              }}
             />
           )}
         </AnimatePresence>
@@ -207,7 +227,10 @@ export default function DashboardSidebar({
         {/* setinha do lado direito */}
         <motion.span
           animate={{ rotate: open ? 90 : 0 }}
-          transition={{ duration: prefersReducedMotion ? 0 : DUR.sm, ease: EASE }}
+          transition={{
+            duration: prefersReducedMotion ? 0 : DUR.sm,
+            ease: EASE,
+          }}
           className="text-black/50"
         >
           <ChevronRight className="h-4 w-4" />
@@ -242,7 +265,11 @@ export default function DashboardSidebar({
 
             <div className="my-3 h-px bg-black/10 mx-4" />
 
-            <GroupHeader label="Canais de vendas" open={openSales} setOpen={setOpenSales} />
+            <GroupHeader
+              label="Canais de vendas"
+              open={openSales}
+              setOpen={setOpenSales}
+            />
 
             <AnimatePresence initial={false}>
               {openSales && (
@@ -295,7 +322,10 @@ export default function DashboardSidebar({
               className="relative w-full flex items-center gap-3 py-2.5 pl-4 pr-3 rounded-xl"
               whileHover={prefersReducedMotion ? undefined : { scale: 1.01 }}
               whileTap={prefersReducedMotion ? undefined : { scale: 0.995 }}
-              transition={{ duration: prefersReducedMotion ? 0 : DUR.xs, ease: EASE }}
+              transition={{
+                duration: prefersReducedMotion ? 0 : DUR.xs,
+                ease: EASE,
+              }}
             >
               <div className="relative flex items-center justify-center w-6">
                 <Settings className="h-[18px] w-[18px] text-black/75" />
