@@ -372,7 +372,7 @@ function SearchableSelect({
                                 "rounded-[14px] px-4 py-3.5 text-left text-[13px] font-semibold transition-all",
                                 active
                                   ? "bg-black text-white"
-                                  : "bg-[#f3f3f3] ring-1 ring-black/10 text-black/75 hover:text-black hover:bg-[#ededed]",
+                                  : "bg-[#f3f3f3] text-black/75 hover:text-black hover:bg-[#ededed]",
                               )}
                             >
                               <span className="truncate">{opt}</span>
