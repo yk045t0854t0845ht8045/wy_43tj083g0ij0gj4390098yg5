@@ -32,13 +32,13 @@ function SpinnerMini({ reduced }: { reduced: boolean }) {
   return (
     <motion.span
       aria-hidden
-      className="inline-flex items-center justify-center"
+      className="inline-flex items-center justify-center mt-2"
       initial={{ opacity: 0, scale: 0.92 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: reduced ? 0 : 0.18 }}
     >
       <span className="relative h-5 w-5">
-        <span className="absolute inset-0 rounded-full border-2 border-black/15 mt-1.5" />
+        <span className="absolute inset-0 rounded-full border-2 border-black/15" />
         <motion.span
           className="absolute inset-0 rounded-full border-2 border-black/50 border-t-transparent"
           animate={reduced ? undefined : { rotate: 360 }}
