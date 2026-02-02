@@ -310,7 +310,7 @@ export default function LoadingBase() {
       }}
     >
       {/* Container da barra */}
-      <div className="relative h-[3px] w-full overflow-hidden bg-transparent">
+      <div className="relative h-[4px] w-full overflow-hidden bg-transparent">
         {/* Barra principal */}
         <div
           className="absolute inset-y-0 left-0 w-full origin-left bg-black"
