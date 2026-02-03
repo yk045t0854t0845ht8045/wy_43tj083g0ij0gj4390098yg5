@@ -32,6 +32,16 @@ export default function ShopifyLandingPage() {
   // Se quiser forçar o "modo cookies" só quando o sticky estiver visível:
   const shouldShowCookiesInSticky = cookieReady && !cookiesAccepted;
 
+    // ✅ Modal de Tutoriais (YouTube)
+  const [tutorialsOpen, setTutorialsOpen] = useState(false);
+
+  const openTutorials = () => setTutorialsOpen(true);
+  const closeTutorials = () => setTutorialsOpen(false);
+
+  // troque aqui pelo seu vídeo
+  const TUTORIALS_YT_URL =
+    "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&mute=0&rel=0&modestbranding=1";
+
   // ✅ Animações alinhadas (premium / consistentes)
   const prefersReducedMotion = useReducedMotion();
   const EASE = useMemo(() => [0.2, 0.8, 0.2, 1] as const, []);
@@ -271,6 +281,27 @@ function goToLoginWithEmail(email: string) {
     io.observe(el);
     return () => io.disconnect();
   }, []);
+
+    // ✅ Fecha modal no ESC
+  useEffect(() => {
+    if (!tutorialsOpen) return;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeTutorials();
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tutorialsOpen]);
+
+  // ✅ trava scroll quando modal está aberto
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    if (tutorialsOpen) document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [tutorialsOpen]);
 
     // ✅ Lê consentimento (localStorage + cookie fallback)
   useEffect(() => {
@@ -2075,25 +2106,42 @@ function goToLoginWithEmail(email: string) {
                   <div key={col.title}>
                     <div className="text-[13px] font-semibold text-black/70">{col.title}</div>
                     <div className="mt-4 space-y-3">
-                      {col.items.map((it) => {
-                        const href = footerHref(col.title, it);
-                        const isHash = href.startsWith("#");
-                        const handle = isHash ? scrollToId(href.replace("#", "")) : undefined;
-                        const external = isExternal(href);
+                     {col.items.map((it) => {
+  // ✅ Tutoriais abre modal (somente ele)
+  if (it === "Tutoriais") {
+    return (
+      <a
+        key={it}
+        href="#"
+        onClick={(e) => {
+          e.preventDefault();
+          openTutorials();
+        }}
+        className="block text-[14px] text-black/55 hover:text-black transition"
+      >
+        {it}
+      </a>
+    );
+  }
 
-                        return (
-                          <a
-                            key={it}
-                            href={href}
-                            onClick={handle}
-                            target={external ? "_blank" : undefined}
-                            rel={external ? "noreferrer" : undefined}
-                            className="block text-[14px] text-black/55 hover:text-black transition"
-                          >
-                            {it}
-                          </a>
-                        );
-                      })}
+  const href = footerHref(col.title, it);
+  const isHash = href.startsWith("#");
+  const handle = isHash ? scrollToId(href.replace("#", "")) : undefined;
+  const external = isExternal(href);
+
+  return (
+    <a
+      key={it}
+      href={href}
+      onClick={handle}
+      target={external ? "_blank" : undefined}
+      rel={external ? "noreferrer" : undefined}
+      className="block text-[14px] text-black/55 hover:text-black transition"
+    >
+      {it}
+    </a>
+  );
+})}
                     </div>
                   </div>
                 ))}
@@ -2268,6 +2316,99 @@ function goToLoginWithEmail(email: string) {
           </div>
         </div>
       </footer>
+
+           {/* ✅ MODAL TUTORIAIS (Apple-like) */}
+      <AnimatePresence initial={false} mode="sync">
+        {tutorialsOpen && (
+          <motion.div
+            className="fixed inset-0 z-[95]"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.18, ease: "linear" }}
+          >
+            {/* overlay + blur (clicar fora fecha) */}
+            <motion.button
+              type="button"
+              aria-label="Fechar tutoriais"
+              className="absolute inset-0 h-full w-full bg-black/55 backdrop-blur-[10px]"
+              onClick={closeTutorials}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.18, ease: "linear" }}
+            />
+
+            {/* painel */}
+            <div
+              className="absolute inset-0 flex items-center justify-center px-4"
+              style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 16px)", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}
+            >
+              <motion.div
+                role="dialog"
+                aria-modal="true"
+                onClick={(e) => e.stopPropagation()}
+                initial={{ opacity: 0, y: 18, scale: 0.985, filter: "blur(10px)" }}
+                animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+                exit={{ opacity: 0, y: 14, scale: 0.99, filter: "blur(10px)" }}
+                transition={prefersReducedMotion ? { duration: 0 } : { ...SPRING_SOFT }}
+                className="w-full max-w-[980px] rounded-[40px] bg-black ring-1 ring-white/10 shadow-[0_30px_90px_rgba(0,0,0,0.40)] overflow-hidden transform-gpu"
+                style={{
+                  willChange: "transform, opacity, filter",
+                  backfaceVisibility: "hidden",
+                  WebkitBackfaceVisibility: "hidden",
+                }}
+              >
+                {/* header do modal */}
+                <div className="px-6 sm:px-8 pt-6 pb-4 flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-white/90 text-[18px] sm:text-[20px] font-semibold tracking-tight truncate">
+                      Tutoriais Wyzer
+                    </div>
+                    <div className="mt-1 text-white/50 text-[12px] sm:text-[13px]">
+                      Assista e aplique em minutos.
+                    </div>
+                  </div>
+
+                  <motion.button
+                    type="button"
+                    onClick={closeTutorials}
+                    whileHover={prefersReducedMotion ? undefined : { scale: 1.04 }}
+                    whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
+                    transition={{ duration: DUR.sm, ease: EASE }}
+                    className="shrink-0 h-11 w-11 rounded-full bg-white/10 hover:bg-white/14 ring-1 ring-white/10 grid place-items-center text-white/85 transform-gpu"
+                    aria-label="Fechar"
+                    style={{ willChange: "transform" }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  </motion.button>
+                </div>
+
+                {/* vídeo responsivo */}
+                <div className="px-4 sm:px-6 pb-6">
+                  <div className="relative w-full overflow-hidden rounded-[28px] ring-1 ring-white/10 bg-black">
+                    <div className="relative w-full" style={{ paddingTop: "56.25%" }}>
+                      <iframe
+                        className="absolute inset-0 h-full w-full"
+                        src={TUTORIALS_YT_URL}
+                        title="Tutoriais Wyzer"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowFullScreen
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 text-white/45 text-[12px] sm:text-[13px] leading-relaxed px-1">
+                    Clique fora do vídeo para fechar. (ESC também fecha)
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
