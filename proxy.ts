@@ -77,21 +77,21 @@ export default function proxy(req: NextRequest) {
   // ✅ SUBDOMÍNIO POLICY -> /policy/*
   // -----------------------------
   const isPolicySubdomain =
-    host === "policy.localhost" ||
-    host === "policy.wyzer.com.br" ||
-    host === "policy.vercel.app" ||
-    host.startsWith("policy.") ||
-    (host.startsWith("policy-") && host.endsWith(".vercel.app"));
+    host === "privacy.localhost" ||
+    host === "privacy.wyzer.com.br" ||
+    host === "privacy.vercel.app" ||
+    host.startsWith("privacy.") ||
+    (host.startsWith("privacy-") && host.endsWith(".vercel.app"));
 
-  if (!isPolicySubdomain && url.pathname.startsWith("/policy")) {
+  if (!isPolicySubdomain && url.pathname.startsWith("/privacy")) {
     url.pathname = "/404";
     return NextResponse.rewrite(url);
   }
 
   if (isPolicySubdomain) {
-    if (url.pathname === "/policy" || url.pathname.startsWith("/policy/")) return NextResponse.next();
+    if (url.pathname === "/privacy" || url.pathname.startsWith("/privacy/")) return NextResponse.next();
     const incomingPath = url.pathname === "/" ? "" : url.pathname;
-    url.pathname = `/policy${incomingPath}`;
+    url.pathname = `/privacy${incomingPath}`;
     return NextResponse.rewrite(url);
   }
 

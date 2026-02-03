@@ -528,8 +528,8 @@ function goToLoginWithEmail(email: string) {
 
     // Legal
     if (col === "legal") {
-      if (item === "Termos") return "/terms";
-      if (item === "Privacidade") return "/privacy";
+      if (item === "Termos") return "https://terms.wyzer.com.br";
+      if (item === "Privacidade") return "https://privacy.wyzer.com.br";
       if (item === "Cookies") return "/cookies";
       if (item === "Licenças") return "/licenses";
       if (item === "Configurações") return "/settings";
@@ -2383,8 +2383,8 @@ function goToLoginWithEmail(email: string) {
           }}
         >
           {/* ✅ apenas o vídeo */}
-          <div className="p-3 sm:p-5">
-            <div className="relative w-full overflow-hidden rounded-[28px] bg-black ring-1 ring-white/10">
+          <div className="p-1 sm:p-5">
+            <div className="relative w-full overflow-hidden rounded-[28px] bg-black">
               <div className="relative w-full" style={{ paddingTop: "56.25%" }}>
                 <iframe
                   className="absolute inset-0 h-full w-full"
