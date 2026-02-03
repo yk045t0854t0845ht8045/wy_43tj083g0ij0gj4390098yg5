@@ -36,7 +36,7 @@ function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-export default function PolicyPage() {
+export default function privacyPage() {
   const prefersReducedMotion = useReducedMotion();
 
   const EASE = useMemo(() => [0.2, 0.8, 0.2, 1] as const, []);
@@ -193,7 +193,7 @@ export default function PolicyPage() {
   }, [computeSectionTops]);
 
   useEffect(() => {
-    // força estética: ".../policy/#/top" (e não ".../policy#/top")
+    // força estética: ".../privacy/#/top" (e não ".../privacy#/top")
     const ensurePrettyHash = () => {
       const h = window.location.hash || "";
       if (!h.startsWith("#/")) return;
@@ -267,7 +267,7 @@ export default function PolicyPage() {
 
       if (e.key === "/" && !isTypingContext) {
         e.preventDefault();
-        const el = document.getElementById("policy-nav-search") as HTMLInputElement | null;
+        const el = document.getElementById("privacy-nav-search") as HTMLInputElement | null;
         el?.focus();
       }
       if (e.key === "Escape") {
@@ -280,7 +280,7 @@ export default function PolicyPage() {
         setActiveId("top");
         history.replaceState(null, "", toHashRoute("top"));
       }
-      if (e.key === "Enter" && (document.activeElement as HTMLElement | null)?.id === "policy-nav-search") {
+      if (e.key === "Enter" && (document.activeElement as HTMLElement | null)?.id === "privacy-nav-search") {
         const first = filteredSections[0]?.id;
         if (first) {
           const el = document.getElementById(first);
@@ -615,7 +615,7 @@ export default function PolicyPage() {
             <div className="flex items-center gap-2 rounded-full bg-black/[0.03] ring-1 ring-black/5 px-3 py-2">
               <Search className="h-[16px] w-[16px] text-black/50" />
               <input
-                id="policy-nav-search"
+                id="privacy-nav-search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Buscar tópico…"
@@ -791,7 +791,7 @@ export default function PolicyPage() {
           </div>
         </div>
 
-        {/* Policy */}
+        {/* privacy */}
         <div className="mt-10 space-y-14">
           <section id="escopo">
             <H2 id="escopo">1. Escopo e aplicação</H2>
@@ -1032,7 +1032,7 @@ export default function PolicyPage() {
               WebkitBackfaceVisibility: "hidden",
             }}
           >
-            {/* ✅ alinhado com o conteúdo da policy (mesmo max + mesmo padding + mesmo offset de sidebar) */}
+            {/* ✅ alinhado com o conteúdo da privacy (mesmo max + mesmo padding + mesmo offset de sidebar) */}
             <div className="mx-auto w-full max-w-[1100px] px-4 sm:px-6 lg:pl-[390px]">
               <div className="w-full flex justify-center">
                 <motion.div

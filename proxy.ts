@@ -74,21 +74,21 @@ export default function proxy(req: NextRequest) {
   }
 
   // -----------------------------
-  // ✅ SUBDOMÍNIO POLICY -> /policy/*
+  // ✅ SUBDOMÍNIO privacy -> /privacy/*
   // -----------------------------
-  const isPolicySubdomain =
+  const isprivacySubdomain =
     host === "privacy.localhost" ||
     host === "privacy.wyzer.com.br" ||
     host === "privacy.vercel.app" ||
     host.startsWith("privacy.") ||
     (host.startsWith("privacy-") && host.endsWith(".vercel.app"));
 
-  if (!isPolicySubdomain && url.pathname.startsWith("/privacy")) {
+  if (!isprivacySubdomain && url.pathname.startsWith("/privacy")) {
     url.pathname = "/404";
     return NextResponse.rewrite(url);
   }
 
-  if (isPolicySubdomain) {
+  if (isprivacySubdomain) {
     if (url.pathname === "/privacy" || url.pathname.startsWith("/privacy/")) return NextResponse.next();
     const incomingPath = url.pathname === "/" ? "" : url.pathname;
     url.pathname = `/privacy${incomingPath}`;
