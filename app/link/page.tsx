@@ -913,33 +913,60 @@ export default function LinkPage() {
           ))}
         </nav>
 
-        {/* Footer */}
-        <motion.footer
-          className="mt-24 text-center"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1.8, duration: DUR.lg, ease: EASE }}
-        >
-          <p className="text-[14px] text-[#aaa] tracking-wide">
-            Feito com amor para vocês seguidores! ❤️
-          </p>
-          <motion.div
-            className="mt-5 flex items-center justify-center gap-3"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 1.95, duration: DUR.md, ease: EASE }}
-          >
-            <span className="text-[12px] text-[#ccc] tracking-[0.12em] uppercase font-medium">
-              Powered by
-            </span>
-            <motion.span
-              className="text-[12px] text-[#666] font-bold tracking-[0.01em] uppercase"
-              whileHover={{ color: "#171717" }}
-            >
-              Wyze Code
-            </motion.span>
-          </motion.div>
-        </motion.footer>
+       {/* Footer */}
+<motion.footer
+  className="mt-24 text-center"
+  initial={{ opacity: 0 }}
+  animate={{ opacity: 1 }}
+  transition={{ delay: 1.8, duration: DUR.lg, ease: EASE }}
+>
+  {/* ✅ trocado: "Feito com amor..." -> links legais */}
+  <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-[14px] text-[#aaa] tracking-wide">
+    <a
+      href="https://cookies.wyzer.com.br"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="hover:text-[#171717] transition-colors"
+    >
+      Cookies
+    </a>
+    <span className="text-[#ddd]">•</span>
+    <a
+      href="https://terms.wyzer.com.br"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="hover:text-[#171717] transition-colors"
+    >
+      Termos
+    </a>
+    <span className="text-[#ddd]">•</span>
+    <a
+      href="https://privacy.wyzer.com.br"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="hover:text-[#171717] transition-colors"
+    >
+      Política de privacidade
+    </a>
+  </div>
+
+  <motion.div
+    className="mt-5 flex items-center justify-center gap-3"
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    transition={{ delay: 1.95, duration: DUR.md, ease: EASE }}
+  >
+    <span className="text-[12px] text-[#ccc] tracking-[0.12em] uppercase font-medium">
+      Powered by
+    </span>
+    <motion.span
+      className="text-[12px] text-[#666] font-bold tracking-[0.01em] uppercase"
+      whileHover={{ color: "#171717" }}
+    >
+      Wyze Code
+    </motion.span>
+  </motion.div>
+</motion.footer>
       </div>
 
       {/* CTA Floating (bottom-right) - colocar ANTES do </main> */}
