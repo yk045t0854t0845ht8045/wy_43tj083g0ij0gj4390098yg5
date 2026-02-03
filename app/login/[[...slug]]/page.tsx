@@ -1722,11 +1722,11 @@ if (/^https?:\/\//i.test(nextUrl)) {
             </a>
 
             <div className="flex items-center justify-center gap-10 text-[15px] text-black/55">
-              <a href="/termos" className="hover:text-black transition-colors">
+              <a href="https://terms.wyzer.com.br" className="hover:text-black transition-colors">
                 Termos
               </a>
               <a
-                href="/privacidade"
+                href="https://privacy.wyzer.com.br"
                 className="hover:text-black transition-colors"
               >
                 Privacidade
