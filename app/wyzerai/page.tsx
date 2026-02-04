@@ -881,20 +881,42 @@ export function WyzerAIWidget() {
             />
 
             <div className="flex-1 flex flex-col overflow-hidden relative">
-              {activeTab === "chat" ? (
-                <Main
-                  userName="Usuario"
-                  onQuickAction={handleQuickAction}
-                  logoSrc="/logo.png"
-                  botAvatarSrc="/bot-avatar.png"
-                  messages={messages}
-                  isLoading={isLoading}
-                  streamingContent={streamingContent}
-                  onImageClick={setViewingImage}
-                />
-              ) : (
-                <History items={historyItems} onItemClick={handleHistoryItemClick} />
-              )}
+             {activeTab === "chat" ? (
+  <>
+    <Main
+      userName="Usuario"
+      onQuickAction={handleQuickAction}
+      logoSrc="/logo.png"
+      botAvatarSrc="/bot-avatar.png"
+      messages={messages}
+      isLoading={isLoading}
+      streamingContent={streamingContent}
+      onImageClick={setViewingImage}
+    />
+
+    {needsLogin && (
+      <div className="px-4 pb-4">
+        <div className="max-w-[92%] rounded-2xl bg-black/[0.04] ring-1 ring-black/10 px-4 py-3">
+          <div className="text-[13px] leading-relaxed text-black/70">
+            Você precisa estar logado para usar o chat.
+          </div>
+
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={goToLogin}
+              className="w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-medium text-black/80 hover:bg-black/[0.02] transition-colors"
+            >
+              Realizar login
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </>
+) : (
+  <History items={historyItems} onItemClick={handleHistoryItemClick} />
+)}
             </div>
 
             {needsLogin && (
@@ -909,15 +931,15 @@ export function WyzerAIWidget() {
               </div>
             )}
 
-            <Input
-              value={input}
-              onChange={setInput}
-              onSubmit={handleSubmit}
-              disabled={sending || isLoading || needsLogin}
-              placeholder={needsLogin ? "Faça login para continuar" : "Ask anything"}
-              attachedFiles={attachedFiles}
-              onFilesChange={setAttachedFiles}
-            />
+           <Input
+  value={input}
+  onChange={setInput}
+  onSubmit={handleSubmit}
+  disabled={sending || isLoading || needsLogin}
+  placeholder={needsLogin ? "Faça login para continuar" : "Ask anything"}
+  attachedFiles={attachedFiles}
+  onFilesChange={setAttachedFiles}
+/>
           </div>
 
           <TranscriptModal

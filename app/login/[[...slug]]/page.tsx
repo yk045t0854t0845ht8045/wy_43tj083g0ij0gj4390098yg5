@@ -368,7 +368,6 @@ useEffect(() => {
 
   const host = window.location.hostname.toLowerCase();
 
-  // ✅ Evita loop: não auto-redireciona a partir do login/link
   const isLoginHost =
     host === "login.wyzer.com.br" ||
     host === "login.localhost" ||
@@ -383,6 +382,7 @@ useEffect(() => {
       const r = await fetch("/api/wz_AuthLogin/me", {
         method: "GET",
         cache: "no-store",
+        credentials: "include",
       });
 
       if (!r.ok) return;
@@ -390,7 +390,14 @@ useEffect(() => {
       const j = await r.json().catch(() => ({}));
       if (!j?.ok) return;
 
-      // ✅ Se estiver em algum host que já lê sessão, manda para o dashboard
+      const url = new URL(window.location.href);
+      const returnTo = url.searchParams.get("returnTo");
+
+      if (returnTo) {
+        window.location.assign(returnTo);
+        return;
+      }
+
       window.location.assign("/create-account");
     } catch {}
   })();
@@ -646,6 +653,8 @@ useEffect(() => {
   );
 
   const [phoneMaskFromServer, setPhoneMaskFromServer] = useState<string>("");
+const url = typeof window !== "undefined" ? new URL(window.location.href) : null;
+const returnTo = url?.searchParams.get("returnTo") || "";
 
   const verifyEmailCode = useCallback(
     async (code?: string) => {
@@ -660,11 +669,12 @@ useEffect(() => {
         const res = await fetch("/api/wz_AuthLogin/verify-email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: email.trim().toLowerCase(),
-            code: c,
-            password,
-          }),
+body: JSON.stringify({
+  email: email.trim().toLowerCase(),
+  code: c,
+  password,
+  next: returnTo, // ✅ manda pro backend
+}),
         });
 
         const j = await res.json().catch(() => ({}));

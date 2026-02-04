@@ -82,6 +82,30 @@ function makeDashboardTicket(params: { userId: string; email: string; ttlMs?: nu
   return `${payloadB64}.${sig}`;
 }
 
+function sanitizeNext(nextRaw: string) {
+  const s = String(nextRaw || "").trim();
+  if (!s) return "/";
+
+  if (s.startsWith("/")) return s;
+
+  try {
+    const u = new URL(s);
+    const host = u.hostname.toLowerCase();
+
+    const ok =
+      host === "wyzer.com.br" ||
+      host.endsWith(".wyzer.com.br") ||
+      host === "localhost" ||
+      host.endsWith(".localhost");
+
+    if (!ok) return "/";
+
+    return u.pathname + u.search + u.hash;
+  } catch {
+    return "/";
+  }
+}
+
 async function findAuthUserIdByEmail(sb: ReturnType<typeof supabaseAdmin>, email: string) {
   const target = String(email || "").trim().toLowerCase();
   if (!target) return null;
@@ -113,6 +137,10 @@ export async function POST(req: Request) {
     const email = String(body?.email || "").trim().toLowerCase();
     const code = onlyDigits(String(body?.code || "")).slice(0, 7);
     const password = String(body?.password || "");
+
+    // ✅ onde voltar após login (página original do usuário)
+    const nextFromBody = String(body?.next || body?.returnTo || "").trim();
+    const nextSafe = sanitizeNext(nextFromBody || "/");
 
     if (!isValidEmail(email)) {
       return NextResponse.json({ ok: false, error: "E-mail inválido." }, { status: 400, headers: NO_STORE_HEADERS });
@@ -194,19 +222,19 @@ export async function POST(req: Request) {
 
       const dashboard = getDashboardOrigin();
 
-      // ✅ IMPORTANTE: host-only => NÃO seta cookie aqui (login host). Usa ticket + exchange no dashboard.
+      // ✅ host-only => NÃO seta cookie aqui (login host). Usa ticket + exchange no dashboard.
       if (isHostOnlyMode()) {
         const ticket = makeDashboardTicket({ userId: String(userRow.id), email });
         const nextUrl =
           `${dashboard}/api/wz_AuthLogin/exchange` +
           `?ticket=${encodeURIComponent(ticket)}` +
-          `&next=${encodeURIComponent("/create-account")}`;
+          `&next=${encodeURIComponent(nextSafe)}`;
 
         return NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
       }
 
       // ✅ Legacy/domain-cookie mode: pode setar cookie direto e ir pro dashboard
-      const nextUrl = `${dashboard}/create-account`;
+      const nextUrl = `${dashboard}${nextSafe.startsWith("/") ? nextSafe : "/"}`;
       const res = NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
       setSessionCookie(res, { userId: String(userRow.id), email }, req.headers);
       return res;
@@ -243,7 +271,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Telefone não encontrado para SMS." }, { status: 400, headers: NO_STORE_HEADERS });
     }
 
-    // ✅ valida E.164 BR celular antes de tentar enviar
     if (!isValidE164BRMobile(phoneE164)) {
       return NextResponse.json(
         { ok: false, error: "Telefone inválido para SMS. Use um celular BR válido com DDD." },
@@ -253,7 +280,6 @@ export async function POST(req: Request) {
 
     await sb.from("wz_pending_auth").update({ stage: "sms" }).eq("email", email);
 
-    // invalida sms antigos
     await sb
       .from("wz_auth_challenges")
       .update({ consumed: true })
