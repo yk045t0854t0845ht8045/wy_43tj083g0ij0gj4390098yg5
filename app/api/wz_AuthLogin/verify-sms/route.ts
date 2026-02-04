@@ -101,9 +101,10 @@ function makeDashboardTicket(params: { userId: string; email: string; ttlMs?: nu
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const email = String(body?.email || "").trim().toLowerCase();
-    const code = onlyDigits(String(body?.code || "")).slice(0, 7);
+ const body = await req.json().catch(() => ({}));
+const email = String(body?.email || "").trim().toLowerCase();
+const code = onlyDigits(String(body?.code || "")).slice(0, 7);
+const next = String(body?.next || "").trim(); // ✅ novo
 
     if (!isValidEmail(email)) {
       return NextResponse.json({ ok: false, error: "E-mail inválido." }, { status: 400, headers: NO_STORE_HEADERS });
@@ -298,16 +299,16 @@ export async function POST(req: Request) {
     // ✅ host-only => ticket + exchange no dashboard
     if (isHostOnlyMode()) {
       const ticket = makeDashboardTicket({ userId: String(userId), email });
-      const nextUrl =
-        `${dashboard}/api/wz_AuthLogin/exchange` +
-        `?ticket=${encodeURIComponent(ticket)}` +
-        `&next=${encodeURIComponent("/create-account")}`;
+     const nextUrl =
+  `${dashboard}/api/wz_AuthLogin/exchange` +
+  `?ticket=${encodeURIComponent(ticket)}` +
+  `&next=${encodeURIComponent(next || "/create-account")}`;
 
       return NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
     }
 
     // ✅ legacy/domain-cookie mode
-    const nextUrl = `${dashboard}/create-account`;
+  const nextUrl = next ? next : `${dashboard}/create-account`;
     const res = NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
     setSessionCookie(res, { userId: String(userId), email }, req.headers);
     return res;

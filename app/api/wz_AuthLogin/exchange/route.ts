@@ -51,12 +51,47 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
 
     const ticket = String(url.searchParams.get("ticket") || "");
-    const next = String(url.searchParams.get("next") || "/create-account");
-    const safeNext = isSafeNextPath(next) ? next : "/create-account";
+    const next = String(url.searchParams.get("next") || "").trim();
+
+function isAllowedReturnToAbsolute(u: URL) {
+  const host = u.hostname.toLowerCase();
+
+  // ✅ permite apenas seus domínios (ajuste se precisar)
+  const allowed =
+    host === "wyzer.com.br" ||
+    host === "www.wyzer.com.br" ||
+    host.endsWith(".wyzer.com.br") ||
+    host === "localhost" ||
+    host.endsWith(".localhost");
+
+  const protoOk = u.protocol === "https:" || u.protocol === "http:";
+  return protoOk && allowed;
+}
+
+function sanitizeNext(raw: string) {
+  if (!raw) return "/create-account";
+
+  // path relativo seguro
+  if (isSafeNextPath(raw)) return raw;
+
+  // URL absoluta segura (returnTo)
+  try {
+    const u = new URL(raw);
+    if (isAllowedReturnToAbsolute(u)) return u.toString();
+  } catch {}
+
+  return "/create-account";
+}
+
+const safeNext = sanitizeNext(next);
 
     // sem ticket -> só vai pro next (sem cookie)
     if (!ticket || !ticket.includes(".")) {
-      const res = NextResponse.redirect(new URL(safeNext, url.origin));
+      const redirectTarget = /^https?:\/\//i.test(safeNext)
+  ? safeNext
+  : new URL(safeNext, url.origin).toString();
+
+const res = NextResponse.redirect(redirectTarget);
       res.headers.set("Cache-Control", NO_STORE_HEADERS["Cache-Control"]);
       res.headers.set("Pragma", NO_STORE_HEADERS["Pragma"]);
       res.headers.set("Expires", NO_STORE_HEADERS["Expires"]);
@@ -75,7 +110,11 @@ export async function GET(req: Request) {
     const expected = signTicket(payloadB64, secret);
 
     if (sig !== expected) {
-      const res = NextResponse.redirect(new URL(safeNext, url.origin));
+      const redirectTarget = /^https?:\/\//i.test(safeNext)
+  ? safeNext
+  : new URL(safeNext, url.origin).toString();
+
+const res = NextResponse.redirect(redirectTarget);
       res.headers.set("Cache-Control", NO_STORE_HEADERS["Cache-Control"]);
       res.headers.set("Pragma", NO_STORE_HEADERS["Pragma"]);
       res.headers.set("Expires", NO_STORE_HEADERS["Expires"]);
@@ -90,7 +129,11 @@ export async function GET(req: Request) {
     const email = String(payload?.email || "");
 
     if (!userId || !email || !exp || exp < Date.now()) {
-      const res = NextResponse.redirect(new URL(safeNext, url.origin));
+      const redirectTarget = /^https?:\/\//i.test(safeNext)
+  ? safeNext
+  : new URL(safeNext, url.origin).toString();
+
+const res = NextResponse.redirect(redirectTarget);
       res.headers.set("Cache-Control", NO_STORE_HEADERS["Cache-Control"]);
       res.headers.set("Pragma", NO_STORE_HEADERS["Pragma"]);
       res.headers.set("Expires", NO_STORE_HEADERS["Expires"]);
@@ -98,7 +141,11 @@ export async function GET(req: Request) {
     }
 
     // ✅ aqui SIM seta cookie no host atual (dashboard.wyzer.com.br)
-    const res = NextResponse.redirect(new URL(safeNext, url.origin));
+    const redirectTarget = /^https?:\/\//i.test(safeNext)
+  ? safeNext
+  : new URL(safeNext, url.origin).toString();
+
+const res = NextResponse.redirect(redirectTarget);
     setSessionCookie(res, { userId, email }, req.headers);
 
     res.headers.set("Cache-Control", NO_STORE_HEADERS["Cache-Control"]);

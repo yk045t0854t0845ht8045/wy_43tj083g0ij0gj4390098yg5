@@ -241,32 +241,31 @@ function CodeBoxes({
 }
 
 export default function LinkLoginPage() {
-
   const RETURN_TO_KEY = "wyzer_return_to_v1";
 
-useEffect(() => {
-  if (typeof window === "undefined") return;
+  useEffect(() => {
+    if (typeof window === "undefined") return;
 
-  const url = new URL(window.location.href);
-  const returnTo = url.searchParams.get("returnTo");
+    const url = new URL(window.location.href);
+    const returnTo = url.searchParams.get("returnTo");
 
-  if (returnTo) {
+    if (returnTo) {
+      try {
+        sessionStorage.setItem(RETURN_TO_KEY, returnTo);
+      } catch {}
+    }
+  }, []);
+
+  function consumeReturnTo(): string | null {
     try {
-      sessionStorage.setItem(RETURN_TO_KEY, returnTo);
-    } catch {}
+      const v = sessionStorage.getItem(RETURN_TO_KEY);
+      if (!v) return null;
+      sessionStorage.removeItem(RETURN_TO_KEY);
+      return v;
+    } catch {
+      return null;
+    }
   }
-}, []);
-
-function consumeReturnTo(): string | null {
-  try {
-    const v = sessionStorage.getItem(RETURN_TO_KEY);
-    if (!v) return null;
-    sessionStorage.removeItem(RETURN_TO_KEY);
-    return v;
-  } catch {
-    return null;
-  }
-}
 
   const prefersReducedMotion = useReducedMotion();
   const pathname = usePathname();
@@ -363,45 +362,45 @@ function consumeReturnTo(): string | null {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tokenFromRoute]);
 
-useEffect(() => {
-  if (typeof window === "undefined") return;
+  useEffect(() => {
+    if (typeof window === "undefined") return;
 
-  const host = window.location.hostname.toLowerCase();
+    const host = window.location.hostname.toLowerCase();
 
-  const isLoginHost =
-    host === "login.wyzer.com.br" ||
-    host === "login.localhost" ||
-    host === "localhost";
+    const isLoginHost =
+      host === "login.wyzer.com.br" ||
+      host === "login.localhost" ||
+      host === "localhost";
 
-  const isLinkHost = host.startsWith("link.");
+    const isLinkHost = host.startsWith("link.");
 
-  if (isLoginHost || isLinkHost) return;
+    if (isLoginHost || isLinkHost) return;
 
-  (async () => {
-    try {
-      const r = await fetch("/api/wz_AuthLogin/me", {
-        method: "GET",
-        cache: "no-store",
-        credentials: "include",
-      });
+    (async () => {
+      try {
+        const r = await fetch("/api/wz_AuthLogin/me", {
+          method: "GET",
+          cache: "no-store",
+          credentials: "include",
+        });
 
-      if (!r.ok) return;
+        if (!r.ok) return;
 
-      const j = await r.json().catch(() => ({}));
-      if (!j?.ok) return;
+        const j = await r.json().catch(() => ({}));
+        if (!j?.ok) return;
 
-      const url = new URL(window.location.href);
-      const returnTo = url.searchParams.get("returnTo");
+        const url = new URL(window.location.href);
+        const returnTo = url.searchParams.get("returnTo");
 
-      if (returnTo) {
-        window.location.assign(returnTo);
-        return;
-      }
+        if (returnTo) {
+          window.location.assign(returnTo);
+          return;
+        }
 
-      window.location.assign("/create-account");
-    } catch {}
-  })();
-}, []);
+        window.location.assign("/create-account");
+      } catch {}
+    })();
+  }, []);
 
   // cooldown resend
   useEffect(() => {
@@ -653,8 +652,11 @@ useEffect(() => {
   );
 
   const [phoneMaskFromServer, setPhoneMaskFromServer] = useState<string>("");
-const url = typeof window !== "undefined" ? new URL(window.location.href) : null;
-const returnTo = url?.searchParams.get("returnTo") || "";
+
+  // ✅ Declare returnTo at component level
+  const url =
+    typeof window !== "undefined" ? new URL(window.location.href) : null;
+  const returnTo = url?.searchParams.get("returnTo") || "";
 
   const verifyEmailCode = useCallback(
     async (code?: string) => {
@@ -669,12 +671,12 @@ const returnTo = url?.searchParams.get("returnTo") || "";
         const res = await fetch("/api/wz_AuthLogin/verify-email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-body: JSON.stringify({
-  email: email.trim().toLowerCase(),
-  code: c,
-  password,
-  next: returnTo, 
-}),
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            code: c,
+            password,
+            next: returnTo,
+          }),
         });
 
         const j = await res.json().catch(() => ({}));
@@ -704,13 +706,13 @@ body: JSON.stringify({
           return;
         }
 
-const nextUrl = String(j?.nextUrl || "/app");
+        const nextUrl = String(j?.nextUrl || "/app");
 
-if (/^https?:\/\//i.test(nextUrl)) {
-  window.location.assign(nextUrl);
-} else {
-  router.push(nextUrl);
-}
+        if (/^https?:\/\//i.test(nextUrl)) {
+          window.location.assign(nextUrl);
+        } else {
+          router.push(nextUrl);
+        }
       } catch (err: any) {
         setMsgError(err?.message || "Erro inesperado.");
       } finally {
@@ -746,20 +748,21 @@ if (/^https?:\/\//i.test(nextUrl)) {
             email: email.trim().toLowerCase(),
             code: c,
             password,
+            next: returnTo || "", // ✅ manda o returnTo (se tiver)
           }),
         });
 
         const j = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(j?.error || "Código inválido.");
 
-        const returnTo = consumeReturnTo();
-const nextUrl = String(returnTo || j?.nextUrl || "/app");
+        const consumedReturnTo = consumeReturnTo();
+        const nextUrl = String(consumedReturnTo || j?.nextUrl || "/app");
 
-if (/^https?:\/\//i.test(nextUrl)) {
-  window.location.assign(nextUrl);
-} else {
-  router.push(nextUrl);
-}
+        if (/^https?:\/\//i.test(nextUrl)) {
+          window.location.assign(nextUrl);
+        } else {
+          router.push(nextUrl);
+        }
       } catch (err: any) {
         setMsgError(err?.message || "Erro inesperado.");
       } finally {
@@ -1589,24 +1592,24 @@ if (/^https?:\/\//i.test(nextUrl)) {
                   className="mt-10"
                 >
                   <div className="flex flex-col items-center justify-center text-center">
-{/* GIF / Lottie (DotLottie) */}
-<motion.div
-  className="h-40 w-40 rounded-2xl overflow-hidden"
-  initial={{ opacity: 0, scale: 0.92 }}
-  animate={{ opacity: 1, scale: 1 }}
-  transition={{
-    duration: prefersReducedMotion ? 0 : 0.25,
-    ease: EASE,
-  }}
->
-  <DotLottieReact
-    src="https://lottie.host/486672b2-c90e-4b34-bf26-62286504b54d/cmJkEq0miI.lottie"
-    loop
-    autoplay
-    className="h-full w-full"
-  />
-  <span className="sr-only">Sucesso</span>
-</motion.div>
+                    {/* GIF / Lottie (DotLottie) */}
+                    <motion.div
+                      className="h-40 w-40 rounded-2xl overflow-hidden"
+                      initial={{ opacity: 0, scale: 0.92 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{
+                        duration: prefersReducedMotion ? 0 : 0.25,
+                        ease: EASE,
+                      }}
+                    >
+                      <DotLottieReact
+                        src="https://lottie.host/486672b2-c90e-4b34-bf26-62286504b54d/cmJkEq0miI.lottie"
+                        loop
+                        autoplay
+                        className="h-full w-full"
+                      />
+                      <span className="sr-only">Sucesso</span>
+                    </motion.div>
 
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
@@ -1761,7 +1764,10 @@ if (/^https?:\/\//i.test(nextUrl)) {
             </a>
 
             <div className="flex items-center justify-center gap-10 text-[15px] text-black/55">
-              <a href="https://terms.wyzer.com.br" className="hover:text-black transition-colors">
+              <a
+                href="https://terms.wyzer.com.br"
+                className="hover:text-black transition-colors"
+              >
                 Termos
               </a>
               <a

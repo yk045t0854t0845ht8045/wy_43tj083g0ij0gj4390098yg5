@@ -282,6 +282,7 @@ export function WyzerAIWidget() {
   const [viewingImage, setViewingImage] = useState<AttachedFile | null>(null)
   const [streamingContent, setStreamingContent] = useState("")
 
+  // ✅ só vira true depois que o servidor confirmou 401
   const [needsLogin, setNeedsLogin] = useState(false)
 
   const cardRef = useRef<HTMLDivElement | null>(null)
@@ -368,8 +369,9 @@ export function WyzerAIWidget() {
     url.searchParams.set("returnTo", returnTo)
 
     window.location.assign(url.toString())
-  }, [activeTab, chatCode]) // eslint-disable-line @typescript-eslint/no-unused-vars
+  }, [activeTab, chatCode])
 
+  // ✅ injeta “login required” só quando realmente precisar (401)
   const ensureLoginMessage = useCallback(() => {
     setMessages((prev) => {
       const already = prev.some((m) => m.kind === "login_required")
@@ -380,7 +382,7 @@ export function WyzerAIWidget() {
           id: uid(),
           role: "assistant",
           kind: "login_required",
-          content: "Você precisa estar logado para continuar no chat.",
+          content: "Para continuar, faça login na sua conta.",
         },
       ]
     })
@@ -421,13 +423,13 @@ export function WyzerAIWidget() {
     clearChatRestoreState()
   }, [])
 
+  // ✅ importante: NÃO setar needsLogin e nem travar UI aqui
+  //    só inicia chat quando possível; se 401, só marca pra depois do user tentar usar
   const startChat = useCallback(async () => {
-    setNeedsLogin(false)
-
     const r = await apiFetch("/api/wz_WyzerAI/chat/start", { method: "POST" })
 
     if (r.status === 401) {
-      setNeedsLogin(true)
+      // ✅ não mostra nada na UI ao abrir
       return null
     }
 
@@ -438,11 +440,9 @@ export function WyzerAIWidget() {
   }, [apiFetch])
 
   const loadHistory = useCallback(async () => {
-    setNeedsLogin(false)
-
     const r = await apiFetch("/api/wz_WyzerAI/chat/list")
     if (r.status === 401) {
-      setNeedsLogin(true)
+      // ✅ não trava nem mostra nada — histórico é opcional
       return
     }
     if (!r.ok) return
@@ -463,14 +463,12 @@ export function WyzerAIWidget() {
   }, [apiFetch])
 
   const loadChatMessages = useCallback(async (code: string) => {
-    setNeedsLogin(false)
-
     const r = await apiFetch(
       `/api/wz_WyzerAI/chat/messages?code=${encodeURIComponent(code)}`
     )
 
     if (r.status === 401) {
-      setNeedsLogin(true)
+      // ✅ não trava UI; só impede envio quando confirmar 401 no POST
       return
     }
     if (!r.ok) return
@@ -494,23 +492,18 @@ export function WyzerAIWidget() {
       setOpen(true)
       setActiveTab("chat")
 
+      // tenta iniciar, mas se deslogado, segue “normal”
       const code = await startChat()
 
-      if (!code) {
-        setNeedsLogin(true)
-        ensureLoginMessage()
-        const m = clampText(message || "")
-        if (m) setInput(m)
-        return
+      if (code) {
+        setChatCode(code)
+        loadHistory()
       }
-
-      setChatCode(code)
-      loadHistory()
 
       const m = clampText(message || "")
       if (m) setInput(m)
     },
-    [startChat, loadHistory, ensureLoginMessage]
+    [startChat, loadHistory]
   )
 
   const applyUrlTriggers = useCallback(() => {
@@ -645,6 +638,7 @@ export function WyzerAIWidget() {
         })
 
         if (resp.status === 401) {
+          // ✅ só aqui confirmamos que precisa login
           setNeedsLogin(true)
           ensureLoginMessage()
           return { ok: false as const, message: null }
@@ -708,6 +702,7 @@ export function WyzerAIWidget() {
 
   const handleSubmit = useCallback(
     async (files?: AttachedFile[]) => {
+      // ✅ se já confirmou 401 antes, não envia mais; só garante a msg no chat
       if (needsLogin) {
         ensureLoginMessage()
         return
@@ -758,6 +753,7 @@ export function WyzerAIWidget() {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
     }
+    // ✅ voltar “limpo”, não força login na UI
     setNeedsLogin(false)
     setInput("")
     setMessages([])
@@ -920,6 +916,8 @@ export function WyzerAIWidget() {
               value={input}
               onChange={setInput}
               onSubmit={handleSubmit}
+              // ✅ input NÃO trava ao abrir deslogado
+              //    só trava depois do 401 confirmado (needsLogin = true)
               disabled={sending || isLoading || needsLogin}
               placeholder={needsLogin ? "Faça login para continuar" : "Ask anything"}
               attachedFiles={attachedFiles}

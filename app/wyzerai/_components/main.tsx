@@ -428,36 +428,28 @@ function ShimmerText({ children }: { children: React.ReactNode }) {
   )
 }
 
+function FlowAvatar({ botAvatarSrc }: { botAvatarSrc?: string }) {
+  const src = botAvatarSrc || "/flow-icon.png"
+  return (
+    <div className="flex-shrink-0 w-8 h-8 overflow-hidden flex items-center justify-center">
+      <img
+        src={src}
+        alt="Flow"
+        className="w-full h-full object-cover"
+        loading="lazy"
+        draggable={false}
+      />
+    </div>
+  )
+}
+
 function LoadingMessage({ botAvatarSrc }: { botAvatarSrc?: string }) {
   return (
     <div
       className="flex items-start gap-3"
       style={{ animation: "fadeInUp 0.5s ease-out forwards" }}
     >
-      <div className="flex-shrink-0 w-8 h-8 overflow-hidden flex items-center justify-center">
-        {botAvatarSrc ? (
-          <img
-            src="/flow-icon.png"
-            alt="Flow"
-            className="w-full h-full object-cover"
-            loading="lazy"
-            draggable={false}
-          />
-        ) : (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            className="text-white"
-          >
-            <path
-              d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z"
-              fill="currentColor"
-            />
-          </svg>
-        )}
-      </div>
+      <FlowAvatar botAvatarSrc={botAvatarSrc} />
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
@@ -501,30 +493,7 @@ function StreamingMessage({
       className="flex items-start gap-3"
       style={{ animation: "fadeInUp 0.5s ease-out forwards" }}
     >
-      <div className="flex-shrink-0 w-8 h-8 overflow-hidden flex items-center justify-center">
-        {botAvatarSrc ? (
-          <img
-            src="/flow-icon.png"
-            alt="Flow"
-            className="w-full h-full object-cover"
-            loading="lazy"
-            draggable={false}
-          />
-        ) : (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            className="text-white"
-          >
-            <path
-              d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z"
-              fill="currentColor"
-            />
-          </svg>
-        )}
-      </div>
+      <FlowAvatar botAvatarSrc={botAvatarSrc} />
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-2">
@@ -616,7 +585,10 @@ function SuggestionsPanel({
             <div
               key={i}
               className="h-10 bg-gray-100 rounded-xl"
-              style={{ animation: `pulse 1.5s ease-in-out infinite`, animationDelay: `${i * 150}ms` }}
+              style={{
+                animation: `pulse 1.5s ease-in-out infinite`,
+                animationDelay: `${i * 150}ms`,
+              }}
             />
           ))}
         </div>
@@ -690,6 +662,11 @@ function BotMessage({
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [isLoadingAI, setIsLoadingAI] = useState(false)
   const hasGeneratedRef = useRef(false)
+  const loginClickRef = useRef(onLoginClick)
+
+  useEffect(() => {
+    loginClickRef.current = onLoginClick
+  }, [onLoginClick])
 
   const generateAISuggestions = useCallback(async (botResponse: string) => {
     if (hasGeneratedRef.current) return
@@ -726,6 +703,17 @@ function BotMessage({
     }
   }, [])
 
+  // ✅ ajustes importantes:
+  // - não mostra sugestões se for login_required
+  // - reseta estado quando muda a mensagem (evita “sugestões fantasmas”)
+  useEffect(() => {
+    setSuggestionsVisible(false)
+    setCopied(false)
+    setIsLoadingAI(false)
+    setSuggestions([])
+    hasGeneratedRef.current = false
+  }, [content, isLoginRequired])
+
   useEffect(() => {
     if (!showSuggestions) return
     if (isLoginRequired) return
@@ -753,35 +741,16 @@ function BotMessage({
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const handleLogin = () => {
+    loginClickRef.current?.()
+  }
+
   return (
     <div
       className="flex items-start gap-3"
       style={{ animation: "fadeInUp 0.5s ease-out forwards" }}
     >
-      <div className="flex-shrink-0 w-8 h-8 overflow-hidden flex items-center justify-center">
-        {botAvatarSrc ? (
-          <img
-            src="/flow-icon.png"
-            alt="Flow"
-            className="w-full h-full object-cover"
-            loading="lazy"
-            draggable={false}
-          />
-        ) : (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            className="text-white"
-          >
-            <path
-              d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z"
-              fill="currentColor"
-            />
-          </svg>
-        )}
-      </div>
+      <FlowAvatar botAvatarSrc={botAvatarSrc} />
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-2">
@@ -799,8 +768,8 @@ function BotMessage({
           <div className="mt-3">
             <button
               type="button"
-              onClick={onLoginClick}
-              className="w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-medium text-black/80 hover:bg-black/[0.02] transition-colors"
+              onClick={handleLogin}
+              className="w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-medium text-black/80 hover:bg-black/[0.02] transition-colors active:scale-[0.99]"
             >
               Realizar login
             </button>
@@ -931,7 +900,7 @@ function UserMessage({
       style={{ animation: "fadeInUp 0.3s ease-out forwards" }}
     >
       <div className="max-w-[80%] px-4 py-2.5 bg-gray-100 rounded-2xl rounded-br-md transition-all duration-300">
-        <p className="text-sm text-gray-900">{content}</p>
+        <p className="text-sm text-gray-900 whitespace-pre-wrap">{content}</p>
       </div>
       {images && images.length > 0 && (
         <MessageImages images={images} onImageClick={onImageClick} />
@@ -1114,13 +1083,6 @@ export function Main({
     return ""
   }, [messages])
 
-  const lastBotMessage = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]?.role === "assistant") return messages[i].content || ""
-    }
-    return ""
-  }, [messages])
-
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -1144,6 +1106,16 @@ export function Main({
     )
   }
 
+  // ✅ se o último assistant for login_required, a gente não mostra streaming por cima
+  const lastAssistantIsLoginRequired = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.role === "assistant") {
+        return messages[i]?.kind === "login_required"
+      }
+    }
+    return false
+  }, [messages])
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <style>{cssAnimations}</style>
@@ -1154,7 +1126,8 @@ export function Main({
             const isLastAssistant =
               message.role === "assistant" &&
               index === messages.length - 1 &&
-              !isLoading
+              !isLoading &&
+              message.kind !== "login_required"
 
             if (message.role === "user") {
               return (
@@ -1182,14 +1155,14 @@ export function Main({
             )
           })}
 
-          {isLoading && streamingContent && (
+          {isLoading && streamingContent && !lastAssistantIsLoginRequired && (
             <StreamingMessage
               content={streamingContent}
               botAvatarSrc={botAvatarSrc}
             />
           )}
 
-          {isLoading && !streamingContent && (
+          {isLoading && !streamingContent && !lastAssistantIsLoginRequired && (
             <LoadingMessage botAvatarSrc={botAvatarSrc} />
           )}
         </div>
