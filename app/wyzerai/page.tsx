@@ -281,7 +281,7 @@ export function WyzerAIWidget() {
   const [viewingImage, setViewingImage] = useState<AttachedFile | null>(null)
   const [streamingContent, setStreamingContent] = useState("")
 
-  // ✅ novo: quando precisar logar (pra mostrar o botão)
+  // ✅ importante: quando 401 acontecer, mostramos o botão
   const [needsLogin, setNeedsLogin] = useState(false)
 
   const cardRef = useRef<HTMLDivElement | null>(null)
@@ -324,6 +324,19 @@ export function WyzerAIWidget() {
       sessionStorage.removeItem(CHAT_RESTORE_KEY)
     } catch {}
   }
+
+  // ✅ wrapper: SEMPRE manda cookie/sessão (subdomínio / sameSite)
+  const apiFetch = useCallback(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const merged: RequestInit = {
+      ...init,
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        ...(init?.headers || {}),
+      },
+    }
+    return fetch(input, merged)
+  }, [])
 
   const [chatCode, setChatCode] = useState<string>("")
   const [historyItems, setHistoryItems] = useState<
@@ -375,44 +388,54 @@ export function WyzerAIWidget() {
     const restore = readChatRestoreState()
     if (!restore?.returnTo) return
 
-    // se estou na página correta (mesma URL base), restaura
     const current = window.location.href
 
-    // não precisa ser igualdade perfeita; mas aqui fica simples:
     if (
       !current.startsWith(
         String(restore.returnTo).split("#")[0].split("?")[0]
       )
     ) {
-      // se não for a página, não faz nada
       return
     }
 
-    // reabre
     setOpen(true)
     if (restore.activeTab) setActiveTab(restore.activeTab)
     if (restore.chatCode) setChatCode(String(restore.chatCode))
 
-    // restaura scroll
     const y = Number(restore.scrollY || 0)
     requestAnimationFrame(() => window.scrollTo(0, y))
 
-    // limpa
     clearChatRestoreState()
   }, [])
 
   const startChat = useCallback(async () => {
-    const r = await fetch("/api/wz_WyzerAI/chat/start", { method: "POST" })
+    // sempre que tentar algo autenticado, reset no flag
+    setNeedsLogin(false)
+
+    const r = await apiFetch("/api/wz_WyzerAI/chat/start", { method: "POST" })
+
+    if (r.status === 401) {
+      setNeedsLogin(true)
+      return null
+    }
+
     if (!r.ok) return null
-    const data = await r.json()
+    const data = await r.json().catch(() => ({}))
     if (!data?.chatCode) return null
     return String(data.chatCode)
-  }, [])
+  }, [apiFetch])
 
   const loadHistory = useCallback(async () => {
-    const r = await fetch("/api/wz_WyzerAI/chat/list")
+    setNeedsLogin(false)
+
+    const r = await apiFetch("/api/wz_WyzerAI/chat/list")
+    if (r.status === 401) {
+      setNeedsLogin(true)
+      return
+    }
     if (!r.ok) return
-    const data = await r.json()
+
+    const data = await r.json().catch(() => ({}))
     const chats = Array.isArray(data?.chats) ? data.chats : []
 
     setHistoryItems(
@@ -425,17 +448,45 @@ export function WyzerAIWidget() {
         isOnline: false,
       }))
     )
-  }, [])
+  }, [apiFetch])
+
+  const loadChatMessages = useCallback(async (code: string) => {
+    setNeedsLogin(false)
+
+    const r = await apiFetch(
+      `/api/wz_WyzerAI/chat/messages?code=${encodeURIComponent(code)}`
+    )
+
+    if (r.status === 401) {
+      setNeedsLogin(true)
+      return
+    }
+    if (!r.ok) return
+
+    const data = await r.json().catch(() => ({}))
+    const rows = Array.isArray(data?.messages) ? data.messages : []
+
+    const mapped = rows.map((m: any) => ({
+      id: String(m.id),
+      role: m.sender === "assistant" ? ("assistant" as const) : ("user" as const),
+      content: String(m.message || ""),
+      images: undefined,
+    }))
+
+    setMessages(mapped)
+  }, [apiFetch])
 
   const openWithMessage = useCallback(
     async (message?: string) => {
       setOpen(true)
 
-      // sempre cria um atendimento novo ao abrir
       const code = await startChat()
-      if (code) setChatCode(code)
+      if (!code) {
+        // se 401, vai aparecer o botão de login e não quebra a UI
+        return
+      }
 
-      // atualiza histórico
+      setChatCode(code)
       loadHistory()
 
       const m = clampText(message || "")
@@ -459,25 +510,6 @@ export function WyzerAIWidget() {
       openWithMessage(decoded || "")
     }
   }, [openWithMessage])
-
-  const loadChatMessages = useCallback(async (code: string) => {
-    const r = await fetch(
-      `/api/wz_WyzerAI/chat/messages?code=${encodeURIComponent(code)}`
-    )
-    if (!r.ok) return
-
-    const data = await r.json()
-    const rows = Array.isArray(data?.messages) ? data.messages : []
-
-    const mapped = rows.map((m: any) => ({
-      id: String(m.id),
-      role: m.sender === "assistant" ? ("assistant" as const) : ("user" as const),
-      content: String(m.message || ""),
-      images: undefined,
-    }))
-
-    setMessages(mapped)
-  }, [])
 
   useEffect(() => {
     applyUrlTriggers()
@@ -587,12 +619,20 @@ export function WyzerAIWidget() {
           })),
         }
 
-        const resp = await fetch("/api/wz_WyzerAI", {
+        const resp = await apiFetch("/api/wz_WyzerAI", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
           signal: abortController.signal,
         })
+
+        if (resp.status === 401) {
+          setNeedsLogin(true)
+          return {
+            ok: false as const,
+            message: null,
+          }
+        }
 
         if (!resp.ok) {
           return {
@@ -647,11 +687,14 @@ export function WyzerAIWidget() {
         }
       }
     },
-    [sessionId]
+    [apiFetch, sessionId, chatCode]
   )
 
   const handleSubmit = useCallback(
     async (files?: AttachedFile[]) => {
+      // ✅ se precisa login, não tenta mandar
+      if (needsLogin) return
+
       if ((!input.trim() && (!files || files.length === 0)) || sending || isLoading)
         return
 
@@ -686,7 +729,7 @@ export function WyzerAIWidget() {
       setIsLoading(false)
       setSending(false)
     },
-    [sessionId, chatCode, input, sending, isLoading, messages, callWyzerAI]
+    [needsLogin, input, sending, isLoading, messages, callWyzerAI]
   )
 
   const handleQuickAction = useCallback((action: string) => {
@@ -697,6 +740,7 @@ export function WyzerAIWidget() {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
     }
+    setNeedsLogin(false)
     setInput("")
     setMessages([])
     setIsLoading(false)
@@ -710,6 +754,7 @@ export function WyzerAIWidget() {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
     }
+    setNeedsLogin(false)
     setInput("")
     setMessages([])
     setIsLoading(false)
@@ -743,7 +788,6 @@ export function WyzerAIWidget() {
       hover:scale-[1.03] active:scale-[0.985]"
           style={{ animation: "slideInFromRight 0.5s ease-out forwards" }}
         >
-          {/* BORDA: linha única infinita */}
           <span
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 rounded-full"
@@ -758,7 +802,6 @@ export function WyzerAIWidget() {
             }}
           />
 
-          {/* CORPO */}
           <span
             className="relative inline-flex items-center gap-3 rounded-full bg-white px-5 py-3
         shadow-[0_10px_30px_rgba(0,0,0,0.12)]
@@ -854,7 +897,6 @@ export function WyzerAIWidget() {
               )}
             </div>
 
-            {/* ✅ BOTÃO DE LOGIN (adicionado aqui) */}
             {needsLogin && (
               <div className="px-4 pb-3">
                 <button
@@ -871,8 +913,8 @@ export function WyzerAIWidget() {
               value={input}
               onChange={setInput}
               onSubmit={handleSubmit}
-              disabled={sending || isLoading}
-              placeholder="Ask anything"
+              disabled={sending || isLoading || needsLogin}
+              placeholder={needsLogin ? "Faça login para continuar" : "Ask anything"}
               attachedFiles={attachedFiles}
               onFilesChange={setAttachedFiles}
             />
