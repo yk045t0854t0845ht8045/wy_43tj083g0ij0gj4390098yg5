@@ -482,7 +482,6 @@ function goToLoginWithEmail(email: string) {
   const footerHref = (colTitle: string, item: string) => {
     const col = colTitle.toLowerCase();
 
-    // Produto
     if (col === "produto") {
       if (item === "Visão geral") return "#top";
       if (item === "Recursos") return "#features";
@@ -493,7 +492,6 @@ function goToLoginWithEmail(email: string) {
       return "#top";
     }
 
-    // Empresa
     if (col === "empresa") {
       if (item === "Sobre nós") return "#how-it-works";
       if (item === "Carreiras") return "/carreiras";
@@ -504,7 +502,6 @@ function goToLoginWithEmail(email: string) {
       return "#top";
     }
 
-    // Recursos
     if (col === "recursos") {
       if (item === "Blog") return "/blog";
       if (item === "Newsletter") return "/newsletter";
@@ -515,18 +512,16 @@ function goToLoginWithEmail(email: string) {
       return "#top";
     }
 
-    // Social (externo)
     if (col === "social") {
-      if (item === "X (Twitter)") return "https://x.com";
-      if (item === "LinkedIn") return "https://www.linkedin.com";
-      if (item === "Facebook") return "https://www.facebook.com";
-      if (item === "GitHub") return "https://github.com";
-      if (item === "Instagram") return "https://www.instagram.com";
-      if (item === "Dribbble") return "https://dribbble.com";
+      if (item === "X (Twitter)") return "https://x.com/WyzerBot";
+      if (item === "TikTok") return "https://www.tiktok.com/@wyzerbot?is_from_webapp=1&sender_device=pc";
+      if (item === "Youtube") return "https://youtube.com/@wyzerbot?si=0OXV-AlyQYnuVZ6t";
+      if (item === "GitHub") return "https://github.com/WyzerBot";
+      if (item === "Instagram") return "https://www.instagram.com/wyzerbot/";
+      if (item === "Dribbble") return "https://dribbble.com/social-wyzer";
       return "#top";
     }
 
-    // Legal
     if (col === "legal") {
       if (item === "Termos") return "https://terms.wyzer.com.br";
       if (item === "Privacidade") return "https://privacy.wyzer.com.br";
@@ -968,7 +963,6 @@ function goToLoginWithEmail(email: string) {
               </div>
             </a>
 
-            {/* Nav center */}
             <nav className="hidden lg:flex items-center gap-10 text-[13px] font-medium text-black/60">
               <a href="#features" onClick={scrollToId("features")} className="hover:text-black/85 transition">
                 Recursos
@@ -982,15 +976,16 @@ function goToLoginWithEmail(email: string) {
               <a href="#faq" onClick={scrollToId("faq")} className="hover:text-black/85 transition">
                 Dúvidas
               </a>
+              <a href="" onClick={scrollToId("top")} className="hover:text-black/85 transition">
+                Suporte
+              </a>
             </nav>
 
-            {/* Right actions */}
             <div className="hidden sm:flex items-center gap-4">
               <a href="http://login.wyzer.com.br" className="text-[13px] font-medium text-black/60 hover:text-black/85 transition">
                 Fazer Login
               </a>
 
-              {/* ✅ Sign Up no mesmo estilo dos botões do HERO */}
               <motion.a
                 href="#pricing"
                 onClick={scrollToId("pricing")}
@@ -1012,7 +1007,6 @@ function goToLoginWithEmail(email: string) {
               </motion.a>
             </div>
 
-            {/* Mobile menu btn */}
             <motion.button
               type="button"
               onClick={() => setMobileNavOpen((v) => !v)}
@@ -1030,7 +1024,6 @@ function goToLoginWithEmail(email: string) {
             </motion.button>
           </motion.header>
 
-          {/* ✅ Mobile bottom sheet (de baixo pra cima + click fora fecha) */}
           <AnimatePresence initial={false} mode="sync">
             {mobileNavOpen && (
               <motion.div
@@ -1040,7 +1033,7 @@ function goToLoginWithEmail(email: string) {
                 exit={{ opacity: 0 }}
                 transition={{ duration: DUR.md, ease: EASE }}
               >
-                {/* overlay */}
+
                 <motion.button
                   type="button"
                   aria-label="Close menu"
@@ -1052,7 +1045,6 @@ function goToLoginWithEmail(email: string) {
                   transition={{ duration: DUR.md, ease: EASE }}
                 />
 
-                {/* sheet */}
                 <motion.div
                   id="mobile-bottomsheet"
                   role="dialog"
@@ -1067,7 +1059,6 @@ function goToLoginWithEmail(email: string) {
                 >
                   <div className="mx-auto w-full max-w-[720px] px-3">
                     <div className="relative overflow-hidden rounded-[28px] bg-white shadow-[0_30px_90px_rgba(0,0,0,0.16)] ring-1 ring-black/10">
-                      {/* handle */}
                       <div className="pt-3 pb-2">
                         <div className="mx-auto h-1.5 w-12 rounded-full bg-black/15" />
                       </div>
@@ -1127,7 +1118,6 @@ function goToLoginWithEmail(email: string) {
             )}
           </AnimatePresence>
 
-          {/* HERO PANEL */}
           <motion.div
             initial="hidden"
             animate="show"
@@ -1222,7 +1212,7 @@ function goToLoginWithEmail(email: string) {
                     className="group relative w-full sm:w-auto bg-[#171717] border border-[#454545] border-2 rounded-full px-6 py-4 text-white hover:border-[#6a6a6a] focus:outline-none focus:border-lime-400 transition-all duration-300 ease-out text-[13px] font-semibold shadow-[0_18px_55px_rgba(0,0,0,0.12)] hover:shadow-[0_22px_70px_rgba(0,0,0,0.16)] pr-16 transform-gpu"
                     style={{ willChange: "transform" }}
                   >
-                    <span className="relative z-10">Agendar uma demo</span>
+                    <span className="relative z-10">Ver Demo</span>
                     <motion.span
                       whileHover={prefersReducedMotion ? undefined : { scale: 1.06 }}
                       whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
@@ -1235,103 +1225,7 @@ function goToLoginWithEmail(email: string) {
                 </motion.div>
               </div>
 
-              {/* Bottom cards (3) */}
-              <div className="relative px-4 sm:px-4 md:px-14 pb-8 sm:pb-10">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5">
-                  {/* Card 1 */}
-                  <motion.div
-                    whileHover={prefersReducedMotion ? undefined : { y: -3, scale: 1.01 }}
-                    whileTap={prefersReducedMotion ? undefined : { scale: 0.995 }}
-                    transition={{ duration: DUR.md, ease: EASE }}
-                    className="rounded-[28px] bg-[#f4f4f4] ring-1 ring-black/5 overflow-hidden transform-gpu"
-                    style={{ willChange: "transform" }}
-                  >
-                    <div className="px-5 pt-5 pb-5 h-full">
-                      <div className="text-[16px] font-semibold text-black/85">Sempre com chat ao vivo</div>
-                      <div className="mt-3 rounded-2xl bg-white ring-1 ring-black/10 shadow-sm px-5 py-6 text-center min-h-[172px] flex flex-col justify-center">
-                        <div className="text-[44px] font-semibold tracking-tight text-black leading-none">300K</div>
-                        <div className="mt-2 text-[12px] font-medium text-black/45">Conversas diárias</div>
-                      </div>
-                    </div>
-                  </motion.div>
-
-                  {/* Card 2 */}
-                  <motion.div
-                    whileHover={prefersReducedMotion ? undefined : { y: -3, scale: 1.01 }}
-                    whileTap={prefersReducedMotion ? undefined : { scale: 0.995 }}
-                    transition={{ duration: DUR.md, ease: EASE }}
-                    className="rounded-[28px] bg-[#f4f4f4] ring-1 ring-black/5 overflow-hidden transform-gpu"
-                    style={{ willChange: "transform" }}
-                  >
-                    <div className="px-5 pt-5 pb-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="h-7 w-7 rounded-lg bg-black text-white grid place-items-center">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                              <path d="M8 7h8M8 12h6M8 17h5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                            </svg>
-                          </div>
-                          <div className="text-[16px] font-semibold text-black/85">Assistente de IA</div>
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                          {[0, 1, 2].map((i) => (
-                            <div key={i} className="h-2 w-2 rounded-full bg-black/10" />
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="mt-4 rounded-2xl bg-white ring-1 ring-black/10 shadow-sm p-4">
-                        <div className="text-[11px] font-semibold text-black/50">IA Gerou:</div>
-                        <div className="mt-2 text-[12px] leading-relaxed text-black/65">
-                          • Transforme seu atendimento em minutos.
-                          <br />• Responda rápido, organize conversas e venda mais com automação.
-                        </div>
-
-                        <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-black/5 ring-1 ring-black/10 px-3 py-2 text-[12px] font-semibold text-black/65">
-                          <span className="h-5 w-5 rounded-full bg-white ring-1 ring-black/10 grid place-items-center">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden>
-                              <path
-                                d="M12 2l1.2 5.1L18 8.3l-4.4 2.8L14.8 16 12 13.4 9.2 16l1.2-4.9L6 8.3l4.8-1.2L12 2Z"
-                                fill="currentColor"
-                                opacity=".8"
-                              />
-                            </svg>
-                          </span>
-                          Comece o teste hoje
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-
-                  {/* Card 3 */}
-                  <motion.div
-                    whileHover={prefersReducedMotion ? undefined : { y: -3, scale: 1.01 }}
-                    whileTap={prefersReducedMotion ? undefined : { scale: 0.995 }}
-                    transition={{ duration: DUR.md, ease: EASE }}
-                    className="rounded-[28px] bg-[#f4f4f4] ring-1 ring-black/5 overflow-hidden transform-gpu"
-                    style={{ willChange: "transform" }}
-                  >
-                    <div className="px-5 pt-5 pb-4">
-                      <div className="text-[16px] font-semibold text-black/85">Suporte com IA no chat</div>
-
-                      <div className="mt-4 rounded-2xl bg-white ring-1 ring-black/10 shadow-sm p-4">
-                        <div className="mt-2 text-[12px] text-black/70">
-                          Olá! Meu cliente não recebeu a confirmação, o que faço?
-                        </div>
-
-                        <div className="mt-4 flex justify-end">
-                          <div className="max-w-[90%] rounded-2xl bg-black/5 ring-1 ring-black/10 px-4 py-3">
-                            <div className="mt-1 text-[12px] text-black/70">
-                              Vou te ajudar: verifique o status, reenvie a mensagem e registre o protocolo.
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                </div>
-              </div>
+             
             </div>
           </motion.div>
         </div>

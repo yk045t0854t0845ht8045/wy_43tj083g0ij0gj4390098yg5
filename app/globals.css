@@ -320,3 +320,26 @@ select:-moz-autofill {
   scrollbar-width: thin; /* thin | auto */
   scrollbar-color: var(--sb-thumb) var(--sb-track);
 }
+
+
+      @property --a {
+        syntax: "<angle>";
+        inherits: false;
+        initial-value: 0deg;
+      }
+
+      @keyframes flowBorder {
+        from {
+          --a: 0deg;
+        }
+        to {
+          --a: 360deg;
+        }
+      }
+
+      /* AQUI ESTÁ O SEGREDO:
+         animação linear, constante, nunca muda */
+      button > span[aria-hidden="true"] {
+        animation: flowBorder 6s linear infinite;
+        will-change: transform;
+      }

@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import { ArrowRight } from "lucide-react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 
@@ -26,8 +32,6 @@ function VerifiedBadge() {
     </motion.svg>
   );
 }
-
-
 
 // Social Icons with VIBRANT brand colors - SVG paths for each platform
 const socialIcons: Record<
@@ -66,8 +70,7 @@ const socialIcons: Record<
       </>
     ),
     color: "#E1306C",
-    gradient:
-      "linear-gradient(45deg, #F58529 0%, #DD2A7B 50%, #8134AF 100%)",
+    gradient: "linear-gradient(45deg, #F58529 0%, #DD2A7B 50%, #8134AF 100%)",
     videoUrl: "/videos/buttons/ssstik.io_@01.bogdan_1769745809119.mp4",
   },
   YouTube: {
@@ -125,8 +128,7 @@ const socialIcons: Record<
       />
     ),
     color: "#6e40c9",
-    gradient:
-      "linear-gradient(135deg, #6e40c9 0%, #8957e5 50%, #a371f7 100%)",
+    gradient: "linear-gradient(135deg, #6e40c9 0%, #8957e5 50%, #a371f7 100%)",
     videoUrl: "/videos/buttons/rf9-43i80j3408tj43.gif",
   },
   WhatsApp: {
@@ -138,8 +140,7 @@ const socialIcons: Record<
     ),
     color: "#25D366",
     gradient: "linear-gradient(135deg, #25D366 0%, #128C7E 100%)",
-    videoUrl:
-      "/videos/buttons/pifg490304m09fg439gh4390yt.mp4",
+    videoUrl: "/videos/buttons/pifg490304m09fg439gh4390yt.mp4",
   },
   TikTok: {
     path: (
@@ -181,8 +182,7 @@ const socialIcons: Record<
       </>
     ),
     color: "#6366F1",
-    gradient:
-      "linear-gradient(135deg, #6366F1 0%, #8B5CF6 50%, #A855F7 100%)",
+    gradient: "linear-gradient(135deg, #6366F1 0%, #8B5CF6 50%, #A855F7 100%)",
     videoUrl: "/videos/buttons/rf9-43i80j3408tj43.gif",
   },
   "Loja Online": {
@@ -367,7 +367,6 @@ function AnimatedIcon({
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
-
 
 // Inline Video Preview Component - INSIDE the button, tilted 25deg with fade to left
 function InlineVideoPreview({
@@ -590,13 +589,9 @@ function LinkButton({
   );
 }
 
-
-
 // Main Page Component
 export default function LinkPage() {
   const prefersReducedMotion = useReducedMotion();
-
-  
 
   const EASE = useMemo(() => [0.2, 0.8, 0.2, 1] as const, []);
   const DUR = useMemo(
@@ -607,10 +602,10 @@ export default function LinkPage() {
       lg: 0.7,
       xl: 0.9,
     }),
-    []
+    [],
   );
 
-    // ✅ Cookie consent (Dinâmica no bottom - centralizado)
+  // ✅ Cookie consent (Dinâmica no bottom - centralizado)
   const COOKIE_KEY = "wyzer_cookie_consent_v1";
   const [cookieReady, setCookieReady] = useState(false);
   const [showCookieConsent, setShowCookieConsent] = useState(false);
@@ -645,10 +640,13 @@ export default function LinkPage() {
     } catch {}
 
     // micro delay pra ficar “premium”
-    window.setTimeout(() => {
-      setShowCookieConsent(false);
-      setCookieAccepting(false);
-    }, prefersReducedMotion ? 0 : 220);
+    window.setTimeout(
+      () => {
+        setShowCookieConsent(false);
+        setCookieAccepting(false);
+      },
+      prefersReducedMotion ? 0 : 220,
+    );
   }, [COOKIE_KEY, cookieAccepting, prefersReducedMotion]);
 
   const cookieWrapVariants = useMemo(
@@ -665,7 +663,7 @@ export default function LinkPage() {
         transition: { duration: prefersReducedMotion ? 0 : 0.45, ease: EASE },
       },
     }),
-    [EASE, prefersReducedMotion]
+    [EASE, prefersReducedMotion],
   );
 
   const cookieCardVariants = useMemo(
@@ -686,7 +684,7 @@ export default function LinkPage() {
         transition: { duration: prefersReducedMotion ? 0 : 0.5, ease: EASE },
       },
     }),
-    [EASE, prefersReducedMotion]
+    [EASE, prefersReducedMotion],
   );
 
   const links = useMemo(
@@ -708,10 +706,8 @@ export default function LinkPage() {
       },
       { name: "GitHub", href: "https://github.com/WyzerBot" },
     ],
-    []
+    [],
   );
-
-
 
   return (
     <main className="min-h-screen bg-white relative overflow-hidden overflow-x-hidden">
@@ -857,7 +853,10 @@ export default function LinkPage() {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.48, duration: DUR.md, ease: EASE }}
           >
-            Gere atendimentos envolventes prontos para vender. Automatize conversas, capture leads, organize o funil e colabore com facilidade — com IA de nível enterprise que entende contexto e entrega respostas consistentes.
+            Gere atendimentos envolventes prontos para vender. Automatize
+            conversas, capture leads, organize o funil e colabore com facilidade
+            — com IA de nível enterprise que entende contexto e entrega
+            respostas consistentes.
           </motion.p>
 
           {/* Stats */}
@@ -913,60 +912,60 @@ export default function LinkPage() {
           ))}
         </nav>
 
-       {/* Footer */}
-<motion.footer
-  className="mt-24 text-center"
-  initial={{ opacity: 0 }}
-  animate={{ opacity: 1 }}
-  transition={{ delay: 1.8, duration: DUR.lg, ease: EASE }}
->
-  {/* ✅ trocado: "Feito com amor..." -> links legais */}
-  <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-[14px] text-[#aaa] tracking-wide">
-    <a
-      href="https://cookies.wyzer.com.br"
-      target="_blank"
-      rel="noopener noreferrer"
-      className="hover:text-[#171717] transition-colors"
-    >
-      Cookies
-    </a>
-    <span className="text-[#ddd]">•</span>
-    <a
-      href="https://terms.wyzer.com.br"
-      target="_blank"
-      rel="noopener noreferrer"
-      className="hover:text-[#171717] transition-colors"
-    >
-      Termos
-    </a>
-    <span className="text-[#ddd]">•</span>
-    <a
-      href="https://privacy.wyzer.com.br"
-      target="_blank"
-      rel="noopener noreferrer"
-      className="hover:text-[#171717] transition-colors"
-    >
-      Política de privacidade
-    </a>
-  </div>
+        {/* Footer */}
+        <motion.footer
+          className="mt-24 text-center"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1.8, duration: DUR.lg, ease: EASE }}
+        >
+          {/* ✅ trocado: "Feito com amor..." -> links legais */}
+          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-[14px] text-[#aaa] tracking-wide">
+            <a
+              href="https://cookies.wyzer.com.br"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-[#171717] transition-colors"
+            >
+              Cookies
+            </a>
+            <span className="text-[#ddd]">•</span>
+            <a
+              href="https://terms.wyzer.com.br"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-[#171717] transition-colors"
+            >
+              Termos
+            </a>
+            <span className="text-[#ddd]">•</span>
+            <a
+              href="https://privacy.wyzer.com.br"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-[#171717] transition-colors"
+            >
+              Política de privacidade
+            </a>
+          </div>
 
-  <motion.div
-    className="mt-5 flex items-center justify-center gap-3"
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    transition={{ delay: 1.95, duration: DUR.md, ease: EASE }}
-  >
-    <span className="text-[12px] text-[#ccc] tracking-[0.12em] uppercase font-medium">
-      Powered by
-    </span>
-    <motion.span
-      className="text-[12px] text-[#666] font-bold tracking-[0.01em] uppercase"
-      whileHover={{ color: "#171717" }}
-    >
-      Wyze Code
-    </motion.span>
-  </motion.div>
-</motion.footer>
+          <motion.div
+            className="mt-5 flex items-center justify-center gap-3"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1.95, duration: DUR.md, ease: EASE }}
+          >
+            <span className="text-[12px] text-[#ccc] tracking-[0.12em] uppercase font-medium">
+              Powered by
+            </span>
+            <motion.span
+              className="text-[12px] text-[#666] font-bold tracking-[0.01em] uppercase"
+              whileHover={{ color: "#171717" }}
+            >
+              Wyze Code
+            </motion.span>
+          </motion.div>
+        </motion.footer>
       </div>
 
       {/* CTA Floating (bottom-right) - colocar ANTES do </main> */}
@@ -1074,9 +1073,12 @@ export default function LinkPage() {
         </motion.div>
       </motion.a>
 
-
-        {/* ✅ CONSENTIMENTO DE COOKIES (Dinâmica Apple / sobe de baixo) */}
-      <AnimatePresence initial={false} mode="sync" presenceAffectsLayout={false}>
+      {/* ✅ CONSENTIMENTO DE COOKIES (Dinâmica Apple / sobe de baixo) */}
+      <AnimatePresence
+        initial={false}
+        mode="sync"
+        presenceAffectsLayout={false}
+      >
         {cookieReady && showCookieConsent && (
           <motion.div
             variants={cookieWrapVariants}
@@ -1096,18 +1098,36 @@ export default function LinkPage() {
             <div className="mx-auto w-full max-w-[1100px] px-4 sm:px-6">
               <div className="w-full flex justify-center">
                 <motion.div
-                  whileHover={prefersReducedMotion || cookieAccepting ? undefined : { y: -1, scale: 1.003 }}
-                  whileTap={prefersReducedMotion || cookieAccepting ? undefined : { scale: 0.997 }}
-                  transition={{ duration: prefersReducedMotion ? 0 : DUR.md, ease: EASE }}
+                  whileHover={
+                    prefersReducedMotion || cookieAccepting
+                      ? undefined
+                      : { y: -1, scale: 1.003 }
+                  }
+                  whileTap={
+                    prefersReducedMotion || cookieAccepting
+                      ? undefined
+                      : { scale: 0.997 }
+                  }
+                  transition={{
+                    duration: prefersReducedMotion ? 0 : DUR.md,
+                    ease: EASE,
+                  }}
                   className="pointer-events-auto relative transform-gpu w-full max-w-[640px]"
-                  style={{ willChange: "transform", backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden" }}
+                  style={{
+                    willChange: "transform",
+                    backfaceVisibility: "hidden",
+                    WebkitBackfaceVisibility: "hidden",
+                  }}
                 >
                   <motion.div
                     variants={cookieCardVariants}
                     initial="hidden"
                     animate="show"
                     exit="exit"
-                    transition={{ duration: prefersReducedMotion ? 0 : DUR.lg, ease: EASE }}
+                    transition={{
+                      duration: prefersReducedMotion ? 0 : DUR.lg,
+                      ease: EASE,
+                    }}
                     className="bg-black rounded-[40px] px-6 sm:px-10 md:px-10 pt-6 pb-5 w-full mt-2 relative z-10 transition-all duration-500 ease-out flex flex-col ring-1 ring-white/10 shadow-[0_18px_55px_rgba(0,0,0,0.18)] transform-gpu"
                     style={{
                       willChange: "transform, opacity, filter",
@@ -1120,12 +1140,14 @@ export default function LinkPage() {
                     </h2>
 
                     <p className="text-[#8a8a8a] text-[12px] sm:text-[13px] font-medium mb-3">
-                      Usamos cookies para melhorar sua experiência, segurança e desempenho.
+                      Usamos cookies para melhorar sua experiência, segurança e
+                      desempenho.
                     </p>
 
                     <p className="text-white/70 text-[12px] sm:text-[13px] leading-relaxed">
-                      Ao continuar navegando, você concorda com o uso de cookies conforme nossa política. Você pode ajustar
-                      suas preferências no navegador a qualquer momento.
+                      Ao continuar navegando, você concorda com o uso de cookies
+                      conforme nossa política. Você pode ajustar suas
+                      preferências no navegador a qualquer momento.
                     </p>
 
                     <div className="mt-4">
@@ -1133,25 +1155,51 @@ export default function LinkPage() {
                         type="button"
                         onClick={acceptCookies}
                         disabled={cookieAccepting}
-                        whileHover={prefersReducedMotion || cookieAccepting ? undefined : { y: -2, scale: 1.01 }}
-                        whileTap={prefersReducedMotion || cookieAccepting ? undefined : { scale: 0.98 }}
-                        transition={{ duration: prefersReducedMotion ? 0 : DUR.sm, ease: EASE }}
+                        whileHover={
+                          prefersReducedMotion || cookieAccepting
+                            ? undefined
+                            : { y: -2, scale: 1.01 }
+                        }
+                        whileTap={
+                          prefersReducedMotion || cookieAccepting
+                            ? undefined
+                            : { scale: 0.98 }
+                        }
+                        transition={{
+                          duration: prefersReducedMotion ? 0 : DUR.sm,
+                          ease: EASE,
+                        }}
                         className={cx(
                           "group relative w-full bg-[#171717] border border-[#454545] border-2 rounded-full px-6 py-4 text-white",
                           "hover:border-[#6a6a6a] focus:outline-none focus:border-lime-400 transition-all duration-300 ease-out",
                           "text-[13px] font-semibold shadow-[0_18px_55px_rgba(0,0,0,0.12)] hover:shadow-[0_22px_70px_rgba(0,0,0,0.16)] pr-16 transform-gpu",
-                          cookieAccepting ? "opacity-80 cursor-not-allowed" : ""
+                          cookieAccepting
+                            ? "opacity-80 cursor-not-allowed"
+                            : "",
                         )}
                         style={{ willChange: "transform" }}
                       >
                         <span className="relative z-10">
-                          {cookieAccepting ? "Entendi e continuar" : "Entendi e continuar"}
+                          {cookieAccepting
+                            ? "Entendi e continuar"
+                            : "Entendi e continuar"}
                         </span>
 
                         <motion.span
-                          whileHover={prefersReducedMotion || cookieAccepting ? undefined : { scale: 1.06 }}
-                          whileTap={prefersReducedMotion || cookieAccepting ? undefined : { scale: 0.96 }}
-                          transition={{ duration: prefersReducedMotion ? 0 : DUR.sm, ease: EASE }}
+                          whileHover={
+                            prefersReducedMotion || cookieAccepting
+                              ? undefined
+                              : { scale: 1.06 }
+                          }
+                          whileTap={
+                            prefersReducedMotion || cookieAccepting
+                              ? undefined
+                              : { scale: 0.96 }
+                          }
+                          transition={{
+                            duration: prefersReducedMotion ? 0 : DUR.sm,
+                            ease: EASE,
+                          }}
                           className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent group-hover:bg-white/10 rounded-full p-3 transition-all duration-300 ease-out group-hover:translate-x-0.5"
                         >
                           <ArrowRight className="w-5 h-5 text-white transition-transform duration-300 group-hover:translate-x-0.5" />
@@ -1165,7 +1213,6 @@ export default function LinkPage() {
           </motion.div>
         )}
       </AnimatePresence>
-
     </main>
   );
 }

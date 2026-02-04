@@ -241,6 +241,33 @@ function CodeBoxes({
 }
 
 export default function LinkLoginPage() {
+
+  const RETURN_TO_KEY = "wyzer_return_to_v1";
+
+useEffect(() => {
+  if (typeof window === "undefined") return;
+
+  const url = new URL(window.location.href);
+  const returnTo = url.searchParams.get("returnTo");
+
+  if (returnTo) {
+    try {
+      sessionStorage.setItem(RETURN_TO_KEY, returnTo);
+    } catch {}
+  }
+}, []);
+
+function consumeReturnTo(): string | null {
+  try {
+    const v = sessionStorage.getItem(RETURN_TO_KEY);
+    if (!v) return null;
+    sessionStorage.removeItem(RETURN_TO_KEY);
+    return v;
+  } catch {
+    return null;
+  }
+}
+
   const prefersReducedMotion = useReducedMotion();
   const pathname = usePathname();
   const router = useRouter();
@@ -715,12 +742,14 @@ if (/^https?:\/\//i.test(nextUrl)) {
         const j = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(j?.error || "Código inválido.");
 
-        const nextUrl = String(j?.nextUrl || "/app");
-        if (/^https?:\/\//i.test(nextUrl)) {
-          window.location.assign(nextUrl);
-        } else {
-          router.push(nextUrl);
-        }
+        const returnTo = consumeReturnTo();
+const nextUrl = String(returnTo || j?.nextUrl || "/app");
+
+if (/^https?:\/\//i.test(nextUrl)) {
+  window.location.assign(nextUrl);
+} else {
+  router.push(nextUrl);
+}
       } catch (err: any) {
         setMsgError(err?.message || "Erro inesperado.");
       } finally {
