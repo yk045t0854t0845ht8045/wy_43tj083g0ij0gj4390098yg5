@@ -673,7 +673,7 @@ body: JSON.stringify({
   email: email.trim().toLowerCase(),
   code: c,
   password,
-  next: returnTo, // ✅ manda pro backend
+  next: returnTo, 
 }),
         });
 

@@ -13,6 +13,7 @@ interface Message {
   role: "user" | "assistant"
   content: string
   images?: AttachedFile[]
+  kind?: "login_required"
 }
 
 interface Suggestion {
@@ -42,6 +43,7 @@ interface MainProps {
   isLoading?: boolean
   streamingContent?: string
   onImageClick?: (image: AttachedFile) => void
+  onLoginClick?: () => void
 }
 
 const categoriesData: Category[] = [
@@ -228,7 +230,6 @@ const categoriesData: Category[] = [
   },
 ]
 
-// Sugestoes pre-definidas por keyword
 const keywordSuggestions: Record<string, Suggestion[]> = {
   reembolso: [
     { id: "r1", text: "Qual o prazo para reembolso?" },
@@ -304,7 +305,6 @@ const keywordSuggestions: Record<string, Suggestion[]> = {
 
 const KEYWORDS = Object.keys(keywordSuggestions)
 
-// Verifica se a mensagem contem alguma keyword
 function findKeywordMatch(text: string): string | null {
   const lower = text.toLowerCase()
   for (const keyword of KEYWORDS) {
@@ -580,7 +580,6 @@ function MessageImages({
   )
 }
 
-// Componente de sugestoes com loading para IA
 function SuggestionsPanel({
   suggestions,
   isLoadingAI,
@@ -673,6 +672,8 @@ function BotMessage({
   lastBotMessage,
   onSuggestionClick,
   botAvatarSrc,
+  isLoginRequired,
+  onLoginClick,
 }: {
   content: string
   showSuggestions: boolean
@@ -680,6 +681,8 @@ function BotMessage({
   lastBotMessage: string
   onSuggestionClick?: (text: string) => void
   botAvatarSrc?: string
+  isLoginRequired?: boolean
+  onLoginClick?: () => void
 }) {
   const [suggestionsVisible, setSuggestionsVisible] = useState(false)
   const [likeState, setLikeState] = useState<"none" | "liked" | "disliked">("none")
@@ -688,20 +691,19 @@ function BotMessage({
   const [isLoadingAI, setIsLoadingAI] = useState(false)
   const hasGeneratedRef = useRef(false)
 
-  // Gera sugestoes com IA
   const generateAISuggestions = useCallback(async (botResponse: string) => {
     if (hasGeneratedRef.current) return
     hasGeneratedRef.current = true
-    
+
     setIsLoadingAI(true)
-    
+
     try {
       const response = await fetch("/api/wz_WyzerAI/suggestions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lastBotResponse: botResponse }),
       })
-      
+
       if (response.ok) {
         const data = await response.json()
         if (data.suggestions && Array.isArray(data.suggestions)) {
@@ -714,7 +716,6 @@ function BotMessage({
         }
       }
     } catch {
-      // Fallback: sugestoes genericas
       setSuggestions([
         { id: "fb1", text: "Pode explicar melhor?" },
         { id: "fb2", text: "Preciso de mais ajuda" },
@@ -727,26 +728,24 @@ function BotMessage({
 
   useEffect(() => {
     if (!showSuggestions) return
+    if (isLoginRequired) return
 
     const timer = setTimeout(() => {
       setSuggestionsVisible(true)
 
-      // Verifica se tem keyword no user message OU no bot message
       const userKeyword = findKeywordMatch(lastUserMessage)
       const botKeyword = findKeywordMatch(lastBotMessage)
       const keyword = userKeyword || botKeyword
 
       if (keyword) {
-        // Usa sugestoes pre-definidas
         setSuggestions(keywordSuggestions[keyword])
       } else {
-        // Gera com IA baseado na resposta do bot
         generateAISuggestions(lastBotMessage)
       }
     }, 2000)
 
     return () => clearTimeout(timer)
-  }, [showSuggestions, lastUserMessage, lastBotMessage, generateAISuggestions])
+  }, [showSuggestions, lastUserMessage, lastBotMessage, generateAISuggestions, isLoginRequired])
 
   const handleCopy = () => {
     navigator.clipboard.writeText(content)
@@ -796,102 +795,116 @@ function BotMessage({
           {content}
         </div>
 
-        <div className="flex items-center gap-1 mt-3">
-          <button
-            type="button"
-            onClick={() =>
-              setLikeState(likeState === "liked" ? "none" : "liked")
-            }
-            className={[
-              "p-1.5 rounded-full transition-all duration-300 ease-out active:scale-90",
-              likeState === "liked"
-                ? "text-violet-600 bg-violet-50"
-                : "text-gray-400 hover:text-gray-600 hover:bg-gray-100",
-            ].join(" ")}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill={likeState === "liked" ? "currentColor" : "none"}
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+        {isLoginRequired && (
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={onLoginClick}
+              className="w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-medium text-black/80 hover:bg-black/[0.02] transition-colors"
             >
-              <path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3zM7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3" />
-            </svg>
-          </button>
+              Realizar login
+            </button>
+          </div>
+        )}
 
-          <button
-            type="button"
-            onClick={() =>
-              setLikeState(likeState === "disliked" ? "none" : "disliked")
-            }
-            className={[
-              "p-1.5 rounded-full transition-all duration-300 ease-out active:scale-90",
-              likeState === "disliked"
-                ? "text-red-500 bg-red-50"
-                : "text-gray-400 hover:text-gray-600 hover:bg-gray-100",
-            ].join(" ")}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill={likeState === "disliked" ? "currentColor" : "none"}
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+        {!isLoginRequired && (
+          <div className="flex items-center gap-1 mt-3">
+            <button
+              type="button"
+              onClick={() =>
+                setLikeState(likeState === "liked" ? "none" : "liked")
+              }
+              className={[
+                "p-1.5 rounded-full transition-all duration-300 ease-out active:scale-90",
+                likeState === "liked"
+                  ? "text-violet-600 bg-violet-50"
+                  : "text-gray-400 hover:text-gray-600 hover:bg-gray-100",
+              ].join(" ")}
             >
-              <path d="M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-2 1.7l-1.38 9a2 2 0 002 2.3zm7-13h2.67A2.31 2.31 0 0122 4v7a2.31 2.31 0 01-2.33 2H17" />
-            </svg>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleCopy}
-            className={[
-              "p-1.5 rounded-full transition-all duration-300 ease-out active:scale-90",
-              copied
-                ? "text-green-500 bg-green-50"
-                : "text-gray-400 hover:text-gray-600 hover:bg-gray-100",
-            ].join(" ")}
-            title={copied ? "Copiado!" : "Copiar mensagem"}
-          >
-            {copied ? (
               <svg
                 width="16"
                 height="16"
                 viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M20 6L9 17l-5-5" />
-              </svg>
-            ) : (
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
+                fill={likeState === "liked" ? "currentColor" : "none"}
                 stroke="currentColor"
                 strokeWidth="1.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >
-                <rect x="9" y="9" width="13" height="13" rx="2" />
-                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                <path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3zM7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3" />
               </svg>
-            )}
-          </button>
-        </div>
+            </button>
 
-        {showSuggestions && suggestionsVisible && (
+            <button
+              type="button"
+              onClick={() =>
+                setLikeState(likeState === "disliked" ? "none" : "disliked")
+              }
+              className={[
+                "p-1.5 rounded-full transition-all duration-300 ease-out active:scale-90",
+                likeState === "disliked"
+                  ? "text-red-500 bg-red-50"
+                  : "text-gray-400 hover:text-gray-600 hover:bg-gray-100",
+              ].join(" ")}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill={likeState === "disliked" ? "currentColor" : "none"}
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-2 1.7l-1.38 9a2 2 0 002 2.3zm7-13h2.67A2.31 2.31 0 0122 4v7a2.31 2.31 0 01-2.33 2H17" />
+              </svg>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCopy}
+              className={[
+                "p-1.5 rounded-full transition-all duration-300 ease-out active:scale-90",
+                copied
+                  ? "text-green-500 bg-green-50"
+                  : "text-gray-400 hover:text-gray-600 hover:bg-gray-100",
+              ].join(" ")}
+              title={copied ? "Copiado!" : "Copiar mensagem"}
+            >
+              {copied ? (
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M20 6L9 17l-5-5" />
+                </svg>
+              ) : (
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="9" y="9" width="13" height="13" rx="2" />
+                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                </svg>
+              )}
+            </button>
+          </div>
+        )}
+
+        {!isLoginRequired && showSuggestions && suggestionsVisible && (
           <SuggestionsPanel
             suggestions={suggestions}
             isLoadingAI={isLoadingAI}
@@ -1089,11 +1102,11 @@ export function Main({
   isLoading = false,
   streamingContent = "",
   onImageClick,
+  onLoginClick,
 }: MainProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const hasMessages = messages.length > 0
 
-  // Pega a ultima mensagem do usuario
   const lastUserMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i]?.role === "user") return messages[i].content || ""
@@ -1101,7 +1114,6 @@ export function Main({
     return ""
   }, [messages])
 
-  // Pega a ultima mensagem do bot
   const lastBotMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i]?.role === "assistant") return messages[i].content || ""
@@ -1164,6 +1176,8 @@ export function Main({
                 lastBotMessage={message.content}
                 onSuggestionClick={onQuickAction}
                 botAvatarSrc={botAvatarSrc}
+                isLoginRequired={message.kind === "login_required"}
+                onLoginClick={onLoginClick}
               />
             )
           })}

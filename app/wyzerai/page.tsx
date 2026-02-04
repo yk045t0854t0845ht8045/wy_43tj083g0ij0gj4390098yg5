@@ -85,6 +85,7 @@ interface Message {
   role: "user" | "assistant"
   content: string
   images?: AttachedFile[]
+  kind?: "login_required"
 }
 
 function TranscriptModal({
@@ -281,7 +282,6 @@ export function WyzerAIWidget() {
   const [viewingImage, setViewingImage] = useState<AttachedFile | null>(null)
   const [streamingContent, setStreamingContent] = useState("")
 
-  // ✅ importante: quando 401 acontecer, mostramos o botão
   const [needsLogin, setNeedsLogin] = useState(false)
 
   const cardRef = useRef<HTMLDivElement | null>(null)
@@ -294,12 +294,10 @@ export function WyzerAIWidget() {
 
     const host = window.location.hostname.toLowerCase()
 
-    // dev/local
     if (host.endsWith(".localhost") || host === "localhost") {
       return "http://login.localhost:3000/"
     }
 
-    // prod
     return "https://login.wyzer.com.br/"
   }
 
@@ -325,7 +323,6 @@ export function WyzerAIWidget() {
     } catch {}
   }
 
-  // ✅ wrapper: SEMPRE manda cookie/sessão (subdomínio / sameSite)
   const apiFetch = useCallback(async (input: RequestInfo | URL, init?: RequestInit) => {
     const merged: RequestInit = {
       ...init,
@@ -373,6 +370,22 @@ export function WyzerAIWidget() {
     window.location.assign(url.toString())
   }, [activeTab, chatCode]) // eslint-disable-line @typescript-eslint/no-unused-vars
 
+  const ensureLoginMessage = useCallback(() => {
+    setMessages((prev) => {
+      const already = prev.some((m) => m.kind === "login_required")
+      if (already) return prev
+      return [
+        ...prev,
+        {
+          id: uid(),
+          role: "assistant",
+          kind: "login_required",
+          content: "Você precisa estar logado para continuar no chat.",
+        },
+      ]
+    })
+  }, [])
+
   const sessionId = useMemo(() => {
     if (typeof window === "undefined") return "server"
     const existing = window.localStorage.getItem(SESSION_KEY)
@@ -409,7 +422,6 @@ export function WyzerAIWidget() {
   }, [])
 
   const startChat = useCallback(async () => {
-    // sempre que tentar algo autenticado, reset no flag
     setNeedsLogin(false)
 
     const r = await apiFetch("/api/wz_WyzerAI/chat/start", { method: "POST" })
@@ -471,6 +483,7 @@ export function WyzerAIWidget() {
       role: m.sender === "assistant" ? ("assistant" as const) : ("user" as const),
       content: String(m.message || ""),
       images: undefined,
+      kind: undefined,
     }))
 
     setMessages(mapped)
@@ -479,10 +492,15 @@ export function WyzerAIWidget() {
   const openWithMessage = useCallback(
     async (message?: string) => {
       setOpen(true)
+      setActiveTab("chat")
 
       const code = await startChat()
+
       if (!code) {
-        // se 401, vai aparecer o botão de login e não quebra a UI
+        setNeedsLogin(true)
+        ensureLoginMessage()
+        const m = clampText(message || "")
+        if (m) setInput(m)
         return
       }
 
@@ -492,7 +510,7 @@ export function WyzerAIWidget() {
       const m = clampText(message || "")
       if (m) setInput(m)
     },
-    [startChat, loadHistory]
+    [startChat, loadHistory, ensureLoginMessage]
   )
 
   const applyUrlTriggers = useCallback(() => {
@@ -628,10 +646,8 @@ export function WyzerAIWidget() {
 
         if (resp.status === 401) {
           setNeedsLogin(true)
-          return {
-            ok: false as const,
-            message: null,
-          }
+          ensureLoginMessage()
+          return { ok: false as const, message: null }
         }
 
         if (!resp.ok) {
@@ -687,13 +703,15 @@ export function WyzerAIWidget() {
         }
       }
     },
-    [apiFetch, sessionId, chatCode]
+    [apiFetch, sessionId, chatCode, ensureLoginMessage]
   )
 
   const handleSubmit = useCallback(
     async (files?: AttachedFile[]) => {
-      // ✅ se precisa login, não tenta mandar
-      if (needsLogin) return
+      if (needsLogin) {
+        ensureLoginMessage()
+        return
+      }
 
       if ((!input.trim() && (!files || files.length === 0)) || sending || isLoading)
         return
@@ -729,7 +747,7 @@ export function WyzerAIWidget() {
       setIsLoading(false)
       setSending(false)
     },
-    [needsLogin, input, sending, isLoading, messages, callWyzerAI]
+    [needsLogin, input, sending, isLoading, messages, callWyzerAI, ensureLoginMessage]
   )
 
   const handleQuickAction = useCallback((action: string) => {
@@ -881,65 +899,32 @@ export function WyzerAIWidget() {
             />
 
             <div className="flex-1 flex flex-col overflow-hidden relative">
-             {activeTab === "chat" ? (
-  <>
-    <Main
-      userName="Usuario"
-      onQuickAction={handleQuickAction}
-      logoSrc="/logo.png"
-      botAvatarSrc="/bot-avatar.png"
-      messages={messages}
-      isLoading={isLoading}
-      streamingContent={streamingContent}
-      onImageClick={setViewingImage}
-    />
-
-    {needsLogin && (
-      <div className="px-4 pb-4">
-        <div className="max-w-[92%] rounded-2xl bg-black/[0.04] ring-1 ring-black/10 px-4 py-3">
-          <div className="text-[13px] leading-relaxed text-black/70">
-            Você precisa estar logado para usar o chat.
-          </div>
-
-          <div className="mt-3">
-            <button
-              type="button"
-              onClick={goToLogin}
-              className="w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-medium text-black/80 hover:bg-black/[0.02] transition-colors"
-            >
-              Realizar login
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
-  </>
-) : (
-  <History items={historyItems} onItemClick={handleHistoryItemClick} />
-)}
+              {activeTab === "chat" ? (
+                <Main
+                  userName="Usuario"
+                  onQuickAction={handleQuickAction}
+                  logoSrc="/logo.png"
+                  botAvatarSrc="/bot-avatar.png"
+                  messages={messages}
+                  isLoading={isLoading}
+                  streamingContent={streamingContent}
+                  onImageClick={setViewingImage}
+                  onLoginClick={goToLogin}
+                />
+              ) : (
+                <History items={historyItems} onItemClick={handleHistoryItemClick} />
+              )}
             </div>
 
-            {needsLogin && (
-              <div className="px-4 pb-3">
-                <button
-                  type="button"
-                  onClick={goToLogin}
-                  className="w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-medium text-black/80 hover:bg-black/[0.02] transition-colors"
-                >
-                  Realizar login
-                </button>
-              </div>
-            )}
-
-           <Input
-  value={input}
-  onChange={setInput}
-  onSubmit={handleSubmit}
-  disabled={sending || isLoading || needsLogin}
-  placeholder={needsLogin ? "Faça login para continuar" : "Ask anything"}
-  attachedFiles={attachedFiles}
-  onFilesChange={setAttachedFiles}
-/>
+            <Input
+              value={input}
+              onChange={setInput}
+              onSubmit={handleSubmit}
+              disabled={sending || isLoading || needsLogin}
+              placeholder={needsLogin ? "Faça login para continuar" : "Ask anything"}
+              attachedFiles={attachedFiles}
+              onFilesChange={setAttachedFiles}
+            />
           </div>
 
           <TranscriptModal
