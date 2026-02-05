@@ -703,9 +703,6 @@ function BotMessage({
     }
   }, [])
 
-  // ✅ ajustes importantes:
-  // - não mostra sugestões se for login_required
-  // - reseta estado quando muda a mensagem (evita “sugestões fantasmas”)
   useEffect(() => {
     setSuggestionsVisible(false)
     setCopied(false)
@@ -769,7 +766,7 @@ function BotMessage({
             <button
               type="button"
               onClick={handleLogin}
-              className="w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-medium text-black/80 hover:bg-black/[0.02] transition-colors active:scale-[0.99]"
+              className="w-40 rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-medium text-black/80 hover:bg-black/[0.02] transition-colors active:scale-[0.99]"
             >
               Realizar login
             </button>
@@ -1074,6 +1071,7 @@ export function Main({
   onLoginClick,
 }: MainProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
+
   const hasMessages = messages.length > 0
 
   const lastUserMessage = useMemo(() => {
@@ -1081,6 +1079,16 @@ export function Main({
       if (messages[i]?.role === "user") return messages[i].content || ""
     }
     return ""
+  }, [messages])
+
+  // ✅ FIX DO HOOK ORDER: esse useMemo precisa rodar SEMPRE (antes do early return)
+  const lastAssistantIsLoginRequired = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.role === "assistant") {
+        return messages[i]?.kind === "login_required"
+      }
+    }
+    return false
   }, [messages])
 
   useEffect(() => {
@@ -1105,16 +1113,6 @@ export function Main({
       />
     )
   }
-
-  // ✅ se o último assistant for login_required, a gente não mostra streaming por cima
-  const lastAssistantIsLoginRequired = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]?.role === "assistant") {
-        return messages[i]?.kind === "login_required"
-      }
-    }
-    return false
-  }, [messages])
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">

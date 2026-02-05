@@ -900,7 +900,7 @@ export function WyzerAIWidget() {
                   userName="Usuario"
                   onQuickAction={handleQuickAction}
                   logoSrc="/logo.png"
-                  botAvatarSrc="/bot-avatar.png"
+                  botAvatarSrc="/flow-icon.png"
                   messages={messages}
                   isLoading={isLoading}
                   streamingContent={streamingContent}
