@@ -413,7 +413,7 @@ function SuggestionsPanel({
             className="flex items-center gap-3 w-full px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 rounded-xl transition-all duration-300 ease-out hover:translate-x-1 active:scale-[0.98]"
             style={{ animation: "slideInFromBottom 0.5s ease-out forwards", animationDelay: `${index * 100}ms`, opacity: 0 }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-violet-500 flex-shrink-0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-blue-500 flex-shrink-0">
               <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="currentColor" />
             </svg>
             <span>{suggestion.text}</span>
