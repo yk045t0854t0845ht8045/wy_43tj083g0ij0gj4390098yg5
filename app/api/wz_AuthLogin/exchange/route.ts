@@ -69,7 +69,7 @@ function isAllowedReturnToAbsolute(u: URL) {
 }
 
 function sanitizeNext(raw: string) {
-  if (!raw) return "/create-account";
+  if (!raw) return "/";
 
   // path relativo seguro
   if (isSafeNextPath(raw)) return raw;
@@ -80,7 +80,7 @@ function sanitizeNext(raw: string) {
     if (isAllowedReturnToAbsolute(u)) return u.toString();
   } catch {}
 
-  return "/create-account";
+  return "/";
 }
 
 const safeNext = sanitizeNext(next);
@@ -156,7 +156,7 @@ const res = NextResponse.redirect(redirectTarget);
   } catch (e: any) {
     console.error("[exchange] error:", e);
     const url = new URL(req.url);
-    const res = NextResponse.redirect(new URL("/create-account", url.origin));
+    const res = NextResponse.redirect(new URL("/", url.origin));
     res.headers.set("Cache-Control", NO_STORE_HEADERS["Cache-Control"]);
     res.headers.set("Pragma", NO_STORE_HEADERS["Pragma"]);
     res.headers.set("Expires", NO_STORE_HEADERS["Expires"]);

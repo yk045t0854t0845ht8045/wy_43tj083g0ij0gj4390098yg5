@@ -397,7 +397,7 @@ export default function LinkLoginPage() {
           return;
         }
 
-        window.location.assign("/create-account");
+        window.location.assign("/");
       } catch {}
     })();
   }, []);

@@ -76,18 +76,18 @@ function normalizeReturnTo(req: NextRequest, returnTo: string) {
   return value
 }
 
-function buildDashboardCreateAccountUrl(req: NextRequest) {
+function buildDashboardHomeUrl(req: NextRequest) {
   const proto = getProto(req)
   const hostHeader = (req.headers.get("host") || "").toLowerCase()
   const host = hostHeader.split(":")[0]
 
   // local/dev -> dashboard.localhost
   if (host.endsWith(".localhost") || host === "localhost") {
-    return `${proto}://dashboard.localhost:3000/create-account`
+    return `${proto}://dashboard.localhost:3000/`
   }
 
   // prod
-  return `${proto}://dashboard.wyzer.com.br/create-account`
+  return `${proto}://dashboard.wyzer.com.br/`
 }
 
 export default function proxy(req: NextRequest) {
@@ -224,7 +224,7 @@ export default function proxy(req: NextRequest) {
     // ✅ se já tem sessão e entrou na HOME do login,
     //    NÃO manda direto sem validar "returnTo".
     //    - se tiver returnTo seguro, volta pra ele
-    //    - se não, manda pro create-account do dashboard
+    //    - se não, manda pro dashboard (home)
     if (hasSession && (url.pathname === "/" || url.pathname === "")) {
       const returnToRaw =
         req.nextUrl.searchParams.get("returnTo") ||
@@ -235,7 +235,7 @@ export default function proxy(req: NextRequest) {
 
       const target = canUseReturnTo
         ? normalizeReturnTo(req, returnToRaw)
-        : buildDashboardCreateAccountUrl(req)
+        : buildDashboardHomeUrl(req)
 
       return NextResponse.redirect(target)
     }
