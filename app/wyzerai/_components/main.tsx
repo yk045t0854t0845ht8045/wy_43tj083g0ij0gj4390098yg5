@@ -49,6 +49,7 @@ interface MainProps {
   onImageClick?: (image: AttachedFile) => void
   onLoginClick?: () => void
   onReactMessage?: (dbId: number, liked: boolean, disliked: boolean) => void
+  isRedirectingToHuman?: boolean
 }
 
 const categoriesData: Category[] = [
@@ -205,8 +206,12 @@ function ShimmerText({ children }: { children: React.ReactNode }) {
   )
 }
 
-// ✅ CORRIGIDO: LoadingMessage agora é usado APENAS quando isLoading=true e não há mensagens streaming
-function LoadingMessage() {
+// LoadingMessage com texto dinamico
+function LoadingMessage({ isRedirectingToHuman = false }: { isRedirectingToHuman?: boolean }) {
+  const loadingText = isRedirectingToHuman 
+    ? "Redirecionando para um atendente" 
+    : "Analisando sua solicitacao"
+
   return (
     <div className="flex items-start gap-3" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
       <div className="flex-shrink-0 w-8 h-8 overflow-hidden flex items-center justify-center">
@@ -218,11 +223,11 @@ function LoadingMessage() {
           <span className="text-sm font-semibold text-gray-900">Flow</span>
         </div>
         <div className="flex items-center gap-2">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-black flex-shrink-0" style={{ animation: "sparkleRotate 2s ease-in-out infinite" }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className={isRedirectingToHuman ? "text-orange-500" : "text-black"} style={{ animation: "sparkleRotate 2s ease-in-out infinite" }}>
             <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="currentColor" />
           </svg>
           <span className="text-sm flex items-end">
-            <ShimmerText>Analisando sua solicitacao</ShimmerText>
+            <ShimmerText>{loadingText}</ShimmerText>
             <div className="mt-1">
               <AnimatedDots />
             </div>
@@ -656,9 +661,12 @@ export function Main({
   onImageClick,
   onLoginClick,
   onReactMessage,
+  isRedirectingToHuman = false,
 }: MainProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const hasMessages = messages.length > 0
+  const prevMessagesLengthRef = useRef(messages.length)
+  const prevStreamingContentRef = useRef(streamingContent)
 
   const lastBotMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -667,13 +675,31 @@ export function Main({
     return ""
   }, [messages])
 
+  // Auto-scroll melhorado: sempre rola para baixo quando:
+  // 1. Nova mensagem foi adicionada
+  // 2. Conteudo streaming mudou
+  // 3. isLoading mudou para true
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const threshold = 140
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    const shouldStickToBottom = distanceFromBottom <= threshold
-    if (shouldStickToBottom) el.scrollTop = el.scrollHeight
+
+    const messagesChanged = messages.length !== prevMessagesLengthRef.current
+    const streamingChanged = streamingContent !== prevStreamingContentRef.current
+
+    // Atualizar refs
+    prevMessagesLengthRef.current = messages.length
+    prevStreamingContentRef.current = streamingContent
+
+    // Se houve mudanca, rolar para baixo suavemente
+    if (messagesChanged || streamingChanged || isLoading) {
+      // Usar requestAnimationFrame para garantir que o DOM foi atualizado
+      requestAnimationFrame(() => {
+        el.scrollTo({
+          top: el.scrollHeight,
+          behavior: streamingChanged ? "auto" : "smooth"
+        })
+      })
+    }
   }, [messages, isLoading, streamingContent])
 
   if (!hasMessages && !isLoading) {

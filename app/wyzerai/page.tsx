@@ -45,6 +45,29 @@ function compactText(v: string, maxChars = 150) {
     .slice(0, maxChars)
 }
 
+// Detectar estresse na mensagem do usuario
+const STRESS_KEYWORDS = [
+  "urgente", "urgencia", "urgência",
+  "absurdo", "ridiculo", "ridículo",
+  "raiva", "irritado", "irritada",
+  "porra", "merda", "droga", "caralho",
+  "nao funciona nada", "não funciona nada",
+  "pessimo", "péssimo", "horrivel", "horrível",
+  "nunca funciona", "sempre da erro", "sempre dá erro",
+  "vou cancelar", "cancelar agora", "quero cancelar",
+  "atendente humano", "falar com humano", "pessoa real",
+  "ninguem resolve", "ninguém resolve",
+  "ja tentei tudo", "já tentei tudo",
+  "problema grave", "problema serio", "problema sério",
+  "inaceitavel", "inaceitável",
+  "processar", "procon", "reclame aqui",
+]
+
+function detectStress(text: string): boolean {
+  const lower = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  return STRESS_KEYWORDS.some(keyword => lower.includes(keyword))
+}
+
 function parseDateMs(v: unknown) {
   const ms = Date.parse(String(v || ""))
   return Number.isFinite(ms) ? ms : 0
@@ -292,6 +315,7 @@ export function WyzerAIWidget() {
   const [viewingImage, setViewingImage] = useState<AttachedFile | null>(null)
   const [streamingContent, setStreamingContent] = useState("")
   const [needsLogin, setNeedsLogin] = useState(false)
+  const [isRedirectingToHuman, setIsRedirectingToHuman] = useState(false)
 
   const cardRef = useRef<HTMLDivElement | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -926,6 +950,11 @@ export function WyzerAIWidget() {
       if ((!input.trim() && (!files || files.length === 0)) || sending || isLoading)
         return
 
+      // ✅ NOVO: Se estiver na aba history, mudar para chat automaticamente
+      if (activeTab === "history") {
+        setActiveTab("chat")
+      }
+
       setSending(true)
       setIsLoading(true)
 
@@ -948,14 +977,21 @@ export function WyzerAIWidget() {
       }
 
       const now = Date.now()
+      const userContent = input.trim() || (files && files.length > 0 ? "[Imagem]" : "")
+
+      // Detectar estresse na mensagem
+      const isStressed = detectStress(userContent)
+      if (isStressed) {
+        setIsRedirectingToHuman(true)
+      }
 
       const userMessage: Message = {
         id: uid(),
         role: "user",
-        content: input.trim() || (files && files.length > 0 ? "[Imagem]" : ""),
+        content: userContent,
         images: files && files.length > 0 ? [...files] : undefined,
         clientTs: now,
-        chatCode: effectiveChatCode, // ✅ Vincular ao chat
+        chatCode: effectiveChatCode, // Vincular ao chat
       }
 
       const assistantId = uid()
@@ -965,7 +1001,7 @@ export function WyzerAIWidget() {
         content: "",
         isStreaming: true,
         clientTs: now + 5,
-        chatCode: effectiveChatCode, // ✅ Vincular ao chat
+        chatCode: effectiveChatCode, // Vincular ao chat
       }
 
       setInput("")
@@ -990,6 +1026,9 @@ export function WyzerAIWidget() {
         effectiveChatCode,
         onDelta,
       })
+
+      // Reset redirecting state
+      setIsRedirectingToHuman(false)
 
       if (result.message) {
         setMessages((prev) =>
@@ -1021,6 +1060,7 @@ export function WyzerAIWidget() {
       ensureLoginMessage,
       refreshHistory,
       loadChatMessagesMerge,
+      activeTab,
     ]
   )
 
@@ -1073,7 +1113,7 @@ export function WyzerAIWidget() {
     [loadChatMessagesMerge]
   )
 
-  // ✅ Filtrar mensagens apenas do chat atual
+  // �� Filtrar mensagens apenas do chat atual
   const currentChatMessages = useMemo(() => {
     if (!chatCode) return messages
     return messages.filter((m) => !m.chatCode || m.chatCode === chatCode)
@@ -1198,6 +1238,7 @@ export function WyzerAIWidget() {
                   onImageClick={setViewingImage}
                   onLoginClick={goToLogin}
                   onReactMessage={handleReactMessage}
+                  isRedirectingToHuman={isRedirectingToHuman}
                 />
               ) : (
                 <History
