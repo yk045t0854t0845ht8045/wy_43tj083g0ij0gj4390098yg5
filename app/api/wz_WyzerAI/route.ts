@@ -35,6 +35,13 @@ const MODEL_FALLBACKS = [
   "gpt-5-nano",
 ] as const
 
+// ✅ Motivo precisa de qualidade "boa o suficiente" e rapidez
+const MOTIVO_MODEL_FALLBACKS = [
+  "gpt-5-nano",
+  "gpt-4o-mini",
+  "gpt-4.1-mini",
+] as const
+
 const SYSTEM_PROMPT = [
   "Você é o Flow, assistente da Wyzer.",
   "Responda em PT-BR, com clareza e objetividade.",
@@ -555,6 +562,21 @@ function isMotivoGeneric(motivo: unknown): boolean {
   return GENERIC_MOTIVO_HINTS.some((hint) => normalized.includes(hint))
 }
 
+function motivoPriority(motivo: unknown): number {
+  const normalized = normalizeMotivoText(motivo)
+  if (!normalized) return 0
+
+  if (TRIVIAL_MOTIVO_EXACT_NORMALIZED.has(normalized)) return 1
+
+  // "Atendimento geral" é genérico, mas é um placeholder melhor do que "Novo atendimento"
+  if (normalized === "atendimento geral") return 3
+
+  if (GENERIC_MOTIVO_HINTS.some((hint) => normalized.includes(hint))) return 2
+
+  // Qualquer motivo não-genérico
+  return 10
+}
+
 function cleanMotivoCandidate(raw: string): string {
   let s = String(raw || "").trim()
   s = s.replace(/^["'`]+|["'`]+$/g, "")
@@ -564,6 +586,45 @@ function cleanMotivoCandidate(raw: string): string {
   if (words.length > 6) s = words.slice(0, 6).join(" ").trim()
   if (s.length > 64) s = s.slice(0, 64).trim()
   return s
+}
+
+async function generateMotivoInitialWithModelFallback(args: { firstUserMessage: string }): Promise<string> {
+  const prompt = [
+    "Crie um motivo curto (máx 6 palavras) para este atendimento.",
+    "Use APENAS a primeira mensagem do usuário.",
+    "Se for só saudação ou estiver vago, retorne: Atendimento geral",
+    "Retorne somente o motivo, sem aspas e sem ponto final.",
+    "",
+    `Mensagem do usuário: ${args.firstUserMessage}`,
+  ].join("\n")
+
+  let lastErr: unknown = null
+  for (const modelId of MOTIVO_MODEL_FALLBACKS) {
+    try {
+      const result = await generateText({
+        model: openai(modelId),
+        system:
+          "Você cria títulos curtos de atendimento em PT-BR. Retorne só o texto do motivo.",
+        prompt,
+        temperature: 0.2,
+        maxOutputTokens: 36,
+      })
+
+      const out = cleanMotivoCandidate(result.text || "")
+      if (out) return out
+    } catch (e: unknown) {
+      lastErr = e
+      const msg = e instanceof Error ? e.message : String(e)
+      if (isModelAccessError(msg)) continue
+    }
+  }
+
+  if (lastErr) {
+    const msg = lastErr instanceof Error ? lastErr.message : String(lastErr)
+    console.warn("[WyzerAI motivo:init] falha ao gerar motivo:", msg)
+  }
+
+  return ""
 }
 
 async function generateMotivoWithModelFallback(args: { firstThreeMessages: string[] }): Promise<string> {
@@ -577,7 +638,7 @@ async function generateMotivoWithModelFallback(args: { firstThreeMessages: strin
   ].join("\n")
 
   let lastErr: unknown = null
-  for (const modelId of MODEL_FALLBACKS) {
+  for (const modelId of MOTIVO_MODEL_FALLBACKS) {
     try {
       const result = await generateText({
         model: openai(modelId),
@@ -620,6 +681,8 @@ async function maybeGenerateMotivo(
 
   const currentMotivoRaw = (chat as { motivo?: string | null }).motivo ?? null
   if (!isMotivoGeneric(currentMotivoRaw)) return
+  const currentPriority = motivoPriority(currentMotivoRaw)
+  const currentNormalized = normalizeMotivoText(currentMotivoRaw)
 
   // ✅ Buscar as 3 primeiras mensagens do chat (base do motivo)
   const { data: msgs } = await sb
@@ -638,45 +701,86 @@ async function maybeGenerateMotivo(
         .filter((m) => !!m.message)
     : []
 
-  // Ainda não tem contexto suficiente (baseado nas 3 primeiras mensagens)
-  if (rows.length < 3) return
+  const firstUserMessage =
+    rows.find((m) => m.sender !== "assistant")?.message ||
+    sanitizeText(currentUserMessage, 220)
 
-  const firstThree = rows.slice(0, 3)
-  const firstThreeLines = firstThree.map((m) => {
-    const who = m.sender === "assistant" ? "Flow" : "Usuário"
-    return `${who}: ${m.message}`
-  })
+  if (!firstUserMessage) return
 
-  let nextMotivo = await generateMotivoWithModelFallback({
-    firstThreeMessages: firstThreeLines,
-  })
-  nextMotivo = cleanMotivoCandidate(nextMotivo)
+  const firstUserNormalized = normalizeMotivoText(firstUserMessage)
+  const isTrivialFirstUser = TRIVIAL_MOTIVO_EXACT_NORMALIZED.has(firstUserNormalized)
 
-  // Fallback: keywords / primeira mensagem
-  if (!nextMotivo || isMotivoGeneric(nextMotivo)) {
-    const userText = firstThree
-      .filter((m) => m.sender !== "assistant")
-      .map((m) => m.message)
-      .join(" ")
+  let nextMotivo = ""
 
-    const fromKeywords =
-      extractMotivoFromText(userText || firstThreeLines.join(" ")) ||
-      (currentUserMessage ? extractMotivoFromText(currentUserMessage) : null)
+  // ✅ Refinar no 2º prompt (quando já existem 3 mensagens: user + flow + user)
+  if (rows.length >= 3) {
+    const firstThree = rows.slice(0, 3)
+    const firstThreeLines = firstThree.map((m) => {
+      const who = m.sender === "assistant" ? "Flow" : "Usuário"
+      return `${who}: ${m.message}`
+    })
 
-    const bestSeed =
-      firstThree
+    nextMotivo = cleanMotivoCandidate(
+      await generateMotivoWithModelFallback({
+        firstThreeMessages: firstThreeLines,
+      })
+    )
+
+    // Fallback: keywords / mensagens do usuário
+    if (!nextMotivo || isMotivoGeneric(nextMotivo)) {
+      const userText = firstThree
         .filter((m) => m.sender !== "assistant")
         .map((m) => m.message)
-        .find((m) => !TRIVIAL_MOTIVO_EXACT_NORMALIZED.has(normalizeMotivoText(m))) ||
-      (currentUserMessage && !TRIVIAL_MOTIVO_EXACT_NORMALIZED.has(normalizeMotivoText(currentUserMessage))
-        ? currentUserMessage
-        : null) ||
-      "Atendimento geral"
+        .join(" ")
 
-    nextMotivo = cleanMotivoCandidate(fromKeywords || bestSeed)
+      const fromKeywords =
+        extractMotivoFromText(userText || firstThreeLines.join(" ")) ||
+        (currentUserMessage ? extractMotivoFromText(currentUserMessage) : null)
+
+      const bestSeed =
+        firstThree
+          .filter((m) => m.sender !== "assistant")
+          .map((m) => m.message)
+          .find((m) => !TRIVIAL_MOTIVO_EXACT_NORMALIZED.has(normalizeMotivoText(m))) ||
+        (currentUserMessage && !TRIVIAL_MOTIVO_EXACT_NORMALIZED.has(normalizeMotivoText(currentUserMessage))
+          ? currentUserMessage
+          : null) ||
+        "Atendimento geral"
+
+      nextMotivo = cleanMotivoCandidate(fromKeywords || bestSeed)
+    }
+  } else {
+    // ✅ Gerar já na 1ª mensagem (sem depender de 3 mensagens no chat)
+    const fromKeywords =
+      extractMotivoFromText(firstUserMessage) ||
+      (currentUserMessage ? extractMotivoFromText(currentUserMessage) : null)
+
+    if (fromKeywords) {
+      nextMotivo = cleanMotivoCandidate(fromKeywords)
+    } else if (isTrivialFirstUser) {
+      nextMotivo = "Atendimento geral"
+    } else {
+      nextMotivo = cleanMotivoCandidate(
+        await generateMotivoInitialWithModelFallback({
+          firstUserMessage,
+        })
+      )
+    }
   }
 
-  if (!nextMotivo || isMotivoGeneric(nextMotivo)) return
+  nextMotivo = cleanMotivoCandidate(nextMotivo || "")
+
+  // Nunca salvar motivo trivial (ex.: "oi")
+  if (!nextMotivo || TRIVIAL_MOTIVO_EXACT_NORMALIZED.has(normalizeMotivoText(nextMotivo))) {
+    nextMotivo = "Atendimento geral"
+  }
+
+  const nextNormalized = normalizeMotivoText(nextMotivo)
+  if (!nextNormalized) return
+  if (nextNormalized === currentNormalized) return
+
+  const nextPriority = motivoPriority(nextMotivo)
+  if (nextPriority <= currentPriority) return
 
   const updateQuery = sb
     .from("wz_chats")
