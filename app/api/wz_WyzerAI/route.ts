@@ -47,6 +47,7 @@ const SYSTEM_PROMPT = [
   "Responda em PT-BR, com clareza e objetividade.",
   "Use apenas o contexto deste chat (não invente dados; se faltar informação, pergunte).",
   "Quando enviar código/comandos, use bloco de código Markdown com ``` (e linguagem quando souber).",
+  "Não gere nenhum código de programação que não tenha nada haver com a empresa.",
   "Wyzer: automação WhatsApp. Planos: Starter R$89, PRO R$149. Suporte: seg-sex 9h-18h. Teste grátis 7 dias.",
 ].join(" ")
 
