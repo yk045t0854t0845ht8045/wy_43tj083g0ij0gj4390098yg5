@@ -4,6 +4,7 @@ import Link from "next/link";
 import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session";
 import DashboardSidebar from "./_components/DashboardSidebar";
 import LoadingBase from "./_components/LoadingBase";
+import { WyzerAIWidget } from "@/app/wyzerai/page";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -53,6 +54,7 @@ export default async function DashboardHomePage() {
 
   return (
     <div className="min-h-screen bg-white flex">
+      <WyzerAIWidget />
       <LoadingBase />
       <DashboardSidebar
         email={session.email}

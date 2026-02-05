@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import "./globals.css";
 import { SpeedInsights } from "@vercel/speed-insights/next"
-import { WyzerAIWidget } from "@/app/wyzerai/page";
 
 export const metadata: Metadata = {
   title: "Wyzer - Sistema de Automação para WhatsApp",
@@ -60,7 +59,6 @@ export default function RootLayout({
         <link rel="mask-icon" href="/safari-pinned-tab.svg" color="#0A0A0A" />
   </head>
   <body className="antialiased">{children}
-      <WyzerAIWidget />
   </body>
   <SpeedInsights/>
   <Script async src="https://www.googletagmanager.com/gtag/js?id=G-YGYCF968SD" />

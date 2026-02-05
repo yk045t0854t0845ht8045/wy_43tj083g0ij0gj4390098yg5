@@ -208,27 +208,27 @@ function ShimmerText({ children }: { children: React.ReactNode }) {
 // ✅ CORRIGIDO: LoadingMessage agora é usado APENAS quando isLoading=true e não há mensagens streaming
 function LoadingMessage() {
   return (
-    <div className="flex items-start gap-3" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
-      <div className="flex-shrink-0 w-8 h-8 overflow-hidden flex items-center justify-center">
-        <img src="/flow-icon.png" alt="Flow" className="w-full h-full object-cover" loading="lazy" draggable={false} />
-      </div>
+    <div className="flex items-center gap-2">
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        className="text-black flex-shrink-0"
+        style={{ animation: "sparkleRotate 2s ease-in-out infinite" }}
+      >
+        <path
+          d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z"
+          fill="currentColor"
+        />
+      </svg>
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-sm font-semibold text-gray-900">Flow</span>
+      <span className="text-sm flex items-end">
+        <ShimmerText>Analisando sua solicitacao</ShimmerText>
+        <div className="mt-1">
+          <AnimatedDots />
         </div>
-        <div className="flex items-center gap-2">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-black flex-shrink-0" style={{ animation: "sparkleRotate 2s ease-in-out infinite" }}>
-            <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="currentColor" />
-          </svg>
-          <span className="text-sm flex items-end">
-            <ShimmerText>Analisando sua solicitacao</ShimmerText>
-            <div className="mt-1">
-              <AnimatedDots />
-            </div>
-          </span>
-        </div>
-      </div>
+      </span>
     </div>
   )
 }
