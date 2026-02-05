@@ -1298,7 +1298,7 @@ export function WyzerAIWidget() {
               draggable={false}
             />
             <span className="text-sm font-medium text-neutral-900">
-              Pergunte ao Flow
+              {isMobile ? "Flow" : "Pergunte ao Flow"}
             </span>
           </span>
         </button>
