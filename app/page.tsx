@@ -982,7 +982,7 @@ function goToLoginWithEmail(email: string) {
             </nav>
 
             <div className="hidden sm:flex items-center gap-4">
-              <a href="http://login.wyzer.com.br" className="text-[13px] font-medium text-black/60 hover:text-black/85 transition">
+              <a href="https://login.wyzer.com.br/" className="text-[13px] font-medium text-black/60 hover:text-black/85 transition">
                 Fazer Login
               </a>
 
@@ -1084,7 +1084,7 @@ function goToLoginWithEmail(email: string) {
                           <div className="h-px w-full bg-black/10 my-2" />
 
                           <a
-                            href="/login"
+                            href="https://login.wyzer.com.br/"
                             onClick={() => setMobileNavOpen(false)}
                             className="py-3 text-[15px] font-medium text-black/65 hover:text-black transition"
                           >
