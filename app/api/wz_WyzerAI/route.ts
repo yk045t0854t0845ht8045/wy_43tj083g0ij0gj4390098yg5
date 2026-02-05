@@ -225,6 +225,25 @@ const STRESS_HINTS = [
   "não aguento",
 ] as const
 
+const HANDOFF_DETAILS_PROMPT_PREFIX = "Antes de te encaminhar para um atendente"
+
+const HANDOFF_DETAILS_PROMPT = [
+  `${HANDOFF_DETAILS_PROMPT_PREFIX}, me conte com detalhes o que você precisa e o que já tentou.`,
+  "Ex.: onde travou, o que apareceu na tela, se apareceu algum erro e desde quando está assim.",
+  "Se eu conseguir resolver por aqui agora, eu já te ajudo. Se não, eu te redireciono para um de nossos atendentes.",
+].join("\n\n")
+
+const HANDOFF_DETAILS_FOLLOWUP_PROMPT = [
+  `${HANDOFF_DETAILS_PROMPT_PREFIX}, preciso de um pouco mais de detalhe para te ajudar (ou encaminhar do jeito certo).`,
+  "Me diga: 1) qual tela/aba você está, 2) o que você tentou, 3) qual erro apareceu (se tiver).",
+].join("\n\n")
+
+const HANDOFF_TRIAGE_MODEL_FALLBACKS = [
+  "gpt-5-nano",
+  "gpt-4o-mini",
+  "gpt-4.1-mini",
+] as const
+
 function normalizeIntentText(text: string): string {
   return String(text || "")
     .toLowerCase()
@@ -260,6 +279,173 @@ function detectStress(normalized: string, raw: string): boolean {
   })
 
   return capsWords.length >= 2
+}
+
+function isHandoffDetailsPromptMessage(message: unknown): boolean {
+  const norm = normalizeIntentText(String(message || ""))
+  return !!norm && norm.startsWith(normalizeIntentText(HANDOFF_DETAILS_PROMPT_PREFIX))
+}
+
+async function getLastChatMessageForHandoff(
+  sb: ReturnType<typeof supabaseAdmin>,
+  chatCode: string
+): Promise<{ sender: string; message: string } | null> {
+  const { data } = await sb
+    .from("wz_chat_messages")
+    .select("sender, message, created_at")
+    .eq("chat_code", chatCode)
+    .order("created_at", { ascending: false })
+    .limit(1)
+
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row) return null
+
+  return {
+    sender: String((row as { sender?: unknown }).sender || ""),
+    message: String((row as { message?: unknown }).message || ""),
+  }
+}
+
+async function getRecentChatMessagesForHandoff(
+  sb: ReturnType<typeof supabaseAdmin>,
+  chatCode: string,
+  limit = 12
+): Promise<Array<{ sender: string; message: string }>> {
+  const { data } = await sb
+    .from("wz_chat_messages")
+    .select("sender, message, created_at")
+    .eq("chat_code", chatCode)
+    .order("created_at", { ascending: false })
+    .limit(limit)
+
+  return Array.isArray(data)
+    ? data.map((r) => ({
+        sender: String((r as { sender?: unknown }).sender || ""),
+        message: String((r as { message?: unknown }).message || ""),
+      }))
+    : []
+}
+
+function isVagueHandoffDetails(text: string): boolean {
+  const raw = String(text || "").trim()
+  if (!raw) return true
+
+  const normalized = normalizeIntentText(raw)
+  const words = normalized.split(" ").filter(Boolean)
+  if (raw.length < 18) return true
+  if (words.length <= 2) return true
+
+  const vagueExact = new Set([
+    "ajuda",
+    "socorro",
+    "nao funciona",
+    "ta com erro",
+    "deu erro",
+    "erro",
+    "bug",
+    "problema",
+    "nao sei",
+  ])
+
+  if (vagueExact.has(normalized)) return true
+  return false
+}
+
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  const s0 = String(text || "").trim()
+  if (!s0) return null
+
+  let s = s0
+  if (s.startsWith("```")) {
+    s = s.replace(/^```[a-zA-Z]*\n?/, "").replace(/```$/, "").trim()
+  }
+
+  const first = s.indexOf("{")
+  const last = s.lastIndexOf("}")
+  if (first < 0 || last <= first) return null
+
+  try {
+    const obj = JSON.parse(s.slice(first, last + 1))
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null
+    return obj as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+async function triageHandoffDetails(details: string): Promise<{ action: "help" | "handoff" | "ask_more"; confidence: number }> {
+  const raw = String(details || "").trim()
+  if (isVagueHandoffDetails(raw)) return { action: "ask_more", confidence: 0.9 }
+
+  const prompt = [
+    "Você está fazendo triagem de suporte da Wyzer.",
+    "Decida a ação para a mensagem do usuário APÓS ele pedir atendente:",
+    "- help: dá para ajudar aqui no chat com passos claros.",
+    "- ask_more: está vago e precisa de mais detalhe.",
+    "- handoff: claramente precisa de humano (ex.: precisa acessar a conta, caso muito específico, urgência sem detalhes).",
+    "Responda SOMENTE JSON válido: {\"action\":\"help|ask_more|handoff\",\"confidence\":0-1}. Sem texto extra.",
+    "",
+    `Mensagem do usuário: ${raw}`,
+  ].join("\n")
+
+  let lastErr: unknown = null
+  for (const modelId of HANDOFF_TRIAGE_MODEL_FALLBACKS) {
+    try {
+      const result = await generateText({
+        model: openai(modelId),
+        system: "Responda somente JSON válido. Não use markdown.",
+        prompt,
+        temperature: 0.1,
+        maxOutputTokens: 60,
+      })
+
+      const obj = parseJsonObject(result.text || "")
+      const action = String(obj?.action || "").trim()
+      const confidence = Number(obj?.confidence)
+
+      if ((action === "help" || action === "handoff" || action === "ask_more") && Number.isFinite(confidence)) {
+        const c = Math.max(0, Math.min(1, confidence))
+        return { action: action as "help" | "handoff" | "ask_more", confidence: c }
+      }
+    } catch (e: unknown) {
+      lastErr = e
+      const msg = e instanceof Error ? e.message : String(e)
+      if (isModelAccessError(msg)) continue
+    }
+  }
+
+  if (lastErr) {
+    const msg = lastErr instanceof Error ? lastErr.message : String(lastErr)
+    console.warn("[WyzerAI handoff:triage] falha na triagem:", msg)
+  }
+
+  // Fallback heurístico
+  const norm = normalizeIntentText(raw)
+  const helpHints = [
+    "whatsapp",
+    "qr",
+    "qrcode",
+    "conectar",
+    "desconect",
+    "plano",
+    "preco",
+    "pagamento",
+    "cobr",
+    "assin",
+    "login",
+    "sms",
+    "email",
+    "verific",
+    "erro",
+    "bug",
+    "instabil",
+    "painel",
+    "dashboard",
+    "suporte",
+  ]
+
+  const shouldHelp = helpHints.some((h) => norm.includes(h))
+  return { action: shouldHelp ? "help" : "handoff", confidence: 0.55 }
 }
 
 function sanitizeText(input: unknown, maxChars: number): string {
@@ -956,20 +1142,28 @@ export async function POST(req: Request): Promise<Response> {
       return createTextStream("Chat não encontrado.", { "X-Wyzer-Source": "not_found" })
     }
 
-    const handoffEnabled = !!(body as Record<string, unknown>)?.handoffEnabled
-
-    // ✅ Identificação de humor + opção de atendente (handoff)
+    // ✅ Identificação de humor + pedido de atendente (triagem antes de transferir)
     const normalizedIntent = normalizeIntentText(userText)
     const wantsHuman = detectHumanHandoff(normalizedIntent)
     const isStressed = !wantsHuman && detectStress(normalizedIntent, userText)
 
-    if (handoffEnabled && (wantsHuman || isStressed)) {
-      const reason = wantsHuman ? "user_request" : "stress"
-      const mood = isStressed ? "stressed" : "neutral"
+    // Detectar se estamos aguardando os "detalhes" depois do pedido de atendente
+    let awaitingHandoffDetails = false
+    try {
+      const last = await getLastChatMessageForHandoff(sb, chatCode)
+      awaitingHandoffDetails =
+        !!last && last.sender === "assistant" && isHandoffDetailsPromptMessage(last.message)
+    } catch {
+      // ignore
+    }
 
-      const handoffMsg = wantsHuman
-        ? "Certo! Vou redirecionar você para um atendente humano. Por favor, aguarde."
-        : "Entendi. Vou redirecionar você para um atendente humano para te ajudar melhor. Por favor, aguarde."
+    // 1) Stress: transferir imediatamente
+    if (isStressed) {
+      const reason = "stress"
+      const mood = "stressed"
+
+      const handoffMsg =
+        "Entendi. Vou redirecionar você para um atendente humano para te ajudar melhor. Por favor, aguarde."
 
       await sb.from("wz_chat_messages").insert([
         { chat_code: chatCode, sender: "user", message: userText, has_image: !!hasImage },
@@ -982,7 +1176,7 @@ export async function POST(req: Request): Promise<Response> {
 
       const chatMotivo = (chat as { motivo?: string | null }).motivo ?? null
       if (isMotivoGeneric(chatMotivo)) {
-        updatePayload.motivo = wantsHuman ? "Falar com atendente" : "Atendimento urgente"
+        updatePayload.motivo = "Atendimento urgente"
       }
 
       await sb.from("wz_chats").update(updatePayload).eq("chat_code", chatCode)
@@ -993,6 +1187,165 @@ export async function POST(req: Request): Promise<Response> {
         "X-Wyzer-Handoff-Reason": reason,
         "X-Wyzer-Mood": mood,
       })
+    }
+
+    // 2) Pedido de atendente: pedir detalhes antes de transferir
+    if (wantsHuman && !awaitingHandoffDetails) {
+      // Se ele já mandou detalhes anteriormente e insiste, transferir direto
+      let hasDetailsAfterPrompt = false
+      try {
+        const recent = await getRecentChatMessagesForHandoff(sb, chatCode, 12)
+        const rowsAsc = [...recent].reverse()
+        let lastPromptIdx = -1
+        for (let i = rowsAsc.length - 1; i >= 0; i--) {
+          const r = rowsAsc[i]
+          if (r?.sender === "assistant" && isHandoffDetailsPromptMessage(r?.message)) {
+            lastPromptIdx = i
+            break
+          }
+        }
+        if (lastPromptIdx >= 0) {
+          const after = rowsAsc.slice(lastPromptIdx + 1)
+          hasDetailsAfterPrompt = after.some(
+            (r) => r.sender !== "assistant" && String(r.message || "").trim().length > 0
+          )
+        }
+      } catch {
+        // ignore
+      }
+
+      if (hasDetailsAfterPrompt) {
+        const reason = "user_request"
+        const mood = "neutral"
+        const handoffMsg =
+          "Certo! Vou redirecionar você para um atendente humano. Por favor, aguarde."
+
+        await sb.from("wz_chat_messages").insert([
+          { chat_code: chatCode, sender: "user", message: userText, has_image: !!hasImage },
+          { chat_code: chatCode, sender: "assistant", message: handoffMsg, has_image: false },
+        ])
+
+        const updatePayload: Record<string, string> = {
+          updated_at: new Date().toISOString(),
+        }
+
+        const chatMotivo = (chat as { motivo?: string | null }).motivo ?? null
+        if (isMotivoGeneric(chatMotivo)) {
+          updatePayload.motivo = "Falar com atendente"
+        }
+
+        await sb.from("wz_chats").update(updatePayload).eq("chat_code", chatCode)
+
+        return createTextStream(handoffMsg, {
+          "X-Wyzer-Source": "handoff",
+          "X-Wyzer-Handoff": "1",
+          "X-Wyzer-Handoff-Reason": reason,
+          "X-Wyzer-Mood": mood,
+        })
+      }
+
+      await sb.from("wz_chat_messages").insert([
+        { chat_code: chatCode, sender: "user", message: userText, has_image: !!hasImage },
+        { chat_code: chatCode, sender: "assistant", message: HANDOFF_DETAILS_PROMPT, has_image: false },
+      ])
+
+      const updatePayload: Record<string, string> = {
+        updated_at: new Date().toISOString(),
+      }
+
+      const chatMotivo = (chat as { motivo?: string | null }).motivo ?? null
+      if (isMotivoGeneric(chatMotivo)) {
+        updatePayload.motivo = "Pedido de atendente"
+      }
+
+      await sb.from("wz_chats").update(updatePayload).eq("chat_code", chatCode)
+
+      return createTextStream(HANDOFF_DETAILS_PROMPT, {
+        "X-Wyzer-Source": "handoff_precheck",
+      })
+    }
+
+    // 3) Resposta aos detalhes: decidir se ajuda aqui ou transfere
+    if (awaitingHandoffDetails) {
+      // Se ele insiste sem detalhar, transferir (já perguntamos antes)
+      if (wantsHuman && userText.length <= 80) {
+        const reason = "user_request"
+        const mood = "neutral"
+        const handoffMsg =
+          "Certo! Vou redirecionar você para um atendente humano. Por favor, aguarde."
+
+        await sb.from("wz_chat_messages").insert([
+          { chat_code: chatCode, sender: "user", message: userText, has_image: !!hasImage },
+          { chat_code: chatCode, sender: "assistant", message: handoffMsg, has_image: false },
+        ])
+
+        const updatePayload: Record<string, string> = {
+          updated_at: new Date().toISOString(),
+        }
+
+        const chatMotivo = (chat as { motivo?: string | null }).motivo ?? null
+        if (isMotivoGeneric(chatMotivo)) {
+          updatePayload.motivo = "Falar com atendente"
+        }
+
+        await sb.from("wz_chats").update(updatePayload).eq("chat_code", chatCode)
+
+        return createTextStream(handoffMsg, {
+          "X-Wyzer-Source": "handoff",
+          "X-Wyzer-Handoff": "1",
+          "X-Wyzer-Handoff-Reason": reason,
+          "X-Wyzer-Mood": mood,
+        })
+      }
+
+      const triage = await triageHandoffDetails(userText).catch(() => ({
+        action: "help" as const,
+        confidence: 0,
+      }))
+
+      if (triage.action === "ask_more" && triage.confidence >= 0.6) {
+        await sb.from("wz_chat_messages").insert([
+          { chat_code: chatCode, sender: "user", message: userText, has_image: !!hasImage },
+          { chat_code: chatCode, sender: "assistant", message: HANDOFF_DETAILS_FOLLOWUP_PROMPT, has_image: false },
+        ])
+        await sb.from("wz_chats").update({ updated_at: new Date().toISOString() }).eq("chat_code", chatCode)
+
+        return createTextStream(HANDOFF_DETAILS_FOLLOWUP_PROMPT, {
+          "X-Wyzer-Source": "handoff_precheck_more",
+        })
+      }
+
+      if (triage.action === "handoff" && triage.confidence >= 0.6) {
+        const reason = "user_request"
+        const mood = "neutral"
+        const handoffMsg =
+          "Entendi. Não consegui resolver por aqui com segurança. Vou redirecionar você para um atendente humano. Por favor, aguarde."
+
+        await sb.from("wz_chat_messages").insert([
+          { chat_code: chatCode, sender: "user", message: userText, has_image: !!hasImage },
+          { chat_code: chatCode, sender: "assistant", message: handoffMsg, has_image: false },
+        ])
+
+        const updatePayload: Record<string, string> = {
+          updated_at: new Date().toISOString(),
+        }
+
+        const chatMotivo = (chat as { motivo?: string | null }).motivo ?? null
+        if (isMotivoGeneric(chatMotivo)) {
+          updatePayload.motivo = "Falar com atendente"
+        }
+
+        await sb.from("wz_chats").update(updatePayload).eq("chat_code", chatCode)
+
+        return createTextStream(handoffMsg, {
+          "X-Wyzer-Source": "handoff",
+          "X-Wyzer-Handoff": "1",
+          "X-Wyzer-Handoff-Reason": reason,
+          "X-Wyzer-Mood": mood,
+        })
+      }
+
+      // Caso contrário: segue o fluxo normal e tenta ajudar com IA
     }
 
     // ✅ quick response (NÃO USA API)
