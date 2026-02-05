@@ -357,7 +357,7 @@ function MessageImages({
           onClick={() => onImageClick?.(img)}
           className={[
             "rounded-xl overflow-hidden transition-all duration-300 ease-out",
-            "hover:ring-2 hover:ring-violet-400 hover:scale-[1.02] active:scale-[0.98]",
+            "hover:ring-2 hover:ring-black hover:scale-[1.02] active:scale-[0.98]",
             images.length === 1 ? "max-w-[200px]" : "w-[calc(50%-4px)] max-w-[150px]",
           ].join(" ")}
         >
@@ -381,7 +381,7 @@ function SuggestionsPanel({
     return (
       <div className="mt-6 -ml-11" style={{ animation: "fadeInUp 0.6s ease-out forwards" }}>
         <p className="text-xs text-gray-500 mb-3 flex items-center gap-2">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-violet-500" style={{ animation: "sparkleRotate 1.5s ease-in-out infinite" }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-black" style={{ animation: "sparkleRotate 1.5s ease-in-out infinite" }}>
             <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="currentColor" />
           </svg>
           Gerando sugestoes...
@@ -413,7 +413,7 @@ function SuggestionsPanel({
             className="flex items-center gap-3 w-full px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 rounded-xl transition-all duration-300 ease-out hover:translate-x-1 active:scale-[0.98]"
             style={{ animation: "slideInFromBottom 0.5s ease-out forwards", animationDelay: `${index * 100}ms`, opacity: 0 }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-violet-500 flex-shrink-0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-black flex-shrink-0">
               <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="currentColor" />
             </svg>
             <span>{suggestion.text}</span>
@@ -603,7 +603,7 @@ function BotMessage({
               className={[
                 "p-1.5 rounded-full transition-all duration-300 ease-out active:scale-90",
                 !canReact ? "opacity-40 cursor-not-allowed" : "",
-                liked ? "text-violet-600 bg-violet-50" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100",
+                liked ? "text-black bg-black/50" : "text-black hover:text-gray-600 hover:bg-gray-100",
               ].join(" ")}
               title={!canReact ? "Sincronizando..." : "Gostei"}
             >
@@ -742,7 +742,7 @@ function WelcomeScreen({
                   fill="none"
                   className={[
                     "flex-shrink-0 transition-colors duration-300",
-                    hoveredAction === action.id ? "text-violet-500" : "text-gray-400",
+                    hoveredAction === action.id ? "text-black" : "text-gray-400",
                   ].join(" ")}
                 >
                   <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="currentColor" />
