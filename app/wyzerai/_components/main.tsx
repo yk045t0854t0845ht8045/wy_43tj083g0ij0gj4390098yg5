@@ -4,6 +4,10 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from "react"
 
 type RichTextNode = React.ReactNode
 
+type AssistantBlock =
+  | { kind: "text"; text: string }
+  | { kind: "code"; code: string; lang?: string }
+
 const INLINE_DELIMS = [
   { open: "`", close: "`", kind: "code" as const },
   { open: "***", close: "***", kind: "boldItalic" as const },
@@ -103,6 +107,63 @@ function renderInlineRichText(input: string, depth = 0, keyPrefix = "rt"): RichT
   return out
 }
 
+function parseAssistantBlocks(input: string): AssistantBlock[] {
+  const text = String(input || "")
+  if (!text) return []
+
+  const blocks: AssistantBlock[] = []
+  let cursor = 0
+
+  const findCloseFence = (from: number) => {
+    for (let idx = text.indexOf("```", from); idx !== -1; idx = text.indexOf("```", idx + 3)) {
+      const before = idx === 0 ? "\n" : text[idx - 1]
+      if (before !== "\n") continue
+      return idx
+    }
+    // Fallback: aceita fence fora do inÃ­cio da linha (casos raros)
+    return text.indexOf("```", from)
+  }
+
+  while (cursor < text.length) {
+    const openIdx = text.indexOf("```", cursor)
+    if (openIdx === -1) {
+      const rest = text.slice(cursor)
+      if (rest) blocks.push({ kind: "text", text: rest })
+      break
+    }
+
+    const before = text.slice(cursor, openIdx)
+    if (before) blocks.push({ kind: "text", text: before })
+
+    const afterOpen = openIdx + 3
+    const openLineEnd = text.indexOf("\n", afterOpen)
+    if (openLineEnd === -1) {
+      // Streaming/incompleto: manter como texto normal para evitar flicker
+      blocks.push({ kind: "text", text: text.slice(openIdx) })
+      break
+    }
+
+    const langLine = text.slice(afterOpen, openLineEnd).trim()
+    const codeStart = openLineEnd + 1
+    const closeIdx = findCloseFence(codeStart)
+    if (closeIdx === -1) {
+      // Streaming/incompleto: manter como texto normal para evitar flicker
+      blocks.push({ kind: "text", text: text.slice(openIdx) })
+      break
+    }
+
+    let code = text.slice(codeStart, closeIdx)
+    if (code.endsWith("\n")) code = code.slice(0, -1)
+
+    blocks.push({ kind: "code", code, lang: langLine || undefined })
+
+    cursor = closeIdx + 3
+    if (text[cursor] === "\n") cursor += 1
+  }
+
+  return blocks
+}
+
 interface AttachedFile {
   id: string
   file: File
@@ -151,6 +212,64 @@ interface MainProps {
   onLoginClick?: () => void
   onReactMessage?: (dbId: number, liked: boolean, disliked: boolean) => void
   isRedirectingToHuman?: boolean
+}
+
+function CodeBlock({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = () => {
+    const text = String(code || "").replace(/\n+$/, "")
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1600)
+  }
+
+  return (
+    <div className="relative bg-gray-100 rounded-xl p-3 my-2">
+      <button
+        type="button"
+        onClick={handleCopy}
+        className={[
+          "absolute top-2 right-2 p-2 rounded-lg transition-all duration-300 ease-out active:scale-90",
+          copied ? "text-green-600 bg-white/70" : "text-gray-500 hover:text-gray-700 bg-white/50 hover:bg-white/70",
+        ].join(" ")}
+        title={copied ? "Copiado!" : "Copiar código"}
+      >
+        {copied ? (
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M20 6L9 17l-5-5" />
+          </svg>
+        ) : (
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="9" y="9" width="13" height="13" rx="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+          </svg>
+        )}
+      </button>
+
+      <pre className="font-mono text-[12px] leading-relaxed whitespace-pre overflow-x-auto pr-10 text-gray-900">
+        <code>{code}</code>
+      </pre>
+    </div>
+  )
 }
 
 const categoriesData: Category[] = [
@@ -540,7 +659,17 @@ function BotMessage({
 
   const canReact = typeof dbId === "number" && !!onReactMessage && !isLoginRequired && !isStreaming
 
-  const richContent = useMemo(() => renderInlineRichText(content || ""), [content])
+  const richBlocks = useMemo(() => parseAssistantBlocks(content || ""), [content])
+  const richContent = useMemo(
+    () =>
+      richBlocks.map((b, i) => {
+        if (b.kind === "code") {
+          return <CodeBlock key={`cb_${i}`} code={b.code} />
+        }
+        return <React.Fragment key={`ct_${i}`}>{renderInlineRichText(b.text || "", 0, `rt_${i}`)}</React.Fragment>
+      }),
+    [richBlocks]
+  )
 
   const handleLike = () => {
     if (!canReact) return

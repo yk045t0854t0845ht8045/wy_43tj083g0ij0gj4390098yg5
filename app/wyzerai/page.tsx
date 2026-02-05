@@ -377,6 +377,7 @@ export function WyzerAIWidget() {
   const queuedChatCodeRef = useRef<string>("")
   // ✅ NOVO: Rastrear último chatCode carregado para evitar mistura
   const lastLoadedChatCodeRef = useRef<string>("")
+  const submitLockRef = useRef(false)
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 640)
@@ -671,7 +672,54 @@ export function WyzerAIWidget() {
             return ta - tb
           })
 
-          return next
+          // Remover/mesclar duplicadas ocasionais (race entre polling e envio)
+          const timeOf = (m: Message) => Number(m.dbCreatedAtMs || m.clientTs || 0)
+
+          const isAdjDuplicateLocalVsDb = (a: Message, b: Message) => {
+            const aHasDb = typeof a.dbId === "number"
+            const bHasDb = typeof b.dbId === "number"
+            if (aHasDb === bHasDb) return false
+            if (a.role !== b.role) return false
+            if (!contentMatches(String(a.content || ""), String(b.content || ""))) return false
+
+            const ta = timeOf(a)
+            const tb = timeOf(b)
+            if (ta && tb) return Math.abs(ta - tb) <= 120_000
+            return true
+          }
+
+          const mergeDbIntoLocal = (dbMsg: Message, localMsg: Message): Message => {
+            const merged: Message = {
+              ...localMsg,
+              dbId: dbMsg.dbId,
+              liked: typeof dbMsg.liked === "boolean" ? dbMsg.liked : localMsg.liked,
+              disliked: typeof dbMsg.disliked === "boolean" ? dbMsg.disliked : localMsg.disliked,
+              dbCreatedAtMs: dbMsg.dbCreatedAtMs || localMsg.dbCreatedAtMs,
+              chatCode: code,
+            }
+
+            const localContent = String(localMsg.content || "")
+            if (!localContent && dbMsg.content) merged.content = String(dbMsg.content || "")
+            return merged
+          }
+
+          const cleaned: Message[] = []
+          for (const m of next) {
+            const last = cleaned[cleaned.length - 1]
+            if (last && isAdjDuplicateLocalVsDb(last, m)) {
+              const lastHasDb = typeof last.dbId === "number"
+              const curHasDb = typeof m.dbId === "number"
+              if (!lastHasDb && curHasDb) {
+                cleaned[cleaned.length - 1] = mergeDbIntoLocal(m, last)
+              } else if (lastHasDb && !curHasDb) {
+                cleaned[cleaned.length - 1] = mergeDbIntoLocal(last, m)
+              }
+              continue
+            }
+            cleaned.push(m)
+          }
+
+          return cleaned
         })
       } finally {
         inFlightChatRef.current = false
@@ -816,7 +864,10 @@ export function WyzerAIWidget() {
       }, 2500)
     }
 
-    if (activeTab === "chat" && chatCode) {
+    const shouldPollChat =
+      activeTab === "chat" && !!chatCode && !sending && !isLoading && !needsLogin
+
+    if (shouldPollChat) {
       if (!chatPollRef.current) {
         loadChatMessagesMerge(chatCode)
         chatPollRef.current = window.setInterval(() => {
@@ -829,7 +880,16 @@ export function WyzerAIWidget() {
     }
 
     return () => {}
-  }, [open, activeTab, chatCode, refreshHistory, loadChatMessagesMerge])
+  }, [
+    open,
+    activeTab,
+    chatCode,
+    refreshHistory,
+    loadChatMessagesMerge,
+    sending,
+    isLoading,
+    needsLogin,
+  ])
 
   const callWyzerAI = useCallback(
     async ({
@@ -1013,7 +1073,12 @@ export function WyzerAIWidget() {
 
   const handleSubmit = useCallback(
     async (files?: AttachedFile[]) => {
-      if (activeTab !== "chat") return
+      if (submitLockRef.current) return
+      submitLockRef.current = true
+      let didStart = false
+
+      try {
+        if (activeTab !== "chat") return
 
       if (needsLogin) {
         ensureLoginMessage()
@@ -1023,6 +1088,7 @@ export function WyzerAIWidget() {
       if ((!input.trim() && (!files || files.length === 0)) || sending || isLoading)
         return
 
+      didStart = true
       setSending(true)
       setIsLoading(true)
 
@@ -1117,6 +1183,15 @@ export function WyzerAIWidget() {
 
       await loadChatMessagesMerge(effectiveChatCode)
       await refreshHistory()
+      } finally {
+        submitLockRef.current = false
+        if (didStart) {
+          setStreamingContent("")
+          setIsLoading(false)
+          setSending(false)
+          setIsRedirectingToHuman(false)
+        }
+      }
     },
     [
       activeTab,
