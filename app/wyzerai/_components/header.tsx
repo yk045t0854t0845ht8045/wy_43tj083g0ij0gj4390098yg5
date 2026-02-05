@@ -9,6 +9,7 @@ interface HeaderProps {
   onClose?: () => void
   onGoBack?: () => void
   onSaveTranscript?: () => void
+  hasActiveChat?: boolean
   hasMessages?: boolean
 }
 
@@ -19,6 +20,7 @@ export function Header({
   onGoBack,
   onNewChat,
   onSaveTranscript,
+  hasActiveChat = false,
   hasMessages = false,
 }: HeaderProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -130,7 +132,7 @@ export function Header({
       </div>
 
       <div className="flex items-center gap-1">
-        {hasMessages && (
+        {activeTab === "chat" && hasActiveChat && hasMessages && (
           <button
             type="button"
             onClick={onSaveTranscript}
@@ -156,7 +158,7 @@ export function Header({
           </button>
         )}
 
-        {hasMessages && (
+        {activeTab === "chat" && hasActiveChat && hasMessages && (
           <button
             type="button"
             onClick={onNewChat}

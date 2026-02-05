@@ -151,8 +151,8 @@ const QUICK_RESPONSES: Record<string, string> = {
   ajuda: "Claro! Me conta o que você precisa e vou te ajudar.",
   "preciso de ajuda": "Estou aqui para ajudar! Me conta o que está acontecendo.",
   suporte: "Nosso suporte funciona seg-sex, 9h-18h. Em que posso ajudar agora?",
-  atendente: "Vou transferir você para um atendente humano. Aguarde um momento.",
-  humano: "Entendi! Vou solicitar um atendente humano para você. Aguarde.",
+  atendente: "Posso te ajudar por aqui agora. Se preferir, posso chamar um atendente.",
+  humano: "Posso te ajudar por aqui. Se preferir, posso chamar um atendente.",
   
   // WhatsApp
   whatsapp: "Para conectar seu WhatsApp, acesse Configurações > WhatsApp no painel.",
@@ -495,15 +495,63 @@ const GENERIC_MOTIVO_HINTS = [
   "sem motivo",
 ] as const
 
-function isMotivoGeneric(motivo: unknown): boolean {
-  const normalized = String(motivo || "")
+function normalizeMotivoText(v: unknown): string {
+  return String(v || "")
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
+}
+
+const TRIVIAL_MOTIVO_EXACT = [
+  "oi",
+  "olá",
+  "ola",
+  "opa",
+  "hey",
+  "oi tudo bem",
+  "olá tudo bem",
+  "ola tudo bem",
+  "oi td bem",
+  "olá td bem",
+  "ola td bem",
+  "oi beleza",
+  "oi blz",
+  "olá beleza",
+  "olá blz",
+  "ola beleza",
+  "ola blz",
+  "bom dia",
+  "boa tarde",
+  "boa noite",
+  "tudo bem",
+  "td bem",
+  "tudo certo",
+  "oi tudo certo",
+  "olá tudo certo",
+  "ola tudo certo",
+  "boa tarde tudo bem",
+  "boa noite tudo bem",
+  "bom dia tudo bem",
+  "beleza",
+  "blz",
+  "ok",
+  "sim",
+  "não",
+  "nao",
+] as const
+
+const TRIVIAL_MOTIVO_EXACT_NORMALIZED = new Set(
+  TRIVIAL_MOTIVO_EXACT.map((t) => normalizeMotivoText(t))
+)
+
+function isMotivoGeneric(motivo: unknown): boolean {
+  const normalized = normalizeMotivoText(motivo)
 
   if (!normalized) return true
+  if (TRIVIAL_MOTIVO_EXACT_NORMALIZED.has(normalized)) return true
   return GENERIC_MOTIVO_HINTS.some((hint) => normalized.includes(hint))
 }
 
@@ -512,17 +560,20 @@ function cleanMotivoCandidate(raw: string): string {
   s = s.replace(/^["'`]+|["'`]+$/g, "")
   s = s.replace(/\s+/g, " ").trim()
   s = s.replace(/[.!?…]+$/g, "").trim()
+  const words = s.split(" ").filter(Boolean)
+  if (words.length > 6) s = words.slice(0, 6).join(" ").trim()
   if (s.length > 64) s = s.slice(0, 64).trim()
   return s
 }
 
-async function generateMotivoWithModelFallback(args: { firstThreeUserMessages: string[] }): Promise<string> {
+async function generateMotivoWithModelFallback(args: { firstThreeMessages: string[] }): Promise<string> {
   const prompt = [
     "Crie um motivo curto (máx 6 palavras) para este atendimento.",
-    "Use APENAS as 3 primeiras mensagens do usuário.",
+    "Use APENAS as 3 primeiras mensagens deste chat (usuário + assistente).",
+    "O motivo deve refletir o objetivo do usuário.",
     "Retorne somente o motivo, sem aspas e sem ponto final.",
     "",
-    args.firstThreeUserMessages.map((m, i) => `${i + 1}) ${m}`).join("\n"),
+    args.firstThreeMessages.map((m, i) => `${i + 1}) ${m}`).join("\n"),
   ].join("\n")
 
   let lastErr: unknown = null
@@ -570,34 +621,59 @@ async function maybeGenerateMotivo(
   const currentMotivoRaw = (chat as { motivo?: string | null }).motivo ?? null
   if (!isMotivoGeneric(currentMotivoRaw)) return
 
-  // ✅ Buscar as 3 primeiras mensagens do usuário (base do motivo)
+  // ✅ Buscar as 3 primeiras mensagens do chat (base do motivo)
   const { data: msgs } = await sb
     .from("wz_chat_messages")
-    .select("message")
+    .select("sender, message")
     .eq("chat_code", chatCode)
-    .eq("sender", "user")
     .order("created_at", { ascending: true })
     .limit(3)
 
-  const firstThree = Array.isArray(msgs)
-    ? msgs.map((m) => sanitizeText(m?.message, 220)).filter(Boolean)
+  const rows = Array.isArray(msgs)
+    ? msgs
+        .map((m) => ({
+          sender: String((m as { sender?: string | null })?.sender || ""),
+          message: sanitizeText((m as { message?: unknown })?.message, 220),
+        }))
+        .filter((m) => !!m.message)
     : []
 
   // Ainda não tem contexto suficiente (baseado nas 3 primeiras mensagens)
-  if (firstThree.length < 3) return
+  if (rows.length < 3) return
+
+  const firstThree = rows.slice(0, 3)
+  const firstThreeLines = firstThree.map((m) => {
+    const who = m.sender === "assistant" ? "Flow" : "Usuário"
+    return `${who}: ${m.message}`
+  })
 
   let nextMotivo = await generateMotivoWithModelFallback({
-    firstThreeUserMessages: firstThree,
+    firstThreeMessages: firstThreeLines,
   })
   nextMotivo = cleanMotivoCandidate(nextMotivo)
 
   // Fallback: keywords / primeira mensagem
   if (!nextMotivo || isMotivoGeneric(nextMotivo)) {
+    const userText = firstThree
+      .filter((m) => m.sender !== "assistant")
+      .map((m) => m.message)
+      .join(" ")
+
     const fromKeywords =
-      extractMotivoFromText(firstThree.join(" ")) ||
+      extractMotivoFromText(userText || firstThreeLines.join(" ")) ||
       (currentUserMessage ? extractMotivoFromText(currentUserMessage) : null)
 
-    nextMotivo = cleanMotivoCandidate(fromKeywords || firstThree[0] || "Atendimento geral")
+    const bestSeed =
+      firstThree
+        .filter((m) => m.sender !== "assistant")
+        .map((m) => m.message)
+        .find((m) => !TRIVIAL_MOTIVO_EXACT_NORMALIZED.has(normalizeMotivoText(m))) ||
+      (currentUserMessage && !TRIVIAL_MOTIVO_EXACT_NORMALIZED.has(normalizeMotivoText(currentUserMessage))
+        ? currentUserMessage
+        : null) ||
+      "Atendimento geral"
+
+    nextMotivo = cleanMotivoCandidate(fromKeywords || bestSeed)
   }
 
   if (!nextMotivo || isMotivoGeneric(nextMotivo)) return
@@ -694,12 +770,14 @@ export async function POST(req: Request): Promise<Response> {
       return createTextStream("Chat não encontrado.", { "X-Wyzer-Source": "not_found" })
     }
 
+    const handoffEnabled = !!(body as Record<string, unknown>)?.handoffEnabled
+
     // ✅ Identificação de humor + opção de atendente (handoff)
     const normalizedIntent = normalizeIntentText(userText)
     const wantsHuman = detectHumanHandoff(normalizedIntent)
     const isStressed = !wantsHuman && detectStress(normalizedIntent, userText)
 
-    if (wantsHuman || isStressed) {
+    if (handoffEnabled && (wantsHuman || isStressed)) {
       const reason = wantsHuman ? "user_request" : "stress"
       const mood = isStressed ? "stressed" : "neutral"
 
@@ -810,6 +888,8 @@ export async function POST(req: Request): Promise<Response> {
       await sb.from("wz_chats").update({ updated_at: new Date().toISOString() }).eq("chat_code", chatCode)
 
       setCachedResponse(userText, assistantText)
+      // ✅ Garante atualização do motivo assim que houver 3 mensagens no chat
+      await maybeGenerateMotivo(sb, chatCode, userText).catch(() => {})
     }).catch(() => {})
 
     response.headers.set("X-Wyzer-Model", usedModel)

@@ -373,6 +373,8 @@ export function WyzerAIWidget() {
   const chatPollRef = useRef<number | null>(null)
   const inFlightHistoryRef = useRef(false)
   const inFlightChatRef = useRef(false)
+  const pendingHistoryRefreshRef = useRef(false)
+  const queuedChatCodeRef = useRef<string>("")
   // ✅ NOVO: Rastrear último chatCode carregado para evitar mistura
   const lastLoadedChatCodeRef = useRef<string>("")
 
@@ -461,51 +463,87 @@ export function WyzerAIWidget() {
     return String(data.chatCode)
   }, [apiFetch])
 
-  const refreshHistory = useCallback(async () => {
-    if (inFlightHistoryRef.current) return
-    inFlightHistoryRef.current = true
-    try {
-      const r = await apiFetch("/api/wz_WyzerAI/chat/list")
-      if (r.status === 401) return
-      if (!r.ok) return
+  const refreshHistory = useCallback(
+    async function refreshHistory() {
+      if (inFlightHistoryRef.current) {
+        pendingHistoryRefreshRef.current = true
+        return
+      }
+      inFlightHistoryRef.current = true
+      pendingHistoryRefreshRef.current = false
 
-      const data = await r.json().catch(() => ({}))
-      const chats = Array.isArray(data?.chats) ? data.chats : []
+      try {
+        const r = await apiFetch("/api/wz_WyzerAI/chat/list")
+        if (r.status === 401) return
+        if (!r.ok) return
 
-      const next = chats.map((c: Record<string, unknown>) => ({
-        id: String(c.chat_code),
-        preview: String(c.motivo || "Atendimento sem motivo ainda"),
-        timestamp: new Date(String(c.updated_at || c.created_at)).toLocaleString("pt-BR"),
-        isOnline: String(c.chat_code) === String(chatCode || ""),
-      }))
+        const data = await r.json().catch(() => ({}))
+        const chats = Array.isArray(data?.chats) ? data.chats : []
 
-      setHistoryItems((prev) => {
-        if (prev.length === next.length) {
-          let same = true
-          for (let i = 0; i < prev.length; i++) {
-            const a = prev[i]
-            const b = next[i]
-            if (!a || !b) { same = false; break }
-            if (a.id !== b.id || a.preview !== b.preview || a.timestamp !== b.timestamp || !!a.isOnline !== !!b.isOnline) {
-              same = false
-              break
+        const next = chats.map((c: Record<string, unknown>) => ({
+          id: String(c.chat_code),
+          preview: String(c.motivo || "Atendimento sem motivo ainda"),
+          timestamp: new Date(String(c.updated_at || c.created_at)).toLocaleString("pt-BR"),
+          isOnline: String(c.chat_code) === String(chatCode || ""),
+        }))
+
+        setHistoryItems((prev) => {
+          if (prev.length === next.length) {
+            let same = true
+            for (let i = 0; i < prev.length; i++) {
+              const a = prev[i]
+              const b = next[i]
+              if (!a || !b) { same = false; break }
+              if (a.id !== b.id || a.preview !== b.preview || a.timestamp !== b.timestamp || !!a.isOnline !== !!b.isOnline) {
+                same = false
+                break
+              }
             }
+            if (same) return prev
           }
-          if (same) return prev
+          return next
+        })
+      } finally {
+        inFlightHistoryRef.current = false
+        if (pendingHistoryRefreshRef.current) {
+          pendingHistoryRefreshRef.current = false
+          void refreshHistory()
         }
-        return next
-      })
-    } finally {
-      inFlightHistoryRef.current = false
-    }
-  }, [apiFetch, chatCode])
+      }
+    },
+    [apiFetch, chatCode]
+  )
+
+  // ✅ Atualizar destaque do chat ativo no histórico em tempo real
+  useEffect(() => {
+    setHistoryItems((prev) =>
+      prev.map((it) => ({
+        ...it,
+        isOnline: !!chatCode && String(it.id) === String(chatCode),
+      }))
+    )
+  }, [chatCode])
+
+  const handleTabChange = useCallback(
+    (tab: "chat" | "history") => {
+      setActiveTab(tab)
+      if (tab === "history") {
+        void refreshHistory()
+      }
+    },
+    [refreshHistory]
+  )
 
   // ✅ CORRIGIDO: Merge de mensagens isolado por chatCode
   const loadChatMessagesMerge = useCallback(
-    async (code: string) => {
+    async function loadChatMessagesMerge(code: string) {
       if (!code) return
-      if (inFlightChatRef.current) return
+      if (inFlightChatRef.current) {
+        queuedChatCodeRef.current = code
+        return
+      }
       inFlightChatRef.current = true
+      queuedChatCodeRef.current = ""
 
       try {
         const r = await apiFetch(
@@ -637,6 +675,11 @@ export function WyzerAIWidget() {
         })
       } finally {
         inFlightChatRef.current = false
+        const queued = queuedChatCodeRef.current
+        if (queued && queued !== code) {
+          queuedChatCodeRef.current = ""
+          void loadChatMessagesMerge(queued)
+        }
       }
     },
     [apiFetch]
@@ -770,7 +813,7 @@ export function WyzerAIWidget() {
       refreshHistory()
       historyPollRef.current = window.setInterval(() => {
         refreshHistory()
-      }, 4500)
+      }, 2500)
     }
 
     if (activeTab === "chat" && chatCode) {
@@ -814,6 +857,7 @@ export function WyzerAIWidget() {
         const payload = {
           sessionId,
           chatCode: effectiveChatCode,
+          handoffEnabled: ON_HUMAN_HANDOFF !== null,
           messages: [
             {
               role: lastMessage.role,
@@ -969,6 +1013,8 @@ export function WyzerAIWidget() {
 
   const handleSubmit = useCallback(
     async (files?: AttachedFile[]) => {
+      if (activeTab !== "chat") return
+
       if (needsLogin) {
         ensureLoginMessage()
         return
@@ -1073,6 +1119,7 @@ export function WyzerAIWidget() {
       await refreshHistory()
     },
     [
+      activeTab,
       needsLogin,
       input,
       sending,
@@ -1109,20 +1156,8 @@ export function WyzerAIWidget() {
   }, [])
 
   const handleNewChat = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-    }
-    setNeedsLogin(false)
-    setInput("")
-    setMessages([])
-    setIsLoading(false)
-    setIsRedirectingToHuman(false)
-    setSending(false)
-    setStreamingContent("")
-    setAttachedFiles([])
-    setChatCode("")
-    lastLoadedChatCodeRef.current = ""
-  }, [])
+    handleGoBack()
+  }, [handleGoBack])
 
   const handleHistoryItemClick = useCallback(
     async (item?: { id: string }) => {
@@ -1133,8 +1168,8 @@ export function WyzerAIWidget() {
       setIsRedirectingToHuman(false)
       lastLoadedChatCodeRef.current = code
       setChatCode(code)
-      await loadChatMessagesMerge(code)
       setActiveTab("chat")
+      await loadChatMessagesMerge(code)
     },
     [loadChatMessagesMerge]
   )
@@ -1243,12 +1278,13 @@ export function WyzerAIWidget() {
 
             <Header
               activeTab={activeTab}
-              onTabChange={setActiveTab}
+              onTabChange={handleTabChange}
               onGoBack={handleGoBack}
               onNewChat={handleNewChat}
               onClose={() => setOpen(false)}
               onSaveTranscript={() => setShowTranscriptModal(true)}
-              hasMessages={currentChatMessages.length > 0}
+              hasActiveChat={activeTab === "chat" && !!chatCode}
+              hasMessages={activeTab === "chat" && currentChatMessages.length > 0}
             />
 
             <div className="flex-1 flex flex-col overflow-hidden relative">
@@ -1274,15 +1310,17 @@ export function WyzerAIWidget() {
               )}
             </div>
 
-            <Input
-              value={input}
-              onChange={setInput}
-              onSubmit={handleSubmit}
-              disabled={sending || isLoading || needsLogin}
-              placeholder={needsLogin ? "Faça login para continuar" : "Ask anything"}
-              attachedFiles={attachedFiles}
-              onFilesChange={setAttachedFiles}
-            />
+            {activeTab === "chat" && (
+              <Input
+                value={input}
+                onChange={setInput}
+                onSubmit={handleSubmit}
+                disabled={sending || isLoading || needsLogin}
+                placeholder={needsLogin ? "Faça login para continuar" : "Ask anything"}
+                attachedFiles={attachedFiles}
+                onFilesChange={setAttachedFiles}
+              />
+            )}
           </div>
 
           <TranscriptModal

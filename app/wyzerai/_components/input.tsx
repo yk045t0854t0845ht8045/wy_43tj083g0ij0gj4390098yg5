@@ -76,6 +76,11 @@ export function Input({
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (disabled) {
+      if (fileInputRef.current) fileInputRef.current.value = ""
+      return
+    }
+
     const files = e.target.files
     if (!files || !onFilesChange) return
 
@@ -128,6 +133,7 @@ export function Input({
   }
 
   const handleAddClick = () => {
+    if (disabled) return
     fileInputRef.current?.click()
   }
 
@@ -235,10 +241,10 @@ export function Input({
             <button
               type="button"
               onClick={handleAddClick}
-              disabled={attachedFiles.length >= MAX_FILES}
+              disabled={disabled || attachedFiles.length >= MAX_FILES}
               className={[
                 "p-2 rounded-full transition-all duration-300 ease-out active:scale-90",
-                attachedFiles.length >= MAX_FILES
+                disabled || attachedFiles.length >= MAX_FILES
                   ? "text-gray-300 cursor-not-allowed"
                   : "text-gray-500 hover:text-gray-700 hover:bg-gray-100",
               ].join(" ")}

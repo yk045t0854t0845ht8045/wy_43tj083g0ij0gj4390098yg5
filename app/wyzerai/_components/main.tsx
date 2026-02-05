@@ -2,6 +2,107 @@
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react"
 
+type RichTextNode = React.ReactNode
+
+const INLINE_DELIMS = [
+  { open: "`", close: "`", kind: "code" as const },
+  { open: "***", close: "***", kind: "boldItalic" as const },
+  { open: "___", close: "___", kind: "boldItalic" as const },
+  { open: "**", close: "**", kind: "bold" as const },
+  { open: "__", close: "__", kind: "bold" as const },
+  { open: "*", close: "*", kind: "italic" as const },
+  { open: "_", close: "_", kind: "italic" as const },
+]
+
+function renderInlineRichText(input: string, depth = 0, keyPrefix = "rt"): RichTextNode[] {
+  if (!input) return []
+  if (depth > 12) return [input]
+
+  const out: RichTextNode[] = []
+  let cursor = 0
+  let keyIndex = 0
+
+  const findNext = (text: string) => {
+    let best: { idx: number; openLen: number; delim: (typeof INLINE_DELIMS)[number] } | null = null
+    for (const delim of INLINE_DELIMS) {
+      const idx = text.indexOf(delim.open)
+      if (idx < 0) continue
+      if (!best || idx < best.idx || (idx === best.idx && delim.open.length > best.openLen)) {
+        best = { idx, openLen: delim.open.length, delim }
+      }
+    }
+    return best
+  }
+
+  while (cursor < input.length) {
+    const slice = input.slice(cursor)
+    const next = findNext(slice)
+    if (!next) {
+      out.push(slice)
+      break
+    }
+
+    if (next.idx > 0) {
+      out.push(slice.slice(0, next.idx))
+    }
+
+    const openAt = next.idx
+    const afterOpen = openAt + next.delim.open.length
+    const closeAt = slice.indexOf(next.delim.close, afterOpen)
+
+    // Se não tem fechamento ainda (streaming), manter texto normal
+    if (closeAt < 0) {
+      out.push(next.delim.open)
+      cursor += afterOpen
+      continue
+    }
+
+    const inner = slice.slice(afterOpen, closeAt)
+    const restStart = closeAt + next.delim.close.length
+
+    const key = `${keyPrefix}_${depth}_${cursor}_${keyIndex}`
+    keyIndex++
+
+    if (next.delim.kind === "code") {
+      out.push(
+        <code
+          key={key}
+          className="px-1 py-0.5 rounded bg-gray-100 font-mono text-[0.85em]"
+        >
+          {inner}
+        </code>
+      )
+      cursor += restStart
+      continue
+    }
+
+    const children = renderInlineRichText(inner, depth + 1, key)
+    if (next.delim.kind === "boldItalic") {
+      out.push(
+        <strong key={key} className="font-semibold">
+          <em className="italic">{children}</em>
+        </strong>
+      )
+    } else if (next.delim.kind === "bold") {
+      out.push(
+        <strong key={key} className="font-semibold">
+          {children}
+        </strong>
+      )
+    } else {
+      out.push(
+        <em key={key} className="italic">
+          {children}
+        </em>
+      )
+    }
+
+    cursor += restStart
+  }
+
+  return out
+}
+
 interface AttachedFile {
   id: string
   file: File
@@ -328,6 +429,7 @@ function BotMessage({
   showSuggestions,
   lastBotMessage,
   onSuggestionClick,
+  onEnsureBottom,
   isLoginRequired,
   onLoginClick,
   dbId,
@@ -340,6 +442,7 @@ function BotMessage({
   showSuggestions: boolean
   lastBotMessage: string
   onSuggestionClick?: (text: string) => void
+  onEnsureBottom?: (behavior?: ScrollBehavior) => void
   isLoginRequired?: boolean
   onLoginClick?: () => void
   dbId?: number
@@ -398,10 +501,36 @@ function BotMessage({
     const timer = setTimeout(() => {
       setSuggestionsVisible(true)
       generateAISuggestions(lastBotMessage)
+      requestAnimationFrame(() => onEnsureBottom?.("smooth"))
     }, 1400)
 
     return () => clearTimeout(timer)
-  }, [showSuggestions, lastBotMessage, generateAISuggestions, isLoginRequired, isStreaming])
+  }, [
+    showSuggestions,
+    lastBotMessage,
+    generateAISuggestions,
+    isLoginRequired,
+    isStreaming,
+    onEnsureBottom,
+  ])
+
+  useEffect(() => {
+    if (!showSuggestions) return
+    if (!suggestionsVisible) return
+    if (isLoginRequired) return
+    if (isStreaming) return
+
+    const raf = requestAnimationFrame(() => onEnsureBottom?.("smooth"))
+    return () => cancelAnimationFrame(raf)
+  }, [
+    showSuggestions,
+    suggestionsVisible,
+    suggestions.length,
+    isLoadingAI,
+    isLoginRequired,
+    isStreaming,
+    onEnsureBottom,
+  ])
 
   const handleCopy = () => {
     navigator.clipboard.writeText(content)
@@ -410,6 +539,8 @@ function BotMessage({
   }
 
   const canReact = typeof dbId === "number" && !!onReactMessage && !isLoginRequired && !isStreaming
+
+  const richContent = useMemo(() => renderInlineRichText(content || ""), [content])
 
   const handleLike = () => {
     if (!canReact) return
@@ -441,7 +572,7 @@ function BotMessage({
 
         {showContent ? (
           <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap" style={{ animation: "fadeIn 0.3s ease-out forwards" }}>
-            {content}
+            {richContent}
             {isStreaming && <span className="inline-block w-2 h-4 bg-gray-400 ml-0.5 animate-pulse" />}
           </div>
         ) : isStreaming ? (
@@ -665,8 +796,14 @@ export function Main({
 }: MainProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const hasMessages = messages.length > 0
-  const prevMessagesLengthRef = useRef(messages.length)
+  const prevMessagesLengthRef = useRef(0)
   const prevStreamingContentRef = useRef(streamingContent)
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior })
+  }, [])
 
   const lastBotMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -751,6 +888,7 @@ export function Main({
                 showSuggestions={isLastAssistant}
                 lastBotMessage={lastBotMessage}
                 onSuggestionClick={onQuickAction}
+                onEnsureBottom={scrollToBottom}
                 isLoginRequired={message.kind === "login_required"}
                 onLoginClick={onLoginClick}
                 dbId={message.dbId}
