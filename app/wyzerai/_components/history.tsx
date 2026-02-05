@@ -69,7 +69,7 @@ export function History({ items = [], onItemClick }: HistoryProps) {
                     height="14"
                     viewBox="0 0 24 24"
                     fill="none"
-                    className="text-black flex-shrink-0"
+                    className="text-blue-500 flex-shrink-0"
                   >
                     <path
                       d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z"
