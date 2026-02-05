@@ -17,6 +17,7 @@ interface Message {
   dbId?: number
   liked?: boolean
   disliked?: boolean
+  isStreaming?: boolean
 }
 
 interface Suggestion {
@@ -47,8 +48,6 @@ interface MainProps {
   streamingContent?: string
   onImageClick?: (image: AttachedFile) => void
   onLoginClick?: () => void
-
-  // ✅ reações em tempo real
   onReactMessage?: (dbId: number, liked: boolean, disliked: boolean) => void
 }
 
@@ -206,7 +205,7 @@ function ShimmerText({ children }: { children: React.ReactNode }) {
   )
 }
 
-function LoadingMessage({ botAvatarSrc }: { botAvatarSrc?: string }) {
+function LoadingMessage() {
   return (
     <div className="flex items-start gap-3" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
       <div className="flex-shrink-0 w-8 h-8 overflow-hidden flex items-center justify-center">
@@ -227,26 +226,6 @@ function LoadingMessage({ botAvatarSrc }: { botAvatarSrc?: string }) {
               <AnimatedDots />
             </div>
           </span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function StreamingMessage({ content }: { content: string }) {
-  return (
-    <div className="flex items-start gap-3" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
-      <div className="flex-shrink-0 w-8 h-8 overflow-hidden flex items-center justify-center">
-        <img src="/flow-icon.png" alt="Flow" className="w-full h-full object-cover" loading="lazy" draggable={false} />
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-sm font-semibold text-gray-900">Flow</span>
-        </div>
-        <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap" style={{ animation: "fadeIn 0.3s ease-out forwards" }}>
-          {content}
-          <span className="inline-block w-2 h-4 bg-gray-400 ml-0.5 animate-pulse" />
         </div>
       </div>
     </div>
@@ -341,32 +320,27 @@ function SuggestionsPanel({
 function BotMessage({
   content,
   showSuggestions,
-  lastUserMessage,
   lastBotMessage,
   onSuggestionClick,
-  botAvatarSrc,
   isLoginRequired,
   onLoginClick,
-
-  // ✅ reações
   dbId,
   liked,
   disliked,
   onReactMessage,
+  isStreaming,
 }: {
   content: string
   showSuggestions: boolean
-  lastUserMessage: string
   lastBotMessage: string
   onSuggestionClick?: (text: string) => void
-  botAvatarSrc?: string
   isLoginRequired?: boolean
   onLoginClick?: () => void
-
   dbId?: number
   liked?: boolean
   disliked?: boolean
   onReactMessage?: (dbId: number, liked: boolean, disliked: boolean) => void
+  isStreaming?: boolean
 }) {
   const [suggestionsVisible, setSuggestionsVisible] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -380,11 +354,21 @@ function BotMessage({
     setIsLoadingAI(true)
 
     try {
-      const response = await fetch("/api/wz_WyzerAI/suggestions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lastBotResponse: botResponse }),
-      })
+      // retry leve pra reduzir fallback
+      const tryOnce = async () => {
+        const response = await fetch("/api/wz_WyzerAI/suggestions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lastBotResponse: botResponse }),
+        })
+        return response
+      }
+
+      let response = await tryOnce()
+      if (!response.ok) {
+        await new Promise((r) => setTimeout(r, 350))
+        response = await tryOnce()
+      }
 
       if (response.ok) {
         const data = await response.json()
@@ -395,11 +379,8 @@ function BotMessage({
         }
       }
     } catch {
-      setSuggestions([
-        { id: "fb1", text: "Pode explicar melhor?" },
-        { id: "fb2", text: "Preciso de mais ajuda" },
-        { id: "fb3", text: "Falar com atendente" },
-      ])
+      // se falhar, não força “fallback pesado”
+      setSuggestions([])
     } finally {
       setIsLoadingAI(false)
     }
@@ -408,15 +389,15 @@ function BotMessage({
   useEffect(() => {
     if (!showSuggestions) return
     if (isLoginRequired) return
+    if (isStreaming) return
 
     const timer = setTimeout(() => {
       setSuggestionsVisible(true)
-      // sem keyword engine aqui pra não mexer na tua base — mantém o AI fallback
       generateAISuggestions(lastBotMessage)
-    }, 2000)
+    }, 1400)
 
     return () => clearTimeout(timer)
-  }, [showSuggestions, lastBotMessage, generateAISuggestions, isLoginRequired])
+  }, [showSuggestions, lastBotMessage, generateAISuggestions, isLoginRequired, isStreaming])
 
   const handleCopy = () => {
     navigator.clipboard.writeText(content)
@@ -424,7 +405,7 @@ function BotMessage({
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const canReact = typeof dbId === "number" && !!onReactMessage && !isLoginRequired
+  const canReact = typeof dbId === "number" && !!onReactMessage && !isLoginRequired && !isStreaming
 
   const handleLike = () => {
     if (!canReact) return
@@ -451,9 +432,14 @@ function BotMessage({
           <span className="text-sm font-semibold text-gray-900">Flow</span>
         </div>
 
-        <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap" style={{ animation: "fadeIn 0.3s ease-out forwards" }}>
-          {content}
-        </div>
+        {isStreaming && !content ? (
+          <LoadingMessage />
+        ) : (
+          <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap" style={{ animation: "fadeIn 0.3s ease-out forwards" }}>
+            {content}
+            {isStreaming ? <span className="inline-block w-2 h-4 bg-gray-400 ml-0.5 animate-pulse" /> : null}
+          </div>
+        )}
 
         {isLoginRequired && (
           <div className="mt-3">
@@ -659,7 +645,6 @@ export function Main({
   userName = "Usuario",
   onQuickAction,
   logoSrc = "/logo.png",
-  botAvatarSrc,
   messages = [],
   isLoading = false,
   streamingContent = "",
@@ -670,9 +655,9 @@ export function Main({
   const scrollRef = useRef<HTMLDivElement>(null)
   const hasMessages = messages.length > 0
 
-  const lastUserMessage = useMemo(() => {
+  const lastBotMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]?.role === "user") return messages[i].content || ""
+      if (messages[i]?.role === "assistant" && !messages[i]?.isStreaming) return messages[i].content || ""
     }
     return ""
   }, [messages])
@@ -680,8 +665,7 @@ export function Main({
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-
-    const threshold = 120
+    const threshold = 140
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
     const shouldStickToBottom = distanceFromBottom <= threshold
     if (shouldStickToBottom) el.scrollTop = el.scrollHeight
@@ -698,7 +682,11 @@ export function Main({
       <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden">
         <div className="px-4 py-4 space-y-6">
           {messages.map((message, index) => {
-            const isLastAssistant = message.role === "assistant" && index === messages.length - 1 && !isLoading
+            const isLastAssistant =
+              message.role === "assistant" &&
+              index === messages.length - 1 &&
+              !message.isStreaming &&
+              !isLoading
 
             if (message.role === "user") {
               return (
@@ -716,22 +704,18 @@ export function Main({
                 key={message.id}
                 content={message.content}
                 showSuggestions={isLastAssistant}
-                lastUserMessage={lastUserMessage}
-                lastBotMessage={message.content}
+                lastBotMessage={lastBotMessage}
                 onSuggestionClick={onQuickAction}
-                botAvatarSrc={botAvatarSrc}
                 isLoginRequired={message.kind === "login_required"}
                 onLoginClick={onLoginClick}
                 dbId={message.dbId}
                 liked={message.liked}
                 disliked={message.disliked}
                 onReactMessage={onReactMessage}
+                isStreaming={!!message.isStreaming}
               />
             )
           })}
-
-          {isLoading && streamingContent && <StreamingMessage content={streamingContent} />}
-          {isLoading && !streamingContent && <LoadingMessage botAvatarSrc={botAvatarSrc} />}
         </div>
       </div>
     </div>

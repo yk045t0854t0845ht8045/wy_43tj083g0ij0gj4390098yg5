@@ -1,6 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { Header } from "./_components/header"
 import { Main } from "./_components/main"
 import { History } from "./_components/history"
@@ -16,7 +22,9 @@ function decodeMsgParam(v: string) {
   let dec = plusFixed
   try {
     dec = decodeURIComponent(plusFixed)
-  } catch {}
+  } catch {
+    // ignore
+  }
   if (dec.includes("-") && !dec.includes(" - ")) {
     dec = dec.replace(/-/g, " ")
   }
@@ -37,10 +45,38 @@ function compactText(v: string, maxChars = 220) {
     .slice(0, maxChars)
 }
 
+function parseDateMs(v: any) {
+  const ms = Date.parse(String(v || ""))
+  return Number.isFinite(ms) ? ms : 0
+}
+
 const cssAnimations = `
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes scaleIn { from { opacity: 0; transform: scale(0.95);} to { opacity: 1; transform: scale(1);} }
-@keyframes slideInFromRight { from { opacity: 0; transform: translateX(20px);} to { opacity: 1; transform: translateX(0);} }
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideInFromRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
 `
 
 interface AttachedFile {
@@ -56,10 +92,17 @@ interface Message {
   images?: AttachedFile[]
   kind?: "login_required"
 
-  // ✅ ids do banco (para likes/dislikes)
+  // ✅ banco / realtime
   dbId?: number
   liked?: boolean
   disliked?: boolean
+  dbCreatedAtMs?: number
+
+  // ✅ local para merge inteligente (não duplica / não apaga imagens)
+  clientTs?: number
+
+  // ✅ streaming sem duplicar UI
+  isStreaming?: boolean
 }
 
 function TranscriptModal({
@@ -102,20 +145,33 @@ function TranscriptModal({
           style={{ animation: "scaleIn 0.3s ease-out forwards" }}
         >
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-gray-900">Salvar Transcript</h3>
+            <h3 className="text-lg font-semibold text-gray-900">
+              Salvar Transcript
+            </h3>
             <button
               type="button"
               onClick={onClose}
               className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all duration-200 active:scale-90"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M18 6L6 18M6 6l12 12" />
               </svg>
             </button>
           </div>
 
           <div className="space-y-4">
-            <p className="text-sm text-gray-600">Compartilhe este link para visualizar a conversa:</p>
+            <p className="text-sm text-gray-600">
+              Compartilhe este link para visualizar a conversa:
+            </p>
 
             <div className="flex items-center gap-2">
               <div className="flex-1 bg-gray-50 rounded-xl px-4 py-3 text-sm text-gray-700 truncate ring-1 ring-gray-200">
@@ -126,15 +182,35 @@ function TranscriptModal({
                 onClick={handleCopy}
                 className={[
                   "p-3 rounded-xl transition-all duration-300 ease-out active:scale-90",
-                  copied ? "bg-green-500 text-white" : "bg-gray-900 text-white hover:bg-gray-800",
+                  copied
+                    ? "bg-green-500 text-white"
+                    : "bg-gray-900 text-white hover:bg-gray-800",
                 ].join(" ")}
               >
                 {copied ? (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <path d="M20 6L9 17l-5-5" />
                   </svg>
                 ) : (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <rect x="9" y="9" width="13" height="13" rx="2" />
                     <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
                   </svg>
@@ -142,7 +218,9 @@ function TranscriptModal({
               </button>
             </div>
 
-            <p className="text-xs text-gray-400">{messages.length} mensagens nesta conversa</p>
+            <p className="text-xs text-gray-400">
+              {messages.length} mensagens nesta conversa
+            </p>
           </div>
         </div>
       </div>
@@ -168,7 +246,10 @@ function ImageViewerModal({
         style={{ animation: "fadeIn 0.2s ease-out forwards" }}
       />
 
-      <div className="fixed inset-0 z-[101] flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="fixed inset-0 z-[101] flex items-center justify-center p-4"
+        onClick={onClose}
+      >
         <img
           src={image.preview || "/placeholder.svg"}
           alt={image.file.name}
@@ -181,7 +262,16 @@ function ImageViewerModal({
           onClick={onClose}
           className="absolute top-4 right-4 p-3 bg-black/50 text-white rounded-full hover:bg-black/70 transition-all duration-200 active:scale-90"
         >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <path d="M18 6L6 18M6 6l12 12" />
           </svg>
         </button>
@@ -198,33 +288,84 @@ export function WyzerAIWidget() {
   const [sending, setSending] = useState(false)
   const [input, setInput] = useState("")
   const [activeTab, setActiveTab] = useState<"chat" | "history">("chat")
-  const [animPhase, setAnimPhase] = useState<"closed" | "opening" | "open">("closed")
+  const [animPhase, setAnimPhase] = useState<"closed" | "opening" | "open">(
+    "closed"
+  )
   const [isMobile, setIsMobile] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
   const [showTranscriptModal, setShowTranscriptModal] = useState(false)
   const [viewingImage, setViewingImage] = useState<AttachedFile | null>(null)
+
+  // ✅ mantive esse state para não quebrar nada, mas agora o streaming é no array messages
   const [streamingContent, setStreamingContent] = useState("")
+
+  // ✅ só vira true depois que o servidor confirmou 401
   const [needsLogin, setNeedsLogin] = useState(false)
 
   const cardRef = useRef<HTMLDivElement | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+
+  const CHAT_RESTORE_KEY = "wyzer_chat_restore_v1"
+
+  function getLoginBaseUrl() {
+    if (typeof window === "undefined") return "/"
+
+    const host = window.location.hostname.toLowerCase()
+    if (host.endsWith(".localhost") || host === "localhost") {
+      return "http://login.localhost:3000/"
+    }
+    return "https://login.wyzer.com.br/"
+  }
+
+  function saveChatRestoreState(payload: any) {
+    try {
+      sessionStorage.setItem(CHAT_RESTORE_KEY, JSON.stringify(payload))
+    } catch {}
+  }
+
+  function readChatRestoreState(): any | null {
+    try {
+      const raw = sessionStorage.getItem(CHAT_RESTORE_KEY)
+      if (!raw) return null
+      return JSON.parse(raw)
+    } catch {
+      return null
+    }
+  }
+
+  function clearChatRestoreState() {
+    try {
+      sessionStorage.removeItem(CHAT_RESTORE_KEY)
+    } catch {}
+  }
+
+  const apiFetch = useCallback(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const merged: RequestInit = {
+        ...init,
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          ...(init?.headers || {}),
+        },
+      }
+      return fetch(input, merged)
+    },
+    []
+  )
 
   const [chatCode, setChatCode] = useState<string>("")
   const [historyItems, setHistoryItems] = useState<
     Array<{ id: string; preview: string; timestamp: string; isOnline?: boolean }>
   >([])
 
-  const apiFetch = useCallback(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const merged: RequestInit = {
-      ...init,
-      credentials: "include",
-      cache: "no-store",
-      headers: { ...(init?.headers || {}) },
-    }
-    return fetch(input, merged)
-  }, [])
+  // ✅ poll refs (real-time “na prática”)
+  const historyPollRef = useRef<number | null>(null)
+  const chatPollRef = useRef<number | null>(null)
+  const inFlightHistoryRef = useRef(false)
+  const inFlightChatRef = useRef(false)
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 640)
@@ -235,17 +376,25 @@ export function WyzerAIWidget() {
 
   const goToLogin = useCallback(() => {
     if (typeof window === "undefined") return
-    const host = window.location.hostname.toLowerCase()
-    const loginBase =
-      host.endsWith(".localhost") || host === "localhost"
-        ? "http://login.localhost:3000/"
-        : "https://login.wyzer.com.br/"
 
+    const returnTo = window.location.href
+    const scrollY = window.scrollY || 0
+
+    saveChatRestoreState({
+      returnTo,
+      scrollY,
+      open: true,
+      activeTab,
+      chatCode,
+    })
+
+    const loginBase = getLoginBaseUrl()
     const url = new URL(loginBase)
-    url.searchParams.set("returnTo", window.location.href)
+    url.searchParams.set("returnTo", returnTo)
     window.location.assign(url.toString())
-  }, [])
+  }, [activeTab, chatCode])
 
+  // ✅ injeta “login required” só quando realmente precisar (401)
   const ensureLoginMessage = useCallback(() => {
     setMessages((prev) => {
       const already = prev.some((m) => m.kind === "login_required")
@@ -257,6 +406,7 @@ export function WyzerAIWidget() {
           role: "assistant",
           kind: "login_required",
           content: "Para continuar, faça login na sua conta.",
+          clientTs: Date.now(),
         },
       ]
     })
@@ -271,6 +421,28 @@ export function WyzerAIWidget() {
     return s
   }, [])
 
+  // ✅ RESTORE pós-login
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    const restore = readChatRestoreState()
+    if (!restore?.returnTo) return
+
+    const current = window.location.href
+    if (!current.startsWith(String(restore.returnTo).split("#")[0].split("?")[0])) {
+      return
+    }
+
+    setOpen(true)
+    if (restore.activeTab) setActiveTab(restore.activeTab)
+    if (restore.chatCode) setChatCode(String(restore.chatCode))
+
+    const y = Number(restore.scrollY || 0)
+    requestAnimationFrame(() => window.scrollTo(0, y))
+
+    clearChatRestoreState()
+  }, [])
+
   // ✅ cria chat SOMENTE quando enviar a primeira msg
   const startChat = useCallback(async () => {
     const r = await apiFetch("/api/wz_WyzerAI/chat/start", { method: "POST" })
@@ -282,52 +454,173 @@ export function WyzerAIWidget() {
   }, [apiFetch])
 
   const refreshHistory = useCallback(async () => {
-    const r = await apiFetch("/api/wz_WyzerAI/chat/list")
-    if (r.status === 401) return
-    if (!r.ok) return
-    const data = await r.json().catch(() => ({}))
-    const chats = Array.isArray(data?.chats) ? data.chats : []
-
-    setHistoryItems(
-      chats.map((c: any) => ({
-        id: String(c.chat_code),
-        preview: String(c.motivo || "Atendimento sem motivo ainda"),
-        timestamp: new Date(c.updated_at || c.created_at).toLocaleString("pt-BR"),
-        isOnline: false,
-      }))
-    )
-  }, [apiFetch])
-
-  const loadChatMessages = useCallback(
-    async (code: string) => {
-      const r = await apiFetch(`/api/wz_WyzerAI/chat/messages?code=${encodeURIComponent(code)}`)
+    if (inFlightHistoryRef.current) return
+    inFlightHistoryRef.current = true
+    try {
+      const r = await apiFetch("/api/wz_WyzerAI/chat/list")
       if (r.status === 401) return
       if (!r.ok) return
 
       const data = await r.json().catch(() => ({}))
-      const rows = Array.isArray(data?.messages) ? data.messages : []
+      const chats = Array.isArray(data?.chats) ? data.chats : []
 
-      const mapped: Message[] = rows.map((m: any) => ({
-        id: `db_${String(m.id)}`,
-        dbId: Number(m.id),
-        role: m.sender === "assistant" ? "assistant" : "user",
-        content: String(m.message || ""),
-        liked: !!m.liked,
-        disliked: !!m.disliked,
+      const next = chats.map((c: any) => ({
+        id: String(c.chat_code),
+        preview: String(c.motivo || "Atendimento sem motivo ainda"),
+        timestamp: new Date(c.updated_at || c.created_at).toLocaleString("pt-BR"),
+        isOnline: String(c.chat_code) === String(chatCode || ""),
       }))
 
-      setMessages(mapped)
+      setHistoryItems((prev) => {
+        // só atualiza estado se mudou (evita flicker)
+        if (prev.length === next.length) {
+          let same = true
+          for (let i = 0; i < prev.length; i++) {
+            const a = prev[i]
+            const b = next[i]
+            if (!a || !b) { same = false; break }
+            if (a.id !== b.id || a.preview !== b.preview || a.timestamp !== b.timestamp || !!a.isOnline !== !!b.isOnline) {
+              same = false
+              break
+            }
+          }
+          if (same) return prev
+        }
+        return next
+      })
+    } finally {
+      inFlightHistoryRef.current = false
+    }
+  }, [apiFetch, chatCode])
+
+  // ✅ MERGE de mensagens do DB: não duplica e não apaga imagem
+  const loadChatMessagesMerge = useCallback(
+    async (code: string) => {
+      if (!code) return
+      if (inFlightChatRef.current) return
+      inFlightChatRef.current = true
+      try {
+        const r = await apiFetch(
+          `/api/wz_WyzerAI/chat/messages?code=${encodeURIComponent(code)}`
+        )
+        if (r.status === 401) return
+        if (!r.ok) return
+
+        const data = await r.json().catch(() => ({}))
+        const rows = Array.isArray(data?.messages) ? data.messages : []
+
+        setMessages((prev) => {
+          const next = [...prev]
+          const byDbId = new Map<number, number>()
+          for (let i = 0; i < next.length; i++) {
+            const m = next[i]
+            if (typeof m.dbId === "number") byDbId.set(m.dbId, i)
+          }
+
+          // helper: achar melhor match por tempo/conteúdo p/ colar dbId sem duplicar
+          const findBestLocalMatch = (role: "user" | "assistant", content: string, createdAtMs: number) => {
+            let bestIdx = -1
+            let bestDist = Number.POSITIVE_INFINITY
+            for (let i = next.length - 1; i >= 0; i--) {
+              const m = next[i]
+              if (!m) continue
+              if (m.role !== role) continue
+              if (typeof m.dbId === "number") continue
+              if (String(m.content || "") !== String(content || "")) continue
+
+              const t = Number(m.clientTs || 0)
+              if (!t || !createdAtMs) continue
+              const dist = Math.abs(t - createdAtMs)
+              // tolerância maior pq rede/streaming
+              if (dist <= 120_000 && dist < bestDist) {
+                bestDist = dist
+                bestIdx = i
+              }
+            }
+            return bestIdx
+          }
+
+          for (const row of rows) {
+            const dbId = Number(row?.id || 0)
+            if (!dbId) continue
+
+            const role: "user" | "assistant" =
+              row?.sender === "assistant" ? "assistant" : "user"
+
+            const content = String(row?.message || "")
+            const createdAtMs = parseDateMs(row?.created_at)
+
+            const liked = !!row?.liked
+            const disliked = !!row?.disliked
+
+            const existingIdx = byDbId.get(dbId)
+            if (typeof existingIdx === "number") {
+              const cur = next[existingIdx]
+              next[existingIdx] = {
+                ...cur,
+                content: cur?.isStreaming ? cur.content : content,
+                liked,
+                disliked,
+                dbCreatedAtMs: createdAtMs || cur.dbCreatedAtMs,
+              }
+              continue
+            }
+
+            // tentar “colar” no local (pra não duplicar e não perder images)
+            const matchIdx = findBestLocalMatch(role, content, createdAtMs)
+            if (matchIdx >= 0) {
+              const cur = next[matchIdx]
+              next[matchIdx] = {
+                ...cur,
+                dbId,
+                liked,
+                disliked,
+                dbCreatedAtMs: createdAtMs,
+              }
+              byDbId.set(dbId, matchIdx)
+              continue
+            }
+
+            // se não achou match: adiciona
+            next.push({
+              id: `db_${dbId}`,
+              dbId,
+              role,
+              content,
+              liked,
+              disliked,
+              dbCreatedAtMs: createdAtMs,
+              clientTs: createdAtMs || Date.now(),
+            })
+          }
+
+          // ordena de forma estável (dbCreatedAtMs primeiro)
+          next.sort((a, b) => {
+            const ta = Number(a.dbCreatedAtMs || a.clientTs || 0)
+            const tb = Number(b.dbCreatedAtMs || b.clientTs || 0)
+            return ta - tb
+          })
+
+          return next
+        })
+      } finally {
+        inFlightChatRef.current = false
+      }
     },
     [apiFetch]
   )
 
-  // ✅ abrir widget NÃO cria chat e NÃO cria histórico no banco
-  const openWithMessage = useCallback((message?: string) => {
-    setOpen(true)
-    setActiveTab("chat")
-    const m = clampText(message || "")
-    if (m) setInput(m)
-  }, [])
+  // ✅ abre widget SEM criar chat
+  const openWithMessage = useCallback(
+    async (message?: string) => {
+      setOpen(true)
+      setActiveTab("chat")
+
+      const m = clampText(message || "")
+      if (m) setInput(m)
+    },
+    []
+  )
 
   const applyUrlTriggers = useCallback(() => {
     if (typeof window === "undefined") return
@@ -337,10 +630,13 @@ export function WyzerAIWidget() {
       url.searchParams.get("openwyzerai") === "1" ||
       url.searchParams.get("wyzer") === "1"
 
-    const msg_s = url.searchParams.get("msg_s") || url.searchParams.get("msg") || ""
+    const msg_s =
+      url.searchParams.get("msg_s") || url.searchParams.get("msg") || ""
     const decoded = msg_s ? decodeMsgParam(msg_s) : ""
 
-    if (shouldOpen) openWithMessage(decoded || "")
+    if (shouldOpen) {
+      openWithMessage(decoded || "")
+    }
   }, [openWithMessage])
 
   useEffect(() => {
@@ -353,7 +649,8 @@ export function WyzerAIWidget() {
   useEffect(() => {
     const handler = (ev: Event) => {
       const ce = ev as CustomEvent<{ message?: string }>
-      openWithMessage(ce?.detail?.message || "")
+      const message = ce?.detail?.message || ""
+      openWithMessage(message)
     }
     window.addEventListener("wyzerai:open", handler)
     return () => window.removeEventListener("wyzerai:open", handler)
@@ -368,10 +665,12 @@ export function WyzerAIWidget() {
       const isLink = el.tagName.toLowerCase() === "a"
       if (isLink) e.preventDefault()
       const msgAttr = el.getAttribute("data-wyzerai-msg") || ""
-      openWithMessage(msgAttr ? decodeMsgParam(msgAttr) : "")
+      const msgDecoded = msgAttr ? decodeMsgParam(msgAttr) : ""
+      openWithMessage(msgDecoded)
     }
     document.addEventListener("click", onClick, { capture: true })
-    return () => document.removeEventListener("click", onClick, { capture: true })
+    return () =>
+      document.removeEventListener("click", onClick, { capture: true })
   }, [openWithMessage])
 
   useEffect(() => {
@@ -388,14 +687,19 @@ export function WyzerAIWidget() {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (viewingImage) setViewingImage(null)
-        else if (showTranscriptModal) setShowTranscriptModal(false)
-        else setOpen(false)
+        if (viewingImage) {
+          setViewingImage(null)
+        } else if (showTranscriptModal) {
+          setShowTranscriptModal(false)
+        } else {
+          setOpen(false)
+        }
       }
     }
     const onPointerDown = (e: PointerEvent) => {
       if (isMobile) return
       if (showTranscriptModal || viewingImage) return
+
       const card = cardRef.current
       if (!card) return
       const target = e.target as Node | null
@@ -407,17 +711,70 @@ export function WyzerAIWidget() {
     window.addEventListener("pointerdown", onPointerDown, { capture: true })
     return () => {
       window.removeEventListener("keydown", onKey)
-      window.removeEventListener("pointerdown", onPointerDown, { capture: true } as any)
+      window.removeEventListener("pointerdown", onPointerDown, {
+        capture: true,
+      } as any)
     }
   }, [open, isMobile, showTranscriptModal, viewingImage])
 
   useEffect(() => {
-    return () => abortControllerRef.current?.abort()
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
   }, [])
 
+  // ✅ POLLING “REALTIME”
+  useEffect(() => {
+    // limpa se fechar
+    if (!open) {
+      if (historyPollRef.current) window.clearInterval(historyPollRef.current)
+      if (chatPollRef.current) window.clearInterval(chatPollRef.current)
+      historyPollRef.current = null
+      chatPollRef.current = null
+      return
+    }
+
+    // history: sempre (pra atualizar motivo/nome realtime)
+    if (!historyPollRef.current) {
+      refreshHistory()
+      historyPollRef.current = window.setInterval(() => {
+        refreshHistory()
+      }, 4500)
+    }
+
+    // chat: só se tem chatCode e está na aba chat
+    if (activeTab === "chat" && chatCode) {
+      if (!chatPollRef.current) {
+        loadChatMessagesMerge(chatCode)
+        chatPollRef.current = window.setInterval(() => {
+          // não atrapalha envio: merge é seguro
+          loadChatMessagesMerge(chatCode)
+        }, 2500)
+      }
+    } else {
+      if (chatPollRef.current) window.clearInterval(chatPollRef.current)
+      chatPollRef.current = null
+    }
+
+    return () => {}
+  }, [open, activeTab, chatCode, refreshHistory, loadChatMessagesMerge])
+
   const callWyzerAI = useCallback(
-    async (nextMessages: Message[], effectiveChatCode: string) => {
-      if (abortControllerRef.current) abortControllerRef.current.abort()
+    async ({
+      nextMessages,
+      effectiveChatCode,
+      onDelta,
+    }: {
+      nextMessages: Message[]
+      effectiveChatCode: string
+      onDelta: (full: string) => void
+    }) => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+
       const abortController = new AbortController()
       abortControllerRef.current = abortController
 
@@ -441,18 +798,56 @@ export function WyzerAIWidget() {
           signal: abortController.signal,
         })
 
+        // ✅ 401: login real
         if (resp.status === 401) {
           setNeedsLogin(true)
           ensureLoginMessage()
-          return { ok: false as const, message: null }
+          return { ok: false as const, message: "Para continuar, faça login." }
         }
 
+        // ✅ erros: nunca deixa vazio/transparente
         if (!resp.ok) {
-          return { ok: false as const, message: "Erro ao processar sua mensagem. Tente novamente." }
+          const ct = (resp.headers.get("content-type") || "").toLowerCase()
+          let detail = ""
+          if (ct.includes("application/json")) {
+            const j = await resp.json().catch(() => null)
+            detail =
+              String(j?.message || j?.detail || j?.error?.message || j?.error || "").trim()
+          } else {
+            detail = String(await resp.text().catch(() => "")).trim()
+          }
+
+          if (resp.status === 429) {
+            return {
+              ok: false as const,
+              message:
+                "O Flow atingiu o limite de uso agora (tokens/minuto). Tente novamente em alguns segundos ou envie uma mensagem menor.",
+            }
+          }
+
+          if (resp.status === 400 && /token|context|length/i.test(detail)) {
+            return {
+              ok: false as const,
+              message:
+                "Sua mensagem ficou grande demais para o limite atual. Resuma um pouco (ou envie em partes) que eu continuo sem perder o contexto.",
+            }
+          }
+
+          return {
+            ok: false as const,
+            message:
+              detail ||
+              "Não consegui responder agora. Tente novamente em instantes.",
+          }
         }
 
         const reader = resp.body?.getReader()
-        if (!reader) return { ok: false as const, message: "Erro ao ler resposta do servidor." }
+        if (!reader) {
+          return {
+            ok: false as const,
+            message: "Erro ao ler resposta do servidor. Tente novamente.",
+          }
+        }
 
         const decoder = new TextDecoder()
         let fullContent = ""
@@ -463,23 +858,37 @@ export function WyzerAIWidget() {
           const chunk = decoder.decode(value, { stream: true })
           fullContent += chunk
           setStreamingContent(fullContent)
+          onDelta(fullContent)
         }
 
         const trimmed = fullContent.trim()
-        if (!trimmed) return { ok: false as const, message: "Desculpe, não consegui gerar uma resposta." }
+        if (!trimmed) {
+          return {
+            ok: false as const,
+            message:
+              "Não consegui gerar uma resposta (provavelmente limite/instabilidade). Tente reduzir a mensagem e reenviar.",
+          }
+        }
+
         return { ok: true as const, message: trimmed }
       } catch (error: unknown) {
-        if (error instanceof Error && error.name === "AbortError") return { ok: false as const, message: null }
-        return { ok: false as const, message: "Erro de conexão. Por favor, tente novamente." }
+        if (error instanceof Error && error.name === "AbortError") {
+          return { ok: false as const, message: null }
+        }
+        return {
+          ok: false as const,
+          message:
+            "Falha de conexão. Verifique sua internet e tente novamente.",
+        }
       }
     },
     [apiFetch, sessionId, ensureLoginMessage]
   )
 
-  // ✅ LIKE/DISLIKE: UI otimista + salva no banco + reflete no chat
+  // ✅ LIKE/DISLIKE: UI otimista + salva + realtime merge
   const handleReactMessage = useCallback(
     async (dbId: number, nextLiked: boolean, nextDisliked: boolean) => {
-      // otimista (UI na hora)
+      // otimista
       setMessages((prev) =>
         prev.map((m) => {
           if (m.dbId !== dbId) return m
@@ -490,7 +899,11 @@ export function WyzerAIWidget() {
       const r = await apiFetch("/api/wz_WyzerAI/chat/message-react", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageId: dbId, liked: nextLiked, disliked: nextDisliked }),
+        body: JSON.stringify({
+          messageId: dbId,
+          liked: nextLiked,
+          disliked: nextDisliked,
+        }),
       })
 
       if (r.status === 401) {
@@ -499,76 +912,112 @@ export function WyzerAIWidget() {
         return
       }
 
-      // se falhar, re-sync do banco
+      // falhou? resync seguro
       if (!r.ok && chatCode) {
-        await loadChatMessages(chatCode)
-      } else {
-        // histórico costuma ordenar por updated_at, então atualiza preview
-        await refreshHistory()
+        await loadChatMessagesMerge(chatCode)
       }
+
+      // histórico atualiza motivo/timestamp realtime
+      await refreshHistory()
     },
-    [apiFetch, chatCode, ensureLoginMessage, loadChatMessages, refreshHistory]
+    [apiFetch, chatCode, ensureLoginMessage, loadChatMessagesMerge, refreshHistory]
   )
 
   const handleSubmit = useCallback(
     async (files?: AttachedFile[]) => {
+      // ✅ se já confirmou 401 antes, não envia mais
       if (needsLogin) {
         ensureLoginMessage()
         return
       }
 
-      if ((!input.trim() && (!files || files.length === 0)) || sending || isLoading) return
+      if ((!input.trim() && (!files || files.length === 0)) || sending || isLoading)
+        return
 
-      // ✅ cria chat APENAS aqui (primeira msg)
+      setSending(true)
+      setIsLoading(true)
+
+      // ✅ cria chat APENAS aqui
       let effectiveChatCode = chatCode
       if (!effectiveChatCode) {
         const created = await startChat()
         if (!created) {
-          // se realmente tiver 401, só vai acontecer no POST /api/wz_WyzerAI, mas aqui já evita fricção
           setNeedsLogin(true)
           ensureLoginMessage()
+          setIsLoading(false)
+          setSending(false)
           return
         }
         effectiveChatCode = created
         setChatCode(created)
-        // histórico só faz sentido depois do chat existir
         await refreshHistory()
       }
+
+      const now = Date.now()
 
       const userMessage: Message = {
         id: uid(),
         role: "user",
         content: input.trim() || (files && files.length > 0 ? "[Imagem]" : ""),
         images: files && files.length > 0 ? [...files] : undefined,
+        clientTs: now,
       }
 
-      setSending(true)
-      setIsLoading(true)
-      setStreamingContent("")
+      // ✅ placeholder streaming (SEM DUPLICAR)
+      const assistantId = uid()
+      const assistantPlaceholder: Message = {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        isStreaming: true,
+        clientTs: now + 5,
+      }
+
+      // limpa input e anexos já, mas as imagens ficam na msg
       setInput("")
       setAttachedFiles([])
+      setStreamingContent("")
 
-      const nextMessages = [...messages, userMessage]
-      setMessages(nextMessages)
+      // coloca user + placeholder de uma vez
+      setMessages((prev) => [...prev, userMessage, assistantPlaceholder])
 
-      const result = await callWyzerAI(nextMessages, effectiveChatCode)
+      const nextMessagesForModel = [...messages, userMessage]
 
+      const onDelta = (full: string) => {
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== assistantId) return m
+            return { ...m, content: full, isStreaming: true }
+          })
+        )
+      }
+
+      const result = await callWyzerAI({
+        nextMessages: nextMessagesForModel,
+        effectiveChatCode,
+        onDelta,
+      })
+
+      // ✅ finaliza placeholder sempre (NUNCA transparente)
       if (result.message) {
-        const botMessage: Message = {
-          id: uid(),
-          role: "assistant",
-          content: result.message,
-        }
-        setMessages((prev) => [...prev, botMessage])
-
-        // ✅ puxa do banco pra pegar ids/likes e manter tudo “real time”
-        await loadChatMessages(effectiveChatCode)
-        await refreshHistory()
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== assistantId) return m
+            return { ...m, content: String(result.message || ""), isStreaming: false }
+          })
+        )
+      } else {
+        // abort: remove placeholder vazio (não deixa “fantasma”)
+        setMessages((prev) => prev.filter((m) => m.id !== assistantId))
       }
 
       setStreamingContent("")
       setIsLoading(false)
       setSending(false)
+
+      // ✅ merge realtime do db (cola ids/likes) sem apagar imagens
+      await loadChatMessagesMerge(effectiveChatCode)
+      await refreshHistory()
     },
     [
       needsLogin,
@@ -581,7 +1030,7 @@ export function WyzerAIWidget() {
       callWyzerAI,
       ensureLoginMessage,
       refreshHistory,
-      loadChatMessages,
+      loadChatMessagesMerge,
     ]
   )
 
@@ -590,7 +1039,9 @@ export function WyzerAIWidget() {
   }, [])
 
   const handleGoBack = useCallback(() => {
-    abortControllerRef.current?.abort()
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
     setNeedsLogin(false)
     setInput("")
     setMessages([])
@@ -603,7 +1054,9 @@ export function WyzerAIWidget() {
   }, [])
 
   const handleNewChat = useCallback(() => {
-    abortControllerRef.current?.abort()
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
     setNeedsLogin(false)
     setInput("")
     setMessages([])
@@ -619,18 +1072,11 @@ export function WyzerAIWidget() {
       const code = item?.id
       if (!code) return
       setChatCode(code)
-      await loadChatMessages(code)
+      await loadChatMessagesMerge(code)
       setActiveTab("chat")
     },
-    [loadChatMessages]
+    [loadChatMessagesMerge]
   )
-
-  // ✅ quando abre a aba history, carrega histórico na hora (sem criar chat)
-  useEffect(() => {
-    if (!open) return
-    if (activeTab !== "history") return
-    refreshHistory()
-  }, [open, activeTab, refreshHistory])
 
   return (
     <div className="fixed bottom-4 right-4 z-[90]">
@@ -641,9 +1087,9 @@ export function WyzerAIWidget() {
           type="button"
           onClick={() => openWithMessage("")}
           className="group relative inline-flex rounded-full p-[2px] select-none
-          focus:outline-none focus-visible:ring-2 focus-visible:ring-black/20
-          transition-transform duration-500 ease-out
-          hover:scale-[1.03] active:scale-[0.985]"
+      focus:outline-none focus-visible:ring-2 focus-visible:ring-black/20
+      transition-transform duration-500 ease-out
+      hover:scale-[1.03] active:scale-[0.985]"
           style={{ animation: "slideInFromRight 0.5s ease-out forwards" }}
         >
           <span
@@ -662,10 +1108,10 @@ export function WyzerAIWidget() {
 
           <span
             className="relative inline-flex items-center gap-3 rounded-full bg-white px-5 py-3
-            shadow-[0_10px_30px_rgba(0,0,0,0.12)]
-            ring-1 ring-black/5
-            transition-shadow duration-500 ease-out
-            group-hover:shadow-[0_16px_52px_rgba(0,0,0,0.16)]"
+        shadow-[0_10px_30px_rgba(0,0,0,0.12)]
+        ring-1 ring-black/5
+        transition-shadow duration-500 ease-out
+        group-hover:shadow-[0_16px_52px_rgba(0,0,0,0.16)]"
           >
             <img
               src="/flow-icon.png"
@@ -674,7 +1120,9 @@ export function WyzerAIWidget() {
               loading="lazy"
               draggable={false}
             />
-            <span className="text-sm font-medium text-neutral-900">Pergunte ao Flow</span>
+            <span className="text-sm font-medium text-neutral-900">
+              Pergunte ao Flow
+            </span>
           </span>
         </button>
       )}
@@ -709,8 +1157,8 @@ export function WyzerAIWidget() {
                 animPhase === "closed"
                   ? "translate3d(0,0,0) scale(0.35)"
                   : animPhase === "opening"
-                  ? "translate3d(0,0,0) scale(1.02)"
-                  : "translate3d(0,0,0) scale(1)",
+                    ? "translate3d(0,0,0) scale(1.02)"
+                    : "translate3d(0,0,0) scale(1)",
               borderRadius: isMobile ? 0 : animPhase === "opening" ? 40 : 28,
               transition:
                 "transform 560ms cubic-bezier(.2,.9,.2,1), border-radius 560ms cubic-bezier(.2,.9,.2,1)",
@@ -751,7 +1199,10 @@ export function WyzerAIWidget() {
                   onReactMessage={handleReactMessage}
                 />
               ) : (
-                <History items={historyItems} onItemClick={handleHistoryItemClick} />
+                <History
+                  items={historyItems}
+                  onItemClick={handleHistoryItemClick}
+                />
               )}
             </div>
 
@@ -772,7 +1223,10 @@ export function WyzerAIWidget() {
             messages={messages}
           />
 
-          <ImageViewerModal image={viewingImage} onClose={() => setViewingImage(null)} />
+          <ImageViewerModal
+            image={viewingImage}
+            onClose={() => setViewingImage(null)}
+          />
         </>
       )}
     </div>

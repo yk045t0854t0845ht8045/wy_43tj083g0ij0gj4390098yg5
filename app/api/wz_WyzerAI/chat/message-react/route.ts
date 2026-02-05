@@ -35,7 +35,6 @@ export async function POST(req: Request) {
 
   const sb = supabaseAdmin()
 
-  // 1) encontra a msg
   const { data: msg, error: msgErr } = await sb
     .from("wz_chat_messages")
     .select("id, chat_code")
@@ -45,7 +44,6 @@ export async function POST(req: Request) {
   if (msgErr) return json({ error: "db_error", detail: msgErr.message }, 500)
   if (!msg?.chat_code) return json({ error: "not_found" }, 404)
 
-  // 2) valida que o chat é do user
   const { data: chat, error: chatErr } = await sb
     .from("wz_chats")
     .select("chat_code, user_id")
@@ -55,9 +53,18 @@ export async function POST(req: Request) {
   if (chatErr) return json({ error: "db_error", detail: chatErr.message }, 500)
   if (!chat || chat.user_id !== session.userId) return json({ error: "not_allowed" }, 403)
 
-  // 3) atualiza reação
-  const { error } = await sb.from("wz_chat_messages").update({ liked, disliked }).eq("id", messageId)
+  const { error } = await sb
+    .from("wz_chat_messages")
+    .update({ liked, disliked })
+    .eq("id", messageId)
+
   if (error) return json({ error: "db_error", detail: error.message }, 500)
+
+  // ✅ “touch” no chat pra histórico ficar mais “real time”
+  await sb
+    .from("wz_chats")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("chat_code", msg.chat_code)
 
   return json({ ok: true }, 200)
 }

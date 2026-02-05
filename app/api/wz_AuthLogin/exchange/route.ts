@@ -69,7 +69,7 @@ function isAllowedReturnToAbsolute(u: URL) {
 }
 
 function sanitizeNext(raw: string) {
-  if (!raw) return "/t45t54?create-account";
+  if (!raw) return "/create-account";
 
   // path relativo seguro
   if (isSafeNextPath(raw)) return raw;
@@ -80,7 +80,7 @@ function sanitizeNext(raw: string) {
     if (isAllowedReturnToAbsolute(u)) return u.toString();
   } catch {}
 
-  return "/p9089?create-account";
+  return "/create-account";
 }
 
 const safeNext = sanitizeNext(next);

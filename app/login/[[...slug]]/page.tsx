@@ -397,7 +397,7 @@ export default function LinkLoginPage() {
           return;
         }
 
-        window.location.assign("/jyj76?create-account");
+        window.location.assign("/create-account");
       } catch {}
     })();
   }, []);
