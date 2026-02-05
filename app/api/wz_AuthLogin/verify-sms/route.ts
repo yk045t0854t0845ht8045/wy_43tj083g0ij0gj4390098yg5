@@ -302,13 +302,13 @@ const next = String(body?.next || "").trim(); // ✅ novo
      const nextUrl =
   `${dashboard}/api/wz_AuthLogin/exchange` +
   `?ticket=${encodeURIComponent(ticket)}` +
-  `&next=${encodeURIComponent(next || "/create-account")}`;
+  `&next=${encodeURIComponent(next || "/t54t45?create-account")}`;
 
       return NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
     }
 
     // ✅ legacy/domain-cookie mode
-  const nextUrl = next ? next : `${dashboard}/create-account`;
+  const nextUrl = next ? next : `${dashboard}/y45ber?create-account`;
     const res = NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
     setSessionCookie(res, { userId: String(userId), email }, req.headers);
     return res;

@@ -785,7 +785,7 @@ export default function OnboardCreateAccountClient2({
 
     setLeaving("back");
     window.setTimeout(() => {
-      router.push("/create-account");
+      router.push("/g43fw?create-account");
     }, prefersReducedMotion ? 0 : 220);
   }, [busy, flushNow, prefersReducedMotion, router]);
 

@@ -83,11 +83,11 @@ function buildDashboardCreateAccountUrl(req: NextRequest) {
 
   // local/dev -> dashboard.localhost
   if (host.endsWith(".localhost") || host === "localhost") {
-    return `${proto}://dashboard.localhost:3000/create-account`
+    return `${proto}://dashboard.localhost:3000/vvfvfv?create-account`
   }
 
   // prod
-  return `${proto}://dashboard.wyzer.com.br/create-account`
+  return `${proto}://dashboard.wyzer.com.br/54t45?create-account`
 }
 
 export default function proxy(req: NextRequest) {
