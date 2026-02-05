@@ -603,7 +603,7 @@ function BotMessage({
               className={[
                 "p-1.5 rounded-full transition-all duration-300 ease-out active:scale-90",
                 !canReact ? "opacity-40 cursor-not-allowed" : "",
-                liked ? "text-black bg-black/5" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100",
+                liked ? "text-black bg-blue/5" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100",
               ].join(" ")}
               title={!canReact ? "Sincronizando..." : "Gostei"}
             >

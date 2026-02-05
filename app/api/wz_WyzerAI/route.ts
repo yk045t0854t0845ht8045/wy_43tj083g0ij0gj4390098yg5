@@ -113,15 +113,15 @@ function setCachedResponse(text: string, response: string) {
 // ✅ EXPANDIDO: Respostas rápidas para cobrir 60%+ das interações (sem usar API)
 const QUICK_RESPONSES: Record<string, string> = {
   // Saudações
-  oi: "Oi! Sou o Flow da Wyzer. Como posso ajudar?",
-  ola: "Olá! Sou o Flow da Wyzer. Como posso ajudar?",
-  "olá": "Olá! Sou o Flow da Wyzer. Como posso ajudar?",
-  hey: "Hey! Sou o Flow da Wyzer. Em que posso ajudar?",
-  opa: "Opa! Sou o Flow da Wyzer. O que precisa?",
-  "e ai": "E aí! Sou o Flow. Como posso te ajudar?",
-  "bom dia": "Bom dia! Sou o Flow da Wyzer. Como posso ajudar?",
-  "boa tarde": "Boa tarde! Sou o Flow da Wyzer. Como posso ajudar?",
-  "boa noite": "Boa noite! Sou o Flow da Wyzer. Como posso ajudar?",
+  oi: "Olá! Sou o Flow da Wyzer. Como posso ajudar?\n\nPosso te ajudar com:\n• Suporte e problemas\n• Planos e preços\n• Conectar seu WhatsApp\n• Conta e pagamento",
+  ola: "Olá! Sou o Flow da Wyzer. Como posso ajudar?\n\nPosso te ajudar com:\n• Suporte e problemas\n• Planos e preços\n• Conectar seu WhatsApp\n• Conta e pagamento",
+  "olá": "Olá! Sou o Flow da Wyzer. Como posso ajudar?\n\nPosso te ajudar com:\n• Suporte e problemas\n• Planos e preços\n• Conectar seu WhatsApp\n• Conta e pagamento",
+  hey: "Olá! Sou o Flow da Wyzer. Como posso ajudar?\n\nPosso te ajudar com:\n• Suporte e problemas\n• Planos e preços\n• Conectar seu WhatsApp\n• Conta e pagamento",
+  opa: "Olá! Sou o Flow da Wyzer. Como posso ajudar?\n\nPosso te ajudar com:\n• Suporte e problemas\n• Planos e preços\n• Conectar seu WhatsApp\n• Conta e pagamento",
+  "e ai": "Olá! Sou o Flow da Wyzer. Como posso ajudar?\n\nPosso te ajudar com:\n• Suporte e problemas\n• Planos e preços\n• Conectar seu WhatsApp\n• Conta e pagamento",
+  "bom dia": "Bom dia! Sou o Flow da Wyzer. Como posso ajudar?\n\nPosso te ajudar com:\n• Suporte e problemas\n• Planos e preços\n• Conectar seu WhatsApp\n• Conta e pagamento",
+  "boa tarde": "Boa tarde! Sou o Flow da Wyzer. Como posso ajudar?\n\nPosso te ajudar com:\n• Suporte e problemas\n• Planos e preços\n• Conectar seu WhatsApp\n• Conta e pagamento",
+  "boa noite": "Boa noite! Sou o Flow da Wyzer. Como posso ajudar?\n\nPosso te ajudar com:\n• Suporte e problemas\n• Planos e preços\n• Conectar seu WhatsApp\n• Conta e pagamento",
   
   // Agradecimentos
   obrigado: "Por nada! Qualquer coisa, estou aqui.",
@@ -765,6 +765,10 @@ async function maybeGenerateMotivo(
           firstUserMessage,
         })
       )
+      const genNorm = normalizeMotivoText(nextMotivo)
+      if (!nextMotivo || (isMotivoGeneric(nextMotivo) && genNorm !== "atendimento geral")) {
+        nextMotivo = "Atendimento geral"
+      }
     }
   }
 
@@ -959,9 +963,6 @@ export async function POST(req: Request): Promise<Response> {
       has_image: !!hasImage,
     })
 
-    // ✅ Atualizar motivo (baseado nas 3 primeiras mensagens)
-    await maybeGenerateMotivo(sb, chatCode, userText)
-
     // ✅ Memória apenas do chat atual (contexto do próprio chatCode)
     const messages = await loadChatContextMessages(sb, chatCode)
     if (messages.length === 0) {
@@ -992,7 +993,7 @@ export async function POST(req: Request): Promise<Response> {
       await sb.from("wz_chats").update({ updated_at: new Date().toISOString() }).eq("chat_code", chatCode)
 
       setCachedResponse(userText, assistantText)
-      // ✅ Garante atualização do motivo assim que houver 3 mensagens no chat
+      // ✅ Motivo: gera na 1ª mensagem e refina no 2º prompt
       await maybeGenerateMotivo(sb, chatCode, userText).catch(() => {})
     }).catch(() => {})
 
