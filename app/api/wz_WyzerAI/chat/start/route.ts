@@ -46,12 +46,13 @@ export async function POST() {
   const sb = supabaseAdmin()
   const chatCode = await createUniqueChatCode(sb)
 
+  // ✅ CORRIGIDO: Definir motivo inicial ao invés de null
   const { error } = await sb.from("wz_chats").insert({
     chat_code: chatCode,
     user_id: session.userId,
     user_email: session.email,
     assigned_to: "FlowAI",
-    motivo: null,
+    motivo: "Novo atendimento", // ✅ Motivo inicial - será atualizado na primeira mensagem
   })
 
   if (error) return json({ error: "db_error", detail: error.message }, 500)

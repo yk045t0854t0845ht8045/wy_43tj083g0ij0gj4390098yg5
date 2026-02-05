@@ -32,6 +32,14 @@ const cssAnimations = `
 }
 `
 
+// ✅ Formatar preview do motivo para exibição amigável
+function formatPreview(preview: string): string {
+  if (!preview || preview.trim() === "") return "Atendimento em andamento"
+  if (preview === "Novo atendimento") return "Atendimento iniciado"
+  if (preview.toLowerCase().includes("sem motivo")) return "Atendimento geral"
+  return preview
+}
+
 export function History({ items = [], onItemClick }: HistoryProps) {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -53,7 +61,7 @@ export function History({ items = [], onItemClick }: HistoryProps) {
             >
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-gray-900 truncate leading-relaxed">
-                  {item.preview}
+                  {formatPreview(item.preview)}
                 </p>
                 <div className="flex items-center gap-2 mt-1.5">
                   <svg
