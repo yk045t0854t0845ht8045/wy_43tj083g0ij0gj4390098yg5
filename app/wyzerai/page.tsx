@@ -1316,7 +1316,7 @@ export function WyzerAIWidget() {
                 onChange={setInput}
                 onSubmit={handleSubmit}
                 disabled={sending || isLoading || needsLogin}
-                placeholder={needsLogin ? "Faça login para continuar" : "Ask anything"}
+                placeholder={needsLogin ? "Faça login para continuar" : "Diga como podemos ajudar?"}
                 attachedFiles={attachedFiles}
                 onFilesChange={setAttachedFiles}
               />

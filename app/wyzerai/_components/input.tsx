@@ -51,7 +51,7 @@ export function Input({
   onChange,
   onSubmit,
   disabled = false,
-  placeholder = "Ask anything",
+  placeholder = "Diga como podemos ajudar?",
   attachedFiles = [],
   onFilesChange,
 }: InputProps) {
