@@ -2,6 +2,7 @@
 import { headers } from "next/headers";
 import Link from "next/link";
 import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session";
+import { WyzerAIWidget } from "@/app/wyzerai/page";  
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -51,8 +52,9 @@ export default async function DashboardHomePage() {
   return (
     <div className="min-h-screen bg-white flex items-center justify-center">
       <div className="text-center">
-        <div>{session.email}</div>
-        <div>{session.userId}</div>
+        <WyzerAIWidget>
+        {/* <div>{session.email}</div>
+        <div>{session.userId}</div> */}
       </div>
     </div>
   );
