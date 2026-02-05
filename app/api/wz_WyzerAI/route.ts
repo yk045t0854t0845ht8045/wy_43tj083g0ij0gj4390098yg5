@@ -554,6 +554,66 @@ const TRIVIAL_MOTIVO_EXACT_NORMALIZED = new Set(
   TRIVIAL_MOTIVO_EXACT.map((t) => normalizeMotivoText(t))
 )
 
+const VAGUE_MOTIVO_EXACT = [
+  "ajuda",
+  "preciso de ajuda",
+  "ajuda geral",
+  "duvida",
+  "dúvida",
+  "duvida geral",
+  "dúvida geral",
+  "duvida inicial",
+  "dúvida inicial",
+  "informacao",
+  "informação",
+  "informacoes",
+  "informações",
+  "suporte",
+  "suporte geral",
+  "problema",
+  "erro",
+  "relato de erro",
+  "relato de problema",
+  "relato de bug",
+  "problema tecnico",
+  "problema técnico",
+] as const
+
+const VAGUE_MOTIVO_EXACT_NORMALIZED = new Set(
+  VAGUE_MOTIVO_EXACT.map((t) => normalizeMotivoText(t))
+)
+
+const VAGUE_SECOND_WORDS = new Set(["geral", "inicial"])
+
+function isMotivoVagueNormalized(normalized: string): boolean {
+  if (!normalized) return true
+  if (VAGUE_MOTIVO_EXACT_NORMALIZED.has(normalized)) return true
+
+  const words = normalized.split(" ").filter(Boolean)
+  if (words.length > 2) return false
+
+  const helpWords = new Set([
+    "ajuda",
+    "duvida",
+    "suporte",
+    "informacao",
+    "informacoes",
+    "problema",
+    "erro",
+  ])
+
+  const hasHelpWord = words.some((w) => helpWords.has(w))
+  if (!hasHelpWord) return false
+
+  if (words.length === 1) return true
+
+  const second = words[1]
+  if (VAGUE_SECOND_WORDS.has(second)) return true
+  if (helpWords.has(second)) return true
+
+  return false
+}
+
 function isMotivoGeneric(motivo: unknown): boolean {
   const normalized = normalizeMotivoText(motivo)
 
@@ -572,6 +632,9 @@ function motivoPriority(motivo: unknown): number {
   if (normalized === "atendimento geral") return 3
 
   if (GENERIC_MOTIVO_HINTS.some((hint) => normalized.includes(hint))) return 2
+
+  // Motivo existe, mas ainda está vago (vale tentar refinar no 2º prompt)
+  if (isMotivoVagueNormalized(normalized)) return 6
 
   // Qualquer motivo não-genérico
   return 10
@@ -680,9 +743,9 @@ async function maybeGenerateMotivo(
   if (!chat) return
 
   const currentMotivoRaw = (chat as { motivo?: string | null }).motivo ?? null
-  if (!isMotivoGeneric(currentMotivoRaw)) return
   const currentPriority = motivoPriority(currentMotivoRaw)
   const currentNormalized = normalizeMotivoText(currentMotivoRaw)
+  if (currentPriority >= 10) return
 
   // ✅ Buscar as 3 primeiras mensagens do chat (base do motivo)
   const { data: msgs } = await sb
@@ -727,7 +790,7 @@ async function maybeGenerateMotivo(
     )
 
     // Fallback: keywords / mensagens do usuário
-    if (!nextMotivo || isMotivoGeneric(nextMotivo)) {
+    if (!nextMotivo || motivoPriority(nextMotivo) < 10) {
       const userText = firstThree
         .filter((m) => m.sender !== "assistant")
         .map((m) => m.message)
@@ -767,6 +830,11 @@ async function maybeGenerateMotivo(
       )
       const genNorm = normalizeMotivoText(nextMotivo)
       if (!nextMotivo || (isMotivoGeneric(nextMotivo) && genNorm !== "atendimento geral")) {
+        nextMotivo = "Atendimento geral"
+      }
+      const genPriority = motivoPriority(nextMotivo)
+      const genNorm2 = normalizeMotivoText(nextMotivo)
+      if (genPriority < 10 && genNorm2 !== "atendimento geral") {
         nextMotivo = "Atendimento geral"
       }
     }
