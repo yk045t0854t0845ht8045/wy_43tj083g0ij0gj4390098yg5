@@ -4,19 +4,16 @@ import { z } from "zod"
 
 export const maxDuration = 10
 
-const openai = createOpenAI({
-  // apiKey: process.env.OPENAI_API_KEY, // opcional
-})
+const openai = createOpenAI({})
 
-// 3 perguntas curtas e úteis
+// ✅ OTIMIZADO: Apenas 3 sugestões curtas
 const suggestionsSchema = z.object({
   suggestions: z
     .array(z.string())
     .length(3)
-    .describe("3 perguntas de follow-up curtas e uteis"),
+    .describe("3 perguntas de follow-up curtas"),
 })
 
-// Mesma lógica do teu chat: tenta outro modelo se não tiver acesso
 const MODEL_FALLBACKS = [
   "gpt-4o-mini",
   "gpt-4o",
@@ -35,23 +32,21 @@ function isModelAccessError(msg: string) {
 }
 
 function sanitizeSuggestion(s: string) {
-  // garante curto e limpinho
   const clean = String(s || "").replace(/\s+/g, " ").trim()
-  // limite real de 40 caracteres
-  return clean.length > 40 ? clean.slice(0, 40).trim() : clean
+  return clean.length > 35 ? clean.slice(0, 35).trim() : clean
 }
 
 function fallbackSuggestions() {
   return [
     "Pode explicar melhor?",
-    "Quero ver planos e preços",
+    "Ver planos e preços",
     "Falar com atendente",
   ]
 }
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({} as any))
+    const body = await req.json().catch(() => ({} as Record<string, unknown>))
     const lastBotResponse = body?.lastBotResponse
 
     if (!lastBotResponse || typeof lastBotResponse !== "string") {
@@ -61,17 +56,15 @@ export async function POST(req: Request) {
       )
     }
 
-    const context = String(lastBotResponse).slice(0, 300)
+    // ✅ OTIMIZADO: Contexto menor
+    const context = String(lastBotResponse).slice(0, 200)
 
-    const prompt = `Baseado nesta resposta de suporte ao cliente, gere 3 perguntas de follow-up curtas (max 40 caracteres cada) que o usuario poderia fazer.
-Responda em portugues brasileiro.
-Nao use emojis.
-Evite perguntas genéricas demais (tipo "ok").
+    const prompt = `Baseado nesta resposta, gere 3 perguntas curtas (max 35 caracteres) relacionadas.
+Português BR, sem emojis.
 
-Resposta do suporte:
-"${context}"
+Resposta: "${context}"
 
-Gere 3 perguntas relacionadas e úteis.`
+Gere 3 perguntas úteis e diretas.`
 
     let lastErr: unknown = null
 
@@ -81,18 +74,17 @@ Gere 3 perguntas relacionadas e úteis.`
           model: openai(modelId),
           schema: suggestionsSchema,
           prompt,
-          temperature: 0.6,
-          maxOutputTokens: 120,
+          temperature: 0.5,
+          maxOutputTokens: 80, // ✅ Reduzido
         })
 
         const suggestions = result.object.suggestions
           .map(sanitizeSuggestion)
           .filter((s) => s.length > 0)
 
-        // garante exatamente 3
         const fixed = [
           suggestions[0] || "Pode explicar melhor?",
-          suggestions[1] || "Como resolvo isso agora?",
+          suggestions[1] || "Como resolvo isso?",
           suggestions[2] || "Falar com atendente",
         ].map(sanitizeSuggestion)
 
@@ -109,10 +101,7 @@ Gere 3 perguntas relacionadas e úteis.`
         lastErr = e
         const msg = e instanceof Error ? e.message : String(e)
 
-        // se não tem acesso a esse modelo, tenta o próximo
         if (isModelAccessError(msg)) continue
-
-        // se deu outro erro, sai pro fallback
         break
       }
     }

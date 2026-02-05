@@ -13,7 +13,7 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 }
 
-function json(data: any, status = 200) {
+function json(data: Record<string, unknown>, status = 200) {
   return NextResponse.json(data, { status, headers: NO_STORE_HEADERS })
 }
 

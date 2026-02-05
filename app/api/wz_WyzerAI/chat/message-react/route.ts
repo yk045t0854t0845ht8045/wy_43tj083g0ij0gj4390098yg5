@@ -13,7 +13,7 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 }
 
-function json(data: any, status = 200) {
+function json(data: Record<string, unknown>, status = 200) {
   return NextResponse.json(data, { status, headers: NO_STORE_HEADERS })
 }
 
@@ -60,7 +60,6 @@ export async function POST(req: Request) {
 
   if (error) return json({ error: "db_error", detail: error.message }, 500)
 
-  // ✅ “touch” no chat pra histórico ficar mais “real time”
   await sb
     .from("wz_chats")
     .update({ updated_at: new Date().toISOString() })

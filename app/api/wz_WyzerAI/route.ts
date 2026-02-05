@@ -1,33 +1,31 @@
 // app/api/wz_WyzerAI/route.ts
-import { streamText } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
-import { headers } from "next/headers";
-import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session";
-import { supabaseAdmin } from "@/app/api/_supabaseAdmin";
+import { streamText } from "ai"
+import { createOpenAI } from "@ai-sdk/openai"
+import { headers } from "next/headers"
+import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session"
+import { supabaseAdmin } from "@/app/api/_supabaseAdmin"
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// WYZER AI - ENTERPRISE BACKEND v4.1 + PERSISTÊNCIA SUPABASE
-// - Sempre tenta chamar IA real
+// WYZER AI - ENTERPRISE BACKEND v5.0 - OTIMIZADO TPM
+// - Usa APENAS a última mensagem (sem histórico) para economizar tokens
 // - Fallback automático quando projeto não tem acesso ao modelo
 // - Sempre responde text/plain no chat
 // - Salva chat + mensagens por chatCode
 // - Gera "motivo" após 2 primeiras mensagens do usuário
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export const maxDuration = 60;
+export const maxDuration = 60
 
-const openai = createOpenAI({
-  // apiKey: process.env.OPENAI_API_KEY, // opcional
-});
+const openai = createOpenAI({})
 
 const CONFIG = {
-  MAX_INPUT_CHARS: 500,
-  MAX_HISTORY_MESSAGES: 4,
-  MAX_OUTPUT_TOKENS: 150,
+  MAX_INPUT_CHARS: 300, // ✅ Reduzido de 500 para 300
+  MAX_HISTORY_MESSAGES: 1, // ✅ Reduzido de 4 para 1 (usa só a última)
+  MAX_OUTPUT_TOKENS: 120, // ✅ Reduzido de 150 para 120
 
-  CACHE_TTL_MS: 5 * 60 * 1000,
-  MAX_CACHE_SIZE: 100,
-} as const;
+  CACHE_TTL_MS: 10 * 60 * 1000, // Cache por 10 minutos
+  MAX_CACHE_SIZE: 200,
+} as const
 
 const MODEL_FALLBACKS = [
   "gpt-4o-mini",
@@ -35,33 +33,45 @@ const MODEL_FALLBACKS = [
   "gpt-4.1-mini",
   "gpt-5-mini",
   "gpt-5-nano",
-] as const;
+] as const
 
-const SYSTEM_PROMPT = `Você é Flow, assistente virtual da Wyzer - plataforma de automação para WhatsApp.
+// ✅ MELHORADO: System prompt mais inteligente e conciso
+const SYSTEM_PROMPT = `Você é Flow, assistente virtual da Wyzer.
 
-Diretrizes:
-- Responda em português brasileiro
-- Seja conciso (2-3 frases)
-- Seja útil e amigável
-- Se não souber algo, diga que vai verificar
-- Não gere Códigos, Scripts relacionados a programação
-- Quando a pergunta não foi condizente com a empresa responda que não pode falar sobre isso e que tem sugestoes abaixo que possa ajudar
+REGRAS IMPORTANTES:
+1. Responda em português brasileiro
+2. Seja MUITO conciso (máximo 2 frases)
+3. Seja útil, amigável e direto
+4. Se não souber, diga que vai verificar
+5. NUNCA gere código ou scripts
+6. Para perguntas fora do escopo, diga que não pode ajudar com isso
 
-Sobre a Wyzer:
-- Plataforma de automação e atendimento para WhatsApp
-- Planos a partir de R$89/mês
-- Horário suporte humano: seg-sex 9h-18h`;
+SOBRE A WYZER:
+- Plataforma de automação para WhatsApp
+- Planos: Starter R$89/mês, PRO R$149/mês, Enterprise sob consulta
+- Suporte: seg-sex 9h-18h
+- Funcionalidades: chatbots, atendimento múltiplo, integração API
+- Teste grátis por 7 dias disponível
+
+TEMAS QUE VOCÊ DOMINA:
+- Planos e preços
+- Como conectar WhatsApp
+- Problemas de conexão
+- Configuração de chatbots
+- Dúvidas sobre pagamentos e reembolsos
+- Suporte técnico básico`
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CACHE
+// CACHE INTELIGENTE
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface CacheEntry {
-  response: string;
-  timestamp: number;
+  response: string
+  timestamp: number
+  hits: number
 }
 
-const responseCache = new Map<string, CacheEntry>();
+const responseCache = new Map<string, CacheEntry>()
 
 function normalizeForCache(text: string): string {
   return text
@@ -71,33 +81,41 @@ function normalizeForCache(text: string): string {
     .replace(/[^a-z0-9\s]/g, "")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 100);
+    .slice(0, 80) // Reduzido para cache mais eficiente
 }
 
 function getCachedResponse(text: string): string | null {
-  const key = normalizeForCache(text);
-  const entry = responseCache.get(key);
-  if (!entry) return null;
+  const key = normalizeForCache(text)
+  const entry = responseCache.get(key)
+  if (!entry) return null
   if (Date.now() - entry.timestamp > CONFIG.CACHE_TTL_MS) {
-    responseCache.delete(key);
-    return null;
+    responseCache.delete(key)
+    return null
   }
-  return entry.response;
+  entry.hits++
+  return entry.response
 }
 
 function setCachedResponse(text: string, response: string) {
-  const key = normalizeForCache(text);
+  const key = normalizeForCache(text)
   if (responseCache.size >= CONFIG.MAX_CACHE_SIZE) {
-    const oldest = [...responseCache.entries()].sort(
-      (a, b) => a[1].timestamp - b[1].timestamp
-    )[0];
-    if (oldest) responseCache.delete(oldest[0]);
+    // Remove entrada mais antiga com menos hits
+    let oldestKey = ""
+    let lowestScore = Infinity
+    for (const [k, v] of responseCache.entries()) {
+      const score = v.hits / (Date.now() - v.timestamp)
+      if (score < lowestScore) {
+        lowestScore = score
+        oldestKey = k
+      }
+    }
+    if (oldestKey) responseCache.delete(oldestKey)
   }
-  responseCache.set(key, { response, timestamp: Date.now() });
+  responseCache.set(key, { response, timestamp: Date.now(), hits: 1 })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RESPOSTAS RÁPIDAS (saudações)
+// RESPOSTAS RÁPIDAS EXPANDIDAS
 // ─────────────────────────────────────────────────────────────────────────────
 
 const QUICK_RESPONSES: Record<string, string> = {
@@ -109,11 +127,18 @@ const QUICK_RESPONSES: Record<string, string> = {
   "bom dia": "Bom dia! Sou o Flow da Wyzer. Como posso ajudar?",
   "boa tarde": "Boa tarde! Sou o Flow da Wyzer. Como posso ajudar?",
   "boa noite": "Boa noite! Sou o Flow da Wyzer. Como posso ajudar?",
-};
+  obrigado: "Por nada! Se precisar de mais alguma coisa, estou aqui.",
+  obrigada: "Por nada! Se precisar de mais alguma coisa, estou aqui.",
+  valeu: "Valeu! Qualquer coisa, é só chamar.",
+  ok: "Perfeito! Se tiver mais dúvidas, estou por aqui.",
+  entendi: "Ótimo! Se precisar de mais ajuda, me avisa.",
+  tchau: "Tchau! Volte sempre que precisar. Bom dia!",
+  bye: "Até mais! Estou sempre por aqui se precisar.",
+}
 
 function getQuickResponse(text: string): string | null {
-  const normalized = text.toLowerCase().trim();
-  return QUICK_RESPONSES[normalized] || null;
+  const normalized = text.toLowerCase().trim()
+  return QUICK_RESPONSES[normalized] || null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -124,60 +149,58 @@ function sanitizeText(input: unknown, maxChars: number): string {
   return String(input || "")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, maxChars);
+    .slice(0, maxChars)
 }
 
 function extractContent(message: unknown): string {
-  if (!message || typeof message !== "object") return "";
-  const m = message as Record<string, unknown>;
-  if (typeof m.content === "string") return m.content;
-  if (Array.isArray((m as any).parts)) {
-    return (m as any).parts
-      .filter(
-        (p: any) => p && typeof p === "object" && p.type === "text"
-      )
-      .map((p: any) => p.text || "")
-      .join(" ");
+  if (!message || typeof message !== "object") return ""
+  const m = message as Record<string, unknown>
+  if (typeof m.content === "string") return m.content
+  if (Array.isArray((m as Record<string, unknown>).parts)) {
+    return ((m as Record<string, unknown>).parts as Array<{ type?: string; text?: string }>)
+      .filter((p) => p && typeof p === "object" && p.type === "text")
+      .map((p) => p.text || "")
+      .join(" ")
   }
-  return "";
+  return ""
 }
 
 function isModelAccessError(msg: string) {
-  const lower = msg.toLowerCase();
+  const lower = msg.toLowerCase()
   return (
     lower.includes("model_not_found") ||
     lower.includes("does not have access to model") ||
     lower.includes("not have access to model")
-  );
+  )
 }
 
 function isRateLimitError(msg: string) {
-  const lower = msg.toLowerCase();
+  const lower = msg.toLowerCase()
   return (
     lower.includes("rate_limit") ||
     lower.includes("tpm") ||
     lower.includes("quota") ||
     lower.includes("too many") ||
     lower.includes("429")
-  );
+  )
 }
 
-function compactText(v: string, maxChars = 220) {
+function compactText(v: string, maxChars = 150) {
   return String(v || "")
     .replace(/\s+/g, " ")
     .replace(/\n+/g, " ")
     .trim()
-    .slice(0, maxChars);
+    .slice(0, maxChars)
 }
 
 function createTextStream(text: string, extraHeaders?: Record<string, string>): Response {
-  const encoder = new TextEncoder();
+  const encoder = new TextEncoder()
   const stream = new ReadableStream({
     start(controller) {
-      controller.enqueue(encoder.encode(text));
-      controller.close();
+      controller.enqueue(encoder.encode(text))
+      controller.close()
     },
-  });
+  })
 
   return new Response(stream, {
     status: 200,
@@ -186,7 +209,7 @@ function createTextStream(text: string, extraHeaders?: Record<string, string>): 
       "Cache-Control": "no-store",
       ...(extraHeaders || {}),
     },
-  });
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -194,13 +217,13 @@ function createTextStream(text: string, extraHeaders?: Record<string, string>): 
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function streamWithModelFallback(args: {
-  system: string;
-  messages: Array<{ role: "user" | "assistant"; content: string }>;
-  temperature: number;
-  maxOutputTokens: number;
-  abortSignal: AbortSignal;
+  system: string
+  messages: Array<{ role: "user" | "assistant"; content: string }>
+  temperature: number
+  maxOutputTokens: number
+  abortSignal: AbortSignal
 }): Promise<{ response: Response; usedModel: string }> {
-  let lastErr: unknown = null;
+  let lastErr: unknown = null
 
   for (const modelId of MODEL_FALLBACKS) {
     try {
@@ -211,23 +234,23 @@ async function streamWithModelFallback(args: {
         temperature: args.temperature,
         maxOutputTokens: args.maxOutputTokens,
         abortSignal: args.abortSignal,
-      });
+      })
 
-      const res = result.toTextStreamResponse();
-      res.headers.set("Cache-Control", "no-store");
-      res.headers.set("X-Wyzer-Source", "ai");
-      res.headers.set("X-Wyzer-Model", modelId);
-      return { response: res, usedModel: modelId };
+      const res = result.toTextStreamResponse()
+      res.headers.set("Cache-Control", "no-store")
+      res.headers.set("X-Wyzer-Source", "ai")
+      res.headers.set("X-Wyzer-Model", modelId)
+      return { response: res, usedModel: modelId }
     } catch (e: unknown) {
-      lastErr = e;
-      const msg = e instanceof Error ? e.message : String(e);
+      lastErr = e
+      const msg = e instanceof Error ? e.message : String(e)
 
-      if (isModelAccessError(msg)) continue;
-      throw e;
+      if (isModelAccessError(msg)) continue
+      throw e
     }
   }
 
-  throw lastErr ?? new Error("No models available for this project/key.");
+  throw lastErr ?? new Error("No models available for this project/key.")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -239,9 +262,9 @@ async function maybeGenerateMotivo(sb: ReturnType<typeof supabaseAdmin>, chatCod
     .from("wz_chats")
     .select("motivo")
     .eq("chat_code", chatCode)
-    .maybeSingle();
+    .maybeSingle()
 
-  if (!chat || chat.motivo) return;
+  if (!chat || chat.motivo) return
 
   const { data: msgs } = await sb
     .from("wz_chat_messages")
@@ -249,37 +272,35 @@ async function maybeGenerateMotivo(sb: ReturnType<typeof supabaseAdmin>, chatCod
     .eq("chat_code", chatCode)
     .eq("sender", "user")
     .order("created_at", { ascending: true })
-    .limit(2);
+    .limit(2)
 
-  if (!msgs || msgs.length < 2) return;
+  if (!msgs || msgs.length < 2) return
 
-  const joined = msgs.map((m) => m.message).join(" / ");
+  const joined = msgs.map((m) => m.message).join(" / ")
 
-  // gera motivo curto (1 linha)
-  const sys = `Você é um assistente que cria um "motivo do atendimento" extremamente curto.
-Regras:
-- português BR
-- 1 frase curta
-- sem aspas, sem emojis
-- focar na intenção do cliente`;
+  const sys = `Crie um motivo de atendimento em 1 frase curta (max 50 caracteres). Sem aspas, sem emojis. Português BR.`
 
-  const { response } = await streamWithModelFallback({
-    system: sys,
-    messages: [{ role: "user", content: `Crie o motivo do atendimento baseado nisso: ${joined}` }],
-    temperature: 0.2,
-    maxOutputTokens: 40,
-    abortSignal: new AbortController().signal,
-  });
+  try {
+    const { response } = await streamWithModelFallback({
+      system: sys,
+      messages: [{ role: "user", content: `Motivo: ${joined}` }],
+      temperature: 0.2,
+      maxOutputTokens: 30,
+      abortSignal: new AbortController().signal,
+    })
 
-  const motivoText = await response.text();
-  const motivo = sanitizeText(motivoText, 180);
+    const motivoText = await response.text()
+    const motivo = sanitizeText(motivoText, 100)
 
-  if (!motivo) return;
+    if (!motivo) return
 
-  await sb
-    .from("wz_chats")
-    .update({ motivo, updated_at: new Date().toISOString() })
-    .eq("chat_code", chatCode);
+    await sb
+      .from("wz_chats")
+      .update({ motivo, updated_at: new Date().toISOString() })
+      .eq("chat_code", chatCode)
+  } catch {
+    // Ignora erro de motivo - não é crítico
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -288,95 +309,93 @@ Regras:
 
 export async function POST(req: Request): Promise<Response> {
   try {
-    const h = await headers();
-    const cookieHeader = h.get("cookie");
-    const headerLike: { get(name: string): string | null } = { get: (n) => h.get(n) };
+    const h = await headers()
+    const cookieHeader = h.get("cookie")
+    const headerLike: { get(name: string): string | null } = { get: (n) => h.get(n) }
 
-const session = readSessionFromCookieHeader(cookieHeader, headerLike);
-if (!session) {
-  return new Response("", {
-    status: 401,
-    headers: {
-      "Cache-Control": "no-store",
-      "X-Wyzer-Source": "unauthorized",
-    },
-  });
-}
+    const session = readSessionFromCookieHeader(cookieHeader, headerLike)
+    if (!session) {
+      return new Response("", {
+        status: 401,
+        headers: {
+          "Cache-Control": "no-store",
+          "X-Wyzer-Source": "unauthorized",
+        },
+      })
+    }
 
-    const body = await req.json().catch(() => null);
+    const body = await req.json().catch(() => null)
 
     if (!body || typeof body !== "object") {
       return createTextStream("Por favor, digite sua mensagem.", {
         "X-Wyzer-Source": "bad_request",
-      });
+      })
     }
 
-    const chatCode = String((body as any).chatCode || "").trim();
+    const chatCode = String((body as Record<string, unknown>).chatCode || "").trim()
     if (!chatCode) {
       return createTextStream("Chat inválido. Reabra o atendimento.", {
         "X-Wyzer-Source": "missing_chat",
-      });
+      })
     }
 
-    const rawMessages = Array.isArray((body as any).messages) ? (body as any).messages : [];
-    const lastMessage = rawMessages[rawMessages.length - 1];
-    const userText = sanitizeText(extractContent(lastMessage), CONFIG.MAX_INPUT_CHARS);
+    const rawMessages = Array.isArray((body as Record<string, unknown>).messages) ? (body as Record<string, unknown>).messages as unknown[] : []
+    const lastMessage = rawMessages[rawMessages.length - 1]
+    const userText = sanitizeText(extractContent(lastMessage), CONFIG.MAX_INPUT_CHARS)
 
     const hasImage =
-      !!(lastMessage && typeof lastMessage === "object" && Array.isArray((lastMessage as any).images) && (lastMessage as any).images.length > 0) ||
-      String((lastMessage as any)?.content || "").includes("[Imagem]");
+      !!(lastMessage && typeof lastMessage === "object" && Array.isArray((lastMessage as Record<string, unknown>).images) && ((lastMessage as Record<string, unknown>).images as unknown[]).length > 0) ||
+      String((lastMessage as Record<string, unknown>)?.content || "").includes("[Imagem]")
 
     if (!userText) {
       return createTextStream("Por favor, digite sua mensagem.", {
         "X-Wyzer-Source": "empty",
-      });
+      })
     }
 
-    const sb = supabaseAdmin();
+    const sb = supabaseAdmin()
 
     // valida se chat pertence ao user logado
     const { data: chat, error: chatErr } = await sb
       .from("wz_chats")
       .select("chat_code, user_id")
       .eq("chat_code", chatCode)
-      .maybeSingle();
+      .maybeSingle()
 
     if (chatErr) {
-      return createTextStream("Erro ao acessar chat.", { "X-Wyzer-Source": "db_error" });
+      return createTextStream("Erro ao acessar chat.", { "X-Wyzer-Source": "db_error" })
     }
 
     if (!chat || chat.user_id !== session.userId) {
-      return createTextStream("Chat não encontrado.", { "X-Wyzer-Source": "not_found" });
+      return createTextStream("Chat não encontrado.", { "X-Wyzer-Source": "not_found" })
     }
 
-    // quick
-    const quick = getQuickResponse(userText);
+    // quick response
+    const quick = getQuickResponse(userText)
     if (quick) {
-      // salva user + assistant quick no banco
       await sb.from("wz_chat_messages").insert([
         { chat_code: chatCode, sender: "user", message: userText, has_image: !!hasImage },
         { chat_code: chatCode, sender: "assistant", message: quick, has_image: false },
-      ]);
-      await sb.from("wz_chats").update({ updated_at: new Date().toISOString() }).eq("chat_code", chatCode);
+      ])
+      await sb.from("wz_chats").update({ updated_at: new Date().toISOString() }).eq("chat_code", chatCode)
 
-      // tenta motivo depois de inserir
-      void maybeGenerateMotivo(sb, chatCode);
+      void maybeGenerateMotivo(sb, chatCode)
 
-      return createTextStream(quick, { "X-Wyzer-Source": "quick" });
+      return createTextStream(quick, { "X-Wyzer-Source": "quick" })
     }
 
-    // cache (se bater cache, também salva no histórico)
-    const cached = getCachedResponse(userText);
+    // cache
+    const cached = getCachedResponse(userText)
     if (cached) {
       await sb.from("wz_chat_messages").insert([
         { chat_code: chatCode, sender: "user", message: userText, has_image: !!hasImage },
         { chat_code: chatCode, sender: "assistant", message: cached, has_image: false },
-      ]);
-      await sb.from("wz_chats").update({ updated_at: new Date().toISOString() }).eq("chat_code", chatCode);
+      ])
+      await sb.from("wz_chats").update({ updated_at: new Date().toISOString() }).eq("chat_code", chatCode)
 
-      void maybeGenerateMotivo(sb, chatCode);
+      void maybeGenerateMotivo(sb, chatCode)
 
-      return createTextStream(cached, { "X-Wyzer-Source": "cache" });
+      return createTextStream(cached, { "X-Wyzer-Source": "cache" })
     }
 
     // salva mensagem do usuário
@@ -385,78 +404,63 @@ if (!session) {
       sender: "user",
       message: userText,
       has_image: !!hasImage,
-    });
+    })
 
-    // usa histórico recente do payload (ou do banco se quiser depois)
-    const recentMessages = rawMessages
-      .slice(-CONFIG.MAX_HISTORY_MESSAGES)
-      .map((m: unknown) => {
-        const msg = m as Record<string, unknown>;
-        return {
-          role: msg.role === "assistant" ? ("assistant" as const) : ("user" as const),
-          content: sanitizeText(extractContent(m), CONFIG.MAX_INPUT_CHARS),
-        };
-      });
-
-    const messages =
-      recentMessages.length > 0
-        ? recentMessages.map((m: { role: "user" | "assistant"; content: string }) => ({ role: m.role, content: compactText(m.content, 220) }))
-        : [{ role: "user" as const, content: compactText(userText, 220) }];
+    // ✅ OTIMIZADO: Usa APENAS a última mensagem para economizar tokens
+    const messages = [{ role: "user" as const, content: compactText(userText, 150) }]
 
     const { response, usedModel } = await streamWithModelFallback({
       system: SYSTEM_PROMPT,
       messages,
-      temperature: 0.7,
+      temperature: 0.6, // Reduzido para respostas mais consistentes
       maxOutputTokens: CONFIG.MAX_OUTPUT_TOKENS,
       abortSignal: req.signal,
-    });
+    })
 
     // clona para ler e salvar o texto completo sem quebrar streaming pro cliente
-    const cloned = response.clone();
-    const fullTextPromise = cloned.text().then((t) => sanitizeText(t, 4000)).catch(() => "");
+    const cloned = response.clone()
+    const fullTextPromise = cloned.text().then((t) => sanitizeText(t, 2000)).catch(() => "")
 
-    // ao finalizar (quando terminar de ler), salva no banco
+    // ao finalizar, salva no banco
     fullTextPromise.then(async (assistantText) => {
-      if (!assistantText) return;
+      if (!assistantText) return
       await sb.from("wz_chat_messages").insert({
         chat_code: chatCode,
         sender: "assistant",
         message: assistantText,
         has_image: false,
-      });
-      await sb.from("wz_chats").update({ updated_at: new Date().toISOString() }).eq("chat_code", chatCode);
+      })
+      await sb.from("wz_chats").update({ updated_at: new Date().toISOString() }).eq("chat_code", chatCode)
 
-      // cacheia (opcional)
-      setCachedResponse(userText, assistantText);
+      setCachedResponse(userText, assistantText)
 
-      // gera motivo se ainda não tem (após ter 2 msgs user)
-      await maybeGenerateMotivo(sb, chatCode);
-    }).catch(() => {});
+      await maybeGenerateMotivo(sb, chatCode)
+    }).catch(() => {})
 
-    response.headers.set("X-Wyzer-Model", usedModel);
-    response.headers.set("X-Wyzer-Chat", chatCode);
-    return response;
+    response.headers.set("X-Wyzer-Model", usedModel)
+    response.headers.set("X-Wyzer-Chat", chatCode)
+    return response
   } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error("[WyzerAI Error]:", errorMessage);
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error("[WyzerAI Error]:", errorMessage)
 
     if (isRateLimitError(errorMessage)) {
       return createTextStream(
-        "Estou com muitas mensagens no momento. Tente novamente em alguns segundos.",
+        "Muitas mensagens no momento. Aguarde alguns segundos e tente novamente.",
         { "X-Wyzer-Source": "rate_limit" }
-      );
+      )
     }
 
     if (isModelAccessError(errorMessage)) {
       return createTextStream(
-        "Este projeto não tem acesso ao modelo configurado. Ative o modelo no painel da OpenAI ou use outro modelo disponível.",
+        "Modelo não disponível. Tente novamente em instantes.",
         { "X-Wyzer-Source": "model_access" }
-      );
+      )
     }
 
-    return createTextStream("Desculpe, ocorreu um erro. Tente novamente em instantes.", {
+    return createTextStream("Desculpe, ocorreu um erro. Tente novamente.", {
       "X-Wyzer-Source": "error",
-    });
+    })
   }
 }
 
@@ -469,11 +473,11 @@ export async function GET(): Promise<Response> {
     JSON.stringify({
       ok: true,
       service: "WyzerAI",
-      version: "4.1.0+db",
+      version: "5.0.0-optimized",
       modelsTried: MODEL_FALLBACKS,
       cache: { entries: responseCache.size, maxEntries: CONFIG.MAX_CACHE_SIZE },
       timestamp: new Date().toISOString(),
     }),
     { status: 200, headers: { "Content-Type": "application/json" } }
-  );
+  )
 }

@@ -1,4 +1,3 @@
-// app/api/_supabaseAdmin.ts
 import { createClient } from "@supabase/supabase-js";
 
 export function supabaseAdmin() {

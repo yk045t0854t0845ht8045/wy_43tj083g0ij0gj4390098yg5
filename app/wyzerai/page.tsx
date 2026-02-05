@@ -37,7 +37,7 @@ function clampText(v: string, max = 2000) {
   return s.length > max ? s.slice(0, max) : s
 }
 
-function compactText(v: string, maxChars = 220) {
+function compactText(v: string, maxChars = 150) {
   return String(v || "")
     .replace(/\s+/g, " ")
     .replace(/\n+/g, " ")
@@ -45,7 +45,7 @@ function compactText(v: string, maxChars = 220) {
     .slice(0, maxChars)
 }
 
-function parseDateMs(v: any) {
+function parseDateMs(v: unknown) {
   const ms = Date.parse(String(v || ""))
   return Number.isFinite(ms) ? ms : 0
 }
@@ -91,18 +91,13 @@ interface Message {
   content: string
   images?: AttachedFile[]
   kind?: "login_required"
-
-  // ✅ banco / realtime
   dbId?: number
   liked?: boolean
   disliked?: boolean
   dbCreatedAtMs?: number
-
-  // ✅ local para merge inteligente (não duplica / não apaga imagens)
   clientTs?: number
-
-  // ✅ streaming sem duplicar UI
   isStreaming?: boolean
+  chatCode?: string // ✅ NOVO: Vincular mensagem ao chat
 }
 
 function TranscriptModal({
@@ -288,20 +283,14 @@ export function WyzerAIWidget() {
   const [sending, setSending] = useState(false)
   const [input, setInput] = useState("")
   const [activeTab, setActiveTab] = useState<"chat" | "history">("chat")
-  const [animPhase, setAnimPhase] = useState<"closed" | "opening" | "open">(
-    "closed"
-  )
+  const [animPhase, setAnimPhase] = useState<"closed" | "opening" | "open">("closed")
   const [isMobile, setIsMobile] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
   const [showTranscriptModal, setShowTranscriptModal] = useState(false)
   const [viewingImage, setViewingImage] = useState<AttachedFile | null>(null)
-
-  // ✅ mantive esse state para não quebrar nada, mas agora o streaming é no array messages
   const [streamingContent, setStreamingContent] = useState("")
-
-  // ✅ só vira true depois que o servidor confirmou 401
   const [needsLogin, setNeedsLogin] = useState(false)
 
   const cardRef = useRef<HTMLDivElement | null>(null)
@@ -319,13 +308,15 @@ export function WyzerAIWidget() {
     return "https://login.wyzer.com.br/"
   }
 
-  function saveChatRestoreState(payload: any) {
+  function saveChatRestoreState(payload: Record<string, unknown>) {
     try {
       sessionStorage.setItem(CHAT_RESTORE_KEY, JSON.stringify(payload))
-    } catch {}
+    } catch {
+      // ignore
+    }
   }
 
-  function readChatRestoreState(): any | null {
+  function readChatRestoreState(): Record<string, unknown> | null {
     try {
       const raw = sessionStorage.getItem(CHAT_RESTORE_KEY)
       if (!raw) return null
@@ -338,7 +329,9 @@ export function WyzerAIWidget() {
   function clearChatRestoreState() {
     try {
       sessionStorage.removeItem(CHAT_RESTORE_KEY)
-    } catch {}
+    } catch {
+      // ignore
+    }
   }
 
   const apiFetch = useCallback(
@@ -361,11 +354,12 @@ export function WyzerAIWidget() {
     Array<{ id: string; preview: string; timestamp: string; isOnline?: boolean }>
   >([])
 
-  // ✅ poll refs (real-time “na prática”)
   const historyPollRef = useRef<number | null>(null)
   const chatPollRef = useRef<number | null>(null)
   const inFlightHistoryRef = useRef(false)
   const inFlightChatRef = useRef(false)
+  // ✅ NOVO: Rastrear último chatCode carregado para evitar mistura
+  const lastLoadedChatCodeRef = useRef<string>("")
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 640)
@@ -394,7 +388,6 @@ export function WyzerAIWidget() {
     window.location.assign(url.toString())
   }, [activeTab, chatCode])
 
-  // ✅ injeta “login required” só quando realmente precisar (401)
   const ensureLoginMessage = useCallback(() => {
     setMessages((prev) => {
       const already = prev.some((m) => m.kind === "login_required")
@@ -407,10 +400,11 @@ export function WyzerAIWidget() {
           kind: "login_required",
           content: "Para continuar, faça login na sua conta.",
           clientTs: Date.now(),
+          chatCode: chatCode || undefined,
         },
       ]
     })
-  }, [])
+  }, [chatCode])
 
   const sessionId = useMemo(() => {
     if (typeof window === "undefined") return "server"
@@ -421,7 +415,7 @@ export function WyzerAIWidget() {
     return s
   }, [])
 
-  // ✅ RESTORE pós-login
+  // RESTORE pós-login
   useEffect(() => {
     if (typeof window === "undefined") return
 
@@ -434,7 +428,7 @@ export function WyzerAIWidget() {
     }
 
     setOpen(true)
-    if (restore.activeTab) setActiveTab(restore.activeTab)
+    if (restore.activeTab) setActiveTab(restore.activeTab as "chat" | "history")
     if (restore.chatCode) setChatCode(String(restore.chatCode))
 
     const y = Number(restore.scrollY || 0)
@@ -443,7 +437,6 @@ export function WyzerAIWidget() {
     clearChatRestoreState()
   }, [])
 
-  // ✅ cria chat SOMENTE quando enviar a primeira msg
   const startChat = useCallback(async () => {
     const r = await apiFetch("/api/wz_WyzerAI/chat/start", { method: "POST" })
     if (r.status === 401) return null
@@ -464,15 +457,14 @@ export function WyzerAIWidget() {
       const data = await r.json().catch(() => ({}))
       const chats = Array.isArray(data?.chats) ? data.chats : []
 
-      const next = chats.map((c: any) => ({
+      const next = chats.map((c: Record<string, unknown>) => ({
         id: String(c.chat_code),
         preview: String(c.motivo || "Atendimento sem motivo ainda"),
-        timestamp: new Date(c.updated_at || c.created_at).toLocaleString("pt-BR"),
+        timestamp: new Date(String(c.updated_at || c.created_at)).toLocaleString("pt-BR"),
         isOnline: String(c.chat_code) === String(chatCode || ""),
       }))
 
       setHistoryItems((prev) => {
-        // só atualiza estado se mudou (evita flicker)
         if (prev.length === next.length) {
           let same = true
           for (let i = 0; i < prev.length; i++) {
@@ -493,12 +485,13 @@ export function WyzerAIWidget() {
     }
   }, [apiFetch, chatCode])
 
-  // ✅ MERGE de mensagens do DB: não duplica e não apaga imagem
+  // ✅ CORRIGIDO: Merge de mensagens isolado por chatCode
   const loadChatMessagesMerge = useCallback(
     async (code: string) => {
       if (!code) return
       if (inFlightChatRef.current) return
       inFlightChatRef.current = true
+
       try {
         const r = await apiFetch(
           `/api/wz_WyzerAI/chat/messages?code=${encodeURIComponent(code)}`
@@ -509,15 +502,26 @@ export function WyzerAIWidget() {
         const data = await r.json().catch(() => ({}))
         const rows = Array.isArray(data?.messages) ? data.messages : []
 
+        // ✅ CORRIGIDO: Se o chatCode mudou durante o fetch, ignorar resultado
+        if (lastLoadedChatCodeRef.current !== code && lastLoadedChatCodeRef.current !== "") {
+          return
+        }
+
+        lastLoadedChatCodeRef.current = code
+
         setMessages((prev) => {
-          const next = [...prev]
+          // ✅ CORRIGIDO: Filtrar apenas mensagens do chat atual
+          const currentChatMessages = prev.filter(
+            (m) => !m.chatCode || m.chatCode === code
+          )
+
+          const next = [...currentChatMessages]
           const byDbId = new Map<number, number>()
           for (let i = 0; i < next.length; i++) {
             const m = next[i]
             if (typeof m.dbId === "number") byDbId.set(m.dbId, i)
           }
 
-          // helper: achar melhor match por tempo/conteúdo p/ colar dbId sem duplicar
           const findBestLocalMatch = (role: "user" | "assistant", content: string, createdAtMs: number) => {
             let bestIdx = -1
             let bestDist = Number.POSITIVE_INFINITY
@@ -531,7 +535,6 @@ export function WyzerAIWidget() {
               const t = Number(m.clientTs || 0)
               if (!t || !createdAtMs) continue
               const dist = Math.abs(t - createdAtMs)
-              // tolerância maior pq rede/streaming
               if (dist <= 120_000 && dist < bestDist) {
                 bestDist = dist
                 bestIdx = i
@@ -562,11 +565,11 @@ export function WyzerAIWidget() {
                 liked,
                 disliked,
                 dbCreatedAtMs: createdAtMs || cur.dbCreatedAtMs,
+                chatCode: code, // ✅ Garantir chatCode
               }
               continue
             }
 
-            // tentar “colar” no local (pra não duplicar e não perder images)
             const matchIdx = findBestLocalMatch(role, content, createdAtMs)
             if (matchIdx >= 0) {
               const cur = next[matchIdx]
@@ -576,12 +579,12 @@ export function WyzerAIWidget() {
                 liked,
                 disliked,
                 dbCreatedAtMs: createdAtMs,
+                chatCode: code, // ✅ Garantir chatCode
               }
               byDbId.set(dbId, matchIdx)
               continue
             }
 
-            // se não achou match: adiciona
             next.push({
               id: `db_${dbId}`,
               dbId,
@@ -591,10 +594,10 @@ export function WyzerAIWidget() {
               disliked,
               dbCreatedAtMs: createdAtMs,
               clientTs: createdAtMs || Date.now(),
+              chatCode: code, // ✅ Garantir chatCode
             })
           }
 
-          // ordena de forma estável (dbCreatedAtMs primeiro)
           next.sort((a, b) => {
             const ta = Number(a.dbCreatedAtMs || a.clientTs || 0)
             const tb = Number(b.dbCreatedAtMs || b.clientTs || 0)
@@ -610,7 +613,6 @@ export function WyzerAIWidget() {
     [apiFetch]
   )
 
-  // ✅ abre widget SEM criar chat
   const openWithMessage = useCallback(
     async (message?: string) => {
       setOpen(true)
@@ -713,7 +715,7 @@ export function WyzerAIWidget() {
       window.removeEventListener("keydown", onKey)
       window.removeEventListener("pointerdown", onPointerDown, {
         capture: true,
-      } as any)
+      } as EventListenerOptions)
     }
   }, [open, isMobile, showTranscriptModal, viewingImage])
 
@@ -725,9 +727,8 @@ export function WyzerAIWidget() {
     }
   }, [])
 
-  // ✅ POLLING “REALTIME”
+  // POLLING
   useEffect(() => {
-    // limpa se fechar
     if (!open) {
       if (historyPollRef.current) window.clearInterval(historyPollRef.current)
       if (chatPollRef.current) window.clearInterval(chatPollRef.current)
@@ -736,7 +737,6 @@ export function WyzerAIWidget() {
       return
     }
 
-    // history: sempre (pra atualizar motivo/nome realtime)
     if (!historyPollRef.current) {
       refreshHistory()
       historyPollRef.current = window.setInterval(() => {
@@ -744,12 +744,10 @@ export function WyzerAIWidget() {
       }, 4500)
     }
 
-    // chat: só se tem chatCode e está na aba chat
     if (activeTab === "chat" && chatCode) {
       if (!chatPollRef.current) {
         loadChatMessagesMerge(chatCode)
         chatPollRef.current = window.setInterval(() => {
-          // não atrapalha envio: merge é seguro
           loadChatMessagesMerge(chatCode)
         }, 2500)
       }
@@ -779,16 +777,17 @@ export function WyzerAIWidget() {
       abortControllerRef.current = abortController
 
       try {
-        const lastTwo = nextMessages.slice(-2)
+        // ✅ OTIMIZADO: Enviar apenas a última mensagem
+        const lastMessage = nextMessages[nextMessages.length - 1]
 
         const payload = {
           sessionId,
           chatCode: effectiveChatCode,
-          messages: lastTwo.map((m) => ({
-            role: m.role,
-            content: compactText(m.content, 220),
-            images: m.images ? m.images : undefined,
-          })),
+          messages: [{
+            role: lastMessage.role,
+            content: compactText(lastMessage.content, 150),
+            images: lastMessage.images ? lastMessage.images : undefined,
+          }],
         }
 
         const resp = await apiFetch("/api/wz_WyzerAI", {
@@ -798,21 +797,19 @@ export function WyzerAIWidget() {
           signal: abortController.signal,
         })
 
-        // ✅ 401: login real
         if (resp.status === 401) {
           setNeedsLogin(true)
           ensureLoginMessage()
           return { ok: false as const, message: "Para continuar, faça login." }
         }
 
-        // ✅ erros: nunca deixa vazio/transparente
         if (!resp.ok) {
           const ct = (resp.headers.get("content-type") || "").toLowerCase()
           let detail = ""
           if (ct.includes("application/json")) {
-            const j = await resp.json().catch(() => null)
+            const j = await resp.json().catch(() => null) as Record<string, unknown> | null
             detail =
-              String(j?.message || j?.detail || j?.error?.message || j?.error || "").trim()
+              String(j?.message || j?.detail || (j?.error as Record<string, unknown>)?.message || j?.error || "").trim()
           } else {
             detail = String(await resp.text().catch(() => "")).trim()
           }
@@ -821,7 +818,7 @@ export function WyzerAIWidget() {
             return {
               ok: false as const,
               message:
-                "O Flow atingiu o limite de uso agora (tokens/minuto). Tente novamente em alguns segundos ou envie uma mensagem menor.",
+                "Muitas mensagens no momento. Aguarde alguns segundos e tente novamente.",
             }
           }
 
@@ -829,7 +826,7 @@ export function WyzerAIWidget() {
             return {
               ok: false as const,
               message:
-                "Sua mensagem ficou grande demais para o limite atual. Resuma um pouco (ou envie em partes) que eu continuo sem perder o contexto.",
+                "Sua mensagem ficou grande demais. Tente resumir um pouco.",
             }
           }
 
@@ -866,7 +863,7 @@ export function WyzerAIWidget() {
           return {
             ok: false as const,
             message:
-              "Não consegui gerar uma resposta (provavelmente limite/instabilidade). Tente reduzir a mensagem e reenviar.",
+              "Não consegui gerar uma resposta. Tente novamente.",
           }
         }
 
@@ -885,10 +882,8 @@ export function WyzerAIWidget() {
     [apiFetch, sessionId, ensureLoginMessage]
   )
 
-  // ✅ LIKE/DISLIKE: UI otimista + salva + realtime merge
   const handleReactMessage = useCallback(
     async (dbId: number, nextLiked: boolean, nextDisliked: boolean) => {
-      // otimista
       setMessages((prev) =>
         prev.map((m) => {
           if (m.dbId !== dbId) return m
@@ -912,12 +907,10 @@ export function WyzerAIWidget() {
         return
       }
 
-      // falhou? resync seguro
       if (!r.ok && chatCode) {
         await loadChatMessagesMerge(chatCode)
       }
 
-      // histórico atualiza motivo/timestamp realtime
       await refreshHistory()
     },
     [apiFetch, chatCode, ensureLoginMessage, loadChatMessagesMerge, refreshHistory]
@@ -925,7 +918,6 @@ export function WyzerAIWidget() {
 
   const handleSubmit = useCallback(
     async (files?: AttachedFile[]) => {
-      // ✅ se já confirmou 401 antes, não envia mais
       if (needsLogin) {
         ensureLoginMessage()
         return
@@ -937,7 +929,6 @@ export function WyzerAIWidget() {
       setSending(true)
       setIsLoading(true)
 
-      // ✅ cria chat APENAS aqui
       let effectiveChatCode = chatCode
       if (!effectiveChatCode) {
         const created = await startChat()
@@ -950,6 +941,9 @@ export function WyzerAIWidget() {
         }
         effectiveChatCode = created
         setChatCode(created)
+        // ✅ CORRIGIDO: Limpar mensagens ao criar novo chat
+        setMessages([])
+        lastLoadedChatCodeRef.current = created
         await refreshHistory()
       }
 
@@ -961,9 +955,9 @@ export function WyzerAIWidget() {
         content: input.trim() || (files && files.length > 0 ? "[Imagem]" : ""),
         images: files && files.length > 0 ? [...files] : undefined,
         clientTs: now,
+        chatCode: effectiveChatCode, // ✅ Vincular ao chat
       }
 
-      // ✅ placeholder streaming (SEM DUPLICAR)
       const assistantId = uid()
       const assistantPlaceholder: Message = {
         id: assistantId,
@@ -971,14 +965,13 @@ export function WyzerAIWidget() {
         content: "",
         isStreaming: true,
         clientTs: now + 5,
+        chatCode: effectiveChatCode, // ✅ Vincular ao chat
       }
 
-      // limpa input e anexos já, mas as imagens ficam na msg
       setInput("")
       setAttachedFiles([])
       setStreamingContent("")
 
-      // coloca user + placeholder de uma vez
       setMessages((prev) => [...prev, userMessage, assistantPlaceholder])
 
       const nextMessagesForModel = [...messages, userMessage]
@@ -998,7 +991,6 @@ export function WyzerAIWidget() {
         onDelta,
       })
 
-      // ✅ finaliza placeholder sempre (NUNCA transparente)
       if (result.message) {
         setMessages((prev) =>
           prev.map((m) => {
@@ -1007,7 +999,6 @@ export function WyzerAIWidget() {
           })
         )
       } else {
-        // abort: remove placeholder vazio (não deixa “fantasma”)
         setMessages((prev) => prev.filter((m) => m.id !== assistantId))
       }
 
@@ -1015,7 +1006,6 @@ export function WyzerAIWidget() {
       setIsLoading(false)
       setSending(false)
 
-      // ✅ merge realtime do db (cola ids/likes) sem apagar imagens
       await loadChatMessagesMerge(effectiveChatCode)
       await refreshHistory()
     },
@@ -1051,6 +1041,7 @@ export function WyzerAIWidget() {
     setAttachedFiles([])
     setActiveTab("chat")
     setChatCode("")
+    lastLoadedChatCodeRef.current = ""
   }, [])
 
   const handleNewChat = useCallback(() => {
@@ -1065,18 +1056,28 @@ export function WyzerAIWidget() {
     setStreamingContent("")
     setAttachedFiles([])
     setChatCode("")
+    lastLoadedChatCodeRef.current = ""
   }, [])
 
   const handleHistoryItemClick = useCallback(
     async (item?: { id: string }) => {
       const code = item?.id
       if (!code) return
+      // ✅ CORRIGIDO: Limpar mensagens antigas antes de carregar novo chat
+      setMessages([])
+      lastLoadedChatCodeRef.current = code
       setChatCode(code)
       await loadChatMessagesMerge(code)
       setActiveTab("chat")
     },
     [loadChatMessagesMerge]
   )
+
+  // ✅ Filtrar mensagens apenas do chat atual
+  const currentChatMessages = useMemo(() => {
+    if (!chatCode) return messages
+    return messages.filter((m) => !m.chatCode || m.chatCode === chatCode)
+  }, [messages, chatCode])
 
   return (
     <div className="fixed bottom-4 right-4 z-[90]">
@@ -1181,7 +1182,7 @@ export function WyzerAIWidget() {
               onNewChat={handleNewChat}
               onClose={() => setOpen(false)}
               onSaveTranscript={() => setShowTranscriptModal(true)}
-              hasMessages={messages.length > 0}
+              hasMessages={currentChatMessages.length > 0}
             />
 
             <div className="flex-1 flex flex-col overflow-hidden relative">
@@ -1191,7 +1192,7 @@ export function WyzerAIWidget() {
                   onQuickAction={handleQuickAction}
                   logoSrc="/logo.png"
                   botAvatarSrc="/flow-icon.png"
-                  messages={messages}
+                  messages={currentChatMessages}
                   isLoading={isLoading}
                   streamingContent={streamingContent}
                   onImageClick={setViewingImage}
@@ -1220,7 +1221,7 @@ export function WyzerAIWidget() {
           <TranscriptModal
             isOpen={showTranscriptModal}
             onClose={() => setShowTranscriptModal(false)}
-            messages={messages}
+            messages={currentChatMessages}
           />
 
           <ImageViewerModal

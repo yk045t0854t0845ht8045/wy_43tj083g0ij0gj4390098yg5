@@ -13,7 +13,7 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 }
 
-function json(data: any, status = 200) {
+function json(data: Record<string, unknown>, status = 200) {
   return NextResponse.json(data, { status, headers: NO_STORE_HEADERS })
 }
 
@@ -29,7 +29,7 @@ export async function GET() {
 
   const { data, error } = await sb
     .from("wz_chats")
-    .select("chat_code, motivo, assigned_to, created_at, updated_at")
+    .select("chat_code, motivo, created_at, updated_at")
     .eq("user_id", session.userId)
     .order("updated_at", { ascending: false })
     .limit(50)

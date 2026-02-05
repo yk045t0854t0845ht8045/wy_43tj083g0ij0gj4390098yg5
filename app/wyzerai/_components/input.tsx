@@ -304,11 +304,9 @@ export function Input({
         </div>
       </div>
 
-
-        {/* Aviso pequeno embaixo do input */}
-        <div className="px-4 pt-2 text-[11px] leading-snug text-gray-500/80 text-center">
-          O Flow pode cometer erros. Confira as informações.
-        </div>
+      <div className="px-4 pt-2 text-[11px] leading-snug text-gray-500/80 text-center">
+        O Flow pode cometer erros. Confira as informações.
+      </div>
     </div>
   )
 }

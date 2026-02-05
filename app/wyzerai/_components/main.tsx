@@ -205,6 +205,7 @@ function ShimmerText({ children }: { children: React.ReactNode }) {
   )
 }
 
+// ✅ CORRIGIDO: LoadingMessage agora é usado APENAS quando isLoading=true e não há mensagens streaming
 function LoadingMessage() {
   return (
     <div className="flex items-start gap-3" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
@@ -354,7 +355,6 @@ function BotMessage({
     setIsLoadingAI(true)
 
     try {
-      // retry leve pra reduzir fallback
       const tryOnce = async () => {
         const response = await fetch("/api/wz_WyzerAI/suggestions", {
           method: "POST",
@@ -379,7 +379,6 @@ function BotMessage({
         }
       }
     } catch {
-      // se falhar, não força “fallback pesado”
       setSuggestions([])
     } finally {
       setIsLoadingAI(false)
@@ -421,6 +420,9 @@ function BotMessage({
     onReactMessage!(dbId!, nextLiked, nextDisliked)
   }
 
+  // ✅ CORRIGIDO: Não mostrar "Analisando" dentro de BotMessage - apenas mostrar o conteúdo ou cursor
+  const showContent = content && content.length > 0
+
   return (
     <div className="flex items-start gap-3" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
       <div className="flex-shrink-0 w-8 h-8 overflow-hidden flex items-center justify-center">
@@ -432,14 +434,17 @@ function BotMessage({
           <span className="text-sm font-semibold text-gray-900">Flow</span>
         </div>
 
-        {isStreaming && !content ? (
-          <LoadingMessage />
-        ) : (
+        {showContent ? (
           <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap" style={{ animation: "fadeIn 0.3s ease-out forwards" }}>
             {content}
-            {isStreaming ? <span className="inline-block w-2 h-4 bg-gray-400 ml-0.5 animate-pulse" /> : null}
+            {isStreaming && <span className="inline-block w-2 h-4 bg-gray-400 ml-0.5 animate-pulse" />}
           </div>
-        )}
+        ) : isStreaming ? (
+          // Cursor piscando enquanto aguarda conteúdo
+          <div className="flex items-center">
+            <span className="inline-block w-2 h-4 bg-gray-400 animate-pulse" />
+          </div>
+        ) : null}
 
         {isLoginRequired && (
           <div className="mt-3">
@@ -453,7 +458,7 @@ function BotMessage({
           </div>
         )}
 
-        {!isLoginRequired && (
+        {!isLoginRequired && showContent && !isStreaming && (
           <div className="flex items-center gap-1 mt-3">
             <button
               type="button"
@@ -510,7 +515,7 @@ function BotMessage({
           </div>
         )}
 
-        {!isLoginRequired && showSuggestions && suggestionsVisible && (
+        {!isLoginRequired && showSuggestions && suggestionsVisible && !isStreaming && (
           <SuggestionsPanel suggestions={suggestions} isLoadingAI={isLoadingAI} onSuggestionClick={onSuggestionClick} />
         )}
       </div>
@@ -675,6 +680,9 @@ export function Main({
     return <WelcomeScreen userName={userName} logoSrc={logoSrc} onQuickAction={onQuickAction} />
   }
 
+  // ✅ CORRIGIDO: Verificar se existe alguma mensagem streaming
+  const hasStreamingMessage = messages.some(m => m.isStreaming)
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <style>{cssAnimations}</style>
@@ -716,6 +724,11 @@ export function Main({
               />
             )
           })}
+
+          {/* ✅ CORRIGIDO: Só mostra LoadingMessage se está carregando E não há mensagem streaming */}
+          {isLoading && !hasStreamingMessage && (
+            <LoadingMessage />
+          )}
         </div>
       </div>
     </div>
