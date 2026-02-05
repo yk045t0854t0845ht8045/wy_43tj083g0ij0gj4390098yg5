@@ -12,6 +12,20 @@ import { Main } from "./_components/main"
 import { History } from "./_components/history"
 import { Input } from "./_components/input"
 
+type HumanHandoffReason = "stress" | "user_request" | "rate_limit"
+
+type HumanHandoffPayload = {
+  chatCode: string
+  reason: HumanHandoffReason
+  mood?: string
+  lastUserMessage: string
+}
+
+// ✅ Pronto para integrar depois (webhook, abrir ticket, etc).
+// Enquanto estiver `null`, o chat segue normalmente.
+const ON_HUMAN_HANDOFF: ((payload: HumanHandoffPayload) => Promise<void> | void) | null =
+  null
+
 function uid() {
   return Math.random().toString(16).slice(2) + Date.now().toString(16)
 }
@@ -287,6 +301,7 @@ export function WyzerAIWidget() {
   const [isMobile, setIsMobile] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [isRedirectingToHuman, setIsRedirectingToHuman] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
   const [showTranscriptModal, setShowTranscriptModal] = useState(false)
   const [viewingImage, setViewingImage] = useState<AttachedFile | null>(null)
@@ -522,6 +537,20 @@ export function WyzerAIWidget() {
             if (typeof m.dbId === "number") byDbId.set(m.dbId, i)
           }
 
+          const normalizeForMatch = (v: string, max = 6000) =>
+            String(v || "").replace(/\s+/g, " ").trim().slice(0, max)
+
+          const contentMatches = (a: string, b: string) => {
+            const na = normalizeForMatch(a)
+            const nb = normalizeForMatch(b)
+            if (!na || !nb) return false
+            if (na === nb) return true
+
+            const shorter = na.length <= nb.length ? na : nb
+            const longer = na.length <= nb.length ? nb : na
+            return shorter.length >= 40 && longer.startsWith(shorter)
+          }
+
           const findBestLocalMatch = (role: "user" | "assistant", content: string, createdAtMs: number) => {
             let bestIdx = -1
             let bestDist = Number.POSITIVE_INFINITY
@@ -530,7 +559,7 @@ export function WyzerAIWidget() {
               if (!m) continue
               if (m.role !== role) continue
               if (typeof m.dbId === "number") continue
-              if (String(m.content || "") !== String(content || "")) continue
+              if (!contentMatches(String(m.content || ""), String(content || ""))) continue
 
               const t = Number(m.clientTs || 0)
               if (!t || !createdAtMs) continue
@@ -773,6 +802,8 @@ export function WyzerAIWidget() {
         abortControllerRef.current.abort()
       }
 
+      setIsRedirectingToHuman(false)
+
       const abortController = new AbortController()
       abortControllerRef.current = abortController
 
@@ -783,11 +814,13 @@ export function WyzerAIWidget() {
         const payload = {
           sessionId,
           chatCode: effectiveChatCode,
-          messages: [{
-            role: lastMessage.role,
-            content: compactText(lastMessage.content, 150),
-            images: lastMessage.images ? lastMessage.images : undefined,
-          }],
+          messages: [
+            {
+              role: lastMessage.role,
+              content: clampText(lastMessage.content, 4000),
+              images: lastMessage.images ? lastMessage.images : undefined,
+            },
+          ],
         }
 
         const resp = await apiFetch("/api/wz_WyzerAI", {
@@ -800,7 +833,7 @@ export function WyzerAIWidget() {
         if (resp.status === 401) {
           setNeedsLogin(true)
           ensureLoginMessage()
-          return { ok: false as const, message: "Para continuar, faça login." }
+          return { ok: false as const, message: "Para continuar, faça login.", handoff: null }
         }
 
         if (!resp.ok) {
@@ -819,6 +852,7 @@ export function WyzerAIWidget() {
               ok: false as const,
               message:
                 "Muitas mensagens no momento. Aguarde alguns segundos e tente novamente.",
+              handoff: null,
             }
           }
 
@@ -827,6 +861,7 @@ export function WyzerAIWidget() {
               ok: false as const,
               message:
                 "Sua mensagem ficou grande demais. Tente resumir um pouco.",
+              handoff: null,
             }
           }
 
@@ -835,14 +870,28 @@ export function WyzerAIWidget() {
             message:
               detail ||
               "Não consegui responder agora. Tente novamente em instantes.",
+            handoff: null,
           }
         }
+
+        const isHandoff = resp.headers.get("X-Wyzer-Handoff") === "1"
+        const reasonHeader = String(resp.headers.get("X-Wyzer-Handoff-Reason") || "").trim()
+        const mood = String(resp.headers.get("X-Wyzer-Mood") || "").trim() || undefined
+
+        const reason: HumanHandoffReason =
+          reasonHeader === "stress" || reasonHeader === "user_request" || reasonHeader === "rate_limit"
+            ? (reasonHeader as HumanHandoffReason)
+            : "rate_limit"
+
+        const handoff = isHandoff ? { reason, mood } : null
+        if (isHandoff) setIsRedirectingToHuman(true)
 
         const reader = resp.body?.getReader()
         if (!reader) {
           return {
             ok: false as const,
             message: "Erro ao ler resposta do servidor. Tente novamente.",
+            handoff,
           }
         }
 
@@ -864,18 +913,20 @@ export function WyzerAIWidget() {
             ok: false as const,
             message:
               "Não consegui gerar uma resposta. Tente novamente.",
+            handoff,
           }
         }
 
-        return { ok: true as const, message: trimmed }
+        return { ok: true as const, message: trimmed, handoff }
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
-          return { ok: false as const, message: null }
+          return { ok: false as const, message: null, handoff: null }
         }
         return {
           ok: false as const,
           message:
             "Falha de conexão. Verifique sua internet e tente novamente.",
+          handoff: null,
         }
       }
     },
@@ -1005,6 +1056,18 @@ export function WyzerAIWidget() {
       setStreamingContent("")
       setIsLoading(false)
       setSending(false)
+      setIsRedirectingToHuman(false)
+
+      if (result.handoff) {
+        void Promise.resolve(
+          ON_HUMAN_HANDOFF?.({
+            chatCode: effectiveChatCode,
+            reason: result.handoff.reason,
+            mood: result.handoff.mood,
+            lastUserMessage: userMessage.content,
+          })
+        ).catch(() => {})
+      }
 
       await loadChatMessagesMerge(effectiveChatCode)
       await refreshHistory()
@@ -1036,6 +1099,7 @@ export function WyzerAIWidget() {
     setInput("")
     setMessages([])
     setIsLoading(false)
+    setIsRedirectingToHuman(false)
     setSending(false)
     setStreamingContent("")
     setAttachedFiles([])
@@ -1052,6 +1116,7 @@ export function WyzerAIWidget() {
     setInput("")
     setMessages([])
     setIsLoading(false)
+    setIsRedirectingToHuman(false)
     setSending(false)
     setStreamingContent("")
     setAttachedFiles([])
@@ -1065,6 +1130,7 @@ export function WyzerAIWidget() {
       if (!code) return
       // ✅ CORRIGIDO: Limpar mensagens antigas antes de carregar novo chat
       setMessages([])
+      setIsRedirectingToHuman(false)
       lastLoadedChatCodeRef.current = code
       setChatCode(code)
       await loadChatMessagesMerge(code)
@@ -1194,6 +1260,7 @@ export function WyzerAIWidget() {
                   botAvatarSrc="/flow-icon.png"
                   messages={currentChatMessages}
                   isLoading={isLoading}
+                  isRedirectingToHuman={isRedirectingToHuman}
                   streamingContent={streamingContent}
                   onImageClick={setViewingImage}
                   onLoginClick={goToLogin}

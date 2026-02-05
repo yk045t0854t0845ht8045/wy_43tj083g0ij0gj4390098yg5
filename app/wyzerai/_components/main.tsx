@@ -764,7 +764,7 @@ export function Main({
 
           {/* ✅ CORRIGIDO: Mostra "Analisando sua solicitação" enquanto aguarda resposta */}
           {shouldShowLoading && (
-            <LoadingMessage />
+            <LoadingMessage isRedirectingToHuman={isRedirectingToHuman} />
           )}
         </div>
       </div>

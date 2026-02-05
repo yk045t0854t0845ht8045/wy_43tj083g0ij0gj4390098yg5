@@ -1,5 +1,5 @@
 // app/api/wz_WyzerAI/route.ts
-import { streamText } from "ai"
+import { generateText, streamText } from "ai"
 import { createOpenAI } from "@ai-sdk/openai"
 import { headers } from "next/headers"
 import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session"
@@ -20,8 +20,10 @@ const openai = createOpenAI({})
 
 // ✅ ULTRA OTIMIZADO PARA 1000 TPM
 const CONFIG = {
-  MAX_INPUT_CHARS: 150,      // Máximo de caracteres da mensagem do usuário
-  MAX_OUTPUT_TOKENS: 80,     // Reduzido para ~80 tokens de output
+  MAX_INPUT_CHARS: 1200,      // Máximo de caracteres da mensagem do usuário
+  MAX_OUTPUT_TOKENS: 220,     // Respostas mais úteis sem ficar enorme
+  CONTEXT_MAX_MESSAGES: 16,   // Memória apenas do chat atual
+  CONTEXT_MAX_MESSAGE_CHARS: 420,
   CACHE_TTL_MS: 15 * 60 * 1000, // Cache por 15 minutos
   MAX_CACHE_SIZE: 500,       // Mais cache = menos chamadas API
   RATE_LIMIT_COOLDOWN_MS: 30_000, // 30s de cooldown após rate limit
@@ -33,8 +35,12 @@ const MODEL_FALLBACKS = [
   "gpt-5-nano",
 ] as const
 
-// ✅ System prompt ULTRA COMPACTO para economizar tokens (~100 tokens)
-const SYSTEM_PROMPT = `Flow, assistente Wyzer. Responda em PT-BR, curto (1-2 frases). Wyzer: automação WhatsApp. Planos: Starter R$89, PRO R$149. Suporte: seg-sex 9h-18h. Teste grátis 7 dias.`
+const SYSTEM_PROMPT = [
+  "Você é o Flow, assistente da Wyzer.",
+  "Responda em PT-BR, com clareza e objetividade.",
+  "Use apenas o contexto deste chat (não invente dados; se faltar informação, pergunte).",
+  "Wyzer: automação WhatsApp. Planos: Starter R$89, PRO R$149. Suporte: seg-sex 9h-18h. Teste grátis 7 dias.",
+].join(" ")
 
 // Rate limit tracking
 let lastRateLimitTime = 0
@@ -178,6 +184,75 @@ function getQuickResponse(text: string): string | null {
 // UTILITÁRIOS
 // ─────────────────────────────────────────────────────────────────────────────
 
+const HUMAN_HANDOFF_HINTS = [
+  "atendente",
+  "humano",
+  "suporte humano",
+  "falar com atendente",
+  "falar com humano",
+  "quero um atendente",
+  "preciso de um atendente",
+  "chamar atendente",
+] as const
+
+const STRESS_HINTS = [
+  "estress",
+  "irrit",
+  "raiva",
+  "nervos",
+  "chatead",
+  "horrivel",
+  "pessim",
+  "ridicul",
+  "lixo",
+  "merda",
+  "porra",
+  "caralho",
+  "urgente",
+  "agora",
+  "imediat",
+  "socorro",
+  "nao aguento",
+  "não aguento",
+] as const
+
+function normalizeIntentText(text: string): string {
+  return String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function includesAny(normalized: string, hints: readonly string[]): boolean {
+  for (const h of hints) {
+    if (normalized.includes(h)) return true
+  }
+  return false
+}
+
+function detectHumanHandoff(normalized: string): boolean {
+  return !!normalized && includesAny(normalized, HUMAN_HANDOFF_HINTS)
+}
+
+function detectStress(normalized: string, raw: string): boolean {
+  if (!normalized) return false
+  if (includesAny(normalized, STRESS_HINTS)) return true
+
+  const rawText = String(raw || "")
+  if (rawText.includes("!!!") || rawText.includes("???") || rawText.includes("?!?")) return true
+
+  const words = rawText.split(/\s+/).filter(Boolean)
+  const capsWords = words.filter((w) => {
+    if (w.length < 4) return false
+    const hasLetter = /[A-Za-zÀ-ÿ]/.test(w)
+    return hasLetter && w === w.toUpperCase()
+  })
+
+  return capsWords.length >= 2
+}
+
 function sanitizeText(input: unknown, maxChars: number): string {
   return String(input || "")
     .replace(/\s+/g, " ")
@@ -247,6 +322,29 @@ function compactText(v: string, maxChars = 150) {
     .replace(/\n+/g, " ")
     .trim()
     .slice(0, maxChars)
+}
+
+async function loadChatContextMessages(
+  sb: ReturnType<typeof supabaseAdmin>,
+  chatCode: string
+): Promise<Array<{ role: "user" | "assistant"; content: string }>> {
+  const { data } = await sb
+    .from("wz_chat_messages")
+    .select("sender, message, created_at")
+    .eq("chat_code", chatCode)
+    .order("created_at", { ascending: false })
+    .limit(CONFIG.CONTEXT_MAX_MESSAGES)
+
+  const rows = Array.isArray(data) ? [...data].reverse() : []
+
+  return rows
+    .map((row) => {
+      const role: "assistant" | "user" =
+        row?.sender === "assistant" ? "assistant" : "user"
+      const content = sanitizeText(row?.message, CONFIG.CONTEXT_MAX_MESSAGE_CHARS)
+      return { role, content }
+    })
+    .filter((m) => !!m.content)
 }
 
 function createTextStream(text: string, extraHeaders?: Record<string, string>): Response {
@@ -387,6 +485,75 @@ function extractMotivoFromText(text: string): string | null {
   return null
 }
 
+const GENERIC_MOTIVO_HINTS = [
+  "novo atendimento",
+  "novo chat",
+  "atendimento iniciado",
+  "atendimento em andamento",
+  "atendimento geral",
+  "atendimento sem motivo",
+  "sem motivo",
+] as const
+
+function isMotivoGeneric(motivo: unknown): boolean {
+  const normalized = String(motivo || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  if (!normalized) return true
+  return GENERIC_MOTIVO_HINTS.some((hint) => normalized.includes(hint))
+}
+
+function cleanMotivoCandidate(raw: string): string {
+  let s = String(raw || "").trim()
+  s = s.replace(/^["'`]+|["'`]+$/g, "")
+  s = s.replace(/\s+/g, " ").trim()
+  s = s.replace(/[.!?…]+$/g, "").trim()
+  if (s.length > 64) s = s.slice(0, 64).trim()
+  return s
+}
+
+async function generateMotivoWithModelFallback(args: { firstThreeUserMessages: string[] }): Promise<string> {
+  const prompt = [
+    "Crie um motivo curto (máx 6 palavras) para este atendimento.",
+    "Use APENAS as 3 primeiras mensagens do usuário.",
+    "Retorne somente o motivo, sem aspas e sem ponto final.",
+    "",
+    args.firstThreeUserMessages.map((m, i) => `${i + 1}) ${m}`).join("\n"),
+  ].join("\n")
+
+  let lastErr: unknown = null
+  for (const modelId of MODEL_FALLBACKS) {
+    try {
+      const result = await generateText({
+        model: openai(modelId),
+        system:
+          "Você cria títulos curtos de atendimento em PT-BR. Retorne só o texto do motivo.",
+        prompt,
+        temperature: 0.2,
+        maxOutputTokens: 40,
+      })
+
+      const out = cleanMotivoCandidate(result.text || "")
+      if (out) return out
+    } catch (e: unknown) {
+      lastErr = e
+      const msg = e instanceof Error ? e.message : String(e)
+      if (isModelAccessError(msg)) continue
+    }
+  }
+
+  if (lastErr) {
+    const msg = lastErr instanceof Error ? lastErr.message : String(lastErr)
+    console.warn("[WyzerAI motivo] falha ao gerar motivo:", msg)
+  }
+
+  return ""
+}
+
 async function maybeGenerateMotivo(
   sb: ReturnType<typeof supabaseAdmin>, 
   chatCode: string,
@@ -400,61 +567,51 @@ async function maybeGenerateMotivo(
 
   if (!chat) return
 
-  // ✅ NOVO: Se já tem motivo que não é genérico, não atualizar
-  const currentMotivo = chat.motivo || ""
-  const isGenericMotivo = !currentMotivo || 
-    currentMotivo.includes("Atendimento") || 
-    currentMotivo.includes("Novo chat") ||
-    currentMotivo.includes("SEM MOTIVO")
+  const currentMotivoRaw = (chat as { motivo?: string | null }).motivo ?? null
+  if (!isMotivoGeneric(currentMotivoRaw)) return
 
-  // Se tem motivo bom, não atualizar
-  if (!isGenericMotivo) return
-
-  // ✅ Tentar extrair motivo da mensagem atual SEM usar API
-  if (currentUserMessage) {
-    const extractedMotivo = extractMotivoFromText(currentUserMessage)
-    if (extractedMotivo) {
-      await sb
-        .from("wz_chats")
-        .update({ motivo: extractedMotivo, updated_at: new Date().toISOString() })
-        .eq("chat_code", chatCode)
-      return
-    }
-  }
-
-  // ✅ Se não extraiu, buscar mensagens do chat para tentar extrair
+  // ✅ Buscar as 3 primeiras mensagens do usuário (base do motivo)
   const { data: msgs } = await sb
     .from("wz_chat_messages")
-    .select("sender, message")
+    .select("message")
     .eq("chat_code", chatCode)
     .eq("sender", "user")
     .order("created_at", { ascending: true })
     .limit(3)
 
-  if (!msgs || msgs.length === 0) return
+  const firstThree = Array.isArray(msgs)
+    ? msgs.map((m) => sanitizeText(m?.message, 220)).filter(Boolean)
+    : []
 
-  // Tentar extrair de qualquer mensagem
-  for (const msg of msgs) {
-    const extracted = extractMotivoFromText(msg.message || "")
-    if (extracted) {
-      await sb
-        .from("wz_chats")
-        .update({ motivo: extracted, updated_at: new Date().toISOString() })
-        .eq("chat_code", chatCode)
-      return
-    }
+  // Ainda não tem contexto suficiente (baseado nas 3 primeiras mensagens)
+  if (firstThree.length < 3) return
+
+  let nextMotivo = await generateMotivoWithModelFallback({
+    firstThreeUserMessages: firstThree,
+  })
+  nextMotivo = cleanMotivoCandidate(nextMotivo)
+
+  // Fallback: keywords / primeira mensagem
+  if (!nextMotivo || isMotivoGeneric(nextMotivo)) {
+    const fromKeywords =
+      extractMotivoFromText(firstThree.join(" ")) ||
+      (currentUserMessage ? extractMotivoFromText(currentUserMessage) : null)
+
+    nextMotivo = cleanMotivoCandidate(fromKeywords || firstThree[0] || "Atendimento geral")
   }
 
-  // ✅ Se ainda não tem motivo e tem pelo menos 1 mensagem, definir genérico
-  if (msgs.length >= 1 && isGenericMotivo) {
-    // Usar primeira mensagem truncada como motivo genérico
-    const firstMsg = (msgs[0].message || "").slice(0, 40)
-    const genericMotivo = firstMsg.length > 35 ? firstMsg + "..." : firstMsg || "Atendimento geral"
-    
-    await sb
-      .from("wz_chats")
-      .update({ motivo: genericMotivo, updated_at: new Date().toISOString() })
-      .eq("chat_code", chatCode)
+  if (!nextMotivo || isMotivoGeneric(nextMotivo)) return
+
+  const updateQuery = sb
+    .from("wz_chats")
+    .update({ motivo: nextMotivo, updated_at: new Date().toISOString() })
+    .eq("chat_code", chatCode)
+
+  // ✅ Evitar geração dupla: atualiza só se motivo ainda for o mesmo que lemos
+  if (currentMotivoRaw === null) {
+    await updateQuery.is("motivo", null)
+  } else {
+    await updateQuery.eq("motivo", currentMotivoRaw)
   }
 }
 
@@ -471,6 +628,8 @@ export async function POST(req: Request): Promise<Response> {
     if (isInRateLimitCooldown()) {
       return createTextStream(TRANSFER_TO_HUMAN_MSG, {
         "X-Wyzer-Source": "transfer_human",
+        "X-Wyzer-Handoff": "1",
+        "X-Wyzer-Handoff-Reason": "rate_limit",
       })
     }
 
@@ -523,7 +682,7 @@ export async function POST(req: Request): Promise<Response> {
     // valida se chat pertence ao user logado
     const { data: chat, error: chatErr } = await sb
       .from("wz_chats")
-      .select("chat_code, user_id")
+      .select("chat_code, user_id, motivo")
       .eq("chat_code", chatCode)
       .maybeSingle()
 
@@ -533,6 +692,43 @@ export async function POST(req: Request): Promise<Response> {
 
     if (!chat || chat.user_id !== session.userId) {
       return createTextStream("Chat não encontrado.", { "X-Wyzer-Source": "not_found" })
+    }
+
+    // ✅ Identificação de humor + opção de atendente (handoff)
+    const normalizedIntent = normalizeIntentText(userText)
+    const wantsHuman = detectHumanHandoff(normalizedIntent)
+    const isStressed = !wantsHuman && detectStress(normalizedIntent, userText)
+
+    if (wantsHuman || isStressed) {
+      const reason = wantsHuman ? "user_request" : "stress"
+      const mood = isStressed ? "stressed" : "neutral"
+
+      const handoffMsg = wantsHuman
+        ? "Certo! Vou redirecionar você para um atendente humano. Por favor, aguarde."
+        : "Entendi. Vou redirecionar você para um atendente humano para te ajudar melhor. Por favor, aguarde."
+
+      await sb.from("wz_chat_messages").insert([
+        { chat_code: chatCode, sender: "user", message: userText, has_image: !!hasImage },
+        { chat_code: chatCode, sender: "assistant", message: handoffMsg, has_image: false },
+      ])
+
+      const updatePayload: Record<string, string> = {
+        updated_at: new Date().toISOString(),
+      }
+
+      const chatMotivo = (chat as { motivo?: string | null }).motivo ?? null
+      if (isMotivoGeneric(chatMotivo)) {
+        updatePayload.motivo = wantsHuman ? "Falar com atendente" : "Atendimento urgente"
+      }
+
+      await sb.from("wz_chats").update(updatePayload).eq("chat_code", chatCode)
+
+      return createTextStream(handoffMsg, {
+        "X-Wyzer-Source": "handoff",
+        "X-Wyzer-Handoff": "1",
+        "X-Wyzer-Handoff-Reason": reason,
+        "X-Wyzer-Mood": mood,
+      })
     }
 
     // ✅ quick response (NÃO USA API)
@@ -545,13 +741,22 @@ export async function POST(req: Request): Promise<Response> {
       await sb.from("wz_chats").update({ updated_at: new Date().toISOString() }).eq("chat_code", chatCode)
 
       // ✅ Tentar extrair motivo da mensagem
-      void maybeGenerateMotivo(sb, chatCode, userText)
+      await maybeGenerateMotivo(sb, chatCode, userText)
 
       return createTextStream(quick, { "X-Wyzer-Source": "quick" })
     }
 
+    // ✅ Cache só para chat sem histórico (com memória ativa, cache pode errar)
+    const { data: anyMessage } = await sb
+      .from("wz_chat_messages")
+      .select("id")
+      .eq("chat_code", chatCode)
+      .limit(1)
+
+    const hasHistory = Array.isArray(anyMessage) && anyMessage.length > 0
+
     // ✅ cache (NÃO USA API)
-    const cached = getCachedResponse(userText)
+    const cached = !hasHistory ? getCachedResponse(userText) : null
     if (cached) {
       await sb.from("wz_chat_messages").insert([
         { chat_code: chatCode, sender: "user", message: userText, has_image: !!hasImage },
@@ -559,7 +764,7 @@ export async function POST(req: Request): Promise<Response> {
       ])
       await sb.from("wz_chats").update({ updated_at: new Date().toISOString() }).eq("chat_code", chatCode)
 
-      void maybeGenerateMotivo(sb, chatCode, userText)
+      await maybeGenerateMotivo(sb, chatCode, userText)
 
       return createTextStream(cached, { "X-Wyzer-Source": "cache" })
     }
@@ -572,11 +777,14 @@ export async function POST(req: Request): Promise<Response> {
       has_image: !!hasImage,
     })
 
-    // ✅ Atualizar motivo antes de chamar API
-    void maybeGenerateMotivo(sb, chatCode, userText)
+    // ✅ Atualizar motivo (baseado nas 3 primeiras mensagens)
+    await maybeGenerateMotivo(sb, chatCode, userText)
 
-    // ✅ ULTRA OTIMIZADO: Mensagem ainda mais compacta
-    const messages = [{ role: "user" as const, content: compactText(userText, 100) }]
+    // ✅ Memória apenas do chat atual (contexto do próprio chatCode)
+    const messages = await loadChatContextMessages(sb, chatCode)
+    if (messages.length === 0) {
+      messages.push({ role: "user" as const, content: compactText(userText, 240) })
+    }
 
     const { response, usedModel } = await streamWithModelFallback({
       system: SYSTEM_PROMPT,
@@ -619,6 +827,8 @@ export async function POST(req: Request): Promise<Response> {
       if (rateLimitCount >= 3) {
         return createTextStream(TRANSFER_TO_HUMAN_MSG, {
           "X-Wyzer-Source": "transfer_human",
+          "X-Wyzer-Handoff": "1",
+          "X-Wyzer-Handoff-Reason": "rate_limit",
         })
       }
       
