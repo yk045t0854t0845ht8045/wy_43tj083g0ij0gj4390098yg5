@@ -267,6 +267,14 @@ function sanitizeText(input: unknown, maxChars: number): string {
     .slice(0, maxChars)
 }
 
+function sanitizeTextKeepLines(input: unknown, maxChars: number): string {
+  return String(input || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim()
+    .slice(0, maxChars)
+}
+
 function extractContent(message: unknown): string {
   if (!message || typeof message !== "object") return ""
   const m = message as Record<string, unknown>
@@ -1047,7 +1055,7 @@ export async function POST(req: Request): Promise<Response> {
 
     // clona para ler e salvar o texto completo sem quebrar streaming pro cliente
     const cloned = response.clone()
-    const fullTextPromise = cloned.text().then((t) => sanitizeText(t, 500)).catch(() => "")
+    const fullTextPromise = cloned.text().then((t) => sanitizeTextKeepLines(t, 500)).catch(() => "")
 
     // ao finalizar, salva no banco
     fullTextPromise.then(async (assistantText) => {
