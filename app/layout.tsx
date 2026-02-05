@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import "./globals.css";
-import { SpeedInsights } from "@vercel/speed-insights/next"
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 export const metadata: Metadata = {
-  title: "Wyzer - Sistema de Automação para WhatsApp",
+  title: "Wyzer - Sistema de AutomaÃ§Ã£o para WhatsApp",
   description:
     "Automatize seu atendimento no WhatsApp com Wyzer. Crie chatbots inteligentes, gerencie conversas e aumente suas vendas facilmente. Experimente agora!",
   applicationName: "Wyzer",
@@ -37,19 +37,33 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, viewport-fit=cover"
+        />
         <meta name="theme-color" content="#0A0A0A" />
         <meta name="color-scheme" content="dark light" />
-        <meta name="format-detection" content="telephone=no, date=no, address=no, email=no" />
+        <meta
+          name="format-detection"
+          content="telephone=no, date=no, address=no, email=no"
+        />
 
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
         <link
           href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap"
           rel="stylesheet"
         />
 
-        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7049845214661996" crossOrigin="anonymous"></script>
+        <script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7049845214661996"
+          crossOrigin="anonymous"
+        />
 
         {/* Site Icon / Favicons */}
         <link rel="icon" href="/logo.ico" sizes="any" />
@@ -57,19 +71,23 @@ export default function RootLayout({
         <link rel="icon" type="image/png" href="/logo.png" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="mask-icon" href="/safari-pinned-tab.svg" color="#0A0A0A" />
-  </head>
-  <body className="antialiased">{children}
-  </body>
-  <SpeedInsights/>
-  <Script async src="https://www.googletagmanager.com/gtag/js?id=G-YGYCF968SD" />
-  <Script id="google-analytics">
-    {`
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){window.dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'G-YGYCF968SD');
-    `}
-  </Script>
-</html>
+      </head>
+      <body className="antialiased">
+        {children}
+        <SpeedInsights />
+        <Script
+          async
+          src="https://www.googletagmanager.com/gtag/js?id=G-YGYCF968SD"
+        />
+        <Script id="google-analytics">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){window.dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'G-YGYCF968SD');
+          `}
+        </Script>
+      </body>
+    </html>
   );
 }
