@@ -51,13 +51,17 @@ export default async function DashboardHomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center">
-            <Sidebar activeMain="transactions" activeSub="orders" />
-      <div className="text-center">
-        {/* <div>{session.email}</div>
-        <div>{session.userId}</div> */}
+    <div className="min-h-screen bg-white flex">
+      <Sidebar activeMain="transactions" activeSub="orders" />
+
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center">
+          {/* <div>{session.email}</div>
+          <div>{session.userId}</div> */}
+        </div>
+
+        <WyzerAIWidget />
       </div>
-      <WyzerAIWidget />
     </div>
   );
 }
