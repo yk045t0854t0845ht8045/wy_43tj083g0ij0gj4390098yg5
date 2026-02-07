@@ -366,7 +366,7 @@ export default function LoadingBase() {
         contain: "layout style",
       }}
     >
-      <div className="relative h-[5px] w-full overflow-hidden bg-transparent">
+      <div className="relative h-[4px] w-full overflow-hidden bg-transparent">
         {/* Barra principal com posição dinâmica */}
         <div
           className="absolute inset-y-0 bg-black"
