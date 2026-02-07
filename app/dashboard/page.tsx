@@ -1,7 +1,7 @@
 // app/(dashboard)/page.tsx
 import { headers } from "next/headers";
 import Link from "next/link";
-// import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session";
+import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session";
 import { WyzerAIWidget } from "@/app/wyzerai/page";
 import Sidebar from "./_components/sidebar";
 import LoadingBase from "./_components/LoadingBase";
@@ -38,18 +38,18 @@ export default async function DashboardHomePage() {
     get: (name: string) => h.get(name),
   };
 
-  // const session = readSessionFromCookieHeader(cookieHeader, headerLike);
+  const session = readSessionFromCookieHeader(cookieHeader, headerLike);
 
   const hostHeader = pickHostHeader(headerLike);
   const loginUrl = buildLoginUrl(hostHeader);
 
-  // if (!session) {
-  //   return (
-  //     <div className="min-h-screen bg-white flex items-center justify-center">
-  //       <Link href={loginUrl}>Ir para Login</Link>
-  //     </div>
-  //   );
-  // }
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <Link href={loginUrl}>Ir para Login</Link>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white flex">
