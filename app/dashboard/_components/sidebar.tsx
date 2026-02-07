@@ -20,6 +20,7 @@ type MainItemId =
   | "discounts";
 
 type SubItemId = "orders" | "drafts" | "shipping" | "abandoned";
+type ChannelId = "online-store" | "retail-pos" | "shop";
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -239,11 +240,13 @@ function CaretDown({ open }: { open: boolean }) {
 type Props = {
   activeMain?: MainItemId;
   activeSub?: SubItemId;
+  activeChannel?: ChannelId | null;
 };
 
 export default function Sidebar({
   activeMain = "transactions",
   activeSub = "orders",
+  activeChannel = null,
 }: Props) {
   const [transactionsOpen, setTransactionsOpen] = useState(true);
   const isMobile = useIsMobileSm();
@@ -252,10 +255,14 @@ export default function Sidebar({
   // active “inteligente”
   const [activeMainState, setActiveMainState] = useState<MainItemId>(activeMain);
   const [activeSubState, setActiveSubState] = useState<SubItemId>(activeSub);
+  const [activeChannelState, setActiveChannelState] = useState<ChannelId | null>(
+    activeChannel
+  );
 
   // sincroniza caso props mudem
   useEffect(() => setActiveMainState(activeMain), [activeMain]);
   useEffect(() => setActiveSubState(activeSub), [activeSub]);
+  useEffect(() => setActiveChannelState(activeChannel), [activeChannel]);
 
   // mobile: sidebar vira drawer (minimizado por padrao)
   const didMountRef = useRef(false);
@@ -296,9 +303,9 @@ export default function Sidebar({
 
   const channels = useMemo(
     () => [
-      { id: "online-store", label: "Online Store", icon: <IStore /> },
-      { id: "retail-pos", label: "Retail POS", icon: <IPOS /> },
-      { id: "shop", label: "Shop", icon: <IShop /> },
+      { id: "online-store" as const, label: "Online Store", icon: <IStore /> },
+      { id: "retail-pos" as const, label: "Retail POS", icon: <IPOS /> },
+      { id: "shop" as const, label: "Shop", icon: <IShop /> },
     ],
     []
   );
@@ -365,6 +372,7 @@ export default function Sidebar({
   // helpers: clicar em main fecha o submenu e aplica active
   const pickMain = (id: MainItemId) => {
     setActiveMainState(id);
+    setActiveChannelState(null);
 
     if (id !== "transactions") {
       // fecha o accordion ao sair
@@ -378,13 +386,20 @@ export default function Sidebar({
 
   const toggleTransactions = () => {
     setActiveMainState("transactions");
+    setActiveChannelState(null);
     setTransactionsOpen((v) => !v);
   };
 
   const pickSub = (id: SubItemId) => {
     setActiveMainState("transactions");
+    setActiveChannelState(null);
     if (!transactionsOpen) setTransactionsOpen(true);
     setActiveSubState(id);
+    setMobileMenuOpen(false);
+  };
+
+  const pickChannel = (id: ChannelId) => {
+    setActiveChannelState(id);
     setMobileMenuOpen(false);
   };
 
@@ -734,10 +749,14 @@ export default function Sidebar({
               <li key={c.id}>
                 <button
                   type="button"
+                  onClick={() => pickChannel(c.id)}
                   className={cx(
                     mainBtnBase,
-                    "hover:bg-black/[0.04]" // sem active aqui (igual print)
+                    activeChannelState === c.id
+                      ? "bg-black/[0.06]"
+                      : "hover:bg-black/[0.04]"
                   )}
+                  aria-current={activeChannelState === c.id ? "page" : undefined}
                 >
                   {c.icon}
                   <span>{c.label}</span>
