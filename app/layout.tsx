@@ -4,7 +4,7 @@ import "./globals.css";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 
 export const metadata: Metadata = {
-  title: "Wyzer - Sistema de AutomaÃ§Ã£o para WhatsApp",
+  title: "Wyzer - Sistema de Automações para WhatsApp",
   description:
     "Automatize seu atendimento no WhatsApp com Wyzer. Crie chatbots inteligentes, gerencie conversas e aumente suas vendas facilmente. Experimente agora!",
   applicationName: "Wyzer",

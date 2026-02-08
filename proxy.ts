@@ -10,16 +10,7 @@ function isStaticAssetPath(pathname: string) {
   )
 }
 
-function getProto(req: NextRequest) {
-  // Vercel/Proxy comum
-  const xfProto = (req.headers.get("x-forwarded-proto") || "").toLowerCase()
-  if (xfProto === "https" || xfProto === "http") return xfProto
-  // fallback
-  const p = (req.nextUrl.protocol || "https:").replace(":", "")
-  return p === "http" ? "http" : "https"
-}
-
-function isSafeReturnTo(req: NextRequest, raw: string) {
+function isSafeReturnTo(raw: string) {
   const value = String(raw || "").trim()
   if (!value) return false
 
@@ -59,35 +50,6 @@ function isSafeReturnTo(req: NextRequest, raw: string) {
   } catch {
     return false
   }
-}
-
-function normalizeReturnTo(req: NextRequest, returnTo: string) {
-  const value = String(returnTo || "").trim()
-  if (!value) return ""
-
-  // se for relativo, transforma em absoluto no host atual
-  if (value.startsWith("/")) {
-    const proto = getProto(req)
-    const host = (req.headers.get("host") || "").split(":")[0]
-    return `${proto}://${host}${value}`
-  }
-
-  // absoluto, retorna como está (já validado antes)
-  return value
-}
-
-function buildDashboardHomeUrl(req: NextRequest) {
-  const proto = getProto(req)
-  const hostHeader = (req.headers.get("host") || "").toLowerCase()
-  const host = hostHeader.split(":")[0]
-
-  // local/dev -> dashboard.localhost
-  if (host.endsWith(".localhost") || host === "localhost") {
-    return `${proto}://dashboard.localhost:3000/`
-  }
-
-  // prod
-  return `${proto}://dashboard.wyzer.com.br/`
 }
 
 export default function proxy(req: NextRequest) {
@@ -219,31 +181,10 @@ export default function proxy(req: NextRequest) {
   }
 
   if (isLoginSubdomain) {
-    const hasSession = !!req.cookies.get("wz_session_v1")?.value
-
-    // ✅ se já tem sessão e entrou na HOME do login,
-    //    NÃO manda direto sem validar "returnTo".
-    //    - se tiver returnTo seguro, volta pra ele
-    //    - se não, manda pro dashboard (home)
-    if (hasSession && (url.pathname === "/" || url.pathname === "")) {
-      const returnToRaw =
-        req.nextUrl.searchParams.get("returnTo") ||
-        req.nextUrl.searchParams.get("r") ||
-        ""
-
-      const canUseReturnTo = returnToRaw && isSafeReturnTo(req, returnToRaw)
-
-      const target = canUseReturnTo
-        ? normalizeReturnTo(req, returnToRaw)
-        : buildDashboardHomeUrl(req)
-
-      return NextResponse.redirect(target)
-    }
-
     // ✅ também valida caso alguém tente /login?returnTo=...
     //    (não redireciona automaticamente, só “limpa” se for inseguro)
     const rt = req.nextUrl.searchParams.get("returnTo")
-    if (rt && !isSafeReturnTo(req, rt)) {
+    if (rt && !isSafeReturnTo(rt)) {
       const cleaned = req.nextUrl.clone()
       cleaned.searchParams.delete("returnTo")
       cleaned.searchParams.delete("r")
