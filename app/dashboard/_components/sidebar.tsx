@@ -372,7 +372,7 @@ export default function Sidebar({
     "w-full h-[35px] rounded-xl",
     "flex items-center",
     "relative overflow-hidden transform-gpu will-change-transform active:scale-[0.992] active:translate-y-[0.5px]",
-    "px-3 text-[15px] font-semibold tracking-[-0.01em]",
+    "px-3 text-[15px] font-medium tracking-[-0.01em]",
     "text-black/90",
     "transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]"
   );
