@@ -2,6 +2,7 @@
 "use client";
 
 import Script from "next/script";
+import Image from "next/image";
 import { LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import React, {
   useEffect,
@@ -116,41 +117,15 @@ function ICategories({ target }: { target?: string }) {
   );
 }
 
-function ProjectIcon() {
+function ICollapse({ target }: { target?: string }) {
   return (
-    <span className="inline-flex w-[22px] h-[22px] items-center justify-center rounded-md bg-black/90 text-white">
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M7 7h10v10H7z" />
-      </svg>
-    </span>
-  );
-}
-
-function ChevronsUpDown() {
-  return (
-    <span className="inline-flex items-center justify-center text-black/55">
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="m7 10 5-5 5 5" />
-        <path d="m7 14 5 5 5-5" />
-      </svg>
+    <span className="w-[18px] h-[18px] inline-flex items-center justify-center overflow-hidden">
+      {React.createElement<LordIconProps>("lord-icon", {
+        src: "https://cdn.lordicon.com/ntjwyxgv.json",
+        trigger: "hover",
+        target,
+        style: { width: "18px", height: "18px" },
+      })}
     </span>
   );
 }
@@ -196,6 +171,8 @@ export default function Sidebar({
   );
   const isMobile = useIsMobileSm();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [desktopCollapsed, setDesktopCollapsed] = useState(false);
+  const isDesktopCollapsed = !isMobile && desktopCollapsed;
 
   // active “inteligente”
   const [activeMainState, setActiveMainState] = useState<MainItemId>(activeMain);
@@ -237,6 +214,18 @@ export default function Sidebar({
     };
   }, [isMobile, mobileMenuOpen]);
 
+  useEffect(() => {
+    const saved = window.localStorage.getItem("dashboard-sidebar-collapsed");
+    setDesktopCollapsed(saved === "1");
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "dashboard-sidebar-collapsed",
+      desktopCollapsed ? "1" : "0"
+    );
+  }, [desktopCollapsed]);
+
   const overviewHoverId = useId();
   const overviewHoverClass = useMemo(
     () =>
@@ -247,6 +236,7 @@ export default function Sidebar({
   const productsHoverTargetId = "sidebar-produtos-btn";
   const categoriesHoverTargetId = "sidebar-categorias-btn";
   const transactionsHoverTargetId = "sidebar-pagamentos-btn";
+  const collapseHoverTargetId = "sidebar-collapse-btn";
 
   // indicador preto “rastando” somente no submenu
   const submenuWrapRef = useRef<HTMLDivElement | null>(null);
@@ -361,7 +351,8 @@ export default function Sidebar({
 
   const mainBtnBase = cx(
     "w-full h-[40px] rounded-xl",
-    "flex items-center gap-3 px-3",
+    "flex items-center",
+    isDesktopCollapsed ? "sm:justify-center sm:px-0 sm:gap-0" : "gap-3 px-3",
     "relative overflow-hidden transform-gpu will-change-transform",
     "text-[15px] font-medium",
     "text-black/90",
@@ -431,64 +422,84 @@ export default function Sidebar({
           "fixed sm:static",
           "inset-y-0 left-0 sm:inset-auto sm:left-auto",
           "z-50 sm:z-auto",
-          "w-[308px] sm:w-[308px] sm:min-w-[308px]",
-          "max-w-[calc(100vw-24px)] sm:max-w-[308px]",
+          "w-[308px]",
+          "max-w-[calc(100vw-24px)]",
+          isDesktopCollapsed
+            ? "sm:w-[88px] sm:min-w-[88px] sm:max-w-[88px]"
+            : "sm:w-[308px] sm:min-w-[308px] sm:max-w-[308px]",
           "min-h-svh bg-[#f6f6f7] text-black",
           "flex flex-col",
           "shadow-[0_20px_50px_rgba(0,0,0,0.18)] sm:shadow-none",
-          "transform-gpu transition-transform duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+          "transform-gpu transition-[transform,width] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
           mobileMenuOpen ? "translate-x-0" : "-translate-x-full sm:translate-x-0"
         )}
       >
-        <div className="px-4 pt-4">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className={cx(
-                "flex-1 h-[44px] rounded-xl bg-white",
-                "shadow-[0_1px_2px_rgba(0,0,0,0.06)]",
-                "flex items-center justify-between px-3",
-                "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.995]"
-              )}
-            >
-              <span className="flex items-center gap-3">
-                <ProjectIcon />
-                <span className="font-semibold text-[16px] tracking-[-0.01em]">
-                  My Project
-                </span>
-              </span>
-              <ChevronsUpDown />
-            </button>
+        <div className={cx("pt-4", isDesktopCollapsed ? "px-2" : "px-4")}>
+          <div
+            className={cx(
+              "h-[44px] flex items-center",
+              isDesktopCollapsed ? "justify-center" : "justify-between"
+            )}
+          >
+            {!isDesktopCollapsed && (
+              <Image
+                src="/logo.png"
+                alt="Wyzer"
+                width={132}
+                height={28}
+                className="h-[28px] w-[132px] object-contain object-left"
+                draggable={false}
+              />
+            )}
 
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(false)}
-              className={cx(
-                "sm:hidden",
-                "h-[44px] w-[44px] rounded-xl bg-white",
-                "border border-black/10",
-                "shadow-[0_1px_2px_rgba(0,0,0,0.06)]",
-                "flex items-center justify-center",
-                "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.98]"
-              )}
-              aria-label="Close menu"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.9"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="text-black/75"
-                aria-hidden="true"
+            <div className="flex items-center gap-2">
+              <button
+                id={collapseHoverTargetId}
+                type="button"
+                onClick={() => setDesktopCollapsed((v) => !v)}
+                className={cx(
+                  "hidden sm:flex",
+                  "h-[44px] w-[44px] rounded-xl bg-white",
+                  "border border-black/10",
+                  "shadow-[0_1px_2px_rgba(0,0,0,0.06)]",
+                  "items-center justify-center",
+                  "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.98]"
+                )}
+                aria-label={isDesktopCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               >
-                <path d="M18 6 6 18" />
-                <path d="M6 6l12 12" />
-              </svg>
-            </button>
+                <ICollapse target={`#${collapseHoverTargetId}`} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(false)}
+                className={cx(
+                  "sm:hidden",
+                  "h-[44px] w-[44px] rounded-xl bg-white",
+                  "border border-black/10",
+                  "shadow-[0_1px_2px_rgba(0,0,0,0.06)]",
+                  "flex items-center justify-center",
+                  "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.98]"
+                )}
+                aria-label="Close menu"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.9"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="text-black/75"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           <div className="mt-4 border-t border-dashed border-black/15" />
@@ -510,6 +521,7 @@ export default function Sidebar({
                 activeMainState !== "overview" &&
                   "hover:bg-black/[0.04]"
               )}
+              title="Visao Geral"
             >
               {activeMainState === "overview" && (
                 <motion.span
@@ -518,7 +530,13 @@ export default function Sidebar({
                   transition={activePillTransition}
                 />
               )}
-              <span className="relative z-[1] flex items-center gap-3">
+              <span
+                className={cx(
+                  "relative z-[1] flex items-center gap-3",
+                  isDesktopCollapsed &&
+                    "sm:justify-center sm:gap-0 sm:[&>span:last-child]:hidden"
+                )}
+              >
                 <IOverview target={`.${overviewHoverClass}`} />
                 <span>Visão Geral</span>
               </span>
@@ -539,6 +557,7 @@ export default function Sidebar({
                 activeMainState !== "catalog" &&
                   "hover:bg-black/[0.04]"
               )}
+              title="Atendimentos"
             >
               {activeMainState === "catalog" && (
                 <motion.span
@@ -547,7 +566,13 @@ export default function Sidebar({
                   transition={activePillTransition}
                 />
               )}
-              <span className="relative z-[1] flex items-center gap-3">
+              <span
+                className={cx(
+                  "relative z-[1] flex items-center gap-3",
+                  isDesktopCollapsed &&
+                    "sm:justify-center sm:gap-0 sm:[&>span:last-child]:hidden"
+                )}
+              >
                 <ICatalog target={`#${catalogHoverTargetId}`} />
                 <span>Atendimentos</span>
               </span>
@@ -567,6 +592,7 @@ export default function Sidebar({
                 activeMainState !== "categories" &&
                   "hover:bg-black/[0.04]"
               )}
+              title="Categorias"
             >
               {activeMainState === "categories" && (
                 <motion.span
@@ -575,7 +601,13 @@ export default function Sidebar({
                   transition={activePillTransition}
                 />
               )}
-              <span className="relative z-[1] flex items-center gap-3">
+              <span
+                className={cx(
+                  "relative z-[1] flex items-center gap-3",
+                  isDesktopCollapsed &&
+                    "sm:justify-center sm:gap-0 sm:[&>span:last-child]:hidden"
+                )}
+              >
                 <ICategories target={`#${categoriesHoverTargetId}`} />
                 <span>Categorias</span>
               </span>
@@ -595,6 +627,7 @@ export default function Sidebar({
                 activeMainState !== "customers" &&
                   "hover:bg-black/[0.04]"
               )}
+              title="Produtos"
             >
               {activeMainState === "customers" && (
                 <motion.span
@@ -603,7 +636,13 @@ export default function Sidebar({
                   transition={activePillTransition}
                 />
               )}
-              <span className="relative z-[1] flex items-center gap-3">
+              <span
+                className={cx(
+                  "relative z-[1] flex items-center gap-3",
+                  isDesktopCollapsed &&
+                    "sm:justify-center sm:gap-0 sm:[&>span:last-child]:hidden"
+                )}
+              >
                 <ICustomers target={`#${productsHoverTargetId}`} />
                 <span>Produtos</span>
               </span>
@@ -614,19 +653,22 @@ export default function Sidebar({
             <motion.button
               id={transactionsHoverTargetId}
               type="button"
-              onClick={toggleTransactions}
+              onClick={isDesktopCollapsed ? () => pickMain("transactions") : toggleTransactions}
               whileTap={tapFeedback}
               transition={tapFeedbackTransition}
               className={cx(
                 "w-full h-[40px] rounded-xl",
                 "relative overflow-hidden transform-gpu will-change-transform",
-                "flex items-center justify-between px-3",
+                isDesktopCollapsed
+                  ? "flex items-center justify-center px-0"
+                  : "flex items-center justify-between px-3",
                 "text-[15px] font-medium",
                 "text-black/90",
                 "transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
                 !isOnTransactions && "hover:bg-black/[0.04]"
               )}
               aria-expanded={transactionsOpen}
+              title="Pagamentos"
             >
               {isOnTransactions && (
                 <motion.span
@@ -635,11 +677,17 @@ export default function Sidebar({
                   transition={activePillTransition}
                 />
               )}
-              <span className="relative z-[1] flex items-center gap-3">
+              <span
+                className={cx(
+                  "relative z-[1] flex items-center gap-3",
+                  isDesktopCollapsed &&
+                    "sm:justify-center sm:gap-0 sm:[&>span:last-child]:hidden"
+                )}
+              >
                 <ITransactions target={`#${transactionsHoverTargetId}`} />
                 <span>Pagamentos</span>
               </span>
-              <span className="relative z-[1]">
+              <span className={cx("relative z-[1]", isDesktopCollapsed && "sm:hidden")}>
                 <CaretDown open={transactionsOpen} />
               </span>
             </motion.button>
@@ -648,6 +696,7 @@ export default function Sidebar({
               className={cx(
                 "overflow-hidden",
                 "transition-[max-height,opacity,transform] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+                isDesktopCollapsed && "sm:hidden",
                 transactionsOpen
                   ? "max-h-[320px] opacity-100 translate-y-0"
                   : "max-h-0 opacity-0 -translate-y-[4px]"
