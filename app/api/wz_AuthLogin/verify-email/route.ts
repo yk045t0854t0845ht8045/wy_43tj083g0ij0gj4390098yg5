@@ -230,7 +230,12 @@ export async function POST(req: Request) {
           `?ticket=${encodeURIComponent(ticket)}` +
           `&next=${encodeURIComponent(nextSafe)}`;
 
-        return NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
+        const res = NextResponse.json(
+          { ok: true, nextUrl },
+          { status: 200, headers: NO_STORE_HEADERS },
+        );
+        setSessionCookie(res, { userId: String(userRow.id), email }, req.headers);
+        return res;
       }
 
       // ✅ Legacy/domain-cookie mode: pode setar cookie direto e ir pro dashboard

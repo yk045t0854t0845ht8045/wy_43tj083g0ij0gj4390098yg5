@@ -72,6 +72,14 @@ function getSecurityConfig() {
   };
 }
 
+function getLegacyCookieDomain() {
+  const envDomain = (process.env.SESSION_COOKIE_DOMAIN || "").trim();
+  return (
+    envDomain ||
+    (process.env.NODE_ENV === "production" ? ".wyzer.com.br" : ".localhost")
+  );
+}
+
 function pickCookieNames() {
   const cfg = getSecurityConfig();
   if (cfg.isProd && cfg.hostOnly) {
@@ -84,10 +92,7 @@ function pickCookieNames() {
   }
 
   // legacy (compartilhado por domain)
-  const envDomain = (process.env.SESSION_COOKIE_DOMAIN || "").trim();
-  const domain =
-    envDomain ||
-    (process.env.NODE_ENV === "production" ? ".wyzer.com.br" : ".localhost");
+  const domain = getLegacyCookieDomain();
 
   return {
     sessionName: LEGACY_COOKIE_NAME,
@@ -272,6 +277,8 @@ export function setSessionCookie(
   const sec = getSecurityConfig();
   const names = pickCookieNames();
   const bindCfg = getBindConfig();
+  const shouldMirrorLegacy = sec.isProd && sec.hostOnly;
+  const legacyDomain = getLegacyCookieDomain();
 
   const h: HeaderLike =
     (reqOrHeaders && (reqOrHeaders as NextRequest).headers
@@ -294,6 +301,18 @@ export function setSessionCookie(
     maxAge: 60 * 60 * 24 * 365 * 2,
     ...(names.domain ? { domain: names.domain } : {}),
   });
+
+  // Em host-only mode, espelha o device cookie em .wyzer.com.br para login/dashboard compartilharem bind.
+  if (shouldMirrorLegacy) {
+    res.cookies.set(LEGACY_DEVICE_COOKIE_NAME, deviceId, {
+      httpOnly: true,
+      secure: sec.isProd,
+      sameSite: sec.sameSite,
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365 * 2,
+      domain: legacyDomain,
+    });
+  }
 
   const ua = getUserAgentFromHeaders(h);
   const ip = getClientIpFromHeaders(h);
@@ -324,11 +343,24 @@ export function setSessionCookie(
     maxAge: exp - now,
     ...(names.domain ? { domain: names.domain } : {}),
   });
+
+  // Em host-only mode, espelha a sessao em .wyzer.com.br para o login validar usuario ja autenticado.
+  if (shouldMirrorLegacy) {
+    res.cookies.set(LEGACY_COOKIE_NAME, token, {
+      httpOnly: true,
+      secure: sec.isProd,
+      sameSite: sec.sameSite,
+      path: "/",
+      maxAge: exp - now,
+      domain: legacyDomain,
+    });
+  }
 }
 
 export function clearSessionCookie(res: any) {
   const sec = getSecurityConfig();
   const names = pickCookieNames();
+  const legacyDomain = getLegacyCookieDomain();
 
   // remove session (host e/ou legacy)
   res.cookies.set(names.sessionName, "", {
@@ -346,7 +378,15 @@ export function clearSessionCookie(res: any) {
     sameSite: sec.sameSite,
     path: "/",
     maxAge: 0,
-    ...(names.domain ? { domain: names.domain } : {}),
+    domain: legacyDomain,
+  });
+
+  res.cookies.set(LEGACY_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: sec.isProd,
+    sameSite: sec.sameSite,
+    path: "/",
+    maxAge: 0,
   });
 
   // ❗️device cookie eu não removo por padrão

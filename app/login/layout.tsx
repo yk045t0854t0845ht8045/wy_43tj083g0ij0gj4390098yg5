@@ -19,6 +19,11 @@ function buildDashboardUrl(hostHeader: string | null) {
   return "https://dashboard.wyzer.com.br/";
 }
 
+function buildLoginSyncRedirect(hostHeader: string | null) {
+  const next = encodeURIComponent(buildDashboardUrl(hostHeader));
+  return `/api/wz_AuthLogin/sync-host?next=${next}`;
+}
+
 export default async function LoginLayout({
   children,
 }: {
@@ -33,7 +38,7 @@ export default async function LoginLayout({
   const session = readSessionFromCookieHeader(cookieHeader, headerLike);
 
   if (session) {
-    redirect(buildDashboardUrl(pickHostHeader(headerLike)));
+    redirect(buildLoginSyncRedirect(pickHostHeader(headerLike)));
   }
 
   return <>{children}</>;

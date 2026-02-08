@@ -304,7 +304,12 @@ const next = String(body?.next || "").trim(); // ✅ novo
   `?ticket=${encodeURIComponent(ticket)}` +
   `&next=${encodeURIComponent(next || "/")}`;
 
-      return NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
+      const res = NextResponse.json(
+        { ok: true, nextUrl },
+        { status: 200, headers: NO_STORE_HEADERS },
+      );
+      setSessionCookie(res, { userId: String(userId), email }, req.headers);
+      return res;
     }
 
     // ✅ legacy/domain-cookie mode
