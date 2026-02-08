@@ -1,8 +1,8 @@
 // app/(dashboard)/_components/sidebar.tsx
 "use client";
 
+import Link from "next/link";
 import Script from "next/script";
-import Image from "next/image";
 import { LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import React, {
   useEffect,
@@ -18,9 +18,13 @@ type MainItemId =
   | "transactions"
   | "catalog"
   | "customers"
-  | "categories";
+  | "content"
+  | "analytics"
+  | "campaigns"
+  | "discounts";
 
-type SubItemId = "orders" | "drafts";
+type SubItemId = "orders" | "drafts" | "shipping" | "abandoned";
+type ChannelId = "online-store" | "retail-pos" | "shop";
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -46,6 +50,26 @@ function useIsMobileSm() {
    Icons (leve, fino, estilo igual do print)
    ───────────────────────────────────────────────────────────────────────────── */
 
+function Icon({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="w-[18px] h-[18px] inline-flex items-center justify-center text-black/70">
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="w-[18px] h-[18px]"
+      >
+        {children}
+      </svg>
+    </span>
+  );
+}
+
 type LordIconProps = React.HTMLAttributes<HTMLElement> & {
   src: string;
   trigger?: string;
@@ -65,16 +89,13 @@ function IOverview({ target }: { target?: string }) {
   );
 }
 
-function ITransactions({ target }: { target?: string }) {
+function ITransactions() {
   return (
-    <span className="w-[18px] h-[18px] inline-flex items-center justify-center overflow-hidden">
-      {React.createElement<LordIconProps>("lord-icon", {
-        src: "https://cdn.lordicon.com/ynsswhvj.json",
-        trigger: "hover",
-        target,
-        style: { width: "18px", height: "18px" },
-      })}
-    </span>
+    <Icon>
+      <rect x="4.5" y="6.5" width="15" height="13" rx="2" />
+      <path d="M7.5 10h9" />
+      <path d="M7.5 14h6.5" />
+    </Icon>
   );
 }
 
@@ -104,28 +125,108 @@ function ICustomers({ target }: { target?: string }) {
   );
 }
 
-function ICategories({ target }: { target?: string }) {
+function IContent() {
   return (
-    <span className="w-[18px] h-[18px] inline-flex items-center justify-center overflow-hidden">
-      {React.createElement<LordIconProps>("lord-icon", {
-        src: "https://cdn.lordicon.com/iwlihxdl.json",
-        trigger: "hover",
-        target,
-        style: { width: "18px", height: "18px" },
-      })}
+    <Icon>
+      <rect x="4.5" y="5.5" width="15" height="13" rx="2" />
+      <path d="M8 9h8" />
+      <path d="M8 12.5h6" />
+    </Icon>
+  );
+}
+
+function IAnalytics() {
+  return (
+    <Icon>
+      <path d="M12 6v6l4 2" />
+      <circle cx="12" cy="12" r="8" />
+    </Icon>
+  );
+}
+
+function ICampaigns() {
+  return (
+    <Icon>
+      <path d="M4.5 12h4l10-5v10l-10-5h-4Z" />
+      <path d="M8.5 14.5v3" />
+    </Icon>
+  );
+}
+
+function IDiscounts() {
+  return (
+    <Icon>
+      <path d="M20 12 12 20 4 12V4h8l8 8Z" />
+      <path d="M7.5 7.5h.01" />
+    </Icon>
+  );
+}
+
+function IStore() {
+  return (
+    <Icon>
+      <path d="M4.5 9 6.2 5.5h11.6L19.5 9" />
+      <path d="M5.5 9v10.5h13V9" />
+      <path d="M9 19.5V13h6v6.5" />
+    </Icon>
+  );
+}
+
+function IPOS() {
+  return (
+    <Icon>
+      <rect x="5" y="6.5" width="14" height="12.5" rx="2" />
+      <path d="M8 10h8" />
+      <path d="M8 13.5h4.5" />
+      <path d="M8 17h8" />
+    </Icon>
+  );
+}
+
+function IShop() {
+  return (
+    <Icon>
+      <rect x="6" y="7" width="12" height="13" rx="2" />
+      <path d="M9 7V5.5A3 3 0 0 1 12 3a3 3 0 0 1 3 2.5V7" />
+    </Icon>
+  );
+}
+
+function ProjectIcon() {
+  return (
+    <span className="inline-flex w-[22px] h-[22px] items-center justify-center rounded-md bg-black/90 text-white">
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M7 7h10v10H7z" />
+      </svg>
     </span>
   );
 }
 
-function ICollapse({ target }: { target?: string }) {
+function ChevronsUpDown() {
   return (
-    <span className="w-[18px] h-[18px] inline-flex items-center justify-center overflow-hidden">
-      {React.createElement<LordIconProps>("lord-icon", {
-        src: "https://cdn.lordicon.com/ntjwyxgv.json",
-        trigger: "hover",
-        target,
-        style: { width: "18px", height: "18px" },
-      })}
+    <span className="inline-flex items-center justify-center text-black/55">
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="m7 10 5-5 5 5" />
+        <path d="m7 14 5 5 5-5" />
+      </svg>
     </span>
   );
 }
@@ -160,32 +261,36 @@ function CaretDown({ open }: { open: boolean }) {
 type Props = {
   activeMain?: MainItemId;
   activeSub?: SubItemId | null;
+  activeChannel?: ChannelId | null;
 };
 
 export default function Sidebar({
   activeMain = "overview",
   activeSub = null,
+  activeChannel = null,
 }: Props) {
   const [transactionsOpen, setTransactionsOpen] = useState(
-    () => activeMain === "transactions"
+    () => activeMain === "transactions" && activeChannel === null
   );
   const isMobile = useIsMobileSm();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [desktopCollapsed, setDesktopCollapsed] = useState(false);
-  const isDesktopCollapsed = !isMobile && desktopCollapsed;
 
   // active “inteligente”
   const [activeMainState, setActiveMainState] = useState<MainItemId>(activeMain);
   const [activeSubState, setActiveSubState] = useState<SubItemId | null>(
     activeSub
   );
+  const [activeChannelState, setActiveChannelState] = useState<ChannelId | null>(
+    activeChannel
+  );
 
   // sincroniza caso props mudem
   useEffect(() => setActiveMainState(activeMain), [activeMain]);
   useEffect(() => setActiveSubState(activeSub), [activeSub]);
+  useEffect(() => setActiveChannelState(activeChannel), [activeChannel]);
   useEffect(() => {
-    setTransactionsOpen(activeMain === "transactions");
-  }, [activeMain]);
+    setTransactionsOpen(activeMain === "transactions" && activeChannel === null);
+  }, [activeMain, activeChannel]);
 
   // mobile: sidebar vira drawer (minimizado por padrao)
   const didMountRef = useRef(false);
@@ -214,18 +319,14 @@ export default function Sidebar({
     };
   }, [isMobile, mobileMenuOpen]);
 
-  useEffect(() => {
-    const saved = window.localStorage.getItem("dashboard-sidebar-collapsed");
-    setDesktopCollapsed(saved === "1");
-  }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      "dashboard-sidebar-collapsed",
-      desktopCollapsed ? "1" : "0"
-    );
-  }, [desktopCollapsed]);
-
+  const channels = useMemo(
+    () => [
+      { id: "online-store" as const, label: "Online Store", icon: <IStore /> },
+      { id: "retail-pos" as const, label: "Retail POS", icon: <IPOS /> },
+      { id: "shop" as const, label: "Shop", icon: <IShop /> },
+    ],
+    []
+  );
   const overviewHoverId = useId();
   const overviewHoverClass = useMemo(
     () =>
@@ -234,22 +335,22 @@ export default function Sidebar({
   );
   const catalogHoverTargetId = "sidebar-atendimentos-btn";
   const productsHoverTargetId = "sidebar-produtos-btn";
-  const categoriesHoverTargetId = "sidebar-categorias-btn";
-  const transactionsHoverTargetId = "sidebar-pagamentos-btn";
-  const collapseHoverTargetId = "sidebar-collapse-btn";
 
   // indicador preto “rastando” somente no submenu
   const submenuWrapRef = useRef<HTMLDivElement | null>(null);
   const submenuUlRef = useRef<HTMLUListElement | null>(null);
-  const subBtnRefs = useRef<Record<SubItemId, HTMLButtonElement | null>>({
+  const subBtnRefs = useRef<Record<SubItemId, HTMLAnchorElement | null>>({
     orders: null,
     drafts: null,
+    shipping: null,
+    abandoned: null,
   });
 
   const indicatorHeightPx = 26;
   const [indicatorY, setIndicatorY] = useState<number>(8);
 
-  const isOnTransactions = activeMainState === "transactions";
+  const isMainSelected = activeChannelState === null;
+  const isOnTransactions = isMainSelected && activeMainState === "transactions";
   const indicatorVisible =
     isOnTransactions && transactionsOpen && activeSubState !== null;
   const prefersReducedMotion = useReducedMotion();
@@ -326,6 +427,7 @@ export default function Sidebar({
   // helpers: clicar em main fecha o submenu e aplica active
   const pickMain = (id: MainItemId) => {
     setActiveMainState(id);
+    setActiveChannelState(null);
 
     if (id !== "transactions") {
       // fecha o accordion ao sair
@@ -339,20 +441,27 @@ export default function Sidebar({
 
   const toggleTransactions = () => {
     setActiveMainState("transactions");
+    setActiveChannelState(null);
     setTransactionsOpen((v) => !v);
   };
 
   const pickSub = (id: SubItemId) => {
     setActiveMainState("transactions");
+    setActiveChannelState(null);
     if (!transactionsOpen) setTransactionsOpen(true);
     setActiveSubState(id);
     setMobileMenuOpen(false);
   };
 
+  const pickChannel = (id: ChannelId) => {
+    setActiveChannelState(id);
+    setTransactionsOpen(false);
+    setMobileMenuOpen(false);
+  };
+
   const mainBtnBase = cx(
     "w-full h-[40px] rounded-xl",
-    "flex items-center",
-    isDesktopCollapsed ? "sm:justify-center sm:px-0 sm:gap-0" : "gap-3 px-3",
+    "flex items-center gap-3 px-3",
     "relative overflow-hidden transform-gpu will-change-transform",
     "text-[15px] font-medium",
     "text-black/90",
@@ -363,7 +472,7 @@ export default function Sidebar({
     "w-full h-[35px] rounded-xl",
     "flex items-center",
     "relative overflow-hidden transform-gpu will-change-transform active:scale-[0.992] active:translate-y-[0.5px]",
-    "px-3 text-[15px] font-medium tracking-[-0.01em]",
+    "px-3 text-[15px] font-semibold tracking-[-0.01em]",
     "text-black/90",
     "transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]"
   );
@@ -422,84 +531,64 @@ export default function Sidebar({
           "fixed sm:static",
           "inset-y-0 left-0 sm:inset-auto sm:left-auto",
           "z-50 sm:z-auto",
-          "w-[308px]",
-          "max-w-[calc(100vw-24px)]",
-          isDesktopCollapsed
-            ? "sm:w-[88px] sm:min-w-[88px] sm:max-w-[88px]"
-            : "sm:w-[308px] sm:min-w-[308px] sm:max-w-[308px]",
+          "w-[308px] sm:w-[308px] sm:min-w-[308px]",
+          "max-w-[calc(100vw-24px)] sm:max-w-[308px]",
           "min-h-svh bg-[#f6f6f7] text-black",
           "flex flex-col",
           "shadow-[0_20px_50px_rgba(0,0,0,0.18)] sm:shadow-none",
-          "transform-gpu transition-[transform,width] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+          "transform-gpu transition-transform duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
           mobileMenuOpen ? "translate-x-0" : "-translate-x-full sm:translate-x-0"
         )}
       >
-        <div className={cx("pt-4", isDesktopCollapsed ? "px-2" : "px-4")}>
-          <div
-            className={cx(
-              "h-[44px] flex items-center",
-              isDesktopCollapsed ? "justify-center" : "justify-between"
-            )}
-          >
-            {!isDesktopCollapsed && (
-              <Image
-                src="/logo.png"
-                alt="Wyzer"
-                width={132}
-                height={28}
-                className="h-[28px] w-[132px] object-contain object-left"
-                draggable={false}
-              />
-            )}
+        <div className="px-4 pt-4">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className={cx(
+                "flex-1 h-[44px] rounded-xl bg-white",
+                "shadow-[0_1px_2px_rgba(0,0,0,0.06)]",
+                "flex items-center justify-between px-3",
+                "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.995]"
+              )}
+            >
+              <span className="flex items-center gap-3">
+                <ProjectIcon />
+                <span className="font-semibold text-[16px] tracking-[-0.01em]">
+                  My Project
+                </span>
+              </span>
+              <ChevronsUpDown />
+            </button>
 
-            <div className="flex items-center gap-2">
-              <button
-                id={collapseHoverTargetId}
-                type="button"
-                onClick={() => setDesktopCollapsed((v) => !v)}
-                className={cx(
-                  "hidden sm:flex",
-                  "h-[44px] w-[44px] rounded-xl bg-white",
-                  "border border-black/10",
-                  "shadow-[0_1px_2px_rgba(0,0,0,0.06)]",
-                  "items-center justify-center",
-                  "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.98]"
-                )}
-                aria-label={isDesktopCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(false)}
+              className={cx(
+                "sm:hidden",
+                "h-[44px] w-[44px] rounded-xl bg-white",
+                "border border-black/10",
+                "shadow-[0_1px_2px_rgba(0,0,0,0.06)]",
+                "flex items-center justify-center",
+                "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.98]"
+              )}
+              aria-label="Close menu"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.9"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-black/75"
+                aria-hidden="true"
               >
-                <ICollapse target={`#${collapseHoverTargetId}`} />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMobileMenuOpen(false)}
-                className={cx(
-                  "sm:hidden",
-                  "h-[44px] w-[44px] rounded-xl bg-white",
-                  "border border-black/10",
-                  "shadow-[0_1px_2px_rgba(0,0,0,0.06)]",
-                  "flex items-center justify-center",
-                  "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.98]"
-                )}
-                aria-label="Close menu"
-              >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.9"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="text-black/75"
-                  aria-hidden="true"
-                >
-                  <path d="M18 6 6 18" />
-                  <path d="M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
+                <path d="M18 6 6 18" />
+                <path d="M6 6l12 12" />
+              </svg>
+            </button>
           </div>
 
           <div className="mt-4 border-t border-dashed border-black/15" />
@@ -518,25 +607,18 @@ export default function Sidebar({
               className={cx(
                 mainBtnBase,
                 overviewHoverClass,
-                activeMainState !== "overview" &&
+                !(isMainSelected && activeMainState === "overview") &&
                   "hover:bg-black/[0.04]"
               )}
-              title="Visao Geral"
             >
-              {activeMainState === "overview" && (
+              {isMainSelected && activeMainState === "overview" && (
                 <motion.span
                   layoutId="sidebar-active-main-pill"
                   className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
                   transition={activePillTransition}
                 />
               )}
-              <span
-                className={cx(
-                  "relative z-[1] flex items-center gap-3",
-                  isDesktopCollapsed &&
-                    "sm:justify-center sm:gap-0 sm:[&>span:last-child]:hidden"
-                )}
-              >
+              <span className="relative z-[1] flex items-center gap-3">
                 <IOverview target={`.${overviewHoverClass}`} />
                 <span>Visão Geral</span>
               </span>
@@ -554,62 +636,20 @@ export default function Sidebar({
               transition={tapFeedbackTransition}
               className={cx(
                 mainBtnBase,
-                activeMainState !== "catalog" &&
+                !(isMainSelected && activeMainState === "catalog") &&
                   "hover:bg-black/[0.04]"
               )}
-              title="Atendimentos"
             >
-              {activeMainState === "catalog" && (
+              {isMainSelected && activeMainState === "catalog" && (
                 <motion.span
                   layoutId="sidebar-active-main-pill"
                   className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
                   transition={activePillTransition}
                 />
               )}
-              <span
-                className={cx(
-                  "relative z-[1] flex items-center gap-3",
-                  isDesktopCollapsed &&
-                    "sm:justify-center sm:gap-0 sm:[&>span:last-child]:hidden"
-                )}
-              >
+              <span className="relative z-[1] flex items-center gap-3">
                 <ICatalog target={`#${catalogHoverTargetId}`} />
                 <span>Atendimentos</span>
-              </span>
-            </motion.button>
-          </li>
-
-          {/* Categories */}
-          <li>
-            <motion.button
-              id={categoriesHoverTargetId}
-              type="button"
-              onClick={() => pickMain("categories")}
-              whileTap={tapFeedback}
-              transition={tapFeedbackTransition}
-              className={cx(
-                mainBtnBase,
-                activeMainState !== "categories" &&
-                  "hover:bg-black/[0.04]"
-              )}
-              title="Categorias"
-            >
-              {activeMainState === "categories" && (
-                <motion.span
-                  layoutId="sidebar-active-main-pill"
-                  className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
-                  transition={activePillTransition}
-                />
-              )}
-              <span
-                className={cx(
-                  "relative z-[1] flex items-center gap-3",
-                  isDesktopCollapsed &&
-                    "sm:justify-center sm:gap-0 sm:[&>span:last-child]:hidden"
-                )}
-              >
-                <ICategories target={`#${categoriesHoverTargetId}`} />
-                <span>Categorias</span>
               </span>
             </motion.button>
           </li>
@@ -624,25 +664,18 @@ export default function Sidebar({
               transition={tapFeedbackTransition}
               className={cx(
                 mainBtnBase,
-                activeMainState !== "customers" &&
+                !(isMainSelected && activeMainState === "customers") &&
                   "hover:bg-black/[0.04]"
               )}
-              title="Produtos"
             >
-              {activeMainState === "customers" && (
+              {isMainSelected && activeMainState === "customers" && (
                 <motion.span
                   layoutId="sidebar-active-main-pill"
                   className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
                   transition={activePillTransition}
                 />
               )}
-              <span
-                className={cx(
-                  "relative z-[1] flex items-center gap-3",
-                  isDesktopCollapsed &&
-                    "sm:justify-center sm:gap-0 sm:[&>span:last-child]:hidden"
-                )}
-              >
+              <span className="relative z-[1] flex items-center gap-3">
                 <ICustomers target={`#${productsHoverTargetId}`} />
                 <span>Produtos</span>
               </span>
@@ -651,24 +684,20 @@ export default function Sidebar({
 
           <li>
             <motion.button
-              id={transactionsHoverTargetId}
               type="button"
-              onClick={isDesktopCollapsed ? () => pickMain("transactions") : toggleTransactions}
+              onClick={toggleTransactions}
               whileTap={tapFeedback}
               transition={tapFeedbackTransition}
               className={cx(
                 "w-full h-[40px] rounded-xl",
                 "relative overflow-hidden transform-gpu will-change-transform",
-                isDesktopCollapsed
-                  ? "flex items-center justify-center px-0"
-                  : "flex items-center justify-between px-3",
+                "flex items-center justify-between px-3",
                 "text-[15px] font-medium",
                 "text-black/90",
                 "transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
                 !isOnTransactions && "hover:bg-black/[0.04]"
               )}
               aria-expanded={transactionsOpen}
-              title="Pagamentos"
             >
               {isOnTransactions && (
                 <motion.span
@@ -677,17 +706,11 @@ export default function Sidebar({
                   transition={activePillTransition}
                 />
               )}
-              <span
-                className={cx(
-                  "relative z-[1] flex items-center gap-3",
-                  isDesktopCollapsed &&
-                    "sm:justify-center sm:gap-0 sm:[&>span:last-child]:hidden"
-                )}
-              >
-                <ITransactions target={`#${transactionsHoverTargetId}`} />
+              <span className="relative z-[1] flex items-center gap-3">
+                <ITransactions />
                 <span>Pagamentos</span>
               </span>
-              <span className={cx("relative z-[1]", isDesktopCollapsed && "sm:hidden")}>
+              <span className="relative z-[1]">
                 <CaretDown open={transactionsOpen} />
               </span>
             </motion.button>
@@ -696,7 +719,6 @@ export default function Sidebar({
               className={cx(
                 "overflow-hidden",
                 "transition-[max-height,opacity,transform] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-                isDesktopCollapsed && "sm:hidden",
                 transactionsOpen
                   ? "max-h-[320px] opacity-100 translate-y-0"
                   : "max-h-0 opacity-0 -translate-y-[4px]"
@@ -727,8 +749,8 @@ export default function Sidebar({
 
                 <ul ref={submenuUlRef} className="space-y-[2px]">
                   <li className="relative">
-                    <button
-                      type="button"
+                    <Link
+                      href=""
                       ref={(el) => {
                         subBtnRefs.current.orders = el;
                       }}
@@ -746,13 +768,13 @@ export default function Sidebar({
                           transition={activePillTransition}
                         />
                       )}
-                      <span className="relative z-[1]">Métodos de Pagamento</span>
-                    </button>
+                      <span className="relative z-[1]">Orders</span>
+                    </Link>
                   </li>
 
                   <li className="relative">
-                    <button
-                      type="button"
+                    <Link
+                      href=""
                       ref={(el) => {
                         subBtnRefs.current.drafts = el;
                       }}
@@ -770,15 +792,64 @@ export default function Sidebar({
                           transition={activePillTransition}
                         />
                       )}
-                      <span className="relative z-[1]">Histórico</span>
-                    </button>
+                      <span className="relative z-[1]">Drafts</span>
+                    </Link>
+                  </li>
+
+                  <li className="relative">
+                    <Link
+                      href=""
+                      ref={(el) => {
+                        subBtnRefs.current.shipping = el;
+                      }}
+                      onClick={() => pickSub("shipping")}
+                      className={cx(
+                        subBtnBase,
+                        !(isOnTransactions && activeSubState === "shipping") &&
+                          "hover:bg-black/[0.04]"
+                      )}
+                    >
+                      {isOnTransactions && activeSubState === "shipping" && (
+                        <motion.span
+                          layoutId="sidebar-active-sub-pill"
+                          className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
+                          transition={activePillTransition}
+                        />
+                      )}
+                      <span className="relative z-[1]">Shipping labels</span>
+                    </Link>
+                  </li>
+
+                  <li className="relative">
+                    <Link
+                      href=""
+                      ref={(el) => {
+                        subBtnRefs.current.abandoned = el;
+                      }}
+                      onClick={() => pickSub("abandoned")}
+                      className={cx(
+                        subBtnBase,
+                        !(isOnTransactions && activeSubState === "abandoned") &&
+                          "hover:bg-black/[0.04]"
+                      )}
+                    >
+                      {isOnTransactions && activeSubState === "abandoned" && (
+                        <motion.span
+                          layoutId="sidebar-active-sub-pill"
+                          className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
+                          transition={activePillTransition}
+                        />
+                      )}
+                      <span className="relative z-[1]">Abandoned checkouts</span>
+                    </Link>
                   </li>
                 </ul>
               </div>
             </div>
           </li>
-
         </ul>
+
+      
         </LayoutGroup>
       </nav>
       </aside>

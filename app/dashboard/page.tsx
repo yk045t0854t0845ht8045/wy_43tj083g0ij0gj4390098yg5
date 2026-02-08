@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session";
 import { WyzerAIWidget } from "@/app/wyzerai/page";
-import Sidebar from "./_components/sidebar";
+ 
 import LoadingBase from "./_components/LoadingBase";
 
 export const dynamic = "force-dynamic";
@@ -54,7 +54,7 @@ export default async function DashboardHomePage() {
   return (
     <div className="min-h-screen bg-white flex">
       <LoadingBase />
-      <Sidebar activeMain="overview" />
+ 
 
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
