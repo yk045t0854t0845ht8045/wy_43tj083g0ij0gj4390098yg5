@@ -362,46 +362,6 @@ export default function LinkLoginPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tokenFromRoute]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const host = window.location.hostname.toLowerCase();
-
-    const isLoginHost =
-      host === "login.wyzer.com.br" ||
-      host === "login.localhost" ||
-      host === "localhost";
-
-    const isLinkHost = host.startsWith("link.");
-
-    if (isLoginHost || isLinkHost) return;
-
-    (async () => {
-      try {
-        const r = await fetch("/api/wz_AuthLogin/me", {
-          method: "GET",
-          cache: "no-store",
-          credentials: "include",
-        });
-
-        if (!r.ok) return;
-
-        const j = await r.json().catch(() => ({}));
-        if (!j?.ok) return;
-
-        const url = new URL(window.location.href);
-        const returnTo = url.searchParams.get("returnTo");
-
-        if (returnTo) {
-          window.location.assign(returnTo);
-          return;
-        }
-
-        window.location.assign("/");
-      } catch {}
-    })();
-  }, []);
-
   // cooldown resend
   useEffect(() => {
     if (resendCooldown <= 0) return;
