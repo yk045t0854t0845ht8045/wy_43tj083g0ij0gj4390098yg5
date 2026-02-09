@@ -94,6 +94,11 @@ function getSecurityConfig() {
   };
 }
 
+function isStrictHostOnlyMode() {
+  const sec = getSecurityConfig();
+  return sec.isProd && sec.hostOnly;
+}
+
 function getLegacyCookieDomain() {
   const envDomain = (process.env.SESSION_COOKIE_DOMAIN || "").trim();
   return (
@@ -185,11 +190,12 @@ function getBindConfig() {
    * - SESSION_BIND_IP     (default: true)
    * - SESSION_ALLOW_LEGACY(default: true)
    */
+  const strictHostOnly = isStrictHostOnlyMode();
   return {
     bindDevice: getEnvBool("SESSION_BIND_DEVICE", true),
     bindUA: getEnvBool("SESSION_BIND_UA", false),
     bindIP: getEnvBool("SESSION_BIND_IP", true),
-    allowLegacy: getEnvBool("SESSION_ALLOW_LEGACY", true),
+    allowLegacy: getEnvBool("SESSION_ALLOW_LEGACY", strictHostOnly ? false : true),
   };
 }
 
@@ -246,6 +252,7 @@ function getClientIpFromHeaders(h: HeaderLike) {
 function validateBinds(payload: SessionPayload, cookieHeader: string, h: HeaderLike) {
   const cfg = getBindConfig();
   const names = pickCookieNames();
+  const allowLegacyCookieFallback = !isStrictHostOnlyMode();
 
   // legacy
   const hasAnyBind = !!payload?.did || !!payload?.ua || !!payload?.ip;
@@ -256,7 +263,11 @@ function validateBinds(payload: SessionPayload, cookieHeader: string, h: HeaderL
 
   // device
   if (cfg.bindDevice) {
-    const deviceId = String(parsed[names.deviceName] || parsed[LEGACY_DEVICE_COOKIE_NAME] || "").trim();
+    const deviceId = String(
+      parsed[names.deviceName] ||
+      (allowLegacyCookieFallback ? parsed[LEGACY_DEVICE_COOKIE_NAME] : "") ||
+      ""
+    ).trim();
     if (!deviceId) return false;
     const expectDid = sha256Short(deviceId);
     if (!payload.did || payload.did !== expectDid) return false;
@@ -299,8 +310,7 @@ export function setSessionCookie(
   const sec = getSecurityConfig();
   const names = pickCookieNames();
   const bindCfg = getBindConfig();
-  const shouldMirrorLegacy = sec.isProd && sec.hostOnly;
-  const legacyDomain = getLegacyCookieDomain();
+  const allowLegacyCookieFallback = !isStrictHostOnlyMode();
 
   const h: HeaderLike =
     (reqOrHeaders && (reqOrHeaders as NextRequest).headers
@@ -311,7 +321,11 @@ export function setSessionCookie(
   const parsed = parseCookieHeader(cookieHeader);
 
   // ✅ device cookie (estável)
-  let deviceId = String(parsed[names.deviceName] || parsed[LEGACY_DEVICE_COOKIE_NAME] || "").trim();
+  let deviceId = String(
+    parsed[names.deviceName] ||
+    (allowLegacyCookieFallback ? parsed[LEGACY_DEVICE_COOKIE_NAME] : "") ||
+    ""
+  ).trim();
   if (!deviceId) deviceId = randomHex(20);
 
   // Sempre seta o device cookie no response
@@ -323,18 +337,6 @@ export function setSessionCookie(
     maxAge: 60 * 60 * 24 * 365 * 2,
     ...(names.domain ? { domain: names.domain } : {}),
   });
-
-  // Em host-only mode, espelha o device cookie em .wyzer.com.br para login/dashboard compartilharem bind.
-  if (shouldMirrorLegacy) {
-    res.cookies.set(LEGACY_DEVICE_COOKIE_NAME, deviceId, {
-      httpOnly: true,
-      secure: sec.isProd,
-      sameSite: sec.sameSite,
-      path: "/",
-      maxAge: 60 * 60 * 24 * 365 * 2,
-      domain: legacyDomain,
-    });
-  }
 
   const ua = getUserAgentFromHeaders(h);
   const ip = getClientIpFromHeaders(h);
@@ -368,17 +370,6 @@ export function setSessionCookie(
     ...(names.domain ? { domain: names.domain } : {}),
   });
 
-  // Em host-only mode, espelha a sessao em .wyzer.com.br para o login validar usuario ja autenticado.
-  if (shouldMirrorLegacy) {
-    res.cookies.set(LEGACY_COOKIE_NAME, token, {
-      httpOnly: true,
-      secure: sec.isProd,
-      sameSite: sec.sameSite,
-      path: "/",
-      maxAge: exp - now,
-      domain: legacyDomain,
-    });
-  }
 }
 
 export function clearSessionCookie(res: ResponseWithCookies) {
@@ -386,7 +377,7 @@ export function clearSessionCookie(res: ResponseWithCookies) {
   const names = pickCookieNames();
   const legacyDomain = getLegacyCookieDomain();
 
-  // remove session (host e/ou legacy)
+  // remove active session/device cookies for current mode
   res.cookies.set(names.sessionName, "", {
     httpOnly: true,
     secure: sec.isProd,
@@ -395,8 +386,25 @@ export function clearSessionCookie(res: ResponseWithCookies) {
     maxAge: 0,
     ...(names.domain ? { domain: names.domain } : {}),
   });
+  res.cookies.set(names.deviceName, "", {
+    httpOnly: true,
+    secure: sec.isProd,
+    sameSite: sec.sameSite,
+    path: "/",
+    maxAge: 0,
+    ...(names.domain ? { domain: names.domain } : {}),
+  });
 
+  // cleanup legacy session/device cookies in both domain shapes
   res.cookies.set(LEGACY_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: sec.isProd,
+    sameSite: sec.sameSite,
+    path: "/",
+    maxAge: 0,
+    domain: legacyDomain,
+  });
+  res.cookies.set(LEGACY_DEVICE_COOKIE_NAME, "", {
     httpOnly: true,
     secure: sec.isProd,
     sameSite: sec.sameSite,
@@ -412,8 +420,13 @@ export function clearSessionCookie(res: ResponseWithCookies) {
     path: "/",
     maxAge: 0,
   });
-
-  // ❗️device cookie eu não removo por padrão
+  res.cookies.set(LEGACY_DEVICE_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: sec.isProd,
+    sameSite: sec.sameSite,
+    path: "/",
+    maxAge: 0,
+  });
 }
 
 export function readSessionFromCookieHeader(
@@ -425,11 +438,12 @@ export function readSessionFromCookieHeader(
 
   const parsed = parseCookieHeader(cookieHeader);
   const names = pickCookieNames();
+  const allowLegacyCookieFallback = !isStrictHostOnlyMode();
 
-  // aceita host cookie ou legacy
+  // in strict host-only mode, only __Host cookie is accepted
   const token =
     parsed[names.sessionName] ||
-    parsed[LEGACY_COOKIE_NAME] ||
+    (allowLegacyCookieFallback ? parsed[LEGACY_COOKIE_NAME] : "") ||
     "";
 
   if (!token.includes(".")) return null;

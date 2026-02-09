@@ -257,11 +257,6 @@ export async function POST(req: Request) {
           { ok: true, nextUrl },
           { status: 200, headers: NO_STORE_HEADERS },
         );
-        setSessionCookie(
-          res,
-          { userId: String(userRow.id), email, fullName: resolvedFullName },
-          req.headers,
-        );
         return res;
       }
 

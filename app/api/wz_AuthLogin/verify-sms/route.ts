@@ -333,7 +333,6 @@ const next = String(body?.next || "").trim(); // ✅ novo
         { ok: true, nextUrl },
         { status: 200, headers: NO_STORE_HEADERS },
       );
-      setSessionCookie(res, { userId: String(userId), email, fullName }, req.headers);
       return res;
     }
 
