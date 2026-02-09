@@ -9,6 +9,11 @@ function pickHostHeader(h: { get(name: string): string | null }) {
   return h.get("x-forwarded-host") || h.get("host");
 }
 
+function isLocalDevHost(hostHeader: string | null) {
+  const host = String(hostHeader || "").split(":")[0].toLowerCase();
+  return host.endsWith(".localhost") || host === "localhost";
+}
+
 function buildDashboardUrl(hostHeader: string | null) {
   const host = String(hostHeader || "").split(":")[0].toLowerCase();
 
@@ -45,11 +50,16 @@ export default async function DashboardLayout({
     get: (name: string) => h.get(name),
   };
 
-  const cookieHeader = h.get("cookie");
-  const session = readSessionFromCookieHeader(cookieHeader, headerLike);
+  const hostHeader = pickHostHeader(headerLike);
+  const shouldBypassAuth = isLocalDevHost(hostHeader);
 
-  if (!session) {
-    redirect(buildLoginRedirectUrl(pickHostHeader(headerLike)));
+  if (!shouldBypassAuth) {
+    const cookieHeader = h.get("cookie");
+    const session = readSessionFromCookieHeader(cookieHeader, headerLike);
+
+    if (!session) {
+      redirect(buildLoginRedirectUrl(hostHeader));
+    }
   }
 
   return <>{children}</>;

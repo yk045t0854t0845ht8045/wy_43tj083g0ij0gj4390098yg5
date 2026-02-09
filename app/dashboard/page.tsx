@@ -30,20 +30,28 @@ function pickHostHeader(h: { get(name: string): string | null }) {
   return h.get("x-forwarded-host") || h.get("host");
 }
 
+function isLocalDevHost(hostHeader: string | null) {
+  const host = String(hostHeader || "").split(":")[0].toLowerCase();
+  return host.endsWith(".localhost") || host === "localhost";
+}
+
 export default async function DashboardHomePage() {
   const h = await headers();
 
-  const cookieHeader = h.get("cookie");
   const headerLike: { get(name: string): string | null } = {
     get: (name: string) => h.get(name),
   };
-
-  const session = readSessionFromCookieHeader(cookieHeader, headerLike);
-
   const hostHeader = pickHostHeader(headerLike);
+  const shouldBypassAuth = isLocalDevHost(hostHeader);
+
+  const cookieHeader = h.get("cookie");
+  const session = shouldBypassAuth
+    ? null
+    : readSessionFromCookieHeader(cookieHeader, headerLike);
+
   const loginUrl = buildLoginUrl(hostHeader);
 
-  if (!session) {
+  if (!shouldBypassAuth && !session) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <Link href={loginUrl}>Ir para Login</Link>

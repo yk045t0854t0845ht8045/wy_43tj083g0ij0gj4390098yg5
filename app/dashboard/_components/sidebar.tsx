@@ -475,7 +475,7 @@ export default function Sidebar({
           <div className="flex items-center justify-between gap-2">
             <div
               className={cx(
-                "h-[44px] rounded-xl bg-white border border-black/10",
+                "h-[44px] rounded-xl bg-white",
                 "shadow-[0_1px_2px_rgba(0,0,0,0.06)]",
                 "flex items-center overflow-hidden",
                 "transition-[width,padding] duration-[320ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
@@ -484,7 +484,7 @@ export default function Sidebar({
               aria-label="Wyzer"
             >
               <Image
-                src="/logo.png"
+                src="/lg/topj4390tjg83gh43g.svg"
                 alt="Wyzer"
                 width={24}
                 height={24}
@@ -501,7 +501,6 @@ export default function Sidebar({
                     : "max-w-[120px] opacity-100 translate-x-0"
                 )}
               >
-                Wyzer
               </span>
             </div>
 
