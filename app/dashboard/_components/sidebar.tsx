@@ -1346,41 +1346,6 @@ export default function Sidebar({
                           onClick={() => setProfileMenuOpen(false)}
                           className={cx(
                             "flex h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left",
-                            "bg-black/[0.05]",
-                            "text-[14px] font-medium text-black/80",
-                            "transition-colors duration-200 ease-out hover:bg-black/[0.08]"
-                          )}
-                        >
-                          <BellOff className="h-[18px] w-[18px] text-black/55" />
-                          <span>Pause Notifications</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setProfileMenuOpen(false)}
-                          className={cx(
-                            "flex h-[44px] w-full items-center justify-between gap-3 rounded-xl px-3 text-left",
-                            "text-[14px] font-medium text-black/80",
-                            "transition-colors duration-200 ease-out hover:bg-black/[0.06]"
-                          )}
-                        >
-                          <span className="flex items-center gap-3">
-                            <Moon className="h-[18px] w-[18px] text-black/55" />
-                            <span>Dark Mode</span>
-                          </span>
-                          <span
-                            aria-hidden="true"
-                            className="relative inline-flex h-[22px] w-[38px] rounded-full bg-black/[0.12]"
-                          >
-                            <span className="absolute left-[3px] top-[3px] h-[16px] w-[16px] rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.18)]" />
-                          </span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setProfileMenuOpen(false)}
-                          className={cx(
-                            "flex h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left",
                             "text-[14px] font-medium text-black/80",
                             "transition-colors duration-200 ease-out hover:bg-black/[0.06]"
                           )}
