@@ -11,6 +11,13 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 };
 
+type ExchangeTicketPayload = {
+  exp?: number;
+  userId?: string;
+  email?: string;
+  fullName?: string;
+};
+
 function base64UrlEncode(input: Buffer | string) {
   const buf = Buffer.isBuffer(input) ? input : Buffer.from(input, "utf8");
   return buf
@@ -44,6 +51,14 @@ function isSafeNextPath(p: string) {
   if (p.startsWith("//")) return false;
   if (p.includes("\n") || p.includes("\r")) return false;
   return true;
+}
+
+function sanitizeFullName(v?: string | null) {
+  const clean = String(v || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return undefined;
+  return clean.slice(0, 120);
 }
 
 export async function GET(req: Request) {
@@ -122,11 +137,12 @@ const res = NextResponse.redirect(redirectTarget);
     }
 
     const raw = base64UrlDecodeToString(payloadB64);
-    const payload = JSON.parse(raw || "{}") as any;
+    const payload = JSON.parse(raw || "{}") as ExchangeTicketPayload;
 
     const exp = Number(payload?.exp || 0); // exp em ms
     const userId = String(payload?.userId || "");
     const email = String(payload?.email || "");
+    const fullName = sanitizeFullName(payload?.fullName);
 
     if (!userId || !email || !exp || exp < Date.now()) {
       const redirectTarget = /^https?:\/\//i.test(safeNext)
@@ -146,14 +162,14 @@ const res = NextResponse.redirect(redirectTarget);
   : new URL(safeNext, url.origin).toString();
 
 const res = NextResponse.redirect(redirectTarget);
-    setSessionCookie(res, { userId, email }, req.headers);
+    setSessionCookie(res, { userId, email, fullName }, req.headers);
 
     res.headers.set("Cache-Control", NO_STORE_HEADERS["Cache-Control"]);
     res.headers.set("Pragma", NO_STORE_HEADERS["Pragma"]);
     res.headers.set("Expires", NO_STORE_HEADERS["Expires"]);
 
     return res;
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error("[exchange] error:", e);
     const url = new URL(req.url);
     const res = NextResponse.redirect(new URL("/", url.origin));

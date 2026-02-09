@@ -2,8 +2,8 @@
 
 import Image from "next/image";
 import Script from "next/script";
-import { LayoutGroup, motion, useReducedMotion } from "framer-motion";
-import { ArrowRight } from "lucide-react";
+import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
+import { ArrowRight, BellOff, LogOut, Moon, Settings, User } from "lucide-react";
 import React, {
   useEffect,
   useId,
@@ -339,6 +339,7 @@ export default function Sidebar({
   const [sidebarLogoFallback, setSidebarLogoFallback] = useState(false);
   const [paymentsTooltipOpen, setPaymentsTooltipOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuWrapRef = useRef<HTMLDivElement | null>(null);
   const paymentsTooltipCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
@@ -421,6 +422,31 @@ export default function Sidebar({
     if (!isCollapsed) return;
     setProfileMenuOpen(false);
   }, [isCollapsed]);
+
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+
+    const onPointerDown = (e: MouseEvent | TouchEvent) => {
+      const root = profileMenuWrapRef.current;
+      const target = e.target as Node | null;
+      if (!root || !target) return;
+      if (!root.contains(target)) setProfileMenuOpen(false);
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setProfileMenuOpen(false);
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown, { passive: true });
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [profileMenuOpen]);
 
   useEffect(() => {
     return () => {
@@ -1270,34 +1296,150 @@ export default function Sidebar({
               </span>
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={() => setProfileMenuOpen((v) => !v)}
-              className={cx(
-                "w-full rounded-2xl",
-                profileMenuOpen ? "bg-black/[0.10]" : "bg-black/[0.06]",
-                "px-2 py-2",
-                "flex items-center justify-between gap-3",
-                "transition-all duration-200 ease-out hover:bg-black/[0.10] active:scale-[0.99]"
-              )}
-              aria-label={`${resolvedUserNickname} - ${resolvedUserEmail}`}
-              aria-expanded={profileMenuOpen}
-            >
-              <span className="min-w-0 flex items-center gap-3 text-left">
-                <span className="inline-flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-[#121330] text-[14px] font-semibold text-white">
-                  {profileInitial}
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-[14px] font-semibold text-black/90">
-                    {resolvedUserNickname}
+            <div ref={profileMenuWrapRef} className="relative">
+              <AnimatePresence>
+                {profileMenuOpen && (
+                  <motion.div
+                    initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.985 }}
+                    animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+                    exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.985 }}
+                    transition={
+                      prefersReducedMotion
+                        ? { duration: 0.12 }
+                        : { duration: 0.24, ease: [0.2, 0.8, 0.2, 1] }
+                    }
+                    className="absolute bottom-[calc(100%+10px)] left-0 right-0 z-[140]"
+                  >
+                    <div className="max-h-[65vh] overflow-y-auto rounded-2xl border border-black/10 bg-white/98 p-2 shadow-[0_18px_38px_rgba(0,0,0,0.18)] backdrop-blur-[2px]">
+                      <div className="flex items-center gap-3 px-2 pb-2 pt-1">
+                        <span className="inline-flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#121330] text-[14px] font-semibold text-white">
+                          {profileInitial}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-[14px] font-semibold text-black/90">
+                            {resolvedUserNickname}
+                          </span>
+                          <span className="block truncate text-[12px] font-medium text-black/55">
+                            {resolvedUserEmail}
+                          </span>
+                        </span>
+                      </div>
+
+                      <div className="mx-2 mb-1 border-t border-black/10" />
+
+                      <div className="space-y-1.5 px-1 py-1">
+                        <button
+                          type="button"
+                          onClick={() => setProfileMenuOpen(false)}
+                          className={cx(
+                            "flex h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left",
+                            "text-[14px] font-medium text-black/80",
+                            "transition-colors duration-200 ease-out hover:bg-black/[0.06]"
+                          )}
+                        >
+                          <User className="h-[18px] w-[18px] text-black/55" />
+                          <span>Account Settings</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setProfileMenuOpen(false)}
+                          className={cx(
+                            "flex h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left",
+                            "bg-black/[0.05]",
+                            "text-[14px] font-medium text-black/80",
+                            "transition-colors duration-200 ease-out hover:bg-black/[0.08]"
+                          )}
+                        >
+                          <BellOff className="h-[18px] w-[18px] text-black/55" />
+                          <span>Pause Notifications</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setProfileMenuOpen(false)}
+                          className={cx(
+                            "flex h-[44px] w-full items-center justify-between gap-3 rounded-xl px-3 text-left",
+                            "text-[14px] font-medium text-black/80",
+                            "transition-colors duration-200 ease-out hover:bg-black/[0.06]"
+                          )}
+                        >
+                          <span className="flex items-center gap-3">
+                            <Moon className="h-[18px] w-[18px] text-black/55" />
+                            <span>Dark Mode</span>
+                          </span>
+                          <span
+                            aria-hidden="true"
+                            className="relative inline-flex h-[22px] w-[38px] rounded-full bg-black/[0.12]"
+                          >
+                            <span className="absolute left-[3px] top-[3px] h-[16px] w-[16px] rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.18)]" />
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setProfileMenuOpen(false)}
+                          className={cx(
+                            "flex h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left",
+                            "text-[14px] font-medium text-black/80",
+                            "transition-colors duration-200 ease-out hover:bg-black/[0.06]"
+                          )}
+                        >
+                          <Settings className="h-[18px] w-[18px] text-black/55" />
+                          <span>Settings</span>
+                        </button>
+                      </div>
+
+                      <div className="mx-2 mb-1 mt-1 border-t border-black/10" />
+
+                      <form method="post" action="/api/wz_AuthLogin/logout" className="px-1 pb-1 pt-0.5">
+                        <button
+                          type="submit"
+                          className={cx(
+                            "flex h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left",
+                            "text-[14px] font-medium text-black/80",
+                            "transition-colors duration-200 ease-out hover:bg-black/[0.06]"
+                          )}
+                        >
+                          <LogOut className="h-[18px] w-[18px] text-black/60" />
+                          <span>Sign Out</span>
+                        </button>
+                      </form>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <button
+                type="button"
+                onClick={() => setProfileMenuOpen((v) => !v)}
+                className={cx(
+                  "w-full rounded-2xl",
+                  profileMenuOpen ? "bg-black/[0.10]" : "bg-black/[0.06]",
+                  "px-2 py-2",
+                  "flex items-center justify-between gap-3",
+                  "transition-all duration-200 ease-out hover:bg-black/[0.10] active:scale-[0.99]"
+                )}
+                aria-label={`${resolvedUserNickname} - ${resolvedUserEmail}`}
+                aria-expanded={profileMenuOpen}
+                aria-haspopup="menu"
+              >
+                <span className="min-w-0 flex items-center gap-3 text-left">
+                  <span className="inline-flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-[#121330] text-[14px] font-semibold text-white">
+                    {profileInitial}
                   </span>
-                  <span className="block truncate text-[12px] font-medium text-black/55">
-                    {resolvedUserEmail}
+                  <span className="min-w-0">
+                    <span className="block truncate text-[14px] font-semibold text-black/90">
+                      {resolvedUserNickname}
+                    </span>
+                    <span className="block truncate text-[12px] font-medium text-black/55">
+                      {resolvedUserEmail}
+                    </span>
                   </span>
                 </span>
-              </span>
-              <ProfileChevron open={profileMenuOpen} />
-            </button>
+                <ProfileChevron open={profileMenuOpen} />
+              </button>
+            </div>
           )}
         </div>
       </aside>

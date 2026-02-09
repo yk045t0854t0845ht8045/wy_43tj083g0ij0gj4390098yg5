@@ -9,15 +9,16 @@ const HOST_SESSION_COOKIE_NAME = "__Host-wz_session_v1";
 const HOST_DEVICE_COOKIE_NAME = "__Host-wz_device_v1";
 
 // bump de versão do payload
-const SESSION_PAYLOAD_VER = 2;
+const SESSION_PAYLOAD_VER = 3;
 
 export type SessionPayload = {
   userId: string;
   email: string;
+  fullName?: string;
   iat: number;
   exp: number;
 
-  // v2
+  // session metadata
   ver?: number;
   sid?: string;
 
@@ -32,11 +33,32 @@ function must(name: string, v?: string) {
   return v;
 }
 
+function sanitizeSessionFullName(v?: string | null) {
+  const clean = String(v || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return undefined;
+  return clean.slice(0, 120);
+}
+
 /**
  * ✅ HeaderLike: resolve tipagens (ReadonlyHeaders, NextRequest.headers, etc)
  * Aqui só precisamos de .get().
  */
 type HeaderLike = { get(name: string): string | null } | null;
+type CookiesSetOptions = {
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: "lax" | "strict" | "none";
+  path?: string;
+  maxAge?: number;
+  domain?: string;
+};
+type ResponseWithCookies = {
+  cookies: {
+    set: (name: string, value: string, options: CookiesSetOptions) => void;
+  };
+};
 
 function headerGet(h: HeaderLike, name: string) {
   return (h ? h.get(name) : null) ?? "";
@@ -264,8 +286,8 @@ function validateBinds(payload: SessionPayload, cookieHeader: string, h: HeaderL
 // ------------------------------
 
 export function setSessionCookie(
-  res: any,
-  params: { userId: string; email: string; ttlDays?: number },
+  res: ResponseWithCookies,
+  params: { userId: string; email: string; fullName?: string | null; ttlDays?: number },
   reqOrHeaders?: NextRequest | HeaderLike,
 ) {
   const secret = must("SESSION_SECRET", process.env.SESSION_SECRET);
@@ -316,10 +338,12 @@ export function setSessionCookie(
 
   const ua = getUserAgentFromHeaders(h);
   const ip = getClientIpFromHeaders(h);
+  const safeFullName = sanitizeSessionFullName(params.fullName);
 
   const payload: SessionPayload = {
     userId: String(params.userId),
     email: String(params.email).trim().toLowerCase(),
+    ...(safeFullName ? { fullName: safeFullName } : {}),
     iat: now,
     exp,
 
@@ -357,7 +381,7 @@ export function setSessionCookie(
   }
 }
 
-export function clearSessionCookie(res: any) {
+export function clearSessionCookie(res: ResponseWithCookies) {
   const sec = getSecurityConfig();
   const names = pickCookieNames();
   const legacyDomain = getLegacyCookieDomain();

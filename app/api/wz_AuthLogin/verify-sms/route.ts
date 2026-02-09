@@ -46,7 +46,7 @@ async function findAuthUserIdByEmail(sb: ReturnType<typeof supabaseAdmin>, email
       return null;
     }
 
-    const users = (data?.users || []) as Array<any>;
+    const users = (data?.users || []) as Array<{ id?: string | null; email?: string | null }>;
     const found = users.find((u) => String(u?.email || "").trim().toLowerCase() === target);
 
     if (found?.id) return String(found.id);
@@ -81,14 +81,29 @@ function signTicket(payloadB64: string, secret: string) {
   );
 }
 
-function makeDashboardTicket(params: { userId: string; email: string; ttlMs?: number }) {
+function sanitizeFullName(v?: string | null) {
+  const clean = String(v || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return undefined;
+  return clean.slice(0, 120);
+}
+
+function makeDashboardTicket(params: {
+  userId: string;
+  email: string;
+  fullName?: string | null;
+  ttlMs?: number;
+}) {
   const secret = getTicketSecret();
   if (!secret) throw new Error("SESSION_SECRET/WZ_AUTH_SECRET não configurado.");
 
   const ttlMs = Number(params.ttlMs ?? 1000 * 60 * 5); // 5 min
+  const safeFullName = sanitizeFullName(params.fullName);
   const payload = {
     userId: String(params.userId),
     email: String(params.email).trim().toLowerCase(),
+    ...(safeFullName ? { fullName: safeFullName } : {}),
     iat: Date.now(),
     exp: Date.now() + ttlMs,
     nonce: crypto.randomBytes(8).toString("hex"),
@@ -274,9 +289,15 @@ const next = String(body?.next || "").trim(); // ✅ novo
         .single();
 
       if (insErr || !createdRow?.id) {
+        const errCode =
+          typeof (insErr as { code?: unknown } | null)?.code === "string"
+            ? String((insErr as { code?: string }).code)
+            : "";
+        const errMessage = String((insErr as { message?: unknown } | null)?.message || "")
+          .toLowerCase();
         const isUniqueViolation =
-          (insErr as any)?.code === "23505" ||
-          String((insErr as any)?.message || "").toLowerCase().includes("duplicate key");
+          errCode === "23505" ||
+          errMessage.includes("duplicate key");
 
         if (isUniqueViolation) {
           return NextResponse.json(
@@ -298,7 +319,11 @@ const next = String(body?.next || "").trim(); // ✅ novo
 
     // ✅ host-only => ticket + exchange no dashboard
     if (isHostOnlyMode()) {
-      const ticket = makeDashboardTicket({ userId: String(userId), email });
+      const ticket = makeDashboardTicket({
+        userId: String(userId),
+        email,
+        fullName,
+      });
      const nextUrl =
   `${dashboard}/api/wz_AuthLogin/exchange` +
   `?ticket=${encodeURIComponent(ticket)}` +
@@ -308,17 +333,18 @@ const next = String(body?.next || "").trim(); // ✅ novo
         { ok: true, nextUrl },
         { status: 200, headers: NO_STORE_HEADERS },
       );
-      setSessionCookie(res, { userId: String(userId), email }, req.headers);
+      setSessionCookie(res, { userId: String(userId), email, fullName }, req.headers);
       return res;
     }
 
     // ✅ legacy/domain-cookie mode
   const nextUrl = next ? next : `${dashboard}/`;
     const res = NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
-    setSessionCookie(res, { userId: String(userId), email }, req.headers);
+    setSessionCookie(res, { userId: String(userId), email, fullName }, req.headers);
     return res;
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error("[verify-sms] error:", e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro inesperado." }, { status: 500, headers: NO_STORE_HEADERS });
+    const message = e instanceof Error ? e.message : "Erro inesperado.";
+    return NextResponse.json({ ok: false, error: message }, { status: 500, headers: NO_STORE_HEADERS });
   }
 }

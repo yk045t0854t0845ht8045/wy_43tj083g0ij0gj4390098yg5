@@ -92,7 +92,23 @@ async function getSidebarFirstName(params: {
       }
     }
 
-    // 3) Fallback final: id da tabela wz_users.
+    // 3) Fallback para bases onde wz_users usa user_id.
+    if (userId) {
+      const { data, error } = await sb
+        .from("wz_users")
+        .select("full_name")
+        .eq("user_id", userId)
+        .limit(5);
+
+      if (!error) {
+        for (const row of data || []) {
+          const firstByUserId = pickFirstName((row as { full_name?: string | null }).full_name);
+          if (firstByUserId) return firstByUserId;
+        }
+      }
+    }
+
+    // 4) Fallback final: id da tabela wz_users.
     if (userId) {
       const { data, error } = await sb
         .from("wz_users")
@@ -129,11 +145,16 @@ export default async function DashboardHomePage() {
   let sidebarNickname = shouldBypassAuth ? "Local User" : "Usuario";
 
   if (session) {
-    const dbFirstName = await getSidebarFirstName({
-      userId: session.userId,
-      email: session.email,
-    });
-    if (dbFirstName) sidebarNickname = dbFirstName;
+    const firstNameFromSession = pickFirstName(session.fullName);
+    if (firstNameFromSession) {
+      sidebarNickname = firstNameFromSession;
+    } else {
+      const dbFirstName = await getSidebarFirstName({
+        userId: session.userId,
+        email: session.email,
+      });
+      if (dbFirstName) sidebarNickname = dbFirstName;
+    }
   }
 
   const loginUrl = buildLoginUrl(hostHeader);

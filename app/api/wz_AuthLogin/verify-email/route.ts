@@ -64,14 +64,29 @@ function signTicket(payloadB64: string, secret: string) {
   );
 }
 
-function makeDashboardTicket(params: { userId: string; email: string; ttlMs?: number }) {
+function sanitizeFullName(v?: string | null) {
+  const clean = String(v || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return undefined;
+  return clean.slice(0, 120);
+}
+
+function makeDashboardTicket(params: {
+  userId: string;
+  email: string;
+  fullName?: string | null;
+  ttlMs?: number;
+}) {
   const secret = getTicketSecret();
   if (!secret) throw new Error("SESSION_SECRET/WZ_AUTH_SECRET não configurado.");
 
   const ttlMs = Number(params.ttlMs ?? 1000 * 60 * 5); // 5 min
+  const safeFullName = sanitizeFullName(params.fullName);
   const payload = {
     userId: String(params.userId),
     email: String(params.email).trim().toLowerCase(),
+    ...(safeFullName ? { fullName: safeFullName } : {}),
     iat: Date.now(),
     exp: Date.now() + ttlMs,
     nonce: crypto.randomBytes(8).toString("hex"),
@@ -121,7 +136,7 @@ async function findAuthUserIdByEmail(sb: ReturnType<typeof supabaseAdmin>, email
       return null;
     }
 
-    const users = (data?.users || []) as Array<any>;
+    const users = (data?.users || []) as Array<{ id?: string | null; email?: string | null }>;
     const found = users.find((u) => String(u?.email || "").trim().toLowerCase() === target);
 
     if (found?.id) return String(found.id);
@@ -208,9 +223,13 @@ export async function POST(req: Request) {
 
       const { data: userRow, error: uErr } = await sb
         .from("wz_users")
-        .select("id")
-        .eq("email", email)
+        .select("id,full_name")
+        .ilike("email", email)
         .maybeSingle();
+
+      const authMeta = (signIn?.user?.user_metadata ?? null) as { full_name?: string | null } | null;
+      const authMetaFullName = String(authMeta?.full_name || "").trim();
+      const resolvedFullName = sanitizeFullName(userRow?.full_name || authMetaFullName);
 
       if (uErr || !userRow?.id) {
         return NextResponse.json({ ok: false, error: "Conta não encontrada." }, { status: 404, headers: NO_STORE_HEADERS });
@@ -224,7 +243,11 @@ export async function POST(req: Request) {
 
       // ✅ host-only => NÃO seta cookie aqui (login host). Usa ticket + exchange no dashboard.
       if (isHostOnlyMode()) {
-        const ticket = makeDashboardTicket({ userId: String(userRow.id), email });
+        const ticket = makeDashboardTicket({
+          userId: String(userRow.id),
+          email,
+          fullName: resolvedFullName,
+        });
         const nextUrl =
           `${dashboard}/api/wz_AuthLogin/exchange` +
           `?ticket=${encodeURIComponent(ticket)}` +
@@ -234,14 +257,22 @@ export async function POST(req: Request) {
           { ok: true, nextUrl },
           { status: 200, headers: NO_STORE_HEADERS },
         );
-        setSessionCookie(res, { userId: String(userRow.id), email }, req.headers);
+        setSessionCookie(
+          res,
+          { userId: String(userRow.id), email, fullName: resolvedFullName },
+          req.headers,
+        );
         return res;
       }
 
       // ✅ Legacy/domain-cookie mode: pode setar cookie direto e ir pro dashboard
       const nextUrl = `${dashboard}${nextSafe.startsWith("/") ? nextSafe : "/"}`;
       const res = NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
-      setSessionCookie(res, { userId: String(userRow.id), email }, req.headers);
+      setSessionCookie(
+        res,
+        { userId: String(userRow.id), email, fullName: resolvedFullName },
+        req.headers,
+      );
       return res;
     }
 
@@ -317,8 +348,9 @@ export async function POST(req: Request) {
       { ok: true, next: "sms", phoneMask: maskPhoneE164(phoneE164) },
       { status: 200, headers: NO_STORE_HEADERS }
     );
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error("[verify-email] error:", e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro inesperado." }, { status: 500, headers: NO_STORE_HEADERS });
+    const message = e instanceof Error ? e.message : "Erro inesperado.";
+    return NextResponse.json({ ok: false, error: message }, { status: 500, headers: NO_STORE_HEADERS });
   }
 }

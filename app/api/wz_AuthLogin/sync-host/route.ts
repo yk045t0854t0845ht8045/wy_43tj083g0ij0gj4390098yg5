@@ -73,6 +73,7 @@ export async function GET(req: NextRequest) {
     {
       userId: String(session.userId),
       email: String(session.email),
+      fullName: session.fullName,
       ttlDays,
     },
     req,
