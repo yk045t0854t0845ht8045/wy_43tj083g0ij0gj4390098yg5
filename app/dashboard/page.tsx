@@ -60,29 +60,51 @@ async function getSidebarFirstName(params: {
   try {
     const sb = supabaseAdmin();
 
+    // 1) Igual ao fluxo do e-mail da sessão: prioriza lookup por email (case-insensitive).
+    if (email) {
+      const { data, error } = await sb
+        .from("wz_users")
+        .select("full_name")
+        .ilike("email", email)
+        .limit(5);
+
+      if (!error) {
+        for (const row of data || []) {
+          const firstByEmail = pickFirstName((row as { full_name?: string | null }).full_name);
+          if (firstByEmail) return firstByEmail;
+        }
+      }
+    }
+
+    // 2) Fallback para sessões antigas ou migrações: auth_user_id.
+    if (userId) {
+      const { data, error } = await sb
+        .from("wz_users")
+        .select("full_name")
+        .eq("auth_user_id", userId)
+        .limit(5);
+
+      if (!error) {
+        for (const row of data || []) {
+          const firstByAuthId = pickFirstName((row as { full_name?: string | null }).full_name);
+          if (firstByAuthId) return firstByAuthId;
+        }
+      }
+    }
+
+    // 3) Fallback final: id da tabela wz_users.
     if (userId) {
       const { data, error } = await sb
         .from("wz_users")
         .select("full_name")
         .eq("id", userId)
-        .maybeSingle();
+        .limit(5);
 
       if (!error) {
-        const firstById = pickFirstName(data?.full_name);
-        if (firstById) return firstById;
-      }
-    }
-
-    if (email) {
-      const { data, error } = await sb
-        .from("wz_users")
-        .select("full_name")
-        .eq("email", email)
-        .maybeSingle();
-
-      if (!error) {
-        const firstByEmail = pickFirstName(data?.full_name);
-        if (firstByEmail) return firstByEmail;
+        for (const row of data || []) {
+          const firstById = pickFirstName((row as { full_name?: string | null }).full_name);
+          if (firstById) return firstById;
+        }
       }
     }
   } catch (error) {
@@ -102,13 +124,11 @@ export default async function DashboardHomePage() {
   const shouldBypassAuth = isLocalDevHost(hostHeader);
 
   const cookieHeader = h.get("cookie");
-  const session = shouldBypassAuth
-    ? null
-    : readSessionFromCookieHeader(cookieHeader, headerLike);
+  const session = readSessionFromCookieHeader(cookieHeader, headerLike);
   const sidebarEmail = session?.email || (shouldBypassAuth ? "local@localhost" : "");
   let sidebarNickname = shouldBypassAuth ? "Local User" : "Usuario";
 
-  if (!shouldBypassAuth && session) {
+  if (session) {
     const dbFirstName = await getSidebarFirstName({
       userId: session.userId,
       email: session.email,
