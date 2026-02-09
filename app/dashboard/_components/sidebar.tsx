@@ -1,7 +1,5 @@
-// app/(dashboard)/_components/sidebar.tsx
-"use client";
+﻿"use client";
 
-import Link from "next/link";
 import Script from "next/script";
 import { LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import React, {
@@ -15,16 +13,12 @@ import React, {
 
 type MainItemId =
   | "overview"
-  | "transactions"
   | "catalog"
+  | "categories"
   | "customers"
-  | "content"
-  | "analytics"
-  | "campaigns"
-  | "discounts";
+  | "transactions";
 
-type SubItemId = "orders" | "drafts" | "shipping" | "abandoned";
-type ChannelId = "online-store" | "retail-pos" | "shop";
+type SubItemId = "orders" | "drafts";
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -46,30 +40,6 @@ function useIsMobileSm() {
   return isMobile;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   Icons (leve, fino, estilo igual do print)
-   ───────────────────────────────────────────────────────────────────────────── */
-
-function Icon({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="w-[18px] h-[18px] inline-flex items-center justify-center text-black/70">
-      <svg
-        width="18"
-        height="18"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="w-[18px] h-[18px]"
-      >
-        {children}
-      </svg>
-    </span>
-  );
-}
-
 type LordIconProps = React.HTMLAttributes<HTMLElement> & {
   src: string;
   trigger?: string;
@@ -89,13 +59,16 @@ function IOverview({ target }: { target?: string }) {
   );
 }
 
-function ITransactions() {
+function ITransactions({ target }: { target?: string }) {
   return (
-    <Icon>
-      <rect x="4.5" y="6.5" width="15" height="13" rx="2" />
-      <path d="M7.5 10h9" />
-      <path d="M7.5 14h6.5" />
-    </Icon>
+    <span className="w-[18px] h-[18px] inline-flex items-center justify-center overflow-hidden">
+      {React.createElement<LordIconProps>("lord-icon", {
+        src: "https://cdn.lordicon.com/ynsswhvj.json",
+        trigger: "hover",
+        target,
+        style: { width: "18px", height: "18px" },
+      })}
+    </span>
   );
 }
 
@@ -125,70 +98,16 @@ function ICustomers({ target }: { target?: string }) {
   );
 }
 
-function IContent() {
+function ICategories({ target }: { target?: string }) {
   return (
-    <Icon>
-      <rect x="4.5" y="5.5" width="15" height="13" rx="2" />
-      <path d="M8 9h8" />
-      <path d="M8 12.5h6" />
-    </Icon>
-  );
-}
-
-function IAnalytics() {
-  return (
-    <Icon>
-      <path d="M12 6v6l4 2" />
-      <circle cx="12" cy="12" r="8" />
-    </Icon>
-  );
-}
-
-function ICampaigns() {
-  return (
-    <Icon>
-      <path d="M4.5 12h4l10-5v10l-10-5h-4Z" />
-      <path d="M8.5 14.5v3" />
-    </Icon>
-  );
-}
-
-function IDiscounts() {
-  return (
-    <Icon>
-      <path d="M20 12 12 20 4 12V4h8l8 8Z" />
-      <path d="M7.5 7.5h.01" />
-    </Icon>
-  );
-}
-
-function IStore() {
-  return (
-    <Icon>
-      <path d="M4.5 9 6.2 5.5h11.6L19.5 9" />
-      <path d="M5.5 9v10.5h13V9" />
-      <path d="M9 19.5V13h6v6.5" />
-    </Icon>
-  );
-}
-
-function IPOS() {
-  return (
-    <Icon>
-      <rect x="5" y="6.5" width="14" height="12.5" rx="2" />
-      <path d="M8 10h8" />
-      <path d="M8 13.5h4.5" />
-      <path d="M8 17h8" />
-    </Icon>
-  );
-}
-
-function IShop() {
-  return (
-    <Icon>
-      <rect x="6" y="7" width="12" height="13" rx="2" />
-      <path d="M9 7V5.5A3 3 0 0 1 12 3a3 3 0 0 1 3 2.5V7" />
-    </Icon>
+    <span className="w-[18px] h-[18px] inline-flex items-center justify-center overflow-hidden">
+      {React.createElement<LordIconProps>("lord-icon", {
+        src: "https://cdn.lordicon.com/iwlihxdl.json",
+        trigger: "hover",
+        target,
+        style: { width: "18px", height: "18px" },
+      })}
+    </span>
   );
 }
 
@@ -256,43 +175,30 @@ function CaretDown({ open }: { open: boolean }) {
   );
 }
 
-/* ───────────────────────────────────────────────────────────────────────────── */
-
 type Props = {
   activeMain?: MainItemId;
   activeSub?: SubItemId | null;
-  activeChannel?: ChannelId | null;
 };
 
 export default function Sidebar({
   activeMain = "overview",
   activeSub = null,
-  activeChannel = null,
 }: Props) {
   const [transactionsOpen, setTransactionsOpen] = useState(
-    () => activeMain === "transactions" && activeChannel === null
+    () => activeMain === "transactions"
   );
   const isMobile = useIsMobileSm();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // active “inteligente”
   const [activeMainState, setActiveMainState] = useState<MainItemId>(activeMain);
-  const [activeSubState, setActiveSubState] = useState<SubItemId | null>(
-    activeSub
-  );
-  const [activeChannelState, setActiveChannelState] = useState<ChannelId | null>(
-    activeChannel
-  );
+  const [activeSubState, setActiveSubState] = useState<SubItemId | null>(activeSub);
 
-  // sincroniza caso props mudem
   useEffect(() => setActiveMainState(activeMain), [activeMain]);
   useEffect(() => setActiveSubState(activeSub), [activeSub]);
-  useEffect(() => setActiveChannelState(activeChannel), [activeChannel]);
   useEffect(() => {
-    setTransactionsOpen(activeMain === "transactions" && activeChannel === null);
-  }, [activeMain, activeChannel]);
+    setTransactionsOpen(activeMain === "transactions");
+  }, [activeMain]);
 
-  // mobile: sidebar vira drawer (minimizado por padrao)
   const didMountRef = useRef(false);
   useEffect(() => {
     if (!didMountRef.current) {
@@ -319,40 +225,30 @@ export default function Sidebar({
     };
   }, [isMobile, mobileMenuOpen]);
 
-  const channels = useMemo(
-    () => [
-      { id: "online-store" as const, label: "Online Store", icon: <IStore /> },
-      { id: "retail-pos" as const, label: "Retail POS", icon: <IPOS /> },
-      { id: "shop" as const, label: "Shop", icon: <IShop /> },
-    ],
-    []
+  const idBase = useId();
+  const cleanIdBase = useMemo(
+    () => idBase.replace(/[^a-zA-Z0-9_-]/g, ""),
+    [idBase]
   );
-  const overviewHoverId = useId();
-  const overviewHoverClass = useMemo(
-    () =>
-      `sidebar-overview-${overviewHoverId.replace(/[^a-zA-Z0-9_-]/g, "")}`,
-    [overviewHoverId]
-  );
-  const catalogHoverTargetId = "sidebar-atendimentos-btn";
-  const productsHoverTargetId = "sidebar-produtos-btn";
+  const overviewHoverClass = `sidebar-overview-${cleanIdBase}`;
+  const catalogHoverTargetId = `sidebar-atendimentos-${cleanIdBase}`;
+  const categoriesHoverTargetId = `sidebar-categorias-${cleanIdBase}`;
+  const productsHoverTargetId = `sidebar-produtos-${cleanIdBase}`;
+  const transactionsHoverTargetId = `sidebar-pagamentos-${cleanIdBase}`;
 
-  // indicador preto “rastando” somente no submenu
   const submenuWrapRef = useRef<HTMLDivElement | null>(null);
-  const submenuUlRef = useRef<HTMLUListElement | null>(null);
-  const subBtnRefs = useRef<Record<SubItemId, HTMLAnchorElement | null>>({
+  const subBtnRefs = useRef<Record<SubItemId, HTMLButtonElement | null>>({
     orders: null,
     drafts: null,
-    shipping: null,
-    abandoned: null,
   });
 
   const indicatorHeightPx = 26;
   const [indicatorY, setIndicatorY] = useState<number>(8);
 
-  const isMainSelected = activeChannelState === null;
-  const isOnTransactions = isMainSelected && activeMainState === "transactions";
+  const isOnTransactions = activeMainState === "transactions";
   const indicatorVisible =
     isOnTransactions && transactionsOpen && activeSubState !== null;
+
   const prefersReducedMotion = useReducedMotion();
   const activePillTransition = useMemo(
     () =>
@@ -368,10 +264,12 @@ export default function Sidebar({
           },
     [prefersReducedMotion]
   );
+
   const tapFeedback = useMemo(
     () => (prefersReducedMotion ? undefined : { scale: 0.992, y: 0.6 }),
     [prefersReducedMotion]
   );
+
   const tapFeedbackTransition = useMemo(
     () =>
       prefersReducedMotion
@@ -382,14 +280,11 @@ export default function Sidebar({
 
   const measureIndicator = () => {
     const wrap = submenuWrapRef.current;
-    if (!wrap) return;
+    if (!wrap || !activeSubState) return;
 
-    if (!activeSubState) return;
     const btn = subBtnRefs.current[activeSubState];
     if (!btn) return;
 
-    // offsetTop não é confiável aqui porque cada <li> é `relative` (vira offsetParent).
-    // Usando getBoundingClientRect garante a posição correta (e o indicador “desce”).
     const wrapRect = wrap.getBoundingClientRect();
     const btnRect = btn.getBoundingClientRect();
     const y = btnRect.top - wrapRect.top + (btnRect.height - indicatorHeightPx) / 2;
@@ -424,38 +319,26 @@ export default function Sidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [indicatorVisible]);
 
-  // helpers: clicar em main fecha o submenu e aplica active
   const pickMain = (id: MainItemId) => {
     setActiveMainState(id);
-    setActiveChannelState(null);
 
     if (id !== "transactions") {
-      // fecha o accordion ao sair
       setTransactionsOpen(false);
       setMobileMenuOpen(false);
     } else {
-      // se entrou em transactions, abre
       setTransactionsOpen(true);
     }
   };
 
   const toggleTransactions = () => {
     setActiveMainState("transactions");
-    setActiveChannelState(null);
     setTransactionsOpen((v) => !v);
   };
 
   const pickSub = (id: SubItemId) => {
     setActiveMainState("transactions");
-    setActiveChannelState(null);
     if (!transactionsOpen) setTransactionsOpen(true);
     setActiveSubState(id);
-    setMobileMenuOpen(false);
-  };
-
-  const pickChannel = (id: ChannelId) => {
-    setActiveChannelState(id);
-    setTransactionsOpen(false);
     setMobileMenuOpen(false);
   };
 
@@ -481,7 +364,6 @@ export default function Sidebar({
     <>
       <Script src="https://cdn.lordicon.com/lordicon.js" strategy="afterInteractive" />
 
-      {/* botao flutuante (mobile) */}
       {!mobileMenuOpen && (
         <button
           type="button"
@@ -516,7 +398,6 @@ export default function Sidebar({
         </button>
       )}
 
-      {/* backdrop (mobile) */}
       {mobileMenuOpen && (
         <div
           className="sm:hidden fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px]"
@@ -527,7 +408,6 @@ export default function Sidebar({
 
       <aside
         className={cx(
-          // desktop: sidebar normal. mobile: drawer minimizado
           "fixed sm:static",
           "inset-y-0 left-0 sm:inset-auto sm:left-auto",
           "z-50 sm:z-auto",
@@ -595,263 +475,233 @@ export default function Sidebar({
         </div>
 
         <nav className="mt-2 px-2 flex-1 overflow-y-auto overscroll-contain">
-        <LayoutGroup id="sidebar-active-pills">
-        <ul className="space-y-[2px]">
-          {/* Visao Geral */}
-          <li>
-            <motion.button
-              type="button"
-              onClick={() => pickMain("overview")}
-              whileTap={tapFeedback}
-              transition={tapFeedbackTransition}
-              className={cx(
-                mainBtnBase,
-                overviewHoverClass,
-                !(isMainSelected && activeMainState === "overview") &&
-                  "hover:bg-black/[0.04]"
-              )}
-            >
-              {isMainSelected && activeMainState === "overview" && (
-                <motion.span
-                  layoutId="sidebar-active-main-pill"
-                  className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
-                  transition={activePillTransition}
-                />
-              )}
-              <span className="relative z-[1] flex items-center gap-3">
-                <IOverview target={`.${overviewHoverClass}`} />
-                <span>Visão Geral</span>
-              </span>
-            </motion.button>
-          </li>
+          <LayoutGroup id="sidebar-active-pills">
+            <ul className="space-y-[2px]">
+              <li>
+                <motion.button
+                  type="button"
+                  onClick={() => pickMain("overview")}
+                  whileTap={tapFeedback}
+                  transition={tapFeedbackTransition}
+                  className={cx(
+                    mainBtnBase,
+                    overviewHoverClass,
+                    activeMainState !== "overview" && "hover:bg-black/[0.04]"
+                  )}
+                >
+                  {activeMainState === "overview" && (
+                    <motion.span
+                      layoutId="sidebar-active-main-pill"
+                      className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
+                      transition={activePillTransition}
+                    />
+                  )}
+                  <span className="relative z-[1] flex items-center gap-3">
+                    <IOverview target={`.${overviewHoverClass}`} />
+                    <span>Visao Geral</span>
+                  </span>
+                </motion.button>
+              </li>
 
+              <li>
+                <motion.button
+                  id={catalogHoverTargetId}
+                  type="button"
+                  onClick={() => pickMain("catalog")}
+                  whileTap={tapFeedback}
+                  transition={tapFeedbackTransition}
+                  className={cx(
+                    mainBtnBase,
+                    activeMainState !== "catalog" && "hover:bg-black/[0.04]"
+                  )}
+                >
+                  {activeMainState === "catalog" && (
+                    <motion.span
+                      layoutId="sidebar-active-main-pill"
+                      className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
+                      transition={activePillTransition}
+                    />
+                  )}
+                  <span className="relative z-[1] flex items-center gap-3">
+                    <ICatalog target={`#${catalogHoverTargetId}`} />
+                    <span>Atendimentos</span>
+                  </span>
+                </motion.button>
+              </li>
 
-          {/* Catalog */}
-          <li>
-            <motion.button
-              id={catalogHoverTargetId}
-              type="button"
-              onClick={() => pickMain("catalog")}
-              whileTap={tapFeedback}
-              transition={tapFeedbackTransition}
-              className={cx(
-                mainBtnBase,
-                !(isMainSelected && activeMainState === "catalog") &&
-                  "hover:bg-black/[0.04]"
-              )}
-            >
-              {isMainSelected && activeMainState === "catalog" && (
-                <motion.span
-                  layoutId="sidebar-active-main-pill"
-                  className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
-                  transition={activePillTransition}
-                />
-              )}
-              <span className="relative z-[1] flex items-center gap-3">
-                <ICatalog target={`#${catalogHoverTargetId}`} />
-                <span>Atendimentos</span>
-              </span>
-            </motion.button>
-          </li>
+              <li>
+                <motion.button
+                  id={categoriesHoverTargetId}
+                  type="button"
+                  onClick={() => pickMain("categories")}
+                  whileTap={tapFeedback}
+                  transition={tapFeedbackTransition}
+                  className={cx(
+                    mainBtnBase,
+                    activeMainState !== "categories" && "hover:bg-black/[0.04]"
+                  )}
+                >
+                  {activeMainState === "categories" && (
+                    <motion.span
+                      layoutId="sidebar-active-main-pill"
+                      className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
+                      transition={activePillTransition}
+                    />
+                  )}
+                  <span className="relative z-[1] flex items-center gap-3">
+                    <ICategories target={`#${categoriesHoverTargetId}`} />
+                    <span>Categorias</span>
+                  </span>
+                </motion.button>
+              </li>
 
-          {/* Customers */}
-          <li>
-            <motion.button
-              id={productsHoverTargetId}
-              type="button"
-              onClick={() => pickMain("customers")}
-              whileTap={tapFeedback}
-              transition={tapFeedbackTransition}
-              className={cx(
-                mainBtnBase,
-                !(isMainSelected && activeMainState === "customers") &&
-                  "hover:bg-black/[0.04]"
-              )}
-            >
-              {isMainSelected && activeMainState === "customers" && (
-                <motion.span
-                  layoutId="sidebar-active-main-pill"
-                  className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
-                  transition={activePillTransition}
-                />
-              )}
-              <span className="relative z-[1] flex items-center gap-3">
-                <ICustomers target={`#${productsHoverTargetId}`} />
-                <span>Produtos</span>
-              </span>
-            </motion.button>
-          </li>
+              <li>
+                <motion.button
+                  id={productsHoverTargetId}
+                  type="button"
+                  onClick={() => pickMain("customers")}
+                  whileTap={tapFeedback}
+                  transition={tapFeedbackTransition}
+                  className={cx(
+                    mainBtnBase,
+                    activeMainState !== "customers" && "hover:bg-black/[0.04]"
+                  )}
+                >
+                  {activeMainState === "customers" && (
+                    <motion.span
+                      layoutId="sidebar-active-main-pill"
+                      className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
+                      transition={activePillTransition}
+                    />
+                  )}
+                  <span className="relative z-[1] flex items-center gap-3">
+                    <ICustomers target={`#${productsHoverTargetId}`} />
+                    <span>Produtos</span>
+                  </span>
+                </motion.button>
+              </li>
 
-          <li>
-            <motion.button
-              type="button"
-              onClick={toggleTransactions}
-              whileTap={tapFeedback}
-              transition={tapFeedbackTransition}
-              className={cx(
-                "w-full h-[40px] rounded-xl",
-                "relative overflow-hidden transform-gpu will-change-transform",
-                "flex items-center justify-between px-3",
-                "text-[15px] font-medium",
-                "text-black/90",
-                "transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-                !isOnTransactions && "hover:bg-black/[0.04]"
-              )}
-              aria-expanded={transactionsOpen}
-            >
-              {isOnTransactions && (
-                <motion.span
-                  layoutId="sidebar-active-main-pill"
-                  className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
-                  transition={activePillTransition}
-                />
-              )}
-              <span className="relative z-[1] flex items-center gap-3">
-                <ITransactions />
-                <span>Pagamentos</span>
-              </span>
-              <span className="relative z-[1]">
-                <CaretDown open={transactionsOpen} />
-              </span>
-            </motion.button>
+              <li>
+                <motion.button
+                  id={transactionsHoverTargetId}
+                  type="button"
+                  onClick={toggleTransactions}
+                  whileTap={tapFeedback}
+                  transition={tapFeedbackTransition}
+                  className={cx(
+                    "w-full h-[40px] rounded-xl",
+                    "relative overflow-hidden transform-gpu will-change-transform",
+                    "flex items-center justify-between px-3",
+                    "text-[15px] font-medium",
+                    "text-black/90",
+                    "transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+                    !isOnTransactions && "hover:bg-black/[0.04]"
+                  )}
+                  aria-expanded={transactionsOpen}
+                >
+                  {isOnTransactions && (
+                    <motion.span
+                      layoutId="sidebar-active-main-pill"
+                      className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
+                      transition={activePillTransition}
+                    />
+                  )}
+                  <span className="relative z-[1] flex items-center gap-3">
+                    <ITransactions target={`#${transactionsHoverTargetId}`} />
+                    <span>Pagamentos</span>
+                  </span>
+                  <span className="relative z-[1]">
+                    <CaretDown open={transactionsOpen} />
+                  </span>
+                </motion.button>
 
-            <div
-              className={cx(
-                "overflow-hidden",
-                "transition-[max-height,opacity,transform] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-                transactionsOpen
-                  ? "max-h-[320px] opacity-100 translate-y-0"
-                  : "max-h-0 opacity-0 -translate-y-[4px]"
-              )}
-            >
-              <div ref={submenuWrapRef} className="relative pl-[46px] pr-2 py-1">
                 <div
                   className={cx(
-                    "absolute left-[24px] top-[8px] bottom-[8px]",
-                    "border-l border-dashed border-black/20",
-                    transactionsOpen ? "opacity-100" : "opacity-0"
+                    "overflow-hidden",
+                    "transition-[max-height,opacity,transform] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+                    transactionsOpen
+                      ? "max-h-[320px] opacity-100 translate-y-0"
+                      : "max-h-0 opacity-0 -translate-y-[4px]"
                   )}
-                />
-
-                <span
-                  aria-hidden="true"
-                  className={cx(
-                    "absolute",
-                    "top-0",
-                    "left-[23px] w-[3px] h-[26px] rounded-full bg-black",
-                    "transition-[transform,opacity] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-                    indicatorVisible ? "opacity-100" : "opacity-0"
-                  )}
-                  style={{
-                    transform: `translateY(${Math.round(indicatorY)}px)`,
-                  }}
-                />
-
-                <ul ref={submenuUlRef} className="space-y-[2px]">
-                  <li className="relative">
-                    <Link
-                      href=""
-                      ref={(el) => {
-                        subBtnRefs.current.orders = el;
-                      }}
-                      onClick={() => pickSub("orders")}
+                >
+                  <div ref={submenuWrapRef} className="relative pl-[46px] pr-2 py-1">
+                    <div
                       className={cx(
-                        subBtnBase,
-                        !(isOnTransactions && activeSubState === "orders") &&
-                          "hover:bg-black/[0.04]"
+                        "absolute left-[24px] top-[8px] bottom-[8px]",
+                        "border-l border-dashed border-black/20",
+                        transactionsOpen ? "opacity-100" : "opacity-0"
                       )}
-                    >
-                      {isOnTransactions && activeSubState === "orders" && (
-                        <motion.span
-                          layoutId="sidebar-active-sub-pill"
-                          className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
-                          transition={activePillTransition}
-                        />
-                      )}
-                      <span className="relative z-[1]">Orders</span>
-                    </Link>
-                  </li>
+                    />
 
-                  <li className="relative">
-                    <Link
-                      href=""
-                      ref={(el) => {
-                        subBtnRefs.current.drafts = el;
-                      }}
-                      onClick={() => pickSub("drafts")}
+                    <span
+                      aria-hidden="true"
                       className={cx(
-                        subBtnBase,
-                        !(isOnTransactions && activeSubState === "drafts") &&
-                          "hover:bg-black/[0.04]"
+                        "absolute",
+                        "top-0",
+                        "left-[23px] w-[3px] h-[26px] rounded-full bg-black",
+                        "transition-[transform,opacity] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+                        indicatorVisible ? "opacity-100" : "opacity-0"
                       )}
-                    >
-                      {isOnTransactions && activeSubState === "drafts" && (
-                        <motion.span
-                          layoutId="sidebar-active-sub-pill"
-                          className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
-                          transition={activePillTransition}
-                        />
-                      )}
-                      <span className="relative z-[1]">Drafts</span>
-                    </Link>
-                  </li>
-
-                  <li className="relative">
-                    <Link
-                      href=""
-                      ref={(el) => {
-                        subBtnRefs.current.shipping = el;
+                      style={{
+                        transform: `translateY(${Math.round(indicatorY)}px)`,
                       }}
-                      onClick={() => pickSub("shipping")}
-                      className={cx(
-                        subBtnBase,
-                        !(isOnTransactions && activeSubState === "shipping") &&
-                          "hover:bg-black/[0.04]"
-                      )}
-                    >
-                      {isOnTransactions && activeSubState === "shipping" && (
-                        <motion.span
-                          layoutId="sidebar-active-sub-pill"
-                          className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
-                          transition={activePillTransition}
-                        />
-                      )}
-                      <span className="relative z-[1]">Shipping labels</span>
-                    </Link>
-                  </li>
+                    />
 
-                  <li className="relative">
-                    <Link
-                      href=""
-                      ref={(el) => {
-                        subBtnRefs.current.abandoned = el;
-                      }}
-                      onClick={() => pickSub("abandoned")}
-                      className={cx(
-                        subBtnBase,
-                        !(isOnTransactions && activeSubState === "abandoned") &&
-                          "hover:bg-black/[0.04]"
-                      )}
-                    >
-                      {isOnTransactions && activeSubState === "abandoned" && (
-                        <motion.span
-                          layoutId="sidebar-active-sub-pill"
-                          className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
-                          transition={activePillTransition}
-                        />
-                      )}
-                      <span className="relative z-[1]">Abandoned checkouts</span>
-                    </Link>
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </li>
-        </ul>
+                    <ul className="space-y-[2px]">
+                      <li className="relative">
+                        <button
+                          type="button"
+                          ref={(el) => {
+                            subBtnRefs.current.orders = el;
+                          }}
+                          onClick={() => pickSub("orders")}
+                          className={cx(
+                            subBtnBase,
+                            !(isOnTransactions && activeSubState === "orders") &&
+                              "hover:bg-black/[0.04]"
+                          )}
+                        >
+                          {isOnTransactions && activeSubState === "orders" && (
+                            <motion.span
+                              layoutId="sidebar-active-sub-pill"
+                              className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
+                              transition={activePillTransition}
+                            />
+                          )}
+                          <span className="relative z-[1]">Metodos de Pagamento</span>
+                        </button>
+                      </li>
 
-      
-        </LayoutGroup>
-      </nav>
+                      <li className="relative">
+                        <button
+                          type="button"
+                          ref={(el) => {
+                            subBtnRefs.current.drafts = el;
+                          }}
+                          onClick={() => pickSub("drafts")}
+                          className={cx(
+                            subBtnBase,
+                            !(isOnTransactions && activeSubState === "drafts") &&
+                              "hover:bg-black/[0.04]"
+                          )}
+                        >
+                          {isOnTransactions && activeSubState === "drafts" && (
+                            <motion.span
+                              layoutId="sidebar-active-sub-pill"
+                              className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
+                              transition={activePillTransition}
+                            />
+                          )}
+                          <span className="relative z-[1]">Historico</span>
+                        </button>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </li>
+            </ul>
+          </LayoutGroup>
+        </nav>
       </aside>
     </>
   );
