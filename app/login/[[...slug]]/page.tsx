@@ -90,6 +90,42 @@ function maskPhone(phone: string) {
   return `(${a}) *****-${last}`;
 }
 
+function getDashboardOriginForLoginHost(host: string) {
+  if (host.endsWith(".localhost") || host === "localhost") {
+    return "http://dashboard.localhost:3000";
+  }
+  return "https://dashboard.wyzer.com.br";
+}
+
+function isAllowedReturnToAbsolute(url: URL) {
+  const host = url.hostname.toLowerCase();
+  const protoOk = url.protocol === "https:" || url.protocol === "http:";
+  const hostOk =
+    host === "wyzer.com.br" ||
+    host === "www.wyzer.com.br" ||
+    host.endsWith(".wyzer.com.br") ||
+    host === "localhost" ||
+    host.endsWith(".localhost");
+  return protoOk && hostOk;
+}
+
+function resolveSafeReturnTo(raw: string, loginHost: string) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+
+  if (value.startsWith("/")) {
+    return new URL(value, `${getDashboardOriginForLoginHost(loginHost)}/`).toString();
+  }
+
+  try {
+    const url = new URL(value);
+    if (!isAllowedReturnToAbsolute(url)) return "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
 function SpinnerMini({ reduced }: { reduced: boolean }) {
   return (
     <motion.span
@@ -242,6 +278,7 @@ function CodeBoxes({
 
 export default function LinkLoginPage() {
   const RETURN_TO_KEY = "wyzer_return_to_v1";
+  const AUTO_REDIRECT_GUARD_KEY = "wyzer_login_auto_redirect_guard_v1";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -361,6 +398,60 @@ export default function LinkLoginPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tokenFromRoute]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("forceLogin") === "1") return;
+
+    const host = window.location.hostname.toLowerCase();
+    const isLoginHost =
+      host === "login.wyzer.com.br" ||
+      host === "login.localhost" ||
+      host === "localhost";
+    const isLinkHost = host.startsWith("link.");
+    if (!isLoginHost && !isLinkHost) return;
+
+    try {
+      const last = Number(sessionStorage.getItem(AUTO_REDIRECT_GUARD_KEY) || "0");
+      if (Number.isFinite(last) && last > 0 && Date.now() - last < 8000) {
+        return;
+      }
+    } catch {}
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const response = await fetch("/api/wz_AuthLogin/me", {
+          method: "GET",
+          cache: "no-store",
+          credentials: "include",
+        });
+        if (!response.ok || cancelled) return;
+
+        const payload = await response.json().catch(() => ({}));
+        if (!payload?.ok || cancelled) return;
+
+        const returnToRaw = url.searchParams.get("returnTo") || "";
+        const safeReturnTo = resolveSafeReturnTo(returnToRaw, host);
+        const target = safeReturnTo || `${getDashboardOriginForLoginHost(host)}/`;
+
+        try {
+          sessionStorage.setItem(AUTO_REDIRECT_GUARD_KEY, String(Date.now()));
+        } catch {}
+
+        window.location.replace(target);
+      } catch {
+        // no-op
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // cooldown resend
   useEffect(() => {

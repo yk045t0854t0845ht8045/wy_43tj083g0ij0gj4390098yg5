@@ -37,6 +37,7 @@ function buildLoginUrl(hostHeader: string | null) {
 function buildLoginRedirectUrl(hostHeader: string | null) {
   const loginUrl = new URL(buildLoginUrl(hostHeader));
   loginUrl.searchParams.set("returnTo", buildDashboardUrl(hostHeader));
+  loginUrl.searchParams.set("forceLogin", "1");
   return loginUrl.toString();
 }
 
