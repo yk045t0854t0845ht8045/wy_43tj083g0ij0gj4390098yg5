@@ -35,6 +35,24 @@ function isLocalDevHost(hostHeader: string | null) {
   return host.endsWith(".localhost") || host === "localhost";
 }
 
+function toDisplayNickname(email?: string | null, userId?: string | null) {
+  const direct = String(userId || "").trim();
+  if (direct && direct.length <= 24 && !direct.includes("@")) return direct;
+
+  const fromEmail = String(email || "").trim().toLowerCase();
+  if (!fromEmail.includes("@")) return "Usuario";
+
+  const local = fromEmail.split("@")[0] || "";
+  const clean = local.replace(/[._-]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!clean) return "Usuario";
+
+  return clean
+    .split(" ")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ")
+    .slice(0, 24);
+}
+
 export default async function DashboardHomePage() {
   const h = await headers();
 
@@ -48,6 +66,10 @@ export default async function DashboardHomePage() {
   const session = shouldBypassAuth
     ? null
     : readSessionFromCookieHeader(cookieHeader, headerLike);
+  const sidebarEmail = session?.email || (shouldBypassAuth ? "local@localhost" : "");
+  const sidebarNickname = shouldBypassAuth
+    ? "Local User"
+    : toDisplayNickname(session?.email, session?.userId);
 
   const loginUrl = buildLoginUrl(hostHeader);
 
@@ -62,7 +84,11 @@ export default async function DashboardHomePage() {
   return (
     <div className="min-h-screen bg-white flex">
       <LoadingBase />
-      <Sidebar activeMain="overview" />
+      <Sidebar
+        activeMain="overview"
+        userNickname={sidebarNickname}
+        userEmail={sidebarEmail}
+      />
 
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
