@@ -1291,7 +1291,7 @@ export default function Sidebar({
               aria-label={`Expandir perfil ${resolvedUserNickname}`}
               title={resolvedUserNickname}
             >
-              <span className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-lg bg-[#121330] text-[12px] font-semibold text-white">
+              <span className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-lg bg-white text-[12px] font-semibold text-white">
                 {profileInitial}
               </span>
             </button>

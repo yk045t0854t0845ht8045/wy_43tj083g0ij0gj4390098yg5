@@ -62,6 +62,30 @@ function getDashboardOrigin() {
   return "https://dashboard.wyzer.com.br";
 }
 
+function sanitizeNext(nextRaw: string) {
+  const s = String(nextRaw || "").trim();
+  if (!s) return "/";
+
+  if (s.startsWith("/")) return s;
+
+  try {
+    const u = new URL(s);
+    const host = u.hostname.toLowerCase();
+
+    const ok =
+      host === "wyzer.com.br" ||
+      host.endsWith(".wyzer.com.br") ||
+      host === "localhost" ||
+      host.endsWith(".localhost");
+
+    if (!ok) return "/";
+
+    return u.pathname + u.search + u.hash;
+  } catch {
+    return "/";
+  }
+}
+
 function base64UrlEncode(input: Buffer | string) {
   const buf = Buffer.isBuffer(input) ? input : Buffer.from(input, "utf8");
   return buf
@@ -116,10 +140,11 @@ function makeDashboardTicket(params: {
 
 export async function POST(req: Request) {
   try {
- const body = await req.json().catch(() => ({}));
-const email = String(body?.email || "").trim().toLowerCase();
-const code = onlyDigits(String(body?.code || "")).slice(0, 7);
-const next = String(body?.next || "").trim(); // ✅ novo
+    const body = await req.json().catch(() => ({}));
+    const email = String(body?.email || "").trim().toLowerCase();
+    const code = onlyDigits(String(body?.code || "")).slice(0, 7);
+    const nextFromBody = String(body?.next || body?.returnTo || "").trim();
+    const nextSafe = sanitizeNext(nextFromBody || "/");
 
     if (!isValidEmail(email)) {
       return NextResponse.json({ ok: false, error: "E-mail inválido." }, { status: 400, headers: NO_STORE_HEADERS });
@@ -324,10 +349,10 @@ const next = String(body?.next || "").trim(); // ✅ novo
         email,
         fullName,
       });
-     const nextUrl =
-  `${dashboard}/api/wz_AuthLogin/exchange` +
-  `?ticket=${encodeURIComponent(ticket)}` +
-  `&next=${encodeURIComponent(next || "/")}`;
+      const nextUrl =
+        `${dashboard}/api/wz_AuthLogin/exchange` +
+        `?ticket=${encodeURIComponent(ticket)}` +
+        `&next=${encodeURIComponent(nextSafe)}`;
 
       const res = NextResponse.json(
         { ok: true, nextUrl },
@@ -337,7 +362,7 @@ const next = String(body?.next || "").trim(); // ✅ novo
     }
 
     // ✅ legacy/domain-cookie mode
-  const nextUrl = next ? next : `${dashboard}/`;
+    const nextUrl = `${dashboard}${nextSafe.startsWith("/") ? nextSafe : "/"}`;
     const res = NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
     setSessionCookie(res, { userId: String(userId), email, fullName }, req.headers);
     return res;

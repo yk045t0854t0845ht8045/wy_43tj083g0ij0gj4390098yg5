@@ -688,6 +688,7 @@ export default function LinkLoginPage() {
       router,
       prefersReducedMotion,
       password,
+      returnTo,
     ],
   );
 
@@ -716,7 +717,7 @@ export default function LinkLoginPage() {
         if (!res.ok) throw new Error(j?.error || "Código inválido.");
 
         const consumedReturnTo = consumeReturnTo();
-        const nextUrl = String(consumedReturnTo || j?.nextUrl || "/app");
+        const nextUrl = String(j?.nextUrl || consumedReturnTo || "/app");
 
         if (/^https?:\/\//i.test(nextUrl)) {
           window.location.assign(nextUrl);
@@ -730,7 +731,7 @@ export default function LinkLoginPage() {
         setVerifyingSmsCodeBusy(false); // ✅ destrava
       }
     },
-    [email, smsCode, busy, verifyingSmsCodeBusy, router, password],
+    [email, smsCode, busy, verifyingSmsCodeBusy, router, password, returnTo],
   );
 
   const resend = useCallback(async () => {
