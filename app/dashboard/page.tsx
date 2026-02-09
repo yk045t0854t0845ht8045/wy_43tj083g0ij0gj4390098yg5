@@ -2,6 +2,7 @@
 import { headers } from "next/headers";
 import Link from "next/link";
 import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session";
+import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import { WyzerAIWidget } from "@/app/wyzerai/page";
 import Sidebar from "./_components/sidebar";
 import LoadingBase from "./_components/LoadingBase";
@@ -35,22 +36,60 @@ function isLocalDevHost(hostHeader: string | null) {
   return host.endsWith(".localhost") || host === "localhost";
 }
 
-function toDisplayNickname(email?: string | null, userId?: string | null) {
-  const direct = String(userId || "").trim();
-  if (direct && direct.length <= 24 && !direct.includes("@")) return direct;
+function pickFirstName(fullName?: string | null) {
+  const clean = String(fullName || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return null;
 
-  const fromEmail = String(email || "").trim().toLowerCase();
-  if (!fromEmail.includes("@")) return "Usuario";
+  const first = clean.split(" ")[0] || "";
+  return first ? first.slice(0, 24) : null;
+}
 
-  const local = fromEmail.split("@")[0] || "";
-  const clean = local.replace(/[._-]+/g, " ").replace(/\s+/g, " ").trim();
-  if (!clean) return "Usuario";
+async function getSidebarFirstName(params: {
+  userId?: string | null;
+  email?: string | null;
+}) {
+  const userId = String(params.userId || "").trim();
+  const email = String(params.email || "")
+    .trim()
+    .toLowerCase();
 
-  return clean
-    .split(" ")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ")
-    .slice(0, 24);
+  if (!userId && !email) return null;
+
+  try {
+    const sb = supabaseAdmin();
+
+    if (userId) {
+      const { data, error } = await sb
+        .from("wz_users")
+        .select("full_name")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (!error) {
+        const firstById = pickFirstName(data?.full_name);
+        if (firstById) return firstById;
+      }
+    }
+
+    if (email) {
+      const { data, error } = await sb
+        .from("wz_users")
+        .select("full_name")
+        .eq("email", email)
+        .maybeSingle();
+
+      if (!error) {
+        const firstByEmail = pickFirstName(data?.full_name);
+        if (firstByEmail) return firstByEmail;
+      }
+    }
+  } catch (error) {
+    console.error("[dashboard] failed to load wz_users full_name:", error);
+  }
+
+  return null;
 }
 
 export default async function DashboardHomePage() {
@@ -67,9 +106,15 @@ export default async function DashboardHomePage() {
     ? null
     : readSessionFromCookieHeader(cookieHeader, headerLike);
   const sidebarEmail = session?.email || (shouldBypassAuth ? "local@localhost" : "");
-  const sidebarNickname = shouldBypassAuth
-    ? "Local User"
-    : toDisplayNickname(session?.email, session?.userId);
+  let sidebarNickname = shouldBypassAuth ? "Local User" : "Usuario";
+
+  if (!shouldBypassAuth && session) {
+    const dbFirstName = await getSidebarFirstName({
+      userId: session.userId,
+      email: session.email,
+    });
+    if (dbFirstName) sidebarNickname = dbFirstName;
+  }
 
   const loginUrl = buildLoginUrl(hostHeader);
 
