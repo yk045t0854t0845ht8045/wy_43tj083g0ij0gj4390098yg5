@@ -674,6 +674,10 @@ export default function LinkLoginPage() {
 
         // ✅ sempre manda senha (login e register)
         payload.password = String(password || "");
+        if (typeof window !== "undefined") {
+          const currentUrl = new URL(window.location.href);
+          payload.next = currentUrl.searchParams.get("returnTo") || "";
+        }
 
         if (check.state === "new") {
           payload.fullName = fullName.trim();
@@ -688,7 +692,21 @@ export default function LinkLoginPage() {
         });
 
         const j = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(j?.error || "Falha ao iniciar validação.");
+        if (!res.ok) throw new Error(j?.error || "Falha ao iniciar validacao.");
+
+        if (j?.nextUrl) {
+          const nextUrl = String(j.nextUrl);
+          if (/^https?:\/\//i.test(nextUrl)) {
+            window.location.assign(nextUrl);
+          } else {
+            router.push(nextUrl);
+          }
+          return;
+        }
+
+        if (j?.next !== "email") {
+          throw new Error("Fluxo de autenticacao invalido.");
+        }
 
         setStep("emailCode");
         setEmailCode("");
@@ -699,7 +717,7 @@ export default function LinkLoginPage() {
         setBusy(false);
       }
     },
-    [canStart, busy, email, check.state, fullName, phone, cpf, password],
+    [canStart, busy, email, check.state, fullName, phone, cpf, password, router],
   );
 
   const [phoneMaskFromServer, setPhoneMaskFromServer] = useState<string>("");

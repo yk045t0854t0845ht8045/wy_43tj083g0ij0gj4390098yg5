@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../_supabase";
 import { sha, onlyDigits, isValidCPF, isValidE164BRMobile } from "../_codes";
 import { setSessionCookie } from "../_session";
+import {
+  createTrustedLoginToken,
+  getTrustedLoginTtlSeconds,
+  hashTrustedLoginToken,
+  setTrustedLoginCookie,
+} from "../_trusted_login";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -136,6 +142,39 @@ function makeDashboardTicket(params: {
   const payloadB64 = base64UrlEncode(JSON.stringify(payload));
   const sig = signTicket(payloadB64, secret);
   return `${payloadB64}.${sig}`;
+}
+
+async function issueTrustedLogin(
+  sb: ReturnType<typeof supabaseAdmin>,
+  email: string,
+  res: NextResponse,
+) {
+  try {
+    const token = createTrustedLoginToken();
+    const tokenHash = hashTrustedLoginToken(token);
+    const now = Date.now();
+    const nowIso = new Date(now).toISOString();
+    const expIso = new Date(
+      now + getTrustedLoginTtlSeconds() * 1000,
+    ).toISOString();
+
+    const { error } = await sb.from("wz_auth_trusted_devices").insert({
+      email,
+      token_hash: tokenHash,
+      created_at: nowIso,
+      last_used_at: nowIso,
+      expires_at: expIso,
+    });
+
+    if (error) {
+      console.error("[verify-sms] trusted login insert error:", error);
+      return;
+    }
+
+    setTrustedLoginCookie(res, token);
+  } catch (error) {
+    console.error("[verify-sms] issueTrustedLogin error:", error);
+  }
 }
 
 export async function POST(req: Request) {
@@ -363,6 +402,7 @@ export async function POST(req: Request) {
         { userId: String(userId), email, fullName },
         req.headers,
       );
+      await issueTrustedLogin(sb, email, res);
       return res;
     }
 
@@ -370,6 +410,7 @@ export async function POST(req: Request) {
     const nextUrl = `${dashboard}${nextSafe.startsWith("/") ? nextSafe : "/"}`;
     const res = NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
     setSessionCookie(res, { userId: String(userId), email, fullName }, req.headers);
+    await issueTrustedLogin(sb, email, res);
     return res;
   } catch (e: unknown) {
     console.error("[verify-sms] error:", e);

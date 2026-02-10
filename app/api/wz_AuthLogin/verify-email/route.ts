@@ -10,6 +10,12 @@ import {
 } from "../_codes";
 import { sendSmsCode } from "../_sms";
 import { setSessionCookie } from "../_session";
+import {
+  createTrustedLoginToken,
+  getTrustedLoginTtlSeconds,
+  hashTrustedLoginToken,
+  setTrustedLoginCookie,
+} from "../_trusted_login";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -95,6 +101,39 @@ function makeDashboardTicket(params: {
   const payloadB64 = base64UrlEncode(JSON.stringify(payload));
   const sig = signTicket(payloadB64, secret);
   return `${payloadB64}.${sig}`;
+}
+
+async function issueTrustedLogin(
+  sb: ReturnType<typeof supabaseAdmin>,
+  email: string,
+  res: NextResponse,
+) {
+  try {
+    const token = createTrustedLoginToken();
+    const tokenHash = hashTrustedLoginToken(token);
+    const now = Date.now();
+    const nowIso = new Date(now).toISOString();
+    const expIso = new Date(
+      now + getTrustedLoginTtlSeconds() * 1000,
+    ).toISOString();
+
+    const { error } = await sb.from("wz_auth_trusted_devices").insert({
+      email,
+      token_hash: tokenHash,
+      created_at: nowIso,
+      last_used_at: nowIso,
+      expires_at: expIso,
+    });
+
+    if (error) {
+      console.error("[verify-email] trusted login insert error:", error);
+      return;
+    }
+
+    setTrustedLoginCookie(res, token);
+  } catch (error) {
+    console.error("[verify-email] issueTrustedLogin error:", error);
+  }
 }
 
 function sanitizeNext(nextRaw: string) {
@@ -262,6 +301,7 @@ export async function POST(req: Request) {
           { userId: String(userRow.id), email, fullName: resolvedFullName },
           req.headers,
         );
+        await issueTrustedLogin(sb, email, res);
         return res;
       }
 
@@ -273,6 +313,7 @@ export async function POST(req: Request) {
         { userId: String(userRow.id), email, fullName: resolvedFullName },
         req.headers,
       );
+      await issueTrustedLogin(sb, email, res);
       return res;
     }
 

@@ -10,6 +10,13 @@ import {
   isValidBRMobilePhoneDigits,
 } from "../_codes";
 import { sendLoginCodeEmail } from "../_email";
+import { setSessionCookie } from "../_session";
+import {
+  hashTrustedLoginToken,
+  readTrustedLoginTokenFromCookieHeader,
+  setTrustedLoginCookie,
+} from "../_trusted_login";
+import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -23,6 +30,101 @@ const NO_STORE_HEADERS = {
 function isValidEmail(v: string) {
   const s = (v || "").trim();
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(s);
+}
+
+function getEnvBool(name: string, def: boolean) {
+  const v = String(process.env[name] ?? "").trim().toLowerCase();
+  if (!v) return def;
+  if (v === "1" || v === "true" || v === "yes" || v === "on") return true;
+  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
+  return def;
+}
+
+function isHostOnlyMode() {
+  const isProd = process.env.NODE_ENV === "production";
+  return isProd && getEnvBool("SESSION_COOKIE_HOST_ONLY", true);
+}
+
+function getDashboardOrigin() {
+  const env = String(process.env.DASHBOARD_ORIGIN || "").trim();
+  if (env) return env.replace(/\/+$/g, "");
+  return "https://dashboard.wyzer.com.br";
+}
+
+function base64UrlEncode(input: Buffer | string) {
+  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input, "utf8");
+  return buf
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function getTicketSecret() {
+  return process.env.SESSION_SECRET || process.env.WZ_AUTH_SECRET || "";
+}
+
+function signTicket(payloadB64: string, secret: string) {
+  return base64UrlEncode(
+    crypto.createHmac("sha256", secret).update(payloadB64).digest(),
+  );
+}
+
+function sanitizeFullName(v?: string | null) {
+  const clean = String(v || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return undefined;
+  return clean.slice(0, 120);
+}
+
+function makeDashboardTicket(params: {
+  userId: string;
+  email: string;
+  fullName?: string | null;
+  ttlMs?: number;
+}) {
+  const secret = getTicketSecret();
+  if (!secret) throw new Error("SESSION_SECRET/WZ_AUTH_SECRET não configurado.");
+
+  const ttlMs = Number(params.ttlMs ?? 1000 * 60 * 5);
+  const safeFullName = sanitizeFullName(params.fullName);
+  const payload = {
+    userId: String(params.userId),
+    email: String(params.email).trim().toLowerCase(),
+    ...(safeFullName ? { fullName: safeFullName } : {}),
+    iat: Date.now(),
+    exp: Date.now() + ttlMs,
+    nonce: crypto.randomBytes(8).toString("hex"),
+  };
+
+  const payloadB64 = base64UrlEncode(JSON.stringify(payload));
+  const sig = signTicket(payloadB64, secret);
+  return `${payloadB64}.${sig}`;
+}
+
+function sanitizeNext(nextRaw: string) {
+  const s = String(nextRaw || "").trim();
+  if (!s) return "/";
+
+  if (s.startsWith("/")) return s;
+
+  try {
+    const u = new URL(s);
+    const host = u.hostname.toLowerCase();
+
+    const ok =
+      host === "wyzer.com.br" ||
+      host.endsWith(".wyzer.com.br") ||
+      host === "localhost" ||
+      host.endsWith(".localhost");
+
+    if (!ok) return "/";
+
+    return u.pathname + u.search + u.hash;
+  } catch {
+    return "/";
+  }
 }
 
 async function findAuthUserIdByEmail(
@@ -45,7 +147,10 @@ async function findAuthUserIdByEmail(
       return null;
     }
 
-    const users = (data?.users || []) as Array<any>;
+    const users = (data?.users || []) as Array<{
+      id?: string | null;
+      email?: string | null;
+    }>;
     const found = users.find(
       (u) => String(u?.email || "").trim().toLowerCase() === target,
     );
@@ -63,6 +168,8 @@ export async function POST(req: Request) {
 
     const email = String(body?.email || "").trim().toLowerCase();
     const password = String(body?.password || "");
+    const nextFromBody = String(body?.next || body?.returnTo || "").trim();
+    const nextSafe = sanitizeNext(nextFromBody || "/");
 
     // dados cadastro
     const fullName = String(body?.fullName || "");
@@ -81,7 +188,7 @@ export async function POST(req: Request) {
     // existe perfil?
     const { data: existingWz, error: exErr } = await admin
       .from("wz_users")
-      .select("id,email")
+      .select("id,email,full_name")
       .eq("email", email)
       .maybeSingle();
 
@@ -90,19 +197,97 @@ export async function POST(req: Request) {
     // ✅ se já existe em wz_users, sempre é login (não deixa “registrar por cima”)
     const flow = existingWz?.id ? "login" : "register";
 
-    // ✅ LOGIN: valida senha antes de mandar o code
+    // ✅ LOGIN: valida senha e, se dispositivo confiável válido, finaliza sem código.
     if (flow === "login") {
       const anon = supabaseAnon();
-      const { data: signIn, error: signErr } =
-        await anon.auth.signInWithPassword({
-          email,
-          password,
-        });
+      const { data: signIn, error: signErr } = await anon.auth.signInWithPassword({
+        email,
+        password,
+      });
 
       if (signErr || !signIn?.user?.id) {
-        const msg = String((signErr as any)?.message || "");
+        const msg = String((signErr as { message?: unknown } | null)?.message || "");
         if (!/email not confirmed/i.test(msg)) {
-          return NextResponse.json({ ok: false, error: "Senha incorreta." }, { status: 401, headers: NO_STORE_HEADERS });
+          return NextResponse.json(
+            { ok: false, error: "Senha incorreta." },
+            { status: 401, headers: NO_STORE_HEADERS },
+          );
+        }
+      }
+
+      const trustedToken = readTrustedLoginTokenFromCookieHeader(
+        req.headers.get("cookie"),
+      );
+
+      if (trustedToken) {
+        const tokenHash = hashTrustedLoginToken(trustedToken);
+        const nowIso = new Date().toISOString();
+
+        const { data: trustedRow, error: trustedErr } = await admin
+          .from("wz_auth_trusted_devices")
+          .select("id")
+          .eq("email", email)
+          .eq("token_hash", tokenHash)
+          .is("revoked_at", null)
+          .gt("expires_at", nowIso)
+          .maybeSingle();
+
+        if (trustedErr) {
+          console.error("[start] trusted device lookup error:", trustedErr);
+        }
+
+        if (trustedRow?.id) {
+          await admin
+            .from("wz_auth_trusted_devices")
+            .update({ last_used_at: nowIso })
+            .eq("id", trustedRow.id);
+
+          const authMeta = (signIn?.user?.user_metadata ?? null) as
+            | { full_name?: string | null }
+            | null;
+          const authMetaFullName = String(authMeta?.full_name || "").trim();
+          const resolvedFullName = sanitizeFullName(
+            existingWz?.full_name || authMetaFullName,
+          );
+
+          const dashboard = getDashboardOrigin();
+          const fallbackAuthUserId = signIn?.user?.id ? String(signIn.user.id) : "";
+          const userId = String(existingWz?.id || fallbackAuthUserId);
+          if (!userId) {
+            return NextResponse.json(
+              { ok: false, error: "Falha ao validar usuário." },
+              { status: 401, headers: NO_STORE_HEADERS },
+            );
+          }
+
+          if (isHostOnlyMode()) {
+            const ticket = makeDashboardTicket({
+              userId,
+              email,
+              fullName: resolvedFullName,
+            });
+            const nextUrl =
+              `${dashboard}/api/wz_AuthLogin/exchange` +
+              `?ticket=${encodeURIComponent(ticket)}` +
+              `&next=${encodeURIComponent(nextSafe)}`;
+
+            const res = NextResponse.json(
+              { ok: true, nextUrl, trustedBypass: true },
+              { status: 200, headers: NO_STORE_HEADERS },
+            );
+            setSessionCookie(res, { userId, email, fullName: resolvedFullName }, req.headers);
+            setTrustedLoginCookie(res, trustedToken);
+            return res;
+          }
+
+          const nextUrl = `${dashboard}${nextSafe.startsWith("/") ? nextSafe : "/"}`;
+          const res = NextResponse.json(
+            { ok: true, nextUrl, trustedBypass: true },
+            { status: 200, headers: NO_STORE_HEADERS },
+          );
+          setSessionCookie(res, { userId, email, fullName: resolvedFullName }, req.headers);
+          setTrustedLoginCookie(res, trustedToken);
+          return res;
         }
       }
 
@@ -118,7 +303,10 @@ export async function POST(req: Request) {
 
       if (pendErr) {
         console.error("[start] pending upsert error:", pendErr);
-        return NextResponse.json({ ok: false, error: "Falha ao iniciar login." }, { status: 500, headers: NO_STORE_HEADERS });
+        return NextResponse.json(
+          { ok: false, error: "Falha ao iniciar login." },
+          { status: 500, headers: NO_STORE_HEADERS },
+        );
       }
     }
 
@@ -181,7 +369,9 @@ export async function POST(req: Request) {
 
         if (created.error) {
           const msg = String(created.error?.message || "");
-          const code = String((created.error as any)?.code || "");
+          const code = String(
+            (created.error as { code?: unknown } | null)?.code || "",
+          );
           console.error("[start] auth create error:", created.error);
 
           if (code === "email_exists" || /already been registered/i.test(msg)) {
@@ -245,8 +435,9 @@ export async function POST(req: Request) {
 
     await sendLoginCodeEmail(email, emailCode);
     return NextResponse.json({ ok: true, next: "email" }, { status: 200, headers: NO_STORE_HEADERS });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error("[start] error:", e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro inesperado." }, { status: 500, headers: NO_STORE_HEADERS });
+    const message = e instanceof Error ? e.message : "Erro inesperado.";
+    return NextResponse.json({ ok: false, error: message }, { status: 500, headers: NO_STORE_HEADERS });
   }
 }
