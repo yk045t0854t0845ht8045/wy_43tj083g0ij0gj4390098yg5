@@ -206,7 +206,7 @@ export default function Pendencias({
               <div className="space-y-4">
                 <p className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-3 py-1.5 text-[12px] font-semibold text-black/75"><Sparkles className="h-4 w-4" />Boas-vindas</p>
                 <p className="text-[14px] text-black/70">Voce esta a poucos minutos de ativar seu WhatsApp. Confirme para iniciar.</p>
-                <Action label={saving ? "Salvando..." : "Iniciar configuracao"} className="w-auto" disabled={saving} onClick={async () => {
+                <Action label={saving ? "Salvando..." : "Iniciar configuracao"} className="w-auto ml-auto" disabled={saving} onClick={async () => {
                   setErrors({});
                   await save({ welcomeConfirmed: true });
                   setStep("company");
@@ -283,7 +283,7 @@ export default function Pendencias({
                       Pular por agora
                     </button>
                   )}
-                  <div>
+                  <div className="ml-auto">
                     <Action
                       label={saving ? "Salvando..." : "Confirmar e continuar"}
                       className="w-auto"
