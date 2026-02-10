@@ -50,8 +50,6 @@ export async function GET(req: NextRequest) {
           "operation_end_time",
           "whatsapp_connected",
           "whatsapp_connected_at",
-
-          "completed",
           "updated_at",
         ].join(","),
       )
@@ -97,8 +95,7 @@ export async function GET(req: NextRequest) {
       operationEndTime: row?.operation_end_time ?? null,
       whatsappConnected: row?.whatsapp_connected === true,
       whatsappConnectedAt: row?.whatsapp_connected_at ?? null,
-
-      completed: !!row?.completed,
+      completed: false,
       updatedAt: row?.updated_at ?? null,
     };
 

@@ -161,8 +161,6 @@ export async function POST(req: NextRequest) {
       operation_end_time: checked.data.operationEndTime,
       whatsapp_connected: checked.data.whatsappConnected,
       whatsapp_connected_at: checked.data.whatsappConnectedAt,
-
-      completed: true,
       updated_at: now,
       created_at: now,
     };

@@ -26,7 +26,7 @@ export default function Main({
   );
 
   const progress = useMemo(() => calculateOnboardingProgress(data), [data]);
-  const showOnboarding = data.completed !== true;
+  const showOnboarding = !progress.isCompleted;
 
   useEffect(() => {
     onProgressChange?.(progress);
@@ -67,4 +67,3 @@ export default function Main({
     </div>
   );
 }
-

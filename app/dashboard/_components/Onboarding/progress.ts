@@ -49,7 +49,13 @@ export function getOnboardingTasks(data: OnboardingData): OnboardingTask[] {
     (data.aiAutoMode !== "all" || hasAiHandoffRule(data));
 
   const whatsappDone = data.whatsappConnected === true;
-  const finishDone = data.completed === true;
+  const finishDone =
+    welcomeDone &&
+    companyDone &&
+    goalDone &&
+    teamDone &&
+    aiDone &&
+    whatsappDone;
 
   return [
     { id: "welcome", label: "Boas-vindas", done: welcomeDone },
@@ -76,7 +82,7 @@ export function calculateOnboardingProgress(data: OnboardingData): OnboardingPro
     totalRequired,
     percent: Math.max(0, Math.min(100, percent)),
     remaining,
-    isCompleted: data.completed === true,
+    isCompleted: remaining === 0,
   };
 }
 
@@ -106,4 +112,3 @@ export function getInitialOnboardingStep(data: OnboardingData): OnboardingUiStep
   if (firstPendingTask.id === "ai") return "ai";
   return "whatsapp";
 }
-

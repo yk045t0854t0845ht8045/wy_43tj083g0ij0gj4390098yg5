@@ -231,7 +231,6 @@ export async function POST(req: NextRequest) {
     }
 
     patch.updated_at = now;
-    patch.completed = false;
 
     const sb = supabaseAdmin();
 

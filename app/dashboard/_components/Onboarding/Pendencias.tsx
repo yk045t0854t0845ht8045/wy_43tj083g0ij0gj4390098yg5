@@ -35,9 +35,9 @@ const STEPS: OnboardingUiStep[] = [
 ];
 
 const INPUT =
-  "w-full bg-[#171717] border border-[#454545] border-2 rounded-full px-6 py-4 text-white placeholder-[#6a6a6a] focus:outline-none hover:border-[#6a6a6a] focus:border-lime-400 transition-all duration-300 ease-out text-base";
+  "w-full bg-white border border-black/15 border-2 rounded-full px-6 py-4 text-black placeholder-black/45 focus:outline-none hover:border-black/25 focus:border-lime-400 transition-all duration-300 ease-out text-base";
 const TEXTAREA_CLASS =
-  "w-full min-h-[120px] resize-y bg-[#171717] border border-[#454545] border-2 rounded-3xl px-6 py-4 text-white placeholder-[#6a6a6a] focus:outline-none hover:border-[#6a6a6a] focus:border-lime-400 transition-all duration-300 ease-out text-base";
+  "w-full min-h-[120px] resize-y bg-white border border-black/15 border-2 rounded-3xl px-6 py-4 text-black placeholder-black/45 focus:outline-none hover:border-black/25 focus:border-lime-400 transition-all duration-300 ease-out text-base";
 const EASE = [0.2, 0.8, 0.2, 1] as const;
 
 const cx = (...v: Array<string | false | null | undefined>) => v.filter(Boolean).join(" ");
@@ -49,10 +49,12 @@ function Action({
   label,
   disabled,
   onClick,
+  className,
 }: {
   label: string;
   disabled?: boolean;
   onClick: () => void;
+  className?: string;
 }) {
   const reduced = useReducedMotion();
   return (
@@ -67,6 +69,7 @@ function Action({
         "group relative w-full rounded-full bg-[#171717] px-5 py-3 text-left text-white border-2 border-[#454545] pr-14 text-[13px] font-semibold transition-all duration-300",
         "hover:border-[#6a6a6a] focus:outline-none focus:border-lime-400",
         disabled && "opacity-60 cursor-not-allowed",
+        className,
       )}
     >
       <span>{label}</span>
@@ -170,7 +173,7 @@ export default function Pendencias({
   };
 
   return (
-    <section id="onboarding-pendencias" className="w-full max-w-[980px] px-4 pb-8 pt-6 sm:px-8">
+    <section id="onboarding-pendencias" className="mx-auto w-full max-w-[980px] px-4 pb-8 pt-6 sm:px-8">
       <div className="rounded-3xl border border-black/10 bg-[#f8f8f8] p-4 shadow-[0_18px_48px_rgba(0,0,0,0.08)] sm:p-6">
         <div className="mb-4 rounded-2xl border border-black/10 bg-white p-4">
           <div className="flex items-center justify-between gap-3">
@@ -203,7 +206,7 @@ export default function Pendencias({
               <div className="space-y-4">
                 <p className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-3 py-1.5 text-[12px] font-semibold text-black/75"><Sparkles className="h-4 w-4" />Boas-vindas</p>
                 <p className="text-[14px] text-black/70">Voce esta a poucos minutos de ativar seu WhatsApp. Confirme para iniciar.</p>
-                <Action label={saving ? "Salvando..." : "Iniciar configuracao"} disabled={saving} onClick={async () => {
+                <Action label={saving ? "Salvando..." : "Iniciar configuracao"} className="w-auto min-w-[260px]" disabled={saving} onClick={async () => {
                   setErrors({});
                   await save({ welcomeConfirmed: true });
                   setStep("company");
