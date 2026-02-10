@@ -527,6 +527,26 @@ function compactText(v: string, maxChars = 150) {
     .slice(0, maxChars)
 }
 
+function normalizeEmail(v: unknown) {
+  return String(v || "").trim().toLowerCase()
+}
+
+function isChatOwnedBySession(
+  chat: { user_id?: unknown; user_email?: unknown } | null | undefined,
+  session: { userId?: unknown; email?: unknown },
+) {
+  if (!chat) return false
+
+  const chatUserId = String(chat.user_id || "").trim()
+  const chatUserEmail = normalizeEmail(chat.user_email)
+  const sessionUserId = String(session.userId || "").trim()
+  const sessionEmail = normalizeEmail(session.email)
+
+  if (chatUserId && sessionUserId && chatUserId === sessionUserId) return true
+  if (chatUserEmail && sessionEmail && chatUserEmail === sessionEmail) return true
+  return false
+}
+
 async function loadChatContextMessages(
   sb: ReturnType<typeof supabaseAdmin>,
   chatCode: string
@@ -1130,7 +1150,7 @@ export async function POST(req: Request): Promise<Response> {
     // valida se chat pertence ao user logado
     const { data: chat, error: chatErr } = await sb
       .from("wz_chats")
-      .select("chat_code, user_id, motivo")
+      .select("chat_code, user_id, user_email, motivo")
       .eq("chat_code", chatCode)
       .maybeSingle()
 
@@ -1138,7 +1158,7 @@ export async function POST(req: Request): Promise<Response> {
       return createTextStream("Erro ao acessar chat.", { "X-Wyzer-Source": "db_error" })
     }
 
-    if (!chat || chat.user_id !== session.userId) {
+    if (!isChatOwnedBySession(chat, session)) {
       return createTextStream("Chat não encontrado.", { "X-Wyzer-Source": "not_found" })
     }
 

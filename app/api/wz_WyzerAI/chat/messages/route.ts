@@ -17,6 +17,26 @@ function json(data: Record<string, unknown>, status = 200) {
   return NextResponse.json(data, { status, headers: NO_STORE_HEADERS })
 }
 
+function normalizeEmail(v: unknown) {
+  return String(v || "").trim().toLowerCase()
+}
+
+function isChatOwnedBySession(
+  chat: { user_id?: unknown; user_email?: unknown } | null | undefined,
+  session: { userId?: unknown; email?: unknown },
+) {
+  if (!chat) return false
+
+  const chatUserId = String(chat.user_id || "").trim()
+  const chatUserEmail = normalizeEmail(chat.user_email)
+  const sessionUserId = String(session.userId || "").trim()
+  const sessionEmail = normalizeEmail(session.email)
+
+  if (chatUserId && sessionUserId && chatUserId === sessionUserId) return true
+  if (chatUserEmail && sessionEmail && chatUserEmail === sessionEmail) return true
+  return false
+}
+
 export async function GET(req: Request) {
   const h = await headers()
   const cookieHeader = h.get("cookie")
@@ -33,12 +53,12 @@ export async function GET(req: Request) {
 
   const { data: chat, error: chatErr } = await sb
     .from("wz_chats")
-    .select("chat_code, user_id")
+    .select("chat_code, user_id, user_email")
     .eq("chat_code", code)
     .maybeSingle()
 
   if (chatErr) return json({ error: "db_error", detail: chatErr.message }, 500)
-  if (!chat || chat.user_id !== session.userId) return json({ error: "not_found" }, 404)
+  if (!isChatOwnedBySession(chat, session)) return json({ error: "not_found" }, 404)
 
   const { data, error } = await sb
     .from("wz_chat_messages")
