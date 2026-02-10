@@ -22,6 +22,7 @@ type Props = {
 };
 
 type Errors = Record<string, string>;
+type SelectOption = { value: string; label: string; keywords?: string[] };
 
 const STEPS: OnboardingUiStep[] = [
   "welcome",
@@ -34,91 +35,91 @@ const STEPS: OnboardingUiStep[] = [
   "final",
 ];
 
-const SEGMENT_OPTIONS = [
-  "E-commerce",
-  "Varejo",
-  "Atacado",
-  "Clinica e Saude",
-  "Odontologia",
-  "Educacao",
-  "Restaurante e Delivery",
-  "Turismo e Hotelaria",
-  "Imobiliaria",
-  "Construcao Civil",
-  "Servicos Financeiros",
-  "Seguros",
-  "Escritorio de Advocacia",
-  "Marketing e Agencia",
-  "Tecnologia e SaaS",
-  "Assistencia Tecnica",
-  "Industria",
-  "Distribuicao",
-  "Logistica",
-  "Recursos Humanos",
-  "Beleza e Estetica",
-  "Academia e Esportes",
-  "Eventos",
-  "ONG e Instituicao",
-  "Supermercado e Mercearia",
-  "Farmacia e Drogaria",
-  "Pet Shop e Veterinaria",
-  "Moda e Vestuario",
-  "Calcados e Acessorios",
-  "Moveis e Decoracao",
-  "Casa e Utilidades",
-  "Papelaria e Livraria",
-  "Auto Pecas",
-  "Oficina Mecanica",
-  "Concessionaria",
-  "Transporte e Mobilidade",
-  "Agronegocio",
-  "Cooperativa",
-  "Energia e Utilidades",
-  "Telecomunicacoes",
-  "Contabilidade",
-  "Consultoria Empresarial",
-  "Franquia",
-  "Comercio Exterior",
-  "Importacao e Exportacao",
-  "Marketplace",
-  "Infoprodutos",
-  "Cursos Online",
-  "Escola de Idiomas",
-  "Universidade",
-  "Clinica de Estetica",
-  "Laboratorio",
-  "Hospital",
-  "Casa de Repouso",
-  "Construtora",
-  "Arquitetura e Engenharia",
-  "Seguranca Eletronica",
-  "Facilities e Limpeza",
-  "BPO e Terceirizacao",
-  "Coworking",
-  "Hotel",
-  "Pousada",
-  "Agencia de Viagens",
-  "Locacao de Veiculos",
-  "Locacao de Equipamentos",
-  "Buffet e Alimentacao",
-  "Panificadora",
-  "Confeitaria",
-  "Bebidas e Distribuidor",
-  "Produtora de Conteudo",
-  "Midia e Comunicacao",
-  "Design e Criacao",
-  "Fotografia e Video",
-  "Software House",
-  "Suporte de TI",
-  "Infraestrutura de TI",
-  "Cyberseguranca",
-  "Data e Analytics",
-  "Gaming e Entretenimento",
-  "Cassino e Apostas",
-  "Religioso",
-  "Setor Publico",
-  "Associacao de Classe",
-  "Outro",
+const SEGMENT_OPTIONS: SelectOption[] = [
+  { value: "E-commerce", label: "E-commerce", keywords: ["loja online", "comercio digital", "internet", "marketplace", "shop", "merce"] },
+  { value: "Varejo", label: "Varejo", keywords: ["loja", "pdv", "balcao", "comercio"] },
+  { value: "Atacado", label: "Atacado", keywords: ["distribuidor", "revenda", "grande volume"] },
+  { value: "Clinica e Saude", label: "Clinica e Saude", keywords: ["consultorio", "medicina", "atendimento"] },
+  { value: "Odontologia", label: "Odontologia", keywords: ["dentista", "clinica odontologica"] },
+  { value: "Educacao", label: "Educacao", keywords: ["escola", "curso", "aluno"] },
+  { value: "Restaurante e Delivery", label: "Restaurante e Delivery", keywords: ["comida", "lanche", "ifood", "entrega"] },
+  { value: "Turismo e Hotelaria", label: "Turismo e Hotelaria", keywords: ["viagem", "reserva", "hospedagem"] },
+  { value: "Imobiliaria", label: "Imobiliaria", keywords: ["imovel", "corretor", "aluguel"] },
+  { value: "Construcao Civil", label: "Construcao Civil", keywords: ["obra", "engenharia", "materiais"] },
+  { value: "Servicos Financeiros", label: "Servicos Financeiros", keywords: ["credito", "financiamento", "banco"] },
+  { value: "Seguros", label: "Seguros", keywords: ["apolice", "corretora"] },
+  { value: "Escritorio de Advocacia", label: "Escritorio de Advocacia", keywords: ["juridico", "advogado"] },
+  { value: "Marketing e Agencia", label: "Marketing e Agencia", keywords: ["trafego", "midia", "publicidade"] },
+  { value: "Tecnologia e SaaS", label: "Tecnologia e SaaS", keywords: ["software", "plataforma", "assinatura"] },
+  { value: "Assistencia Tecnica", label: "Assistencia Tecnica", keywords: ["manutencao", "conserto", "suporte"] },
+  { value: "Industria", label: "Industria", keywords: ["fabrica", "producao"] },
+  { value: "Distribuicao", label: "Distribuicao", keywords: ["centro de distribuicao", "entregas"] },
+  { value: "Logistica", label: "Logistica", keywords: ["frete", "transporte", "rota"] },
+  { value: "Recursos Humanos", label: "Recursos Humanos", keywords: ["rh", "recrutamento"] },
+  { value: "Beleza e Estetica", label: "Beleza e Estetica", keywords: ["salao", "estetica"] },
+  { value: "Academia e Esportes", label: "Academia e Esportes", keywords: ["treino", "personal"] },
+  { value: "Eventos", label: "Eventos", keywords: ["ingresso", "cerimonial"] },
+  { value: "ONG e Instituicao", label: "ONG e Instituicao", keywords: ["terceiro setor", "social"] },
+  { value: "Supermercado e Mercearia", label: "Supermercado e Mercearia", keywords: ["mercado", "merce", "mercearia"] },
+  { value: "Farmacia e Drogaria", label: "Farmacia e Drogaria", keywords: ["medicamento", "farmacia"] },
+  { value: "Pet Shop e Veterinaria", label: "Pet Shop e Veterinaria", keywords: ["pet", "animal", "veterinario"] },
+  { value: "Moda e Vestuario", label: "Moda e Vestuario", keywords: ["roupa", "vestuario"] },
+  { value: "Calcados e Acessorios", label: "Calcados e Acessorios", keywords: ["sapato", "tenis", "acessorio"] },
+  { value: "Moveis e Decoracao", label: "Moveis e Decoracao", keywords: ["mobilia", "decoracao"] },
+  { value: "Casa e Utilidades", label: "Casa e Utilidades", keywords: ["utilidades domesticas"] },
+  { value: "Papelaria e Livraria", label: "Papelaria e Livraria", keywords: ["livro", "material escolar"] },
+  { value: "Auto Pecas", label: "Auto Pecas", keywords: ["peca", "automotivo"] },
+  { value: "Oficina Mecanica", label: "Oficina Mecanica", keywords: ["mecanico", "revisao"] },
+  { value: "Concessionaria", label: "Concessionaria", keywords: ["veiculo", "carro", "moto"] },
+  { value: "Transporte e Mobilidade", label: "Transporte e Mobilidade", keywords: ["mobilidade", "corrida"] },
+  { value: "Agronegocio", label: "Agronegocio", keywords: ["agro", "fazenda", "campo"] },
+  { value: "Cooperativa", label: "Cooperativa" },
+  { value: "Energia e Utilidades", label: "Energia e Utilidades" },
+  { value: "Telecomunicacoes", label: "Telecomunicacoes", keywords: ["internet", "telefonia"] },
+  { value: "Contabilidade", label: "Contabilidade", keywords: ["contador", "fiscal"] },
+  { value: "Consultoria Empresarial", label: "Consultoria Empresarial" },
+  { value: "Franquia", label: "Franquia" },
+  { value: "Comercio Exterior", label: "Comercio Exterior" },
+  { value: "Importacao e Exportacao", label: "Importacao e Exportacao" },
+  { value: "Marketplace", label: "Marketplace", keywords: ["seller", "loja digital"] },
+  { value: "Infoprodutos", label: "Infoprodutos" },
+  { value: "Cursos Online", label: "Cursos Online" },
+  { value: "Escola de Idiomas", label: "Escola de Idiomas" },
+  { value: "Universidade", label: "Universidade" },
+  { value: "Clinica de Estetica", label: "Clinica de Estetica" },
+  { value: "Laboratorio", label: "Laboratorio" },
+  { value: "Hospital", label: "Hospital" },
+  { value: "Casa de Repouso", label: "Casa de Repouso" },
+  { value: "Construtora", label: "Construtora" },
+  { value: "Arquitetura e Engenharia", label: "Arquitetura e Engenharia" },
+  { value: "Seguranca Eletronica", label: "Seguranca Eletronica" },
+  { value: "Facilities e Limpeza", label: "Facilities e Limpeza" },
+  { value: "BPO e Terceirizacao", label: "BPO e Terceirizacao" },
+  { value: "Coworking", label: "Coworking" },
+  { value: "Hotel", label: "Hotel" },
+  { value: "Pousada", label: "Pousada" },
+  { value: "Agencia de Viagens", label: "Agencia de Viagens" },
+  { value: "Locacao de Veiculos", label: "Locacao de Veiculos" },
+  { value: "Locacao de Equipamentos", label: "Locacao de Equipamentos" },
+  { value: "Buffet e Alimentacao", label: "Buffet e Alimentacao" },
+  { value: "Panificadora", label: "Panificadora", keywords: ["padaria"] },
+  { value: "Confeitaria", label: "Confeitaria", keywords: ["doces", "bolo"] },
+  { value: "Bebidas e Distribuidor", label: "Bebidas e Distribuidor" },
+  { value: "Produtora de Conteudo", label: "Produtora de Conteudo" },
+  { value: "Midia e Comunicacao", label: "Midia e Comunicacao" },
+  { value: "Design e Criacao", label: "Design e Criacao" },
+  { value: "Fotografia e Video", label: "Fotografia e Video" },
+  { value: "Software House", label: "Software House" },
+  { value: "Suporte de TI", label: "Suporte de TI" },
+  { value: "Infraestrutura de TI", label: "Infraestrutura de TI" },
+  { value: "Cyberseguranca", label: "Cyberseguranca" },
+  { value: "Data e Analytics", label: "Data e Analytics", keywords: ["dados", "bi"] },
+  { value: "Gaming e Entretenimento", label: "Gaming e Entretenimento" },
+  { value: "Cassino e Apostas", label: "Cassino e Apostas" },
+  { value: "Religioso", label: "Religioso" },
+  { value: "Setor Publico", label: "Setor Publico" },
+  { value: "Associacao de Classe", label: "Associacao de Classe" },
+  { value: "Outro", label: "Outro" },
 ] as const;
 
 const COMPANY_SIZE_OPTIONS = [
@@ -141,6 +142,8 @@ const INPUT =
 const TEXTAREA_CLASS =
   "w-full min-h-[120px] resize-y bg-white border border-black/15 border-2 rounded-3xl px-6 py-4 text-black placeholder-black/45 focus:outline-none hover:border-black/25 focus:border-lime-400 transition-all duration-300 ease-out text-base";
 const EASE = [0.2, 0.8, 0.2, 1] as const;
+const TYPEAHEAD_DEBOUNCE_MS = 180;
+const TYPEAHEAD_RESET_MS = 1000;
 
 const cx = (...v: Array<string | false | null | undefined>) => v.filter(Boolean).join(" ");
 const has = (v: string | null | undefined, n = 2) => String(v || "").trim().length >= n;
@@ -182,14 +185,68 @@ function Action({
   );
 }
 
-type SelectOption = { value: string; label: string };
-
 function normalizeForSearch(value: string) {
   return String(value || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function isSubsequence(query: string, target: string) {
+  let queryIndex = 0;
+  let targetIndex = 0;
+
+  while (queryIndex < query.length && targetIndex < target.length) {
+    if (query[queryIndex] === target[targetIndex]) {
+      queryIndex += 1;
+    }
+    targetIndex += 1;
+  }
+
+  return queryIndex === query.length;
+}
+
+function getOptionScore(option: SelectOption, normalizedQuery: string) {
+  if (!normalizedQuery) return 0;
+
+  const searchPool = [option.label, ...(option.keywords || [])]
+    .map(normalizeForSearch)
+    .filter(Boolean);
+  const queryTokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  const compactQuery = normalizedQuery.replace(/\s+/g, "");
+  let bestScore = 0;
+
+  for (const candidate of searchPool) {
+    const compactCandidate = candidate.replace(/\s+/g, "");
+    const candidateTokens = candidate.split(/\s+/).filter(Boolean);
+    const firstToken = candidateTokens[0] || "";
+
+    if (candidate === normalizedQuery) bestScore = Math.max(bestScore, 200);
+    if (candidate.startsWith(normalizedQuery)) bestScore = Math.max(bestScore, 180);
+    if (candidate.includes(normalizedQuery)) bestScore = Math.max(bestScore, 155);
+    if (firstToken.startsWith(normalizedQuery)) bestScore = Math.max(bestScore, 145);
+    if (compactCandidate.includes(compactQuery)) bestScore = Math.max(bestScore, 135);
+
+    if (compactQuery.length >= 3 && isSubsequence(compactQuery, compactCandidate)) {
+      bestScore = Math.max(bestScore, 120);
+    }
+
+    const tokenMatches = queryTokens.reduce((count, token) => {
+      const hasTokenMatch = candidateTokens.some(
+        (candidateToken) =>
+          candidateToken.startsWith(token) || candidateToken.includes(token),
+      );
+      return count + (hasTokenMatch ? 1 : 0);
+    }, 0);
+
+    if (tokenMatches > 0) {
+      bestScore = Math.max(bestScore, 100 + tokenMatches * 15);
+    }
+  }
+
+  return bestScore;
 }
 
 function SelectMenu({
@@ -209,6 +266,7 @@ function SelectMenu({
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const lastTypeAtRef = useRef(0);
   const [openDirection, setOpenDirection] = useState<"down" | "up">("down");
   const [typedBuffer, setTypedBuffer] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -216,15 +274,25 @@ function SelectMenu({
   const normalizedSearchTerm = normalizeForSearch(searchTerm);
   const filteredOptions = useMemo(() => {
     if (!enableTypeahead || !normalizedSearchTerm) return options;
-    return options.filter((option) =>
-      normalizeForSearch(option.label).includes(normalizedSearchTerm),
-    );
+    return options
+      .map((option, index) => ({
+        option,
+        index,
+        score: getOptionScore(option, normalizedSearchTerm),
+      }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.index - b.index;
+      })
+      .map((item) => item.option);
   }, [enableTypeahead, normalizedSearchTerm, options]);
 
   const resetTypeahead = useCallback(() => {
     if (!enableTypeahead) return;
     setTypedBuffer("");
     setSearchTerm("");
+    lastTypeAtRef.current = 0;
   }, [enableTypeahead]);
 
   const closeMenu = useCallback(() => {
@@ -262,7 +330,7 @@ function SelectMenu({
 
     const timeout = window.setTimeout(() => {
       setSearchTerm(typedBuffer);
-    }, 260);
+    }, TYPEAHEAD_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timeout);
   }, [typedBuffer, open, enableTypeahead]);
@@ -305,16 +373,21 @@ function SelectMenu({
   ) => {
     if (!enableTypeahead || !open) return;
     if (event.nativeEvent.isComposing) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+    const now = Date.now();
+    const timedOut = now - lastTypeAtRef.current > TYPEAHEAD_RESET_MS;
+    lastTypeAtRef.current = now;
 
     if (event.key === "Backspace") {
       event.preventDefault();
-      setTypedBuffer((previous) => previous.slice(0, -1));
+      setTypedBuffer((previous) => (timedOut ? "" : previous.slice(0, -1)));
       return;
     }
 
     if (event.key.length === 1) {
       event.preventDefault();
-      setTypedBuffer((previous) => `${previous}${event.key}`);
+      setTypedBuffer((previous) => (timedOut ? event.key : `${previous}${event.key}`));
     }
   };
 
@@ -579,8 +652,9 @@ export default function Pendencias({
                       placeholder="Segmento de atuacao"
                       enableTypeahead
                       options={SEGMENT_OPTIONS.map((segment) => ({
-                        value: segment,
-                        label: segment,
+                        value: segment.value,
+                        label: segment.label,
+                        keywords: segment.keywords,
                       }))}
                     />
                     <SelectMenu
