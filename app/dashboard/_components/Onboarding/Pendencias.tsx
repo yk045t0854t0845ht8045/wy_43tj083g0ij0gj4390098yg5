@@ -184,23 +184,53 @@ function Action({
 
 type SelectOption = { value: string; label: string };
 
+function normalizeForSearch(value: string) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
 function SelectMenu({
   value,
   onChange,
   placeholder,
   options,
+  enableTypeahead = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
   options: SelectOption[];
+  enableTypeahead?: boolean;
 }) {
   const reduced = useReducedMotion();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [openDirection, setOpenDirection] = useState<"down" | "up">("down");
+  const [typedBuffer, setTypedBuffer] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
   const selected = options.find((option) => option.value === value) || null;
+  const normalizedSearchTerm = normalizeForSearch(searchTerm);
+  const filteredOptions = useMemo(() => {
+    if (!enableTypeahead || !normalizedSearchTerm) return options;
+    return options.filter((option) =>
+      normalizeForSearch(option.label).includes(normalizedSearchTerm),
+    );
+  }, [enableTypeahead, normalizedSearchTerm, options]);
+
+  const resetTypeahead = useCallback(() => {
+    if (!enableTypeahead) return;
+    setTypedBuffer("");
+    setSearchTerm("");
+  }, [enableTypeahead]);
+
+  const closeMenu = useCallback(() => {
+    setOpen(false);
+    resetTypeahead();
+  }, [resetTypeahead]);
 
   useEffect(() => {
     if (!open) return;
@@ -209,11 +239,11 @@ function SelectMenu({
       const root = wrapRef.current;
       const target = event.target as Node | null;
       if (!root || !target) return;
-      if (!root.contains(target)) setOpen(false);
+      if (!root.contains(target)) closeMenu();
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") closeMenu();
     };
 
     document.addEventListener("mousedown", onPointerDown);
@@ -225,7 +255,17 @@ function SelectMenu({
       document.removeEventListener("touchstart", onPointerDown);
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [open]);
+  }, [open, closeMenu]);
+
+  useEffect(() => {
+    if (!open || !enableTypeahead) return;
+
+    const timeout = window.setTimeout(() => {
+      setSearchTerm(typedBuffer);
+    }, 260);
+
+    return () => window.clearTimeout(timeout);
+  }, [typedBuffer, open, enableTypeahead]);
 
   useEffect(() => {
     if (!open) return;
@@ -258,13 +298,38 @@ function SelectMenu({
       window.removeEventListener("resize", measureDirection);
       window.removeEventListener("scroll", measureDirection, true);
     };
-  }, [open, options.length]);
+  }, [open, filteredOptions.length]);
+
+  const handleTypeaheadKeyDown = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+  ) => {
+    if (!enableTypeahead || !open) return;
+    if (event.nativeEvent.isComposing) return;
+
+    if (event.key === "Backspace") {
+      event.preventDefault();
+      setTypedBuffer((previous) => previous.slice(0, -1));
+      return;
+    }
+
+    if (event.key.length === 1) {
+      event.preventDefault();
+      setTypedBuffer((previous) => `${previous}${event.key}`);
+    }
+  };
 
   return (
     <div ref={wrapRef} className="relative">
       <motion.button
         type="button"
-        onClick={() => setOpen((prevState) => !prevState)}
+        onClick={() => {
+          if (open) {
+            closeMenu();
+            return;
+          }
+          setOpen(true);
+        }}
+        onKeyDown={handleTypeaheadKeyDown}
         whileTap={reduced ? undefined : { scale: 0.996 }}
         transition={reduced ? { duration: 0.1 } : { duration: 0.2, ease: EASE }}
         className={cx(
@@ -329,7 +394,7 @@ function SelectMenu({
             )}
           >
             <ul className="max-h-[230px] overflow-y-auto p-1.5">
-              {options.map((option) => {
+              {filteredOptions.map((option) => {
                 const isSelected = option.value === value;
                 return (
                   <li key={option.value}>
@@ -337,7 +402,7 @@ function SelectMenu({
                       type="button"
                       onClick={() => {
                         onChange(option.value);
-                        setOpen(false);
+                        closeMenu();
                       }}
                       className={cx(
                         "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-[13px] font-medium transition-colors",
@@ -356,6 +421,11 @@ function SelectMenu({
                   </li>
                 );
               })}
+              {filteredOptions.length === 0 && (
+                <li className="px-3 py-2.5 text-[12px] font-medium text-black/50">
+                  {`Nenhum resultado para "${searchTerm}"`}
+                </li>
+              )}
             </ul>
           </motion.div>
         )}
@@ -507,6 +577,7 @@ export default function Pendencias({
                       value={data.segment || ""}
                       onChange={(value) => commit({ segment: value })}
                       placeholder="Segmento de atuacao"
+                      enableTypeahead
                       options={SEGMENT_OPTIONS.map((segment) => ({
                         value: segment,
                         label: segment,
