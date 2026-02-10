@@ -463,6 +463,11 @@ export default function Sidebar({
   }, [isCollapsed]);
 
   useEffect(() => {
+    if (!sidebarLocked) return;
+    setProfileMenuOpen(false);
+  }, [sidebarLocked]);
+
+  useEffect(() => {
     if (!profileMenuOpen) return;
 
     const onPointerDown = (e: MouseEvent | TouchEvent) => {
@@ -1456,13 +1461,20 @@ export default function Sidebar({
 
               <button
                 type="button"
-                onClick={() => setProfileMenuOpen((v) => !v)}
+                onClick={() => {
+                  if (sidebarLocked) {
+                    openOnboardingPanel();
+                    return;
+                  }
+                  setProfileMenuOpen((v) => !v);
+                }}
                 className={cx(
                   "w-full rounded-2xl",
                   profileMenuOpen ? "bg-black/[0.10]" : "bg-black/[0.06]",
                   "px-2 py-2",
                   "flex items-center justify-between gap-3",
-                  "transition-all duration-200 ease-out hover:bg-black/[0.10] active:scale-[0.99]"
+                  "transition-all duration-200 ease-out hover:bg-black/[0.10] active:scale-[0.99]",
+                  sidebarLocked && "cursor-not-allowed opacity-70"
                 )}
                 aria-label={`${resolvedUserNickname} - ${resolvedUserEmail}`}
                 aria-expanded={profileMenuOpen}

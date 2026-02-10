@@ -243,6 +243,8 @@ const TEXTAREA_CLASS =
 const EASE = [0.2, 0.8, 0.2, 1] as const;
 const TYPEAHEAD_DEBOUNCE_MS = 180;
 const TYPEAHEAD_RESET_MS = 1000;
+const ONBOARDING_DRAFT_STORAGE_KEY = "wz-onboarding-draft-v1";
+const ONBOARDING_AUTOSAVE_DELAY_MS = 800;
 
 const cx = (...v: Array<string | false | null | undefined>) => v.filter(Boolean).join(" ");
 const has = (v: string | null | undefined, n = 2) => String(v || "").trim().length >= n;
@@ -300,6 +302,11 @@ function timeToMinutes(value: string | null | undefined) {
   const hour = Number(match[1]);
   const minute = Number(match[2]);
   return hour * 60 + minute;
+}
+
+function parseDateMs(value: string | null | undefined) {
+  const ms = Date.parse(String(value || ""));
+  return Number.isFinite(ms) ? ms : 0;
 }
 
 function Action({
@@ -872,6 +879,9 @@ export default function Pendencias({
   const [completing, setCompleting] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
   const [banner, setBanner] = useState<string | null>(null);
+  const [pendingPatch, setPendingPatch] = useState<Partial<OnboardingData> | null>(
+    null,
+  );
 
   const progress = useMemo(() => calculateOnboardingProgress(data), [data]);
   const canFinish = useMemo(
@@ -900,15 +910,52 @@ export default function Pendencias({
     setStep(getResumeOnboardingStep(data, data.uiStep));
   }, [resumeSignal, data]);
 
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(ONBOARDING_DRAFT_STORAGE_KEY);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw) as {
+        data?: Partial<OnboardingData> | null;
+        step?: OnboardingUiStep | null;
+        savedAt?: string | null;
+      };
+
+      const draftData = normalizeOnboardingData(parsed?.data || null);
+      const draftSavedAtMs = parseDateMs(parsed?.savedAt);
+      const serverUpdatedAtMs = parseDateMs(initialData.updatedAt);
+
+      // only restore local draft when it is newer than server snapshot
+      if (draftSavedAtMs <= serverUpdatedAtMs) return;
+
+      const resumeStep = getResumeOnboardingStep(draftData, parsed?.step || draftData.uiStep);
+      setData(draftData);
+      setStep(resumeStep);
+      onDataChange?.(draftData);
+    } catch {
+      // ignore invalid local drafts
+    }
+    // run once on mount to avoid fighting with normal state updates
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => onProgressChange?.(progress), [onProgressChange, progress]);
 
   const commit = useCallback(
-    (patch: Partial<OnboardingData>) => {
+    (patch: Partial<OnboardingData>, options?: { queueSave?: boolean }) => {
+      const queueSave = options?.queueSave !== false;
       setData((prevState) => {
         const nextState = normalizeOnboardingData({ ...prevState, ...patch });
         onDataChange?.(nextState);
         return nextState;
       });
+
+      if (queueSave) {
+        setPendingPatch((prevPatch) => ({
+          ...(prevPatch || {}),
+          ...patch,
+        }));
+      }
     },
     [onDataChange],
   );
@@ -927,7 +974,8 @@ export default function Pendencias({
       const j = await r.json().catch(() => ({} as Record<string, unknown>));
       if (!r.ok || j.ok === false) throw new Error(String(j.error || "Falha ao salvar etapa."));
       setErrors((j.fieldErrors as Errors) || {});
-      commit({ ...patch, updatedAt: new Date().toISOString() });
+      setPendingPatch(null);
+      commit({ ...patch, updatedAt: new Date().toISOString() }, { queueSave: false });
     } catch (e) {
       setBanner(e instanceof Error ? e.message : "Erro inesperado");
       throw e;
@@ -935,6 +983,64 @@ export default function Pendencias({
       setSaving(false);
     }
   }, [commit]);
+
+  const saveDraft = useCallback(
+    async (patch: Partial<OnboardingData>) => {
+      try {
+        const r = await fetch("/api/wz_OnboardSystem/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          cache: "no-store",
+          body: JSON.stringify(patch),
+        });
+        const j = await r.json().catch(() => ({} as Record<string, unknown>));
+        if (!r.ok || j.ok === false) return;
+        commit({ ...patch, updatedAt: new Date().toISOString() }, { queueSave: false });
+      } catch {
+        // silent autosave fallback
+      }
+    },
+    [commit],
+  );
+
+  const stepInitRef = useRef(false);
+  useEffect(() => {
+    if (!stepInitRef.current) {
+      stepInitRef.current = true;
+      return;
+    }
+    setPendingPatch((prevPatch) => ({
+      ...(prevPatch || {}),
+      uiStep: step,
+    }));
+  }, [step]);
+
+  useEffect(() => {
+    if (!pendingPatch || completing || saving) return;
+    const timeout = window.setTimeout(() => {
+      const patchToSave = { ...pendingPatch, uiStep: step };
+      setPendingPatch(null);
+      void saveDraft(patchToSave);
+    }, ONBOARDING_AUTOSAVE_DELAY_MS);
+
+    return () => window.clearTimeout(timeout);
+  }, [pendingPatch, completing, saving, step, saveDraft]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        ONBOARDING_DRAFT_STORAGE_KEY,
+        JSON.stringify({
+          data,
+          step,
+          savedAt: new Date().toISOString(),
+        }),
+      );
+    } catch {
+      // no-op
+    }
+  }, [data, step]);
 
   const finish = async () => {
     if (!canFinish) return setBanner("Complete as etapas obrigatorias antes de finalizar.");
@@ -959,6 +1065,12 @@ export default function Pendencias({
       setData(nextState);
       onDataChange?.(nextState);
       onFinished?.(nextState);
+      setPendingPatch(null);
+      try {
+        window.localStorage.removeItem(ONBOARDING_DRAFT_STORAGE_KEY);
+      } catch {
+        // no-op
+      }
       setBanner("Cadastro finalizado com sucesso.");
     } catch (e) {
       setBanner(e instanceof Error ? e.message : "Falha ao finalizar");

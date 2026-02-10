@@ -141,119 +141,10 @@ async function getInitialOnboardingData(params: {
   if (!userId) return createEmptyOnboardingData();
 
   const sb = supabaseAdmin();
-
-  const fullSelect = [
-    "company_name",
-    "cnpj",
-    "trade_name",
-    "website_or_instagram",
-    "segment",
-    "company_size",
-    "main_use",
-    "priority_now",
-    "has_supervisor",
-    "service_hours",
-    "target_response_time",
-    "languages",
-    "ai_auto_mode",
-    "ai_handoff_human_request",
-    "ai_handoff_anger_urgency",
-    "ai_handoff_after_messages",
-    "ai_handoff_price_payment",
-    "brand_tone",
-    "msg_signature",
-    "ai_catalog_summary",
-    "ai_knowledge_links",
-    "ai_guardrails",
-    "welcome_confirmed",
-    "team_agents_count",
-    "operation_days",
-    "operation_start_time",
-    "operation_end_time",
-    "whatsapp_connected",
-    "whatsapp_connected_at",
-    "ui_step",
-    "updated_at",
-  ].join(",");
-
-  const baseSelect = [
-    "company_name",
-    "cnpj",
-    "trade_name",
-    "website_or_instagram",
-    "segment",
-    "company_size",
-    "main_use",
-    "priority_now",
-    "has_supervisor",
-    "service_hours",
-    "target_response_time",
-    "languages",
-    "ai_auto_mode",
-    "ai_handoff_human_request",
-    "ai_handoff_anger_urgency",
-    "ai_handoff_after_messages",
-    "ai_handoff_price_payment",
-    "brand_tone",
-    "msg_signature",
-    "ai_catalog_summary",
-    "ai_knowledge_links",
-    "ai_guardrails",
-    "updated_at",
-  ].join(",");
-
   try {
     const { data, error } = await sb
       .from("wz_onboarding")
-      .select(fullSelect)
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    if (!error) {
-      const row = (data || {}) as Record<string, unknown>;
-      return normalizeOnboardingData({
-        companyName: row.company_name as string | null,
-        cnpj: row.cnpj as string | null,
-        tradeName: row.trade_name as string | null,
-        websiteOrInstagram: row.website_or_instagram as string | null,
-        segment: row.segment as string | null,
-        companySize: row.company_size as OnboardingData["companySize"],
-        mainUse: row.main_use as string | null,
-        priorityNow: row.priority_now as string | null,
-        hasSupervisor: row.has_supervisor as boolean | null,
-        serviceHours: row.service_hours as string | null,
-        targetResponseTime: row.target_response_time as string | null,
-        languages: row.languages as string[] | null,
-        aiAutoMode: row.ai_auto_mode as OnboardingData["aiAutoMode"],
-        handoffHumanRequest: row.ai_handoff_human_request as boolean | null,
-        handoffAngerUrgency: row.ai_handoff_anger_urgency as boolean | null,
-        handoffAfterMessages: row.ai_handoff_after_messages as number | null,
-        handoffPricePayment: row.ai_handoff_price_payment as boolean | null,
-        brandTone: row.brand_tone as OnboardingData["brandTone"],
-        msgSignature: row.msg_signature as string | null,
-        aiCatalogSummary: row.ai_catalog_summary as string | null,
-        aiKnowledgeLinks: row.ai_knowledge_links as string | null,
-        aiGuardrails: row.ai_guardrails as string | null,
-        welcomeConfirmed: row.welcome_confirmed === true,
-        teamAgentsCount: row.team_agents_count as number | null,
-        operationDays: row.operation_days as string[] | null,
-        operationStartTime: row.operation_start_time as string | null,
-        operationEndTime: row.operation_end_time as string | null,
-        whatsappConnected: row.whatsapp_connected === true,
-        whatsappConnectedAt: row.whatsapp_connected_at as string | null,
-        uiStep: row.ui_step as OnboardingData["uiStep"],
-        completed: false,
-        updatedAt: row.updated_at as string | null,
-      });
-    }
-  } catch (error) {
-    console.error("[dashboard] failed to load onboarding with full schema:", error);
-  }
-
-  try {
-    const { data, error } = await sb
-      .from("wz_onboarding")
-      .select(baseSelect)
+      .select("*")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -286,12 +177,19 @@ async function getInitialOnboardingData(params: {
       aiCatalogSummary: row.ai_catalog_summary as string | null,
       aiKnowledgeLinks: row.ai_knowledge_links as string | null,
       aiGuardrails: row.ai_guardrails as string | null,
-      uiStep: null,
+      welcomeConfirmed: row.welcome_confirmed === true,
+      teamAgentsCount: row.team_agents_count as number | null,
+      operationDays: row.operation_days as string[] | null,
+      operationStartTime: row.operation_start_time as string | null,
+      operationEndTime: row.operation_end_time as string | null,
+      whatsappConnected: row.whatsapp_connected === true,
+      whatsappConnectedAt: row.whatsapp_connected_at as string | null,
+      uiStep: row.ui_step as OnboardingData["uiStep"],
       completed: false,
       updatedAt: row.updated_at as string | null,
     });
   } catch (error) {
-    console.error("[dashboard] fallback onboarding load failed:", error);
+    console.error("[dashboard] onboarding load failed:", error);
     return createEmptyOnboardingData();
   }
 }

@@ -239,7 +239,7 @@ export async function POST(req: NextRequest) {
 
     const sb = supabaseAdmin();
 
-    const basePayload = {
+    const basePayload: Record<string, unknown> = {
       user_id: s.userId,
       email: s.email,
       ...patch,
@@ -257,6 +257,24 @@ export async function POST(req: NextRequest) {
         .from("wz_onboarding")
         .upsert(fallbackPayload, { onConflict: "user_id" });
       error = retry.error;
+    }
+
+    // fallback for databases without unique constraint on user_id
+    if (error && /on conflict/i.test(String(error.message || ""))) {
+      const updatePayload: Record<string, unknown> = { ...patch, updated_at: now, email: s.email };
+      const updated = await sb
+        .from("wz_onboarding")
+        .update(updatePayload)
+        .eq("user_id", s.userId)
+        .select("user_id")
+        .maybeSingle();
+
+      if (!updated.error && updated.data) {
+        error = null;
+      } else {
+        const inserted = await sb.from("wz_onboarding").insert(basePayload);
+        error = inserted.error;
+      }
     }
 
     if (error) return jsonNoStore({ ok: false, error: error.message }, 500);
