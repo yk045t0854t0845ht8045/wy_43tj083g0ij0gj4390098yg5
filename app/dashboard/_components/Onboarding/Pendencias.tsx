@@ -1083,12 +1083,12 @@ export default function Pendencias({
     <section id="onboarding-pendencias" className="mx-auto w-full max-w-[980px] px-4 pb-8 pt-6 sm:px-8">
       <div className="rounded-3xl border border-black/10 bg-[#f8f8f8] p-4 shadow-[0_18px_48px_rgba(0,0,0,0.08)] sm:p-6">
         <div className="mb-4 rounded-2xl border border-black/10 bg-white p-4">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-black/55">Finalizacao de cadastro</p>
-              <h2 className="text-[20px] font-semibold text-black/90">Voce possui pendencias</h2>
+              <h2 className="text-[18px] font-semibold text-black/90 sm:text-[20px]">Voce possui pendencias</h2>
             </div>
-            <span className="rounded-full border border-black/10 bg-black/[0.03] px-3 py-1.5 text-[13px] font-semibold text-black/70">{progress.percent}%</span>
+            <span className="self-end rounded-full border border-black/10 bg-black/[0.03] px-3 py-1.5 text-[13px] font-semibold text-black/70 sm:self-auto">{progress.percent}%</span>
           </div>
           <div className="mt-3 h-[8px] overflow-hidden rounded-full bg-black/[0.08]">
             <motion.span
@@ -1348,10 +1348,10 @@ export default function Pendencias({
                       Pular por agora
                     </button>
                   )}
-                  <div className="ml-auto">
+                  <div className="w-full sm:ml-auto sm:w-auto">
                     <Action
                       label={saving ? "Salvando..." : "Confirmar e continuar"}
-                      className="w-auto"
+                      className="w-full sm:w-auto"
                       disabled={saving}
                       onClick={async () => {
                         setErrors({});
@@ -1401,7 +1401,7 @@ export default function Pendencias({
           </motion.div>
         </AnimatePresence>
 
-        <div className="mt-4 flex items-center justify-between px-1 text-[12px] font-medium text-black/45">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 px-1 text-[12px] font-medium text-black/45">
           <span>Etapa {Math.max(STEPS.indexOf(step) + 1, 1)} de {STEPS.length}</span>
           <button type="button" onClick={() => setStep(next(step))} className="underline decoration-black/30 underline-offset-4">avancar rapido</button>
         </div>
