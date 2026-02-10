@@ -1,8 +1,8 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ArrowRight, ChevronLeft, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowRight, ChevronDown, ChevronLeft, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   calculateOnboardingProgress,
   getInitialOnboardingStep,
@@ -69,7 +69,13 @@ const COMPANY_SIZE_OPTIONS = [
   { value: "100+", label: "100+ pessoas" },
 ] as const;
 
-const LINK_PREFIX = "https://";
+const PRIORITY_OPTIONS = [
+  "Responder mais rapido",
+  "Converter mais",
+  "Organizar equipe",
+  "Automatizar respostas",
+  "Nao perder leads",
+] as const;
 
 const INPUT =
   "w-full bg-white border border-black/15 border-2 rounded-full px-6 py-4 text-black placeholder-black/45 focus:outline-none hover:border-black/25 focus:border-lime-400 transition-all duration-300 ease-out text-base";
@@ -81,12 +87,6 @@ const cx = (...v: Array<string | false | null | undefined>) => v.filter(Boolean)
 const has = (v: string | null | undefined, n = 2) => String(v || "").trim().length >= n;
 const prev = (s: OnboardingUiStep) => STEPS[Math.max(0, STEPS.indexOf(s) - 1)] || s;
 const next = (s: OnboardingUiStep) => STEPS[Math.min(STEPS.length - 1, STEPS.indexOf(s) + 1)] || s;
-const stripLinkPrefix = (v: string | null | undefined) =>
-  String(v || "").replace(/^https?:\/\//i, "").trim();
-const toStoredLink = (v: string) => {
-  const clean = stripLinkPrefix(v);
-  return clean ? `${LINK_PREFIX}${clean}` : null;
-};
 
 function Action({
   label,
@@ -120,6 +120,123 @@ function Action({
         <ArrowRight className="h-5 w-5 text-white" />
       </span>
     </motion.button>
+  );
+}
+
+type SelectOption = { value: string; label: string };
+
+function SelectMenu({
+  value,
+  onChange,
+  placeholder,
+  options,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  options: SelectOption[];
+}) {
+  const reduced = useReducedMotion();
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const selected = options.find((option) => option.value === value) || null;
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onPointerDown = (event: MouseEvent | TouchEvent) => {
+      const root = wrapRef.current;
+      const target = event.target as Node | null;
+      if (!root || !target) return;
+      if (!root.contains(target)) setOpen(false);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown, { passive: true });
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <motion.button
+        type="button"
+        onClick={() => setOpen((prevState) => !prevState)}
+        whileTap={reduced ? undefined : { scale: 0.996 }}
+        transition={reduced ? { duration: 0.1 } : { duration: 0.2, ease: EASE }}
+        className={cx(
+          INPUT,
+          "flex items-center justify-between text-left pr-5",
+          open && "border-black/25",
+        )}
+      >
+        <span className={cx("truncate", selected ? "text-black" : "text-black/45")}>
+          {selected ? selected.label : placeholder}
+        </span>
+        <motion.span
+          animate={{ rotate: open ? 180 : 0, x: open ? -1 : 0 }}
+          transition={
+            reduced
+              ? { duration: 0.1 }
+              : { type: "spring", stiffness: 430, damping: 28, mass: 0.5 }
+          }
+          className="ml-3 mr-1.5 inline-flex shrink-0 items-center justify-center text-black/55"
+        >
+          <ChevronDown className="h-4 w-4" />
+        </motion.span>
+      </motion.button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={reduced ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.985 }}
+            animate={reduced ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+            exit={reduced ? { opacity: 0 } : { opacity: 0, y: 6, scale: 0.985 }}
+            transition={reduced ? { duration: 0.1 } : { duration: 0.22, ease: EASE }}
+            className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-[90] overflow-hidden rounded-2xl border border-black/10 bg-white shadow-[0_18px_36px_rgba(0,0,0,0.14)]"
+          >
+            <ul className="max-h-[230px] overflow-y-auto p-1.5">
+              {options.map((option) => {
+                const isSelected = option.value === value;
+                return (
+                  <li key={option.value}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onChange(option.value);
+                        setOpen(false);
+                      }}
+                      className={cx(
+                        "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-[13px] font-medium transition-colors",
+                        isSelected
+                          ? "bg-black/[0.07] text-black/90"
+                          : "text-black/75 hover:bg-black/[0.04]",
+                      )}
+                    >
+                      <span className="truncate">{option.label}</span>
+                      {isSelected && (
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-black/45">
+                          selecionado
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -262,55 +379,47 @@ export default function Pendencias({
                 {step === "company" && (
                   <>
                     <input className={INPUT} placeholder="Nome da empresa" value={data.companyName || ""} onChange={(e) => commit({ companyName: e.target.value })} />
-                    <select
-                      className={INPUT}
+                    <SelectMenu
                       value={data.segment || ""}
-                      onChange={(e) => commit({ segment: e.target.value })}
-                    >
-                      <option value="">Segmento de atuacao</option>
-                      {SEGMENT_OPTIONS.map((segment) => (
-                        <option key={segment} value={segment}>
-                          {segment}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      className={INPUT}
+                      onChange={(value) => commit({ segment: value })}
+                      placeholder="Segmento de atuacao"
+                      options={SEGMENT_OPTIONS.map((segment) => ({
+                        value: segment,
+                        label: segment,
+                      }))}
+                    />
+                    <SelectMenu
                       value={data.companySize || ""}
-                      onChange={(e) =>
-                        commit({ companySize: e.target.value as OnboardingData["companySize"] })
+                      onChange={(value) =>
+                        commit({ companySize: value as OnboardingData["companySize"] })
                       }
-                    >
-                      <option value="">Tamanho da empresa</option>
-                      {COMPANY_SIZE_OPTIONS.map((size) => (
-                        <option key={size.value} value={size.value}>
-                          {size.label}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="relative">
-                      <span className="pointer-events-none absolute left-6 top-1/2 -translate-y-1/2 text-base text-black/40">
-                        {LINK_PREFIX}
-                      </span>
-                      <input
-                        className={cx(INPUT, "pl-[102px]")}
-                        placeholder="wyzer.com.br"
-                        value={stripLinkPrefix(data.websiteOrInstagram)}
-                        onChange={(e) =>
-                          commit({ websiteOrInstagram: toStoredLink(e.target.value) })
-                        }
-                      />
-                    </div>
+                      placeholder="Tamanho da empresa"
+                      options={COMPANY_SIZE_OPTIONS.map((size) => ({
+                        value: size.value,
+                        label: size.label,
+                      }))}
+                    />
+                    <input
+                      className={INPUT}
+                      placeholder="https://wyzer.com.br"
+                      value={data.websiteOrInstagram || ""}
+                      onChange={(e) => commit({ websiteOrInstagram: e.target.value })}
+                    />
                     <Err text={errors.companyName || errors.segment || errors.companySize} />
                   </>
                 )}
                 {step === "goal" && (
                   <>
                     <input className={INPUT} placeholder="Uso principal: vendas | suporte | agendamento | cobranca | hibrido" value={data.mainUse || ""} onChange={(e) => commit({ mainUse: e.target.value })} />
-                    <select className={INPUT} value={data.priorityNow || ""} onChange={(e) => commit({ priorityNow: e.target.value })}>
-                      <option value="">Prioridade atual</option>
-                      {["Responder mais rapido", "Converter mais", "Organizar equipe", "Automatizar respostas", "Nao perder leads"].map((p) => <option key={p} value={p}>{p}</option>)}
-                    </select>
+                    <SelectMenu
+                      value={data.priorityNow || ""}
+                      onChange={(value) => commit({ priorityNow: value })}
+                      placeholder="Prioridade atual"
+                      options={PRIORITY_OPTIONS.map((priority) => ({
+                        value: priority,
+                        label: priority,
+                      }))}
+                    />
                     <Err text={errors.mainUse || errors.priorityNow} />
                   </>
                 )}
