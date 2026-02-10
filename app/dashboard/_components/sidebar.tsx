@@ -1,9 +1,9 @@
-﻿"use client";
+"use client";
 
 import Image from "next/image";
 import Script from "next/script";
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
-import { ArrowRight, LogOut, Settings, User } from "lucide-react";
+import { ArrowRight, LogOut, Settings, User, X } from "lucide-react";
 import React, {
   useEffect,
   useId,
@@ -169,11 +169,7 @@ function SidebarCollapseIcon() {
 function SidebarMobileCloseIcon() {
   return (
     <span className="inline-flex items-center justify-center" aria-hidden="true">
-      {React.createElement<LordIconProps>("lord-icon", {
-        src: "https://media.lordicon.com/assets/icons/editor/close.json",
-        trigger: "hover",
-        style: { width: "20px", height: "20px" },
-      })}
+      <X className="h-[20px] w-[20px] text-black/80" strokeWidth={2} />
     </span>
   );
 }
@@ -319,14 +315,6 @@ type Props = {
   activeSub?: SubItemId | null;
   userNickname?: string;
   userEmail?: string;
-  onboardingProgressPercent?: number;
-  onboardingCompletedRequired?: number;
-  onboardingTotalRequired?: number;
-  onboardingRemainingRequired?: number;
-  onboardingDone?: boolean;
-  onboardingTargetId?: string;
-  lockNavigation?: boolean;
-  onOpenOnboarding?: () => void;
 };
 
 const SIDEBAR_COLLAPSE_STORAGE_KEY = "dashboard-sidebar-collapsed-v1";
@@ -336,14 +324,6 @@ export default function Sidebar({
   activeSub = null,
   userNickname = "Usuario",
   userEmail = "conta@wyzer.com.br",
-  onboardingProgressPercent = 79,
-  onboardingCompletedRequired = 36,
-  onboardingTotalRequired = 50,
-  onboardingRemainingRequired = 14,
-  onboardingDone = false,
-  onboardingTargetId = "onboarding-pendencias",
-  lockNavigation = false,
-  onOpenOnboarding,
 }: Props) {
   const [transactionsOpen, setTransactionsOpen] = useState(
     () => activeMain === "transactions"
@@ -395,29 +375,6 @@ export default function Sidebar({
     const first = resolvedUserNickname.trim().charAt(0);
     return first ? first.toUpperCase() : "U";
   }, [resolvedUserNickname]);
-  const safeOnboardingPercent = useMemo(() => {
-    const n = Number(onboardingProgressPercent || 0);
-    if (!Number.isFinite(n)) return 0;
-    return Math.max(0, Math.min(100, Math.round(n)));
-  }, [onboardingProgressPercent]);
-  const safeOnboardingTotal = useMemo(() => {
-    const n = Number(onboardingTotalRequired || 0);
-    if (!Number.isFinite(n) || n <= 0) return 1;
-    return Math.max(1, Math.round(n));
-  }, [onboardingTotalRequired]);
-  const safeOnboardingCompleted = useMemo(() => {
-    const n = Number(onboardingCompletedRequired || 0);
-    if (!Number.isFinite(n)) return 0;
-    return Math.max(0, Math.min(safeOnboardingTotal, Math.round(n)));
-  }, [onboardingCompletedRequired, safeOnboardingTotal]);
-  const safeOnboardingRemaining = useMemo(() => {
-    const n = Number(onboardingRemainingRequired || 0);
-    if (Number.isFinite(n)) {
-      return Math.max(0, Math.min(safeOnboardingTotal, Math.round(n)));
-    }
-    return Math.max(safeOnboardingTotal - safeOnboardingCompleted, 0);
-  }, [onboardingRemainingRequired, safeOnboardingTotal, safeOnboardingCompleted]);
-  const sidebarLocked = lockNavigation && !onboardingDone;
 
   useEffect(() => setActiveMainState(activeMain), [activeMain]);
   useEffect(() => setActiveSubState(activeSub), [activeSub]);
@@ -461,11 +418,6 @@ export default function Sidebar({
     if (!isCollapsed) return;
     setProfileMenuOpen(false);
   }, [isCollapsed]);
-
-  useEffect(() => {
-    if (!sidebarLocked) return;
-    setProfileMenuOpen(false);
-  }, [sidebarLocked]);
 
   useEffect(() => {
     if (!profileMenuOpen) return;
@@ -624,10 +576,6 @@ export default function Sidebar({
   }, [indicatorVisible]);
 
   const pickMain = (id: MainItemId) => {
-    if (sidebarLocked) {
-      openOnboardingPanel();
-      return;
-    }
     setActiveMainState(id);
 
     if (id !== "transactions") {
@@ -639,10 +587,6 @@ export default function Sidebar({
   };
 
   const toggleTransactions = () => {
-    if (sidebarLocked) {
-      openOnboardingPanel();
-      return;
-    }
     if (isCollapsed) {
       setDesktopCollapsed(false);
       setActiveMainState("transactions");
@@ -655,27 +599,11 @@ export default function Sidebar({
   };
 
   const pickSub = (id: SubItemId) => {
-    if (sidebarLocked) {
-      openOnboardingPanel();
-      return;
-    }
     if (isCollapsed) setDesktopCollapsed(false);
     setActiveMainState("transactions");
     if (!transactionsOpen) setTransactionsOpen(true);
     setActiveSubState(id);
     setMobileMenuOpen(false);
-  };
-
-  const openOnboardingPanel = () => {
-    if (typeof onOpenOnboarding === "function") {
-      onOpenOnboarding();
-      return;
-    }
-    const targetId = String(onboardingTargetId || "").trim();
-    if (!targetId) return;
-    const target = document.getElementById(targetId);
-    if (!target) return;
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const mainBtnBase = cx(
@@ -896,8 +824,7 @@ export default function Sidebar({
           className={cx(
             "mt-3 flex-1 overscroll-contain",
             showCollapsedTooltips ? "overflow-visible" : "overflow-y-auto",
-            isCollapsed ? "px-3" : "px-2",
-            sidebarLocked && "pointer-events-none select-none opacity-60"
+            isCollapsed ? "px-3" : "px-2"
           )}
         >
           <LayoutGroup id="sidebar-active-pills">
@@ -1190,7 +1117,7 @@ export default function Sidebar({
         </nav>
 
         <div className={cx("shrink-0 px-2 pb-3 pt-2", isCollapsed ? "sm:px-3" : "sm:px-2")}>
-          <ul className={cx("mb-2 space-y-[2px]", sidebarLocked && "pointer-events-none select-none opacity-60")}>
+          <ul className="mb-2 space-y-[2px]">
             <li className={cx("relative", showCollapsedTooltips && "group")}>
               <motion.button
                 id={helpHoverTargetId}
@@ -1263,22 +1190,15 @@ export default function Sidebar({
                     Você possui pendências
                   </span>
                 </div>
-                <span className="text-[13px] font-semibold text-black/70">
-                  {safeOnboardingPercent}%
-                </span>
+                <span className="text-[13px] font-semibold text-black/70">79%</span>
               </div>
 
               <div className="mt-2 h-[7px] overflow-hidden rounded-full bg-black/[0.08]">
-                <span
-                  className="block h-full rounded-full bg-lime-400 transition-[width] duration-300 ease-out"
-                  style={{ width: `${safeOnboardingPercent}%` }}
-                />
+                <span className="block h-full w-[69%] rounded-full bg-lime-400" />
               </div>
 
               <div className="mt-2 flex items-center gap-1.5 text-[13px] font-medium text-black/70">
-                <span className="truncate">
-                  {safeOnboardingCompleted} de {safeOnboardingTotal} etapas concluidas
-                </span>
+                <span className="truncate">36 of 50 Invoices created</span>
                 <span className="group/info relative inline-flex shrink-0 items-center">
                   <button
                     id={invoicesInfoTargetId}
@@ -1313,21 +1233,15 @@ export default function Sidebar({
                       Pendências do plano
                     </p>
                     <p className="mt-1 text-[11px] leading-4 text-black/70">
-                      Voce concluiu {safeOnboardingCompleted} de {safeOnboardingTotal} etapas do cadastro.
-                      Restam {safeOnboardingRemaining} pendencias para liberar tudo no dashboard.
+                      Você já criou 36 de 50 invoices. Restam 14 antes do limite;
+                      ao atingir 100%, novos envios podem ficar indisponíveis.
                     </p>
                   </div>
                 </span>
               </div>
-              {sidebarLocked && (
-                <p className="mt-1.5 text-[11px] font-medium text-black/55">
-                  Menu travado ate concluir as pendencias obrigatorias.
-                </p>
-              )}
 
               <motion.button
                 type="button"
-                onClick={openOnboardingPanel}
                 whileHover={prefersReducedMotion ? undefined : { y: -2, scale: 1.01 }}
                 whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
                 transition={{ duration: 0.24, ease: [0.2, 0.8, 0.2, 1] }}
@@ -1342,9 +1256,7 @@ export default function Sidebar({
                 )}
                 style={{ willChange: "transform" }}
               >
-                <span className="relative z-10">
-                  {onboardingDone ? "Revisar Cadastro" : "Realizar Pendências"}
-                </span>
+                <span className="relative z-10">Realizar Pendências</span>
                 <motion.span
                   whileHover={prefersReducedMotion ? undefined : { scale: 1.06 }}
                   whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
@@ -1461,20 +1373,13 @@ export default function Sidebar({
 
               <button
                 type="button"
-                onClick={() => {
-                  if (sidebarLocked) {
-                    openOnboardingPanel();
-                    return;
-                  }
-                  setProfileMenuOpen((v) => !v);
-                }}
+                onClick={() => setProfileMenuOpen((v) => !v)}
                 className={cx(
                   "w-full rounded-2xl",
                   profileMenuOpen ? "bg-black/[0.10]" : "bg-black/[0.06]",
                   "px-2 py-2",
                   "flex items-center justify-between gap-3",
-                  "transition-all duration-200 ease-out hover:bg-black/[0.10] active:scale-[0.99]",
-                  sidebarLocked && "cursor-not-allowed opacity-70"
+                  "transition-all duration-200 ease-out hover:bg-black/[0.10] active:scale-[0.99]"
                 )}
                 aria-label={`${resolvedUserNickname} - ${resolvedUserEmail}`}
                 aria-expanded={profileMenuOpen}
