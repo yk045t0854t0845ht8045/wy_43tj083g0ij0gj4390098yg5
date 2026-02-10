@@ -368,6 +368,7 @@ export function WyzerAIWidget() {
   const [historyItems, setHistoryItems] = useState<
     Array<{ id: string; preview: string; timestamp: string; isOnline?: boolean }>
   >([])
+  const [isHistoryChatLoading, setIsHistoryChatLoading] = useState(false)
 
   const historyPollRef = useRef<number | null>(null)
   const chatPollRef = useRef<number | null>(null)
@@ -377,6 +378,7 @@ export function WyzerAIWidget() {
   const queuedChatCodeRef = useRef<string>("")
   // ✅ NOVO: Rastrear último chatCode carregado para evitar mistura
   const lastLoadedChatCodeRef = useRef<string>("")
+  const historyOpenRequestRef = useRef(0)
   const submitLockRef = useRef(false)
 
   useEffect(() => {
@@ -1217,10 +1219,12 @@ export function WyzerAIWidget() {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
     }
+    historyOpenRequestRef.current += 1
     setNeedsLogin(false)
     setInput("")
     setMessages([])
     setIsLoading(false)
+    setIsHistoryChatLoading(false)
     setIsRedirectingToHuman(false)
     setSending(false)
     setStreamingContent("")
@@ -1238,13 +1242,22 @@ export function WyzerAIWidget() {
     async (item?: { id: string }) => {
       const code = item?.id
       if (!code) return
+      historyOpenRequestRef.current += 1
+      const requestId = historyOpenRequestRef.current
+      setIsHistoryChatLoading(true)
       // ✅ CORRIGIDO: Limpar mensagens antigas antes de carregar novo chat
       setMessages([])
       setIsRedirectingToHuman(false)
       lastLoadedChatCodeRef.current = code
       setChatCode(code)
       setActiveTab("chat")
-      await loadChatMessagesMerge(code)
+      try {
+        await loadChatMessagesMerge(code)
+      } finally {
+        if (historyOpenRequestRef.current === requestId) {
+          setIsHistoryChatLoading(false)
+        }
+      }
     },
     [loadChatMessagesMerge]
   )
@@ -1371,6 +1384,7 @@ export function WyzerAIWidget() {
                   botAvatarSrc="/flow-icon.png"
                   messages={currentChatMessages}
                   isLoading={isLoading}
+                  isConversationLoading={isHistoryChatLoading}
                   isRedirectingToHuman={isRedirectingToHuman}
                   streamingContent={streamingContent}
                   onImageClick={setViewingImage}
@@ -1390,8 +1404,14 @@ export function WyzerAIWidget() {
                 value={input}
                 onChange={setInput}
                 onSubmit={handleSubmit}
-                disabled={sending || isLoading || needsLogin}
-                placeholder={needsLogin ? "Faça login para continuar" : "Diga como podemos ajudar?"}
+                disabled={sending || isLoading || needsLogin || isHistoryChatLoading}
+                placeholder={
+                  isHistoryChatLoading
+                    ? "Carregando conversa..."
+                    : needsLogin
+                      ? "Faça login para continuar"
+                      : "Diga como podemos ajudar?"
+                }
                 attachedFiles={attachedFiles}
                 onFilesChange={setAttachedFiles}
               />

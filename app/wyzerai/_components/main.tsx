@@ -207,6 +207,7 @@ interface MainProps {
   botAvatarSrc?: string
   messages?: Message[]
   isLoading?: boolean
+  isConversationLoading?: boolean
   streamingContent?: string
   onImageClick?: (image: AttachedFile) => void
   onLoginClick?: () => void
@@ -807,6 +808,56 @@ function UserMessage({
   )
 }
 
+function ConversationSkeleton() {
+  const rows = [
+    { side: "left", lines: ["w-16", "w-[78%]", "w-[56%]"] },
+    { side: "right", lines: ["w-[62%]", "w-[40%]"] },
+    { side: "left", lines: ["w-16", "w-[72%]", "w-[48%]"] },
+    { side: "right", lines: ["w-[58%]", "w-[36%]"] },
+  ] as const
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <style>{cssAnimations}</style>
+      <div className="flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="px-4 py-4 space-y-6 animate-pulse">
+          {rows.map((row, idx) => (
+            <div
+              key={`skeleton-row-${idx}`}
+              className={row.side === "right" ? "flex justify-end" : "flex items-start gap-3"}
+            >
+              {row.side === "left" ? (
+                <>
+                  <span className="h-8 w-8 shrink-0 rounded-full bg-gray-200" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    {row.lines.map((line, lineIdx) => (
+                      <div
+                        key={`skeleton-line-${idx}-${lineIdx}`}
+                        className={`h-3 rounded-md bg-gray-200 ${line}`}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="max-w-[80%] rounded-2xl rounded-br-md bg-gray-100 px-4 py-3">
+                  <div className="space-y-2">
+                    {row.lines.map((line, lineIdx) => (
+                      <div
+                        key={`skeleton-line-${idx}-${lineIdx}`}
+                        className={`ml-auto h-3 rounded-md bg-gray-200 ${line}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function WelcomeScreen({
   userName,
   logoSrc,
@@ -917,6 +968,7 @@ export function Main({
   logoSrc = "/logo.png",
   messages = [],
   isLoading = false,
+  isConversationLoading = false,
   streamingContent = "",
   onImageClick,
   onLoginClick,
@@ -967,6 +1019,10 @@ export function Main({
       })
     }
   }, [messages, isLoading, streamingContent])
+
+  if (isConversationLoading) {
+    return <ConversationSkeleton />
+  }
 
   if (!hasMessages && !isLoading) {
     return <WelcomeScreen userName={userName} logoSrc={logoSrc} onQuickAction={onQuickAction} />
