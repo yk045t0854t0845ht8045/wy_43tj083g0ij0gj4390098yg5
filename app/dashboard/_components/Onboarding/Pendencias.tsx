@@ -34,6 +34,43 @@ const STEPS: OnboardingUiStep[] = [
   "final",
 ];
 
+const SEGMENT_OPTIONS = [
+  "E-commerce",
+  "Varejo",
+  "Atacado",
+  "Clinica e Saude",
+  "Odontologia",
+  "Educacao",
+  "Restaurante e Delivery",
+  "Turismo e Hotelaria",
+  "Imobiliaria",
+  "Construcao Civil",
+  "Servicos Financeiros",
+  "Seguros",
+  "Escritorio de Advocacia",
+  "Marketing e Agencia",
+  "Tecnologia e SaaS",
+  "Assistencia Tecnica",
+  "Industria",
+  "Distribuicao",
+  "Logistica",
+  "Recursos Humanos",
+  "Beleza e Estetica",
+  "Academia e Esportes",
+  "Eventos",
+  "ONG e Instituicao",
+  "Outro",
+] as const;
+
+const COMPANY_SIZE_OPTIONS = [
+  { value: "1-5", label: "1 a 5 pessoas" },
+  { value: "6-20", label: "6 a 20 pessoas" },
+  { value: "21-100", label: "21 a 100 pessoas" },
+  { value: "100+", label: "100+ pessoas" },
+] as const;
+
+const LINK_PREFIX = "https://";
+
 const INPUT =
   "w-full bg-white border border-black/15 border-2 rounded-full px-6 py-4 text-black placeholder-black/45 focus:outline-none hover:border-black/25 focus:border-lime-400 transition-all duration-300 ease-out text-base";
 const TEXTAREA_CLASS =
@@ -44,6 +81,12 @@ const cx = (...v: Array<string | false | null | undefined>) => v.filter(Boolean)
 const has = (v: string | null | undefined, n = 2) => String(v || "").trim().length >= n;
 const prev = (s: OnboardingUiStep) => STEPS[Math.max(0, STEPS.indexOf(s) - 1)] || s;
 const next = (s: OnboardingUiStep) => STEPS[Math.min(STEPS.length - 1, STEPS.indexOf(s) + 1)] || s;
+const stripLinkPrefix = (v: string | null | undefined) =>
+  String(v || "").replace(/^https?:\/\//i, "").trim();
+const toStoredLink = (v: string) => {
+  const clean = stripLinkPrefix(v);
+  return clean ? `${LINK_PREFIX}${clean}` : null;
+};
 
 function Action({
   label,
@@ -219,10 +262,45 @@ export default function Pendencias({
                 {step === "company" && (
                   <>
                     <input className={INPUT} placeholder="Nome da empresa" value={data.companyName || ""} onChange={(e) => commit({ companyName: e.target.value })} />
-                    <input className={INPUT} placeholder="Segmento de atuacao" list="segments" value={data.segment || ""} onChange={(e) => commit({ segment: e.target.value })} />
-                    <datalist id="segments">{["E-commerce", "Clinica", "Restaurante", "Educacao"].map((s) => <option key={s} value={s} />)}</datalist>
-                    <input className={INPUT} placeholder="Tamanho: 1-5 | 6-20 | 21-100 | 100+" value={data.companySize || ""} onChange={(e) => commit({ companySize: e.target.value as OnboardingData["companySize"] })} />
-                    <input className={INPUT} placeholder="Site ou Instagram (opcional)" value={data.websiteOrInstagram || ""} onChange={(e) => commit({ websiteOrInstagram: e.target.value })} />
+                    <select
+                      className={INPUT}
+                      value={data.segment || ""}
+                      onChange={(e) => commit({ segment: e.target.value })}
+                    >
+                      <option value="">Segmento de atuacao</option>
+                      {SEGMENT_OPTIONS.map((segment) => (
+                        <option key={segment} value={segment}>
+                          {segment}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className={INPUT}
+                      value={data.companySize || ""}
+                      onChange={(e) =>
+                        commit({ companySize: e.target.value as OnboardingData["companySize"] })
+                      }
+                    >
+                      <option value="">Tamanho da empresa</option>
+                      {COMPANY_SIZE_OPTIONS.map((size) => (
+                        <option key={size.value} value={size.value}>
+                          {size.label}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="relative">
+                      <span className="pointer-events-none absolute left-6 top-1/2 -translate-y-1/2 text-base text-black/40">
+                        {LINK_PREFIX}
+                      </span>
+                      <input
+                        className={cx(INPUT, "pl-[102px]")}
+                        placeholder="wyzer.com.br"
+                        value={stripLinkPrefix(data.websiteOrInstagram)}
+                        onChange={(e) =>
+                          commit({ websiteOrInstagram: toStoredLink(e.target.value) })
+                        }
+                      />
+                    </div>
                     <Err text={errors.companyName || errors.segment || errors.companySize} />
                   </>
                 )}
