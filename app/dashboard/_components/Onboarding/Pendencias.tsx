@@ -59,6 +59,65 @@ const SEGMENT_OPTIONS = [
   "Academia e Esportes",
   "Eventos",
   "ONG e Instituicao",
+  "Supermercado e Mercearia",
+  "Farmacia e Drogaria",
+  "Pet Shop e Veterinaria",
+  "Moda e Vestuario",
+  "Calcados e Acessorios",
+  "Moveis e Decoracao",
+  "Casa e Utilidades",
+  "Papelaria e Livraria",
+  "Auto Pecas",
+  "Oficina Mecanica",
+  "Concessionaria",
+  "Transporte e Mobilidade",
+  "Agronegocio",
+  "Cooperativa",
+  "Energia e Utilidades",
+  "Telecomunicacoes",
+  "Contabilidade",
+  "Consultoria Empresarial",
+  "Franquia",
+  "Comercio Exterior",
+  "Importacao e Exportacao",
+  "Marketplace",
+  "Infoprodutos",
+  "Cursos Online",
+  "Escola de Idiomas",
+  "Universidade",
+  "Clinica de Estetica",
+  "Laboratorio",
+  "Hospital",
+  "Casa de Repouso",
+  "Construtora",
+  "Arquitetura e Engenharia",
+  "Seguranca Eletronica",
+  "Facilities e Limpeza",
+  "BPO e Terceirizacao",
+  "Coworking",
+  "Hotel",
+  "Pousada",
+  "Agencia de Viagens",
+  "Locacao de Veiculos",
+  "Locacao de Equipamentos",
+  "Buffet e Alimentacao",
+  "Panificadora",
+  "Confeitaria",
+  "Bebidas e Distribuidor",
+  "Produtora de Conteudo",
+  "Midia e Comunicacao",
+  "Design e Criacao",
+  "Fotografia e Video",
+  "Software House",
+  "Suporte de TI",
+  "Infraestrutura de TI",
+  "Cyberseguranca",
+  "Data e Analytics",
+  "Gaming e Entretenimento",
+  "Cassino e Apostas",
+  "Religioso",
+  "Setor Publico",
+  "Associacao de Classe",
   "Outro",
 ] as const;
 
@@ -139,6 +198,8 @@ function SelectMenu({
   const reduced = useReducedMotion();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [openDirection, setOpenDirection] = useState<"down" | "up">("down");
   const selected = options.find((option) => option.value === value) || null;
 
   useEffect(() => {
@@ -165,6 +226,39 @@ function SelectMenu({
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const measureDirection = () => {
+      const wrap = wrapRef.current;
+      const menu = menuRef.current;
+      if (!wrap || !menu) return;
+
+      const rect = wrap.getBoundingClientRect();
+      const viewportHeight =
+        window.innerHeight || document.documentElement.clientHeight || 0;
+      const spaceBelow = viewportHeight - rect.bottom - 12;
+      const spaceAbove = rect.top - 12;
+      const menuHeight = Math.min(menu.scrollHeight, 230) + 12;
+
+      const shouldOpenDown =
+        spaceBelow >= menuHeight || spaceBelow >= spaceAbove;
+
+      setOpenDirection(shouldOpenDown ? "down" : "up");
+    };
+
+    measureDirection();
+    const raf = window.requestAnimationFrame(measureDirection);
+    window.addEventListener("resize", measureDirection);
+    window.addEventListener("scroll", measureDirection, true);
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.removeEventListener("resize", measureDirection);
+      window.removeEventListener("scroll", measureDirection, true);
+    };
+  }, [open, options.length]);
 
   return (
     <div ref={wrapRef} className="relative">
@@ -198,11 +292,41 @@ function SelectMenu({
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={reduced ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.985 }}
-            animate={reduced ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
-            exit={reduced ? { opacity: 0 } : { opacity: 0, y: 6, scale: 0.985 }}
+            ref={menuRef}
+            initial={
+              reduced
+                ? { opacity: 0 }
+                : {
+                    opacity: 0,
+                    y: openDirection === "down" ? -8 : 8,
+                    scale: 0.985,
+                  }
+            }
+            animate={
+              reduced
+                ? { opacity: 1 }
+                : {
+                    opacity: 1,
+                    y: 0,
+                    scale: 1,
+                  }
+            }
+            exit={
+              reduced
+                ? { opacity: 0 }
+                : {
+                    opacity: 0,
+                    y: openDirection === "down" ? -4 : 4,
+                    scale: 0.985,
+                  }
+            }
             transition={reduced ? { duration: 0.1 } : { duration: 0.22, ease: EASE }}
-            className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-[90] overflow-hidden rounded-2xl border border-black/10 bg-white shadow-[0_18px_36px_rgba(0,0,0,0.14)]"
+            className={cx(
+              "absolute left-0 right-0 z-[90] overflow-hidden rounded-2xl border border-black/10 bg-white shadow-[0_18px_36px_rgba(0,0,0,0.14)]",
+              openDirection === "down"
+                ? "top-[calc(100%+8px)] origin-top"
+                : "bottom-[calc(100%+8px)] origin-bottom",
+            )}
           >
             <ul className="max-h-[230px] overflow-y-auto p-1.5">
               {options.map((option) => {
