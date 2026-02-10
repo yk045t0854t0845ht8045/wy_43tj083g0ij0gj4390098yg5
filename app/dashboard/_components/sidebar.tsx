@@ -325,6 +325,7 @@ type Props = {
   onboardingRemainingRequired?: number;
   onboardingDone?: boolean;
   onboardingTargetId?: string;
+  lockNavigation?: boolean;
   onOpenOnboarding?: () => void;
 };
 
@@ -341,6 +342,7 @@ export default function Sidebar({
   onboardingRemainingRequired = 14,
   onboardingDone = false,
   onboardingTargetId = "onboarding-pendencias",
+  lockNavigation = false,
   onOpenOnboarding,
 }: Props) {
   const [transactionsOpen, setTransactionsOpen] = useState(
@@ -415,6 +417,7 @@ export default function Sidebar({
     }
     return Math.max(safeOnboardingTotal - safeOnboardingCompleted, 0);
   }, [onboardingRemainingRequired, safeOnboardingTotal, safeOnboardingCompleted]);
+  const sidebarLocked = lockNavigation && !onboardingDone;
 
   useEffect(() => setActiveMainState(activeMain), [activeMain]);
   useEffect(() => setActiveSubState(activeSub), [activeSub]);
@@ -616,6 +619,10 @@ export default function Sidebar({
   }, [indicatorVisible]);
 
   const pickMain = (id: MainItemId) => {
+    if (sidebarLocked) {
+      openOnboardingPanel();
+      return;
+    }
     setActiveMainState(id);
 
     if (id !== "transactions") {
@@ -627,6 +634,10 @@ export default function Sidebar({
   };
 
   const toggleTransactions = () => {
+    if (sidebarLocked) {
+      openOnboardingPanel();
+      return;
+    }
     if (isCollapsed) {
       setDesktopCollapsed(false);
       setActiveMainState("transactions");
@@ -639,6 +650,10 @@ export default function Sidebar({
   };
 
   const pickSub = (id: SubItemId) => {
+    if (sidebarLocked) {
+      openOnboardingPanel();
+      return;
+    }
     if (isCollapsed) setDesktopCollapsed(false);
     setActiveMainState("transactions");
     if (!transactionsOpen) setTransactionsOpen(true);
@@ -876,7 +891,8 @@ export default function Sidebar({
           className={cx(
             "mt-3 flex-1 overscroll-contain",
             showCollapsedTooltips ? "overflow-visible" : "overflow-y-auto",
-            isCollapsed ? "px-3" : "px-2"
+            isCollapsed ? "px-3" : "px-2",
+            sidebarLocked && "pointer-events-none select-none opacity-60"
           )}
         >
           <LayoutGroup id="sidebar-active-pills">
@@ -1169,7 +1185,7 @@ export default function Sidebar({
         </nav>
 
         <div className={cx("shrink-0 px-2 pb-3 pt-2", isCollapsed ? "sm:px-3" : "sm:px-2")}>
-          <ul className="mb-2 space-y-[2px]">
+          <ul className={cx("mb-2 space-y-[2px]", sidebarLocked && "pointer-events-none select-none opacity-60")}>
             <li className={cx("relative", showCollapsedTooltips && "group")}>
               <motion.button
                 id={helpHoverTargetId}
@@ -1298,6 +1314,11 @@ export default function Sidebar({
                   </div>
                 </span>
               </div>
+              {sidebarLocked && (
+                <p className="mt-1.5 text-[11px] font-medium text-black/55">
+                  Menu travado ate concluir as pendencias obrigatorias.
+                </p>
+              )}
 
               <motion.button
                 type="button"

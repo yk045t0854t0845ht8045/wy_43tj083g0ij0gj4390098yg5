@@ -13,6 +13,7 @@ import {
   verifyCnpjExists,
   normalizeAiAutoMode,
   normalizeBrandTone,
+  normalizeOnboardingUiStep,
   normalizeBoolNullable,
   normalizeIntNullable,
   normalizeOperationDays,
@@ -58,6 +59,7 @@ const ALLOWED_KEYS = new Set([
   "operationEndTime",
   "whatsappConnected",
   "whatsappConnectedAt",
+  "uiStep",
 ]);
 
 export async function POST(req: NextRequest) {
@@ -217,6 +219,9 @@ export async function POST(req: NextRequest) {
     if ("whatsappConnectedAt" in body) {
       patch.whatsapp_connected_at = clampText(normText(body.whatsappConnectedAt), 64);
     }
+    if ("uiStep" in body) {
+      patch.ui_step = normalizeOnboardingUiStep(body.uiStep);
+    }
 
     // Se nada válido sobrou (ex.: só cnpj parcial), não grava
     if (Object.keys(patch).length === 0) {
@@ -234,17 +239,25 @@ export async function POST(req: NextRequest) {
 
     const sb = supabaseAdmin();
 
-    const { error } = await sb
+    const basePayload = {
+      user_id: s.userId,
+      email: s.email,
+      ...patch,
+      created_at: now,
+    };
+
+    let { error } = await sb
       .from("wz_onboarding")
-      .upsert(
-        {
-          user_id: s.userId,
-          email: s.email,
-          ...patch,
-          created_at: now,
-        },
-        { onConflict: "user_id" },
-      );
+      .upsert(basePayload, { onConflict: "user_id" });
+
+    if (error && /ui_step/i.test(String(error.message || ""))) {
+      const fallbackPayload: Record<string, unknown> = { ...basePayload };
+      delete fallbackPayload.ui_step;
+      const retry = await sb
+        .from("wz_onboarding")
+        .upsert(fallbackPayload, { onConflict: "user_id" });
+      error = retry.error;
+    }
 
     if (error) return jsonNoStore({ ok: false, error: error.message }, 500);
 

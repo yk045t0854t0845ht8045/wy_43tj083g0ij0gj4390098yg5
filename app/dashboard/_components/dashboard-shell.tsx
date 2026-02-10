@@ -27,6 +27,7 @@ export default function DashboardShell({
   const [onboardingProgress, setOnboardingProgress] = useState<OnboardingProgress>(
     () => calculateOnboardingProgress(normalizeOnboardingData(initialOnboarding)),
   );
+  const [resumeOnboardingSignal, setResumeOnboardingSignal] = useState(0);
 
   const handleDataChange = (nextData: OnboardingData) => {
     setOnboardingData(nextData);
@@ -35,6 +36,10 @@ export default function DashboardShell({
 
   const handleProgressChange = (nextProgress: OnboardingProgress) => {
     setOnboardingProgress(nextProgress);
+  };
+
+  const handleOpenOnboarding = () => {
+    setResumeOnboardingSignal((current) => current + 1);
   };
 
   return (
@@ -48,14 +53,16 @@ export default function DashboardShell({
         onboardingTotalRequired={onboardingProgress.totalRequired}
         onboardingRemainingRequired={onboardingProgress.remaining}
         onboardingDone={onboardingProgress.isCompleted}
+        lockNavigation={!onboardingProgress.isCompleted}
+        onOpenOnboarding={handleOpenOnboarding}
       />
 
       <Main
         initialOnboarding={onboardingData}
         onDataChange={handleDataChange}
         onProgressChange={handleProgressChange}
+        resumeSignal={resumeOnboardingSignal}
       />
     </div>
   );
 }
-

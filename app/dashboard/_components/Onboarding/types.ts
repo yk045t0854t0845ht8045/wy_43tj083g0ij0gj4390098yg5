@@ -1,6 +1,15 @@
 export type CompanySize = "1-5" | "6-20" | "21-100" | "100+";
 export type AiAutoMode = "all" | "common" | "assistant";
 export type BrandTone = "formal" | "neutral" | "casual";
+export type OnboardingUiStepValue =
+  | "welcome"
+  | "company"
+  | "goal"
+  | "team"
+  | "ai"
+  | "whatsapp"
+  | "improve"
+  | "final";
 
 export type OnboardingData = {
   companyName: string | null;
@@ -36,6 +45,7 @@ export type OnboardingData = {
   operationEndTime: string | null;
   whatsappConnected: boolean;
   whatsappConnectedAt: string | null;
+  uiStep: OnboardingUiStepValue | null;
 
   completed: boolean;
   updatedAt: string | null;
@@ -73,6 +83,23 @@ function normalizeText(v: unknown, max = 1024) {
 
 function normalizeBool(v: unknown) {
   return typeof v === "boolean" ? v : null;
+}
+
+function normalizeUiStep(v: unknown): OnboardingUiStepValue | null {
+  const value = String(v ?? "").trim().toLowerCase();
+  if (
+    value === "welcome" ||
+    value === "company" ||
+    value === "goal" ||
+    value === "team" ||
+    value === "ai" ||
+    value === "whatsapp" ||
+    value === "improve" ||
+    value === "final"
+  ) {
+    return value as OnboardingUiStepValue;
+  }
+  return null;
 }
 
 function normalizeInt(v: unknown, min: number, max: number) {
@@ -177,6 +204,7 @@ export function normalizeOnboardingData(
     operationEndTime: normalizeText(source.operationEndTime, 8),
     whatsappConnected: source.whatsappConnected === true,
     whatsappConnectedAt,
+    uiStep: normalizeUiStep(source.uiStep),
 
     completed: source.completed === true,
     updatedAt,

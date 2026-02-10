@@ -5,7 +5,7 @@ import { ArrowRight, ChevronDown, ChevronLeft, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   calculateOnboardingProgress,
-  getInitialOnboardingStep,
+  getResumeOnboardingStep,
   type OnboardingUiStep,
 } from "./progress";
 import {
@@ -19,6 +19,7 @@ type Props = {
   onDataChange?: (nextData: OnboardingData) => void;
   onProgressChange?: (progress: OnboardingProgress) => void;
   onFinished?: (nextData: OnboardingData) => void;
+  resumeSignal?: number;
 };
 
 type Errors = Record<string, string>;
@@ -137,6 +138,104 @@ const PRIORITY_OPTIONS = [
   "Nao perder leads",
 ] as const;
 
+const MAIN_USE_OPTIONS: SelectOption[] = [
+  { value: "vendas", label: "Vendas" },
+  { value: "suporte", label: "Suporte" },
+  { value: "agendamento", label: "Agendamento" },
+  { value: "cobranca", label: "Cobranca" },
+  { value: "hibrido", label: "Hibrido (vendas + suporte)" },
+];
+
+const TEAM_AGENTS_OPTIONS: SelectOption[] = [
+  { value: "1", label: "1 atendente" },
+  { value: "2", label: "2 atendentes" },
+  { value: "3", label: "3 atendentes" },
+  { value: "4", label: "4 atendentes" },
+  { value: "5", label: "5 atendentes" },
+  { value: "8", label: "8 atendentes" },
+  { value: "10", label: "10 atendentes" },
+  { value: "15", label: "15 atendentes" },
+  { value: "20", label: "20 atendentes" },
+  { value: "30", label: "30 atendentes" },
+  { value: "50", label: "50 atendentes" },
+  { value: "100", label: "100 atendentes" },
+  { value: "200", label: "200 atendentes" },
+  { value: "500", label: "500 atendentes" },
+  { value: "1000", label: "1000 atendentes" },
+];
+
+const SUPERVISOR_OPTIONS: SelectOption[] = [
+  { value: "sim", label: "Sim, temos supervisor" },
+  { value: "nao", label: "Nao temos supervisor" },
+];
+
+const OPERATION_DAY_OPTIONS: SelectOption[] = [
+  { value: "seg", label: "Segunda" },
+  { value: "ter", label: "Terca" },
+  { value: "qua", label: "Quarta" },
+  { value: "qui", label: "Quinta" },
+  { value: "sex", label: "Sexta" },
+  { value: "sab", label: "Sabado" },
+  { value: "dom", label: "Domingo" },
+];
+const OPERATION_DAY_ORDER = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"] as const;
+const OPERATION_DAY_RANK: Map<string, number> = new Map(
+  OPERATION_DAY_ORDER.map((day, index) => [day, index]),
+);
+
+const LANGUAGE_OPTIONS: SelectOption[] = [
+  { value: "PT", label: "Portugues (PT)" },
+  { value: "EN", label: "Ingles (EN)" },
+  { value: "ES", label: "Espanhol (ES)" },
+];
+
+type TeamHoursPreset = "commercial" | "extended" | "always_on" | "custom";
+
+const TEAM_HOURS_PRESETS: Array<{
+  value: TeamHoursPreset;
+  label: string;
+  days: string[];
+  start: string;
+  end: string;
+}> = [
+  {
+    value: "commercial",
+    label: "Horario comercial (Seg a Sex, 09:00 - 18:00)",
+    days: ["seg", "ter", "qua", "qui", "sex"],
+    start: "09:00",
+    end: "18:00",
+  },
+  {
+    value: "extended",
+    label: "Horario estendido (Seg a Sab, 08:00 - 20:00)",
+    days: ["seg", "ter", "qua", "qui", "sex", "sab"],
+    start: "08:00",
+    end: "20:00",
+  },
+  {
+    value: "always_on",
+    label: "24h (Todos os dias)",
+    days: ["seg", "ter", "qua", "qui", "sex", "sab", "dom"],
+    start: "00:00",
+    end: "23:30",
+  },
+];
+
+const TEAM_HOURS_MODE_OPTIONS: SelectOption[] = [
+  ...TEAM_HOURS_PRESETS.map((preset) => ({
+    value: preset.value,
+    label: preset.label,
+  })),
+  { value: "custom", label: "Personalizado" },
+];
+
+const TIME_OPTIONS: SelectOption[] = Array.from({ length: 48 }, (_, index) => {
+  const hours = String(Math.floor(index / 2)).padStart(2, "0");
+  const minutes = index % 2 === 0 ? "00" : "30";
+  const value = `${hours}:${minutes}`;
+  return { value, label: value };
+});
+
 const INPUT =
   "w-full bg-white border border-black/15 border-2 rounded-full px-6 py-4 text-black placeholder-black/45 focus:outline-none hover:border-black/25 focus:border-lime-400 transition-all duration-300 ease-out text-base";
 const TEXTAREA_CLASS =
@@ -149,6 +248,59 @@ const cx = (...v: Array<string | false | null | undefined>) => v.filter(Boolean)
 const has = (v: string | null | undefined, n = 2) => String(v || "").trim().length >= n;
 const prev = (s: OnboardingUiStep) => STEPS[Math.max(0, STEPS.indexOf(s) - 1)] || s;
 const next = (s: OnboardingUiStep) => STEPS[Math.min(STEPS.length - 1, STEPS.indexOf(s) + 1)] || s;
+
+function normalizeDayList(values: string[] | null | undefined) {
+  return (values || [])
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean)
+    .sort((a, b) => {
+      const rankA = OPERATION_DAY_RANK.get(a) ?? 99;
+      const rankB = OPERATION_DAY_RANK.get(b) ?? 99;
+      if (rankA !== rankB) return rankA - rankB;
+      return a.localeCompare(b);
+    });
+}
+
+function sameDayList(a: string[] | null | undefined, b: string[] | null | undefined) {
+  const listA = normalizeDayList(a);
+  const listB = normalizeDayList(b);
+  if (listA.length !== listB.length) return false;
+  return listA.every((value, index) => value === listB[index]);
+}
+
+function detectTeamHoursPreset(data: OnboardingData): TeamHoursPreset {
+  for (const preset of TEAM_HOURS_PRESETS) {
+    if (
+      sameDayList(data.operationDays, preset.days) &&
+      data.operationStartTime === preset.start &&
+      data.operationEndTime === preset.end
+    ) {
+      return preset.value;
+    }
+  }
+  return "custom";
+}
+
+function buildServiceHours(
+  days: string[] | null | undefined,
+  startTime: string | null | undefined,
+  endTime: string | null | undefined,
+) {
+  const cleanDays = normalizeDayList(days);
+  const cleanStart = String(startTime || "").trim();
+  const cleanEnd = String(endTime || "").trim();
+  if (!cleanDays.length || !cleanStart || !cleanEnd) return null;
+  return `${cleanDays.join(",")} ${cleanStart}-${cleanEnd}`;
+}
+
+function timeToMinutes(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(raw);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  return hour * 60 + minute;
+}
 
 function Action({
   label,
@@ -507,6 +659,198 @@ function SelectMenu({
   );
 }
 
+function MultiSelectMenu({
+  values,
+  onChange,
+  placeholder,
+  options,
+}: {
+  values: string[];
+  onChange: (values: string[]) => void;
+  placeholder: string;
+  options: SelectOption[];
+}) {
+  const reduced = useReducedMotion();
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [openDirection, setOpenDirection] = useState<"down" | "up">("down");
+  const selected = useMemo(
+    () => options.filter((option) => values.includes(option.value)),
+    [options, values],
+  );
+
+  const summary = useMemo(() => {
+    if (!selected.length) return placeholder;
+    if (selected.length <= 2) return selected.map((option) => option.label).join(", ");
+    return `${selected[0]?.label || ""}, ${selected[1]?.label || ""} +${selected.length - 2}`;
+  }, [placeholder, selected]);
+
+  const closeMenu = useCallback(() => setOpen(false), []);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onPointerDown = (event: MouseEvent | TouchEvent) => {
+      const root = wrapRef.current;
+      const target = event.target as Node | null;
+      if (!root || !target) return;
+      if (!root.contains(target)) closeMenu();
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeMenu();
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown, { passive: true });
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, closeMenu]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const measureDirection = () => {
+      const wrap = wrapRef.current;
+      const menu = menuRef.current;
+      if (!wrap || !menu) return;
+
+      const rect = wrap.getBoundingClientRect();
+      const viewportHeight =
+        window.innerHeight || document.documentElement.clientHeight || 0;
+      const spaceBelow = viewportHeight - rect.bottom - 12;
+      const spaceAbove = rect.top - 12;
+      const menuHeight = Math.min(menu.scrollHeight, 250) + 12;
+      const shouldOpenDown = spaceBelow >= menuHeight || spaceBelow >= spaceAbove;
+      setOpenDirection(shouldOpenDown ? "down" : "up");
+    };
+
+    measureDirection();
+    const raf = window.requestAnimationFrame(measureDirection);
+    window.addEventListener("resize", measureDirection);
+    window.addEventListener("scroll", measureDirection, true);
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.removeEventListener("resize", measureDirection);
+      window.removeEventListener("scroll", measureDirection, true);
+    };
+  }, [open, selected.length]);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <motion.button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        whileTap={reduced ? undefined : { scale: 0.996 }}
+        transition={reduced ? { duration: 0.1 } : { duration: 0.2, ease: EASE }}
+        className={cx(
+          INPUT,
+          "flex items-center justify-between text-left pr-5",
+          open && "border-black/25",
+        )}
+      >
+        <span className={cx("truncate", selected.length ? "text-black" : "text-black/45")}>
+          {summary}
+        </span>
+        <span className="ml-2 mr-1 rounded-full border border-black/10 bg-black/[0.03] px-2 py-0.5 text-[11px] font-semibold text-black/60">
+          {selected.length}
+        </span>
+        <motion.span
+          animate={{ rotate: open ? 180 : 0, x: open ? -1 : 0 }}
+          transition={
+            reduced
+              ? { duration: 0.1 }
+              : { type: "spring", stiffness: 430, damping: 28, mass: 0.5 }
+          }
+          className="ml-2 mr-1.5 inline-flex shrink-0 items-center justify-center text-black/55"
+        >
+          <ChevronDown className="h-4 w-4" />
+        </motion.span>
+      </motion.button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            ref={menuRef}
+            initial={
+              reduced
+                ? { opacity: 0 }
+                : {
+                    opacity: 0,
+                    y: openDirection === "down" ? -8 : 8,
+                    scale: 0.985,
+                  }
+            }
+            animate={
+              reduced
+                ? { opacity: 1 }
+                : {
+                    opacity: 1,
+                    y: 0,
+                    scale: 1,
+                  }
+            }
+            exit={
+              reduced
+                ? { opacity: 0 }
+                : {
+                    opacity: 0,
+                    y: openDirection === "down" ? -4 : 4,
+                    scale: 0.985,
+                  }
+            }
+            transition={reduced ? { duration: 0.1 } : { duration: 0.22, ease: EASE }}
+            className={cx(
+              "absolute left-0 right-0 z-[90] overflow-hidden rounded-2xl border border-black/10 bg-white shadow-[0_18px_36px_rgba(0,0,0,0.14)]",
+              openDirection === "down"
+                ? "top-[calc(100%+8px)] origin-top"
+                : "bottom-[calc(100%+8px)] origin-bottom",
+            )}
+          >
+            <ul className="max-h-[250px] overflow-y-auto p-1.5">
+              {options.map((option) => {
+                const isSelected = values.includes(option.value);
+                return (
+                  <li key={option.value}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isSelected) {
+                          onChange(values.filter((value) => value !== option.value));
+                          return;
+                        }
+                        onChange([...values, option.value]);
+                      }}
+                      className={cx(
+                        "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-[13px] font-medium transition-colors",
+                        isSelected
+                          ? "bg-black/[0.07] text-black/90"
+                          : "text-black/75 hover:bg-black/[0.04]",
+                      )}
+                    >
+                      <span className="truncate">{option.label}</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-black/45">
+                        {isSelected ? "selecionado" : "selecionar"}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function Err({ text }: { text?: string }) {
   return text ? <p className="mt-1 text-[12px] font-medium text-red-600">{text}</p> : null;
 }
@@ -516,12 +860,14 @@ export default function Pendencias({
   onDataChange,
   onProgressChange,
   onFinished,
+  resumeSignal = 0,
 }: Props) {
   const reduced = useReducedMotion();
   const [data, setData] = useState(() => normalizeOnboardingData(initialData));
-  const [step, setStep] = useState<OnboardingUiStep>(() =>
-    getInitialOnboardingStep(normalizeOnboardingData(initialData)),
-  );
+  const [step, setStep] = useState<OnboardingUiStep>(() => {
+    const normalized = normalizeOnboardingData(initialData);
+    return getResumeOnboardingStep(normalized, normalized.uiStep);
+  });
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
@@ -532,6 +878,27 @@ export default function Pendencias({
     () => progress.tasks.filter((t) => t.id !== "finish").every((t) => t.done),
     [progress.tasks],
   );
+  const teamHoursPreset = useMemo(() => detectTeamHoursPreset(data), [data]);
+  const customEndTimeOptions = useMemo(() => {
+    if (teamHoursPreset !== "custom") return TIME_OPTIONS;
+
+    const startMinutes = timeToMinutes(data.operationStartTime);
+    if (startMinutes === null) return TIME_OPTIONS;
+
+    const filtered = TIME_OPTIONS.filter((option) => {
+      const endMinutes = timeToMinutes(option.value);
+      return endMinutes !== null && endMinutes > startMinutes;
+    });
+
+    return filtered.length ? filtered : TIME_OPTIONS;
+  }, [teamHoursPreset, data.operationStartTime]);
+
+  const lastResumeSignalRef = useRef(resumeSignal);
+  useEffect(() => {
+    if (resumeSignal === lastResumeSignalRef.current) return;
+    lastResumeSignalRef.current = resumeSignal;
+    setStep(getResumeOnboardingStep(data, data.uiStep));
+  }, [resumeSignal, data]);
 
   useEffect(() => onProgressChange?.(progress), [onProgressChange, progress]);
 
@@ -586,6 +953,7 @@ export default function Pendencias({
       const nextState = normalizeOnboardingData({
         ...data,
         completed: true,
+        uiStep: "final",
         updatedAt: new Date().toISOString(),
       });
       setData(nextState);
@@ -635,8 +1003,9 @@ export default function Pendencias({
                 <p className="text-[14px] text-black/70">Voce esta a poucos minutos de ativar seu WhatsApp. Confirme para iniciar.</p>
                 <Action label={saving ? "Salvando..." : "Iniciar configuracao"} className="w-auto ml-auto" disabled={saving} onClick={async () => {
                   setErrors({});
-                  await save({ welcomeConfirmed: true });
-                  setStep("company");
+                  const nextStepValue: OnboardingUiStep = "company";
+                  await save({ welcomeConfirmed: true, uiStep: nextStepValue });
+                  setStep(nextStepValue);
                 }} />
               </div>
             )}
@@ -679,7 +1048,12 @@ export default function Pendencias({
                 )}
                 {step === "goal" && (
                   <>
-                    <input className={INPUT} placeholder="Uso principal: vendas | suporte | agendamento | cobranca | hibrido" value={data.mainUse || ""} onChange={(e) => commit({ mainUse: e.target.value })} />
+                    <SelectMenu
+                      value={data.mainUse || ""}
+                      onChange={(value) => commit({ mainUse: value })}
+                      placeholder="Uso principal do WhatsApp"
+                      options={MAIN_USE_OPTIONS}
+                    />
                     <SelectMenu
                       value={data.priorityNow || ""}
                       onChange={(value) => commit({ priorityNow: value })}
@@ -694,12 +1068,127 @@ export default function Pendencias({
                 )}
                 {step === "team" && (
                   <>
-                    <input className={INPUT} type="number" min={1} placeholder="Quantidade de atendentes" value={data.teamAgentsCount ?? ""} onChange={(e) => commit({ teamAgentsCount: e.target.value ? Number(e.target.value) : null })} />
-                    <input className={INPUT} placeholder="Tem supervisor? sim/nao" value={data.hasSupervisor === null ? "" : data.hasSupervisor ? "sim" : "nao"} onChange={(e) => commit({ hasSupervisor: /sim/i.test(e.target.value) ? true : /nao/i.test(e.target.value) ? false : null })} />
-                    <input className={INPUT} placeholder="Dias de operacao (ex: seg,ter,qua)" value={(data.operationDays || []).join(",")} onChange={(e) => commit({ operationDays: e.target.value.split(",").map((v) => v.trim()).filter(Boolean) })} />
-                    <input className={INPUT} placeholder="Inicio (HH:MM)" value={data.operationStartTime || ""} onChange={(e) => commit({ operationStartTime: e.target.value })} />
-                    <input className={INPUT} placeholder="Fim (HH:MM)" value={data.operationEndTime || ""} onChange={(e) => commit({ operationEndTime: e.target.value })} />
-                    <input className={INPUT} placeholder="Idiomas (PT,EN,ES)" value={(data.languages || []).join(",")} onChange={(e) => commit({ languages: e.target.value.split(",").map((v) => v.trim().toUpperCase()).filter(Boolean) })} />
+                    <SelectMenu
+                      value={data.teamAgentsCount ? String(data.teamAgentsCount) : ""}
+                      onChange={(value) => commit({ teamAgentsCount: Number(value) || null })}
+                      placeholder="Quantidade de atendentes"
+                      options={TEAM_AGENTS_OPTIONS}
+                    />
+                    <SelectMenu
+                      value={
+                        data.hasSupervisor === null ? "" : data.hasSupervisor ? "sim" : "nao"
+                      }
+                      onChange={(value) => commit({ hasSupervisor: value === "sim" })}
+                      placeholder="Existe supervisor na operacao?"
+                      options={SUPERVISOR_OPTIONS}
+                    />
+                    <SelectMenu
+                      value={teamHoursPreset}
+                      onChange={(value) => {
+                        if (value === "custom") {
+                          commit({
+                            operationDays:
+                              data.operationDays && data.operationDays.length
+                                ? data.operationDays
+                                : ["seg", "ter", "qua", "qui", "sex"],
+                            operationStartTime: data.operationStartTime || "09:00",
+                            operationEndTime: data.operationEndTime || "18:00",
+                            serviceHours: buildServiceHours(
+                              data.operationDays,
+                              data.operationStartTime,
+                              data.operationEndTime,
+                            ),
+                          });
+                          return;
+                        }
+
+                        const preset = TEAM_HOURS_PRESETS.find(
+                          (item) => item.value === value,
+                        );
+                        if (!preset) return;
+
+                        commit({
+                          operationDays: preset.days,
+                          operationStartTime: preset.start,
+                          operationEndTime: preset.end,
+                          serviceHours: buildServiceHours(
+                            preset.days,
+                            preset.start,
+                            preset.end,
+                          ),
+                        });
+                      }}
+                      placeholder="Horario de atendimento"
+                      options={TEAM_HOURS_MODE_OPTIONS}
+                    />
+                    <MultiSelectMenu
+                      values={(data.operationDays || []) as string[]}
+                      onChange={(values) => {
+                        commit({
+                          operationDays: values,
+                          serviceHours: buildServiceHours(
+                            values,
+                            data.operationStartTime,
+                            data.operationEndTime,
+                          ),
+                        });
+                      }}
+                      placeholder="Dias de operacao"
+                      options={OPERATION_DAY_OPTIONS}
+                    />
+                    {teamHoursPreset === "custom" && (
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <SelectMenu
+                          value={data.operationStartTime || ""}
+                          onChange={(value) => {
+                            const nextStartMinutes = timeToMinutes(value);
+                            const currentEndMinutes = timeToMinutes(data.operationEndTime);
+                            const shouldResetEnd =
+                              currentEndMinutes !== null &&
+                              nextStartMinutes !== null &&
+                              currentEndMinutes <= nextStartMinutes;
+                            const nextEnd = shouldResetEnd ? null : data.operationEndTime;
+
+                            commit({
+                              operationStartTime: value,
+                              operationEndTime: nextEnd,
+                              serviceHours: buildServiceHours(
+                                data.operationDays,
+                                value,
+                                nextEnd,
+                              ),
+                            });
+                          }}
+                          placeholder="Inicio (HH:MM)"
+                          options={TIME_OPTIONS}
+                        />
+                        <SelectMenu
+                          value={data.operationEndTime || ""}
+                          onChange={(value) =>
+                            commit({
+                              operationEndTime: value,
+                              serviceHours: buildServiceHours(
+                                data.operationDays,
+                                data.operationStartTime,
+                                value,
+                              ),
+                            })
+                          }
+                          placeholder="Fim (HH:MM)"
+                          options={customEndTimeOptions}
+                        />
+                      </div>
+                    )}
+                    <MultiSelectMenu
+                      values={(data.languages || []) as string[]}
+                      onChange={(values) =>
+                        commit({
+                          languages: values.map((value) => value.toUpperCase()),
+                        })
+                      }
+                      placeholder="Idiomas de atendimento"
+                      options={LANGUAGE_OPTIONS}
+                    />
                     <Err text={errors.team} />
                   </>
                 )}
@@ -735,7 +1224,15 @@ export default function Pendencias({
                     <ChevronLeft className="h-4 w-4" />Voltar
                   </button>
                   {step === "improve" && (
-                    <button type="button" onClick={() => setStep("final")} className="inline-flex h-[46px] items-center justify-center rounded-full border border-black/15 bg-white px-5 text-[13px] font-semibold text-black/75">
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={async () => {
+                        await save({ uiStep: "final" });
+                        setStep("final");
+                      }}
+                      className="inline-flex h-[46px] items-center justify-center rounded-full border border-black/15 bg-white px-5 text-[13px] font-semibold text-black/75"
+                    >
                       Pular por agora
                     </button>
                   )}
@@ -754,12 +1251,13 @@ export default function Pendencias({
                         const patch: Partial<OnboardingData> =
                           step === "company" ? { companyName: data.companyName, segment: data.segment, companySize: data.companySize, websiteOrInstagram: data.websiteOrInstagram } :
                           step === "goal" ? { mainUse: data.mainUse, priorityNow: data.priorityNow } :
-                          step === "team" ? { teamAgentsCount: data.teamAgentsCount, hasSupervisor: data.hasSupervisor, operationDays: data.operationDays, operationStartTime: data.operationStartTime, operationEndTime: data.operationEndTime, serviceHours: `${(data.operationDays || []).join(",")} ${data.operationStartTime}-${data.operationEndTime}`, languages: data.languages } :
+                          step === "team" ? { teamAgentsCount: data.teamAgentsCount, hasSupervisor: data.hasSupervisor, operationDays: data.operationDays, operationStartTime: data.operationStartTime, operationEndTime: data.operationEndTime, serviceHours: buildServiceHours(data.operationDays, data.operationStartTime, data.operationEndTime), languages: data.languages } :
                           step === "ai" ? { aiAutoMode: data.aiAutoMode, brandTone: data.brandTone, handoffAfterMessages: data.handoffAfterMessages } :
                           step === "whatsapp" ? { whatsappConnected: true, whatsappConnectedAt: data.whatsappConnectedAt || new Date().toISOString() } :
                           { aiCatalogSummary: data.aiCatalogSummary, aiKnowledgeLinks: data.aiKnowledgeLinks, aiGuardrails: data.aiGuardrails };
-                        await save(patch);
-                        setStep(next(step));
+                        const nextStepValue = next(step);
+                        await save({ ...patch, uiStep: nextStepValue });
+                        setStep(nextStepValue);
                       }}
                     />
                   </div>

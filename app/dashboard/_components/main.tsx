@@ -14,12 +14,14 @@ type Props = {
   initialOnboarding: OnboardingData;
   onProgressChange?: (progress: OnboardingProgress) => void;
   onDataChange?: (nextData: OnboardingData) => void;
+  resumeSignal?: number;
 };
 
 export default function Main({
   initialOnboarding,
   onProgressChange,
   onDataChange,
+  resumeSignal = 0,
 }: Props) {
   const [data, setData] = useState<OnboardingData>(() =>
     normalizeOnboardingData(initialOnboarding),
@@ -31,6 +33,12 @@ export default function Main({
   useEffect(() => {
     onProgressChange?.(progress);
   }, [onProgressChange, progress]);
+
+  useEffect(() => {
+    if (!resumeSignal || !showOnboarding) return;
+    const target = document.getElementById("onboarding-pendencias");
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [resumeSignal, showOnboarding]);
 
   const handleData = (nextData: OnboardingData) => {
     setData(nextData);
@@ -45,6 +53,7 @@ export default function Main({
           onDataChange={handleData}
           onProgressChange={onProgressChange}
           onFinished={handleData}
+          resumeSignal={resumeSignal}
         />
       ) : (
         <div className="flex h-full min-h-[70vh] items-center justify-center px-6">

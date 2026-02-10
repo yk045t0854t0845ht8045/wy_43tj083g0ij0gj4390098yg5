@@ -172,6 +172,7 @@ async function getInitialOnboardingData(params: {
     "operation_end_time",
     "whatsapp_connected",
     "whatsapp_connected_at",
+    "ui_step",
     "updated_at",
   ].join(",");
 
@@ -240,6 +241,7 @@ async function getInitialOnboardingData(params: {
         operationEndTime: row.operation_end_time as string | null,
         whatsappConnected: row.whatsapp_connected === true,
         whatsappConnectedAt: row.whatsapp_connected_at as string | null,
+        uiStep: row.ui_step as OnboardingData["uiStep"],
         completed: false,
         updatedAt: row.updated_at as string | null,
       });
@@ -284,6 +286,7 @@ async function getInitialOnboardingData(params: {
       aiCatalogSummary: row.ai_catalog_summary as string | null,
       aiKnowledgeLinks: row.ai_knowledge_links as string | null,
       aiGuardrails: row.ai_guardrails as string | null,
+      uiStep: null,
       completed: false,
       updatedAt: row.updated_at as string | null,
     });

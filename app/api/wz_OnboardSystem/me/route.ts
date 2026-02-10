@@ -13,48 +13,60 @@ export async function GET(req: NextRequest) {
 
   try {
     const sb = supabaseAdmin();
+    const fullSelect = [
+      "company_name",
+      "cnpj",
+      "trade_name",
+      "website_or_instagram",
+      "segment",
+      "company_size",
 
-    const { data, error } = await sb
+      "main_use",
+      "priority_now",
+      "has_supervisor",
+      "service_hours",
+      "target_response_time",
+      "languages",
+
+      "ai_auto_mode",
+      "ai_handoff_human_request",
+      "ai_handoff_anger_urgency",
+      "ai_handoff_after_messages",
+      "ai_handoff_price_payment",
+      "brand_tone",
+      "msg_signature",
+
+      "ai_catalog_summary",
+      "ai_knowledge_links",
+      "ai_guardrails",
+      "welcome_confirmed",
+      "team_agents_count",
+      "operation_days",
+      "operation_start_time",
+      "operation_end_time",
+      "whatsapp_connected",
+      "whatsapp_connected_at",
+      "ui_step",
+      "updated_at",
+    ].join(",");
+
+    const baseSelect = fullSelect.replace(",ui_step", "");
+
+    let { data, error } = await sb
       .from("wz_onboarding")
-      .select(
-        [
-          "company_name",
-          "cnpj",
-          "trade_name",
-          "website_or_instagram",
-          "segment",
-          "company_size",
-
-          "main_use",
-          "priority_now",
-          "has_supervisor",
-          "service_hours",
-          "target_response_time",
-          "languages",
-
-          "ai_auto_mode",
-          "ai_handoff_human_request",
-          "ai_handoff_anger_urgency",
-          "ai_handoff_after_messages",
-          "ai_handoff_price_payment",
-          "brand_tone",
-          "msg_signature",
-
-          "ai_catalog_summary",
-          "ai_knowledge_links",
-          "ai_guardrails",
-          "welcome_confirmed",
-          "team_agents_count",
-          "operation_days",
-          "operation_start_time",
-          "operation_end_time",
-          "whatsapp_connected",
-          "whatsapp_connected_at",
-          "updated_at",
-        ].join(","),
-      )
+      .select(fullSelect)
       .eq("user_id", s.userId)
       .maybeSingle();
+
+    if (error && /ui_step/i.test(String(error.message || ""))) {
+      const fallback = await sb
+        .from("wz_onboarding")
+        .select(baseSelect)
+        .eq("user_id", s.userId)
+        .maybeSingle();
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) {
       return jsonNoStore({ ok: false, error: error.message || "Falha ao buscar onboarding." }, 500);
@@ -95,6 +107,7 @@ export async function GET(req: NextRequest) {
       operationEndTime: row?.operation_end_time ?? null,
       whatsappConnected: row?.whatsapp_connected === true,
       whatsappConnectedAt: row?.whatsapp_connected_at ?? null,
+      uiStep: row?.ui_step ?? null,
       completed: false,
       updatedAt: row?.updated_at ?? null,
     };

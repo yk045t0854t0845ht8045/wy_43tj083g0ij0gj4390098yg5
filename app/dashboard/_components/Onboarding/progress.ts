@@ -1,4 +1,9 @@
-import type { OnboardingData, OnboardingProgress, OnboardingTask } from "./types";
+import type {
+  OnboardingData,
+  OnboardingProgress,
+  OnboardingTask,
+  OnboardingUiStepValue,
+} from "./types";
 
 function hasText(value: string | null | undefined, min = 2) {
   const clean = String(value || "").trim();
@@ -86,15 +91,20 @@ export function calculateOnboardingProgress(data: OnboardingData): OnboardingPro
   };
 }
 
-export type OnboardingUiStep =
-  | "welcome"
-  | "company"
-  | "goal"
-  | "team"
-  | "ai"
-  | "whatsapp"
-  | "improve"
-  | "final";
+export type OnboardingUiStep = OnboardingUiStepValue;
+
+function isUiStep(value: unknown): value is OnboardingUiStep {
+  return (
+    value === "welcome" ||
+    value === "company" ||
+    value === "goal" ||
+    value === "team" ||
+    value === "ai" ||
+    value === "whatsapp" ||
+    value === "improve" ||
+    value === "final"
+  );
+}
 
 export function getInitialOnboardingStep(data: OnboardingData): OnboardingUiStep {
   const tasks = getOnboardingTasks(data);
@@ -111,4 +121,26 @@ export function getInitialOnboardingStep(data: OnboardingData): OnboardingUiStep
   if (firstPendingTask.id === "team") return "team";
   if (firstPendingTask.id === "ai") return "ai";
   return "whatsapp";
+}
+
+export function getResumeOnboardingStep(
+  data: OnboardingData,
+  preferredStep?: unknown,
+): OnboardingUiStep {
+  const initialPending = getInitialOnboardingStep(data);
+  if (!isUiStep(preferredStep)) return initialPending;
+
+  if (initialPending === "final") return "final";
+
+  // If all mandatory steps are complete and user had paused in final/improve,
+  // resume where they stopped.
+  if (initialPending === "improve") {
+    if (preferredStep === "improve" || preferredStep === "final") {
+      return preferredStep;
+    }
+    return "improve";
+  }
+
+  // For required flow, never skip ahead of the first pending required step.
+  return preferredStep === initialPending ? preferredStep : initialPending;
 }

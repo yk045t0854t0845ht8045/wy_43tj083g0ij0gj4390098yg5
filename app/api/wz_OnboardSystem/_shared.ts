@@ -4,6 +4,15 @@ import { NextResponse } from "next/server";
 export type CompanySize = "1-5" | "6-20" | "21-100" | "100+";
 export type AiAutoMode = "all" | "common" | "assistant";
 export type BrandTone = "formal" | "neutral" | "casual";
+export type OnboardingUiStep =
+  | "welcome"
+  | "company"
+  | "goal"
+  | "team"
+  | "ai"
+  | "whatsapp"
+  | "improve"
+  | "final";
 
 export type OnboardData = {
   companyName: string | null;
@@ -41,6 +50,7 @@ export type OnboardData = {
   operationEndTime: string | null;
   whatsappConnected: boolean;
   whatsappConnectedAt: string | null;
+  uiStep: OnboardingUiStep | null;
 
   completed: boolean;
   updatedAt: string | null;
@@ -102,6 +112,23 @@ export function normalizeBrandTone(v: any): BrandTone | null {
   if (s.includes("descontra")) return "casual";
   if (s.includes("formal")) return "formal";
 
+  return null;
+}
+
+export function normalizeOnboardingUiStep(v: any): OnboardingUiStep | null {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (
+    s === "welcome" ||
+    s === "company" ||
+    s === "goal" ||
+    s === "team" ||
+    s === "ai" ||
+    s === "whatsapp" ||
+    s === "improve" ||
+    s === "final"
+  ) {
+    return s as OnboardingUiStep;
+  }
   return null;
 }
 
@@ -296,6 +323,7 @@ export type CompletePayload = {
   operationEndTime: string | null;
   whatsappConnected: boolean;
   whatsappConnectedAt: string | null;
+  uiStep: OnboardingUiStep | null;
 };
 
 export function validateCompletePayload(body: any): { ok: true; data: CompletePayload } | { ok: false; error: string } {
@@ -321,6 +349,7 @@ export function validateCompletePayload(body: any): { ok: true; data: CompletePa
   const operationEndTime = clampText(normText(body?.operationEndTime), 8);
   const whatsappConnected = body?.whatsappConnected === true;
   const whatsappConnectedAt = clampText(normText(body?.whatsappConnectedAt), 64);
+  const uiStep = normalizeOnboardingUiStep(body?.uiStep);
 
   if (!companyName || companyName.length < 2) return { ok: false, error: "Nome da empresa inválido." };
   if (!segment || segment.length < 2) return { ok: false, error: "Segmento inválido." };
@@ -386,6 +415,7 @@ export function validateCompletePayload(body: any): { ok: true; data: CompletePa
     operationEndTime,
     whatsappConnected,
     whatsappConnectedAt,
+    uiStep,
   };
 
   return { ok: true, data: out };
