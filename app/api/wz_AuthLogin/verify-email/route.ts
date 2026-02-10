@@ -241,7 +241,7 @@ export async function POST(req: Request) {
 
       const dashboard = getDashboardOrigin();
 
-      // ✅ host-only => NÃO seta cookie aqui (login host). Usa ticket + exchange no dashboard.
+      // ✅ host-only => seta no login host e usa ticket + exchange no dashboard.
       if (isHostOnlyMode()) {
         const ticket = makeDashboardTicket({
           userId: String(userRow.id),
@@ -256,6 +256,11 @@ export async function POST(req: Request) {
         const res = NextResponse.json(
           { ok: true, nextUrl },
           { status: 200, headers: NO_STORE_HEADERS },
+        );
+        setSessionCookie(
+          res,
+          { userId: String(userRow.id), email, fullName: resolvedFullName },
+          req.headers,
         );
         return res;
       }
