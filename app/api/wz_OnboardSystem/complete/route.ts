@@ -50,6 +50,13 @@ export async function POST(req: NextRequest) {
           "ai_catalog_summary",
           "ai_knowledge_links",
           "ai_guardrails",
+          "welcome_confirmed",
+          "team_agents_count",
+          "operation_days",
+          "operation_start_time",
+          "operation_end_time",
+          "whatsapp_connected",
+          "whatsapp_connected_at",
         ].join(","),
       )
       .eq("user_id", s.userId)
@@ -86,6 +93,14 @@ export async function POST(req: NextRequest) {
       aiCatalogSummary: base.ai_catalog_summary ?? null,
       aiKnowledgeLinks: base.ai_knowledge_links ?? null,
       aiGuardrails: base.ai_guardrails ?? null,
+      welcomeConfirmed: base.welcome_confirmed === true,
+      teamAgentsCount:
+        typeof base.team_agents_count === "number" ? base.team_agents_count : null,
+      operationDays: Array.isArray(base.operation_days) ? base.operation_days : null,
+      operationStartTime: base.operation_start_time ?? null,
+      operationEndTime: base.operation_end_time ?? null,
+      whatsappConnected: base.whatsapp_connected === true,
+      whatsappConnectedAt: base.whatsapp_connected_at ?? null,
 
       ...(body && typeof body === "object" && !Array.isArray(body) ? body : {}),
     };
@@ -139,6 +154,13 @@ export async function POST(req: NextRequest) {
       ai_catalog_summary: checked.data.aiCatalogSummary,
       ai_knowledge_links: checked.data.aiKnowledgeLinks,
       ai_guardrails: checked.data.aiGuardrails,
+      welcome_confirmed: checked.data.welcomeConfirmed,
+      team_agents_count: checked.data.teamAgentsCount,
+      operation_days: checked.data.operationDays,
+      operation_start_time: checked.data.operationStartTime,
+      operation_end_time: checked.data.operationEndTime,
+      whatsapp_connected: checked.data.whatsappConnected,
+      whatsapp_connected_at: checked.data.whatsappConnectedAt,
 
       completed: true,
       updated_at: now,

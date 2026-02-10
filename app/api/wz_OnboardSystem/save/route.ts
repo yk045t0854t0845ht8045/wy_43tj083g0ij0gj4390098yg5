@@ -15,6 +15,7 @@ import {
   normalizeBrandTone,
   normalizeBoolNullable,
   normalizeIntNullable,
+  normalizeOperationDays,
 } from "../_shared";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +51,13 @@ const ALLOWED_KEYS = new Set([
   "aiCatalogSummary",
   "aiKnowledgeLinks",
   "aiGuardrails",
+  "welcomeConfirmed",
+  "teamAgentsCount",
+  "operationDays",
+  "operationStartTime",
+  "operationEndTime",
+  "whatsappConnected",
+  "whatsappConnectedAt",
 ]);
 
 export async function POST(req: NextRequest) {
@@ -181,6 +189,34 @@ export async function POST(req: NextRequest) {
     if ("aiCatalogSummary" in body) patch.ai_catalog_summary = clampText(normText(body.aiCatalogSummary), 260);
     if ("aiKnowledgeLinks" in body) patch.ai_knowledge_links = clampText(normText(body.aiKnowledgeLinks), 520);
     if ("aiGuardrails" in body) patch.ai_guardrails = clampText(normText(body.aiGuardrails), 520);
+    if ("welcomeConfirmed" in body) patch.welcome_confirmed = body.welcomeConfirmed === true;
+
+    if ("teamAgentsCount" in body) {
+      const n = normalizeIntNullable(body.teamAgentsCount, 1, 5000);
+      if (String(body.teamAgentsCount ?? "").trim().length === 0) {
+        patch.team_agents_count = null;
+      } else if (n != null) {
+        patch.team_agents_count = n;
+      } else {
+        fieldErrors.teamAgentsCount = "Quantidade de atendentes invalida.";
+      }
+    }
+
+    if ("operationDays" in body) {
+      patch.operation_days = normalizeOperationDays(body.operationDays);
+    }
+    if ("operationStartTime" in body) {
+      patch.operation_start_time = clampText(normText(body.operationStartTime), 8);
+    }
+    if ("operationEndTime" in body) {
+      patch.operation_end_time = clampText(normText(body.operationEndTime), 8);
+    }
+    if ("whatsappConnected" in body) {
+      patch.whatsapp_connected = normalizeBoolNullable(body.whatsappConnected);
+    }
+    if ("whatsappConnectedAt" in body) {
+      patch.whatsapp_connected_at = clampText(normText(body.whatsappConnectedAt), 64);
+    }
 
     // Se nada válido sobrou (ex.: só cnpj parcial), não grava
     if (Object.keys(patch).length === 0) {

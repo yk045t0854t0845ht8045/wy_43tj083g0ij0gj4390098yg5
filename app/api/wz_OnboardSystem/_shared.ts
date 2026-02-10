@@ -34,6 +34,13 @@ export type OnboardData = {
   aiCatalogSummary: string | null;
   aiKnowledgeLinks: string | null;
   aiGuardrails: string | null;
+  welcomeConfirmed: boolean;
+  teamAgentsCount: number | null;
+  operationDays: string[] | null;
+  operationStartTime: string | null;
+  operationEndTime: string | null;
+  whatsappConnected: boolean;
+  whatsappConnectedAt: string | null;
 
   completed: boolean;
   updatedAt: string | null;
@@ -121,6 +128,26 @@ export function normalizeLanguages(v: any): string[] | null {
 
   const out = v
     .map((x) => String(x ?? "").trim().toUpperCase())
+    .filter((x) => allow.has(x));
+
+  const seen = new Set<string>();
+  const uniq: string[] = [];
+  for (const x of out) {
+    if (!seen.has(x)) {
+      seen.add(x);
+      uniq.push(x);
+    }
+  }
+
+  return uniq.length ? uniq : null;
+}
+
+export function normalizeOperationDays(v: any): string[] | null {
+  if (!Array.isArray(v)) return null;
+  const allow = new Set(["seg", "ter", "qua", "qui", "sex", "sab", "dom"]);
+
+  const out = v
+    .map((x) => String(x ?? "").trim().toLowerCase())
     .filter((x) => allow.has(x));
 
   const seen = new Set<string>();
@@ -262,16 +289,66 @@ export type CompletePayload = {
   aiCatalogSummary: string | null;
   aiKnowledgeLinks: string | null;
   aiGuardrails: string | null;
+  welcomeConfirmed: boolean;
+  teamAgentsCount: number | null;
+  operationDays: string[] | null;
+  operationStartTime: string | null;
+  operationEndTime: string | null;
+  whatsappConnected: boolean;
+  whatsappConnectedAt: string | null;
 };
 
 export function validateCompletePayload(body: any): { ok: true; data: CompletePayload } | { ok: false; error: string } {
   const companyName = clampText(normText(body?.companyName), 120);
   const segment = clampText(normText(body?.segment), 80);
   const companySize = normalizeCompanySize(body?.companySize);
+  const mainUse = clampText(normText(body?.mainUse), 60);
+  const priorityNow = clampText(normText(body?.priorityNow), 60);
+  const hasSupervisor = normalizeBoolNullable(body?.hasSupervisor);
+  const serviceHours = clampText(normText(body?.serviceHours), 60);
+  const targetResponseTime = clampText(normText(body?.targetResponseTime), 30);
+  const languages = normalizeLanguages(body?.languages);
+  const aiAutoMode = normalizeAiAutoMode(body?.aiAutoMode);
+  const handoffHumanRequest = normalizeBoolNullable(body?.handoffHumanRequest);
+  const handoffAngerUrgency = normalizeBoolNullable(body?.handoffAngerUrgency);
+  const handoffAfterMessages = normalizeIntNullable(body?.handoffAfterMessages, 1, 50);
+  const handoffPricePayment = normalizeBoolNullable(body?.handoffPricePayment);
+  const brandTone = normalizeBrandTone(body?.brandTone);
+  const welcomeConfirmed = body?.welcomeConfirmed === true;
+  const teamAgentsCount = normalizeIntNullable(body?.teamAgentsCount, 1, 5000);
+  const operationDays = normalizeOperationDays(body?.operationDays);
+  const operationStartTime = clampText(normText(body?.operationStartTime), 8);
+  const operationEndTime = clampText(normText(body?.operationEndTime), 8);
+  const whatsappConnected = body?.whatsappConnected === true;
+  const whatsappConnectedAt = clampText(normText(body?.whatsappConnectedAt), 64);
 
   if (!companyName || companyName.length < 2) return { ok: false, error: "Nome da empresa inválido." };
   if (!segment || segment.length < 2) return { ok: false, error: "Segmento inválido." };
   if (!companySize) return { ok: false, error: "Tamanho da empresa inválido." };
+
+  if (!mainUse) return { ok: false, error: "Objetivo principal invalido." };
+  if (!priorityNow) return { ok: false, error: "Prioridade atual invalida." };
+  if (hasSupervisor == null) return { ok: false, error: "Defina se existe supervisor." };
+  if (!serviceHours) return { ok: false, error: "Horario de atendimento invalido." };
+  if (!languages || !languages.length) return { ok: false, error: "Selecione ao menos um idioma." };
+  if (!aiAutoMode) return { ok: false, error: "Modo de IA invalido." };
+  if (!brandTone) return { ok: false, error: "Tom de voz invalido." };
+  if (!welcomeConfirmed) return { ok: false, error: "Confirme a etapa inicial do onboarding." };
+  if (!teamAgentsCount) return { ok: false, error: "Quantidade de atendentes invalida." };
+  if (!operationDays || !operationDays.length) return { ok: false, error: "Dias de operacao invalidos." };
+  if (!operationStartTime || !operationEndTime) {
+    return { ok: false, error: "Horarios de inicio/fim invalidos." };
+  }
+  if (!whatsappConnected) return { ok: false, error: "Conecte o WhatsApp antes de finalizar." };
+  if (
+    aiAutoMode === "all" &&
+    handoffHumanRequest !== true &&
+    handoffAngerUrgency !== true &&
+    handoffPricePayment !== true &&
+    !(handoffAfterMessages && handoffAfterMessages > 0)
+  ) {
+    return { ok: false, error: "Defina ao menos uma regra de transferencia para humano." };
+  }
 
   const cnpjCheck = validateCnpjOptional(body?.cnpj);
   if (!cnpjCheck.ok) return { ok: false, error: cnpjCheck.message || "CNPJ inválido." };
@@ -284,24 +361,31 @@ export function validateCompletePayload(body: any): { ok: true; data: CompletePa
     segment,
     companySize,
 
-    mainUse: clampText(normText(body?.mainUse), 60),
-    priorityNow: clampText(normText(body?.priorityNow), 60),
-    hasSupervisor: normalizeBoolNullable(body?.hasSupervisor),
-    serviceHours: clampText(normText(body?.serviceHours), 60),
-    targetResponseTime: clampText(normText(body?.targetResponseTime), 30),
-    languages: normalizeLanguages(body?.languages),
+    mainUse,
+    priorityNow,
+    hasSupervisor,
+    serviceHours,
+    targetResponseTime,
+    languages,
 
-    aiAutoMode: normalizeAiAutoMode(body?.aiAutoMode),
-    handoffHumanRequest: normalizeBoolNullable(body?.handoffHumanRequest),
-    handoffAngerUrgency: normalizeBoolNullable(body?.handoffAngerUrgency),
-    handoffAfterMessages: normalizeIntNullable(body?.handoffAfterMessages, 1, 50),
-    handoffPricePayment: normalizeBoolNullable(body?.handoffPricePayment),
-    brandTone: normalizeBrandTone(body?.brandTone),
+    aiAutoMode,
+    handoffHumanRequest,
+    handoffAngerUrgency,
+    handoffAfterMessages,
+    handoffPricePayment,
+    brandTone,
     msgSignature: clampText(normText(body?.msgSignature), 80),
 
     aiCatalogSummary: clampText(normText(body?.aiCatalogSummary), 260),
     aiKnowledgeLinks: clampText(normText(body?.aiKnowledgeLinks), 520),
     aiGuardrails: clampText(normText(body?.aiGuardrails), 520),
+    welcomeConfirmed,
+    teamAgentsCount,
+    operationDays,
+    operationStartTime,
+    operationEndTime,
+    whatsappConnected,
+    whatsappConnectedAt,
   };
 
   return { ok: true, data: out };

@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Script from "next/script";
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
-import { ArrowRight, BellOff, LogOut, Moon, Settings, User } from "lucide-react";
+import { ArrowRight, LogOut, Settings, User } from "lucide-react";
 import React, {
   useEffect,
   useId,
@@ -319,6 +319,13 @@ type Props = {
   activeSub?: SubItemId | null;
   userNickname?: string;
   userEmail?: string;
+  onboardingProgressPercent?: number;
+  onboardingCompletedRequired?: number;
+  onboardingTotalRequired?: number;
+  onboardingRemainingRequired?: number;
+  onboardingDone?: boolean;
+  onboardingTargetId?: string;
+  onOpenOnboarding?: () => void;
 };
 
 const SIDEBAR_COLLAPSE_STORAGE_KEY = "dashboard-sidebar-collapsed-v1";
@@ -328,6 +335,13 @@ export default function Sidebar({
   activeSub = null,
   userNickname = "Usuario",
   userEmail = "conta@wyzer.com.br",
+  onboardingProgressPercent = 79,
+  onboardingCompletedRequired = 36,
+  onboardingTotalRequired = 50,
+  onboardingRemainingRequired = 14,
+  onboardingDone = false,
+  onboardingTargetId = "onboarding-pendencias",
+  onOpenOnboarding,
 }: Props) {
   const [transactionsOpen, setTransactionsOpen] = useState(
     () => activeMain === "transactions"
@@ -379,6 +393,28 @@ export default function Sidebar({
     const first = resolvedUserNickname.trim().charAt(0);
     return first ? first.toUpperCase() : "U";
   }, [resolvedUserNickname]);
+  const safeOnboardingPercent = useMemo(() => {
+    const n = Number(onboardingProgressPercent || 0);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(100, Math.round(n)));
+  }, [onboardingProgressPercent]);
+  const safeOnboardingTotal = useMemo(() => {
+    const n = Number(onboardingTotalRequired || 0);
+    if (!Number.isFinite(n) || n <= 0) return 1;
+    return Math.max(1, Math.round(n));
+  }, [onboardingTotalRequired]);
+  const safeOnboardingCompleted = useMemo(() => {
+    const n = Number(onboardingCompletedRequired || 0);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(safeOnboardingTotal, Math.round(n)));
+  }, [onboardingCompletedRequired, safeOnboardingTotal]);
+  const safeOnboardingRemaining = useMemo(() => {
+    const n = Number(onboardingRemainingRequired || 0);
+    if (Number.isFinite(n)) {
+      return Math.max(0, Math.min(safeOnboardingTotal, Math.round(n)));
+    }
+    return Math.max(safeOnboardingTotal - safeOnboardingCompleted, 0);
+  }, [onboardingRemainingRequired, safeOnboardingTotal, safeOnboardingCompleted]);
 
   useEffect(() => setActiveMainState(activeMain), [activeMain]);
   useEffect(() => setActiveSubState(activeSub), [activeSub]);
@@ -608,6 +644,18 @@ export default function Sidebar({
     if (!transactionsOpen) setTransactionsOpen(true);
     setActiveSubState(id);
     setMobileMenuOpen(false);
+  };
+
+  const openOnboardingPanel = () => {
+    if (typeof onOpenOnboarding === "function") {
+      onOpenOnboarding();
+      return;
+    }
+    const targetId = String(onboardingTargetId || "").trim();
+    if (!targetId) return;
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const mainBtnBase = cx(
@@ -1194,15 +1242,22 @@ export default function Sidebar({
                     Você possui pendências
                   </span>
                 </div>
-                <span className="text-[13px] font-semibold text-black/70">79%</span>
+                <span className="text-[13px] font-semibold text-black/70">
+                  {safeOnboardingPercent}%
+                </span>
               </div>
 
               <div className="mt-2 h-[7px] overflow-hidden rounded-full bg-black/[0.08]">
-                <span className="block h-full w-[69%] rounded-full bg-lime-400" />
+                <span
+                  className="block h-full rounded-full bg-lime-400 transition-[width] duration-300 ease-out"
+                  style={{ width: `${safeOnboardingPercent}%` }}
+                />
               </div>
 
               <div className="mt-2 flex items-center gap-1.5 text-[13px] font-medium text-black/70">
-                <span className="truncate">36 of 50 Invoices created</span>
+                <span className="truncate">
+                  {safeOnboardingCompleted} de {safeOnboardingTotal} etapas concluidas
+                </span>
                 <span className="group/info relative inline-flex shrink-0 items-center">
                   <button
                     id={invoicesInfoTargetId}
@@ -1237,8 +1292,8 @@ export default function Sidebar({
                       Pendências do plano
                     </p>
                     <p className="mt-1 text-[11px] leading-4 text-black/70">
-                      Você já criou 36 de 50 invoices. Restam 14 antes do limite;
-                      ao atingir 100%, novos envios podem ficar indisponíveis.
+                      Voce concluiu {safeOnboardingCompleted} de {safeOnboardingTotal} etapas do cadastro.
+                      Restam {safeOnboardingRemaining} pendencias para liberar tudo no dashboard.
                     </p>
                   </div>
                 </span>
@@ -1246,6 +1301,7 @@ export default function Sidebar({
 
               <motion.button
                 type="button"
+                onClick={openOnboardingPanel}
                 whileHover={prefersReducedMotion ? undefined : { y: -2, scale: 1.01 }}
                 whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
                 transition={{ duration: 0.24, ease: [0.2, 0.8, 0.2, 1] }}
@@ -1260,7 +1316,9 @@ export default function Sidebar({
                 )}
                 style={{ willChange: "transform" }}
               >
-                <span className="relative z-10">Realizar Pendências</span>
+                <span className="relative z-10">
+                  {onboardingDone ? "Revisar Cadastro" : "Realizar Pendências"}
+                </span>
                 <motion.span
                   whileHover={prefersReducedMotion ? undefined : { scale: 1.06 }}
                   whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
