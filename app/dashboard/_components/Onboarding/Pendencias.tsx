@@ -66,7 +66,7 @@ function Action({
       whileTap={reduced || disabled ? undefined : { scale: 0.98 }}
       transition={{ duration: 0.24, ease: EASE }}
       className={cx(
-        "group relative w-full rounded-full bg-[#171717] px-5 py-3 text-left text-white border-2 border-[#454545] pr-14 text-[13px] font-semibold transition-all duration-300",
+        "group relative inline-flex rounded-full bg-[#171717] px-5 py-3 text-left text-white border-2 border-[#454545] pr-14 text-[13px] font-semibold transition-all duration-300",
         "hover:border-[#6a6a6a] focus:outline-none focus:border-lime-400",
         disabled && "opacity-60 cursor-not-allowed",
         className,
@@ -206,7 +206,7 @@ export default function Pendencias({
               <div className="space-y-4">
                 <p className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-3 py-1.5 text-[12px] font-semibold text-black/75"><Sparkles className="h-4 w-4" />Boas-vindas</p>
                 <p className="text-[14px] text-black/70">Voce esta a poucos minutos de ativar seu WhatsApp. Confirme para iniciar.</p>
-                <Action label={saving ? "Salvando..." : "Iniciar configuracao"} className="w-auto min-w-[260px]" disabled={saving} onClick={async () => {
+                <Action label={saving ? "Salvando..." : "Iniciar configuracao"} className="w-auto" disabled={saving} onClick={async () => {
                   setErrors({});
                   await save({ welcomeConfirmed: true });
                   setStep("company");
@@ -283,9 +283,10 @@ export default function Pendencias({
                       Pular por agora
                     </button>
                   )}
-                  <div className="flex-1">
+                  <div>
                     <Action
                       label={saving ? "Salvando..." : "Confirmar e continuar"}
+                      className="w-auto"
                       disabled={saving}
                       onClick={async () => {
                         setErrors({});
