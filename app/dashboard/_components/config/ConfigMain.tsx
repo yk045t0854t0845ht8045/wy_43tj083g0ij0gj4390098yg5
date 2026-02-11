@@ -312,8 +312,10 @@ function AccountContent({
   const [localPhoto, setLocalPhoto] = useState<string | null>(normalizePhotoLink(userPhotoLink));
   const [editorOpen, setEditorOpen] = useState(false);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
-  const [emailStep, setEmailStep] = useState<"input" | "code">("input");
-  const [pendingEmail, setPendingEmail] = useState(() => String(email || "").trim().toLowerCase());
+  const [emailStep, setEmailStep] = useState<
+    "confirm-current-intro" | "confirm-current-code" | "new-email-input" | "confirm-new-code"
+  >("confirm-current-intro");
+  const [pendingEmail, setPendingEmail] = useState("");
   const [emailChangeTicket, setEmailChangeTicket] = useState("");
   const [emailCode, setEmailCode] = useState("");
   const [emailChangeError, setEmailChangeError] = useState<string | null>(null);
@@ -339,7 +341,7 @@ function AccountContent({
 
   useEffect(() => {
     if (emailModalOpen) return;
-    setPendingEmail(localEmail);
+    setPendingEmail("");
   }, [emailModalOpen, localEmail]);
 
   useEffect(() => {
@@ -516,31 +518,70 @@ function AccountContent({
   };
 
   const resetEmailChangeFlow = useCallback(
-    (nextDefaultEmail?: string) => {
-      const nextBase = String(nextDefaultEmail || localEmail || "").trim().toLowerCase();
-      setEmailStep("input");
-      setPendingEmail(nextBase);
+    () => {
+      setEmailStep("confirm-current-intro");
+      setPendingEmail("");
       setEmailCode("");
       setEmailChangeTicket("");
       setEmailChangeError(null);
       setEmailResendCooldown(0);
     },
-    [localEmail]
+    []
   );
 
   const closeEmailModal = () => {
     if (sendingEmailCode || resendingEmailCode || verifyingEmailCode) return;
     setEmailModalOpen(false);
-    resetEmailChangeFlow(localEmail);
+    resetEmailChangeFlow();
   };
 
   const openEmailModal = () => {
     if (sendingEmailCode || resendingEmailCode || verifyingEmailCode) return;
-    resetEmailChangeFlow(localEmail);
+    resetEmailChangeFlow();
     setEmailModalOpen(true);
   };
 
-  const startEmailChange = async () => {
+  const startCurrentEmailConfirmation = async () => {
+    if (sendingEmailCode || resendingEmailCode || verifyingEmailCode) return;
+
+    try {
+      setSendingEmailCode(true);
+      setEmailChangeError(null);
+
+      const res = await fetch("/api/wz_users/change-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        ticket?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok || !payload.ticket) {
+        throw new Error(payload.error || "Nao foi possivel enviar o codigo de verificacao.");
+      }
+
+      setEmailChangeTicket(payload.ticket);
+      setEmailCode("");
+      setEmailStep("confirm-current-code");
+      setEmailResendCooldown(60);
+    } catch (err) {
+      console.error("[config-account] start current email confirmation failed:", err);
+      setEmailChangeError(
+        err instanceof Error ? err.message : "Erro ao iniciar confirmacao do e-mail atual."
+      );
+    } finally {
+      setSendingEmailCode(false);
+    }
+  };
+
+  const sendNewEmailCode = async () => {
+    if (!emailChangeTicket) {
+      setEmailChangeError("Sessao de alteracao invalida. Reabra o modal.");
+      return;
+    }
     if (sendingEmailCode || resendingEmailCode || verifyingEmailCode) return;
 
     const nextEmail = String(pendingEmail || "").trim().toLowerCase();
@@ -558,9 +599,9 @@ function AccountContent({
       setEmailChangeError(null);
 
       const res = await fetch("/api/wz_users/change-email", {
-        method: "POST",
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ newEmail: nextEmail }),
+        body: JSON.stringify({ ticket: emailChangeTicket, newEmail: nextEmail }),
       });
 
       const payload = (await res.json().catch(() => ({}))) as {
@@ -571,19 +612,18 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok || !payload.ticket) {
-        throw new Error(payload.error || "Nao foi possivel enviar o codigo de verificacao.");
+        throw new Error(payload.error || "Nao foi possivel enviar o codigo para o novo e-mail.");
       }
 
-      const normalizedNextEmail = String(payload.nextEmail || nextEmail).trim().toLowerCase();
-      setPendingEmail(normalizedNextEmail);
       setEmailChangeTicket(payload.ticket);
+      setPendingEmail(String(payload.nextEmail || nextEmail).trim().toLowerCase());
       setEmailCode("");
-      setEmailStep("code");
+      setEmailStep("confirm-new-code");
       setEmailResendCooldown(60);
     } catch (err) {
-      console.error("[config-account] start email change failed:", err);
+      console.error("[config-account] send new email code failed:", err);
       setEmailChangeError(
-        err instanceof Error ? err.message : "Erro ao iniciar alteracao de e-mail."
+        err instanceof Error ? err.message : "Erro ao enviar codigo para o novo e-mail."
       );
     } finally {
       setSendingEmailCode(false);
@@ -606,6 +646,7 @@ function AccountContent({
 
       const payload = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
+        ticket?: string;
         error?: string;
       };
 
@@ -613,6 +654,9 @@ function AccountContent({
         throw new Error(payload.error || "Nao foi possivel reenviar o codigo.");
       }
 
+      if (payload.ticket) {
+        setEmailChangeTicket(payload.ticket);
+      }
       setEmailResendCooldown(60);
     } catch (err) {
       console.error("[config-account] resend email change code failed:", err);
@@ -644,23 +688,37 @@ function AccountContent({
 
       const payload = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
+        next?: "set-new";
+        ticket?: string;
         email?: string;
         error?: string;
       };
 
-      if (!res.ok || !payload.ok || !payload.email) {
+      if (!res.ok || !payload.ok) {
         throw new Error(payload.error || "Nao foi possivel validar o codigo.");
       }
 
-      const updatedEmail = String(payload.email || "").trim().toLowerCase();
-      if (!updatedEmail) {
+      if (payload.next === "set-new") {
+        if (!payload.ticket) {
+          throw new Error("Resposta invalida do servidor.");
+        }
+        setEmailChangeTicket(payload.ticket);
+        setEmailCode("");
+        setEmailChangeError(null);
+        setEmailStep("new-email-input");
+        setEmailResendCooldown(0);
+        return;
+      }
+
+      if (!payload.email) {
         throw new Error("Resposta invalida do servidor.");
       }
 
+      const updatedEmail = String(payload.email || "").trim().toLowerCase();
       setLocalEmail(updatedEmail);
       onUserEmailChange?.(updatedEmail);
       setEmailModalOpen(false);
-      resetEmailChangeFlow(updatedEmail);
+      resetEmailChangeFlow();
     } catch (err) {
       console.error("[config-account] verify email change code failed:", err);
       setEmailChangeError(
@@ -817,12 +875,57 @@ function AccountContent({
               </div>
 
               <div className="px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
-                {emailStep === "input" && (
+                {emailStep === "confirm-current-intro" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      Por seguranca, envie um codigo de 7 digitos para o novo e-mail antes de salvar.
+                      Por seguranca, confirme primeiro o e-mail atual antes de informar o novo.
                     </p>
+                    <p className="mt-4 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/72">
+                      E-mail atual: <span className="font-semibold text-black/86">{localEmail}</span>
+                    </p>
+                  </>
+                )}
 
+                {emailStep === "confirm-current-code" && (
+                  <>
+                    <p className="text-[14px] leading-[1.45] text-black/62">
+                      Digite o codigo de 7 digitos enviado para o seu e-mail atual{" "}
+                      <span className="font-semibold text-black/78">{localEmail}</span>.
+                    </p>
+                    <CodeBoxes
+                      length={7}
+                      value={emailCode}
+                      onChange={setEmailCode}
+                      onComplete={verifyEmailChangeCode}
+                      disabled={verifyingEmailCode}
+                    />
+                    <div className="mt-4 flex items-center justify-center">
+                      <button
+                        type="button"
+                        onClick={resendEmailChangeCode}
+                        disabled={
+                          resendingEmailCode ||
+                          verifyingEmailCode ||
+                          sendingEmailCode ||
+                          emailResendCooldown > 0
+                        }
+                        className="text-[13px] font-semibold text-black/72 transition-colors hover:text-black/88 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {emailResendCooldown > 0
+                          ? `Reenviar codigo (${emailResendCooldown}s)`
+                          : resendingEmailCode
+                          ? "Reenviando..."
+                          : "Reenviar codigo"}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {emailStep === "new-email-input" && (
+                  <>
+                    <p className="text-[14px] leading-[1.45] text-black/62">
+                      E-mail atual confirmado. Agora informe o novo e-mail para enviar o codigo final.
+                    </p>
                     <label className="mt-5 block text-[13px] font-medium text-black/60">
                       Novo e-mail
                     </label>
@@ -838,10 +941,10 @@ function AccountContent({
                   </>
                 )}
 
-                {emailStep === "code" && (
+                {emailStep === "confirm-new-code" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      Enviamos um codigo de 7 digitos para{" "}
+                      Enviamos um codigo de 7 digitos para o novo e-mail{" "}
                       <span className="font-semibold text-black/78">{pendingEmail}</span>.
                     </p>
                     <CodeBoxes
@@ -880,14 +983,19 @@ function AccountContent({
                 )}
 
                 <div className="mt-5 flex items-center justify-end gap-2">
-                  {emailStep === "code" ? (
+                  {emailStep === "confirm-current-code" || emailStep === "confirm-new-code" ? (
                     <button
                       type="button"
                       onClick={() => {
                         if (sendingEmailCode || resendingEmailCode || verifyingEmailCode) return;
-                        setEmailStep("input");
+                        setEmailStep(
+                          emailStep === "confirm-current-code"
+                            ? "confirm-current-intro"
+                            : "new-email-input"
+                        );
                         setEmailCode("");
                         setEmailChangeError(null);
+                        setEmailResendCooldown(0);
                       }}
                       disabled={sendingEmailCode || resendingEmailCode || verifyingEmailCode}
                       className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
@@ -905,16 +1013,29 @@ function AccountContent({
                     </button>
                   )}
 
-                  {emailStep === "input" ? (
+                  {emailStep === "confirm-current-intro" && (
                     <button
                       type="button"
-                      onClick={startEmailChange}
+                      onClick={startCurrentEmailConfirmation}
                       disabled={sendingEmailCode}
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
                       {sendingEmailCode ? "Enviando..." : "Enviar codigo"}
                     </button>
-                  ) : (
+                  )}
+
+                  {emailStep === "new-email-input" && (
+                    <button
+                      type="button"
+                      onClick={sendNewEmailCode}
+                      disabled={sendingEmailCode}
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {sendingEmailCode ? "Enviando..." : "Enviar codigo"}
+                    </button>
+                  )}
+
+                  {(emailStep === "confirm-current-code" || emailStep === "confirm-new-code") && (
                     <button
                       type="button"
                       onClick={() => verifyEmailChangeCode()}

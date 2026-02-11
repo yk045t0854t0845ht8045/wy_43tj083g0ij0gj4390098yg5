@@ -1,5 +1,5 @@
-import { NextResponse, type NextRequest } from "next/server";
 import crypto from "crypto";
+import { NextResponse, type NextRequest } from "next/server";
 import { gen7, newSalt, sha } from "@/app/api/wz_AuthLogin/_codes";
 import { sendLoginCodeEmail } from "@/app/api/wz_AuthLogin/_email";
 import { readSessionFromRequest, setSessionCookie } from "@/app/api/wz_AuthLogin/_session";
@@ -14,6 +14,8 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 };
 
+type EmailChangePhase = "verify-current" | "set-new" | "verify-new";
+
 type WzUserRow = {
   id?: string | null;
   email?: string | null;
@@ -26,7 +28,8 @@ type EmailChangeTicketPayload = {
   typ: "wz-change-email";
   uid: string;
   currentEmail: string;
-  nextEmail: string;
+  phase: EmailChangePhase;
+  nextEmail?: string;
   iat: number;
   exp: number;
   nonce: string;
@@ -85,7 +88,8 @@ function signTicket(payloadB64: string, secret: string) {
 function createEmailChangeTicket(params: {
   userId: string;
   currentEmail: string;
-  nextEmail: string;
+  phase: EmailChangePhase;
+  nextEmail?: string | null;
   ttlMs?: number;
 }) {
   const secret = getTicketSecret();
@@ -93,11 +97,16 @@ function createEmailChangeTicket(params: {
 
   const now = Date.now();
   const ttlMs = Number(params.ttlMs ?? 1000 * 60 * 10);
+  const normalizedNextEmail = normalizeEmail(params.nextEmail);
+
   const payload: EmailChangeTicketPayload = {
     typ: "wz-change-email",
     uid: String(params.userId || "").trim(),
     currentEmail: normalizeEmail(params.currentEmail),
-    nextEmail: normalizeEmail(params.nextEmail),
+    phase: params.phase,
+    ...(params.phase === "verify-new" && normalizedNextEmail
+      ? { nextEmail: normalizedNextEmail }
+      : {}),
     iat: now,
     exp: now + ttlMs,
     nonce: crypto.randomBytes(8).toString("hex"),
@@ -157,7 +166,18 @@ function readEmailChangeTicket(params: {
     if (!parsed?.uid || parsed.exp < Date.now()) {
       return {
         ok: false as const,
-        error: "Sessao de alteracao expirada. Solicite um novo codigo.",
+        error: "Sessao de alteracao expirada. Reabra o fluxo e tente novamente.",
+      };
+    }
+
+    if (
+      parsed.phase !== "verify-current" &&
+      parsed.phase !== "set-new" &&
+      parsed.phase !== "verify-new"
+    ) {
+      return {
+        ok: false as const,
+        error: "Etapa de alteracao invalida. Reabra o modal.",
       };
     }
 
@@ -175,11 +195,15 @@ function readEmailChangeTicket(params: {
       };
     }
 
-    if (!isValidEmail(parsed.nextEmail)) {
-      return {
-        ok: false as const,
-        error: "E-mail de destino invalido.",
-      };
+    if (parsed.phase === "verify-new") {
+      const nextEmail = normalizeEmail(parsed.nextEmail);
+      if (!isValidEmail(nextEmail)) {
+        return {
+          ok: false as const,
+          error: "E-mail de destino invalido.",
+        };
+      }
+      parsed.nextEmail = nextEmail;
     }
 
     return { ok: true as const, payload: parsed };
@@ -397,6 +421,63 @@ async function createEmailChallenge(sb: ReturnType<typeof supabaseAdmin>, email:
   return code;
 }
 
+async function verifyEmailChallengeCode(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  email: string;
+  code: string;
+}) {
+  const { data: challenge, error: challengeErr } = await params.sb
+    .from("wz_auth_challenges")
+    .select("*")
+    .eq("email", params.email)
+    .eq("channel", "email")
+    .eq("consumed", false)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (challengeErr || !challenge) {
+    return {
+      ok: false as const,
+      status: 400,
+      error: "Codigo expirado. Reenvie o codigo.",
+    };
+  }
+
+  if (new Date(challenge.expires_at).getTime() < Date.now()) {
+    await params.sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", challenge.id);
+    return {
+      ok: false as const,
+      status: 400,
+      error: "Codigo expirado. Reenvie o codigo.",
+    };
+  }
+
+  if (Number(challenge.attempts_left) <= 0) {
+    return {
+      ok: false as const,
+      status: 429,
+      error: "Muitas tentativas. Reenvie o codigo.",
+    };
+  }
+
+  const hash = sha(params.code, challenge.salt);
+  if (hash !== challenge.code_hash) {
+    await params.sb
+      .from("wz_auth_challenges")
+      .update({ attempts_left: Math.max(0, Number(challenge.attempts_left) - 1) })
+      .eq("id", challenge.id);
+    return {
+      ok: false as const,
+      status: 400,
+      error: "Codigo invalido.",
+    };
+  }
+
+  await params.sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", challenge.id);
+  return { ok: true as const };
+}
+
 async function getSessionAndUser(req: NextRequest) {
   const session = readSessionFromRequest(req);
   if (!session) {
@@ -453,66 +534,17 @@ export async function POST(req: NextRequest) {
     const base = await getSessionAndUser(req);
     if (!base.ok) return base.response;
 
-    const body = await req.json().catch(() => ({}));
-    const nextEmail = normalizeEmail(body?.newEmail);
-
-    if (!isValidEmail(nextEmail)) {
-      return NextResponse.json(
-        { ok: false, error: "E-mail invalido." },
-        { status: 400, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    if (nextEmail === base.sessionEmail) {
-      return NextResponse.json(
-        { ok: false, error: "Informe um e-mail diferente do atual." },
-        { status: 400, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    const available = await ensureEmailAvailable({
-      sb: base.sb,
-      userId: String(base.userRow.id),
-      nextEmail,
-    });
-    if (!available.ok) {
-      return NextResponse.json(
-        { ok: false, error: available.error },
-        { status: 409, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    const currentAuthUserId = await resolveCurrentAuthUserId({
-      sb: base.sb,
-      userRow: base.userRow,
-      sessionEmail: base.sessionEmail,
-    });
-    if (!currentAuthUserId) {
-      return NextResponse.json(
-        { ok: false, error: "Nao foi possivel localizar seu acesso de autenticacao." },
-        { status: 500, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    const nextEmailAuthUserId = await findAuthUserIdByEmail(base.sb, nextEmail);
-    if (nextEmailAuthUserId && nextEmailAuthUserId !== currentAuthUserId) {
-      return NextResponse.json(
-        { ok: false, error: "Este e-mail ja esta vinculado a outro acesso." },
-        { status: 409, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    const code = await createEmailChallenge(base.sb, nextEmail);
-    await sendLoginCodeEmail(nextEmail, code, { heading: "Alterando seu e-mail" });
+    const code = await createEmailChallenge(base.sb, base.sessionEmail);
+    await sendLoginCodeEmail(base.sessionEmail, code, { heading: "Alterando seu e-mail" });
 
     const ticket = createEmailChangeTicket({
       userId: String(base.userRow.id),
       currentEmail: base.sessionEmail,
-      nextEmail,
+      phase: "verify-current",
     });
 
     return NextResponse.json(
-      { ok: true, ticket, nextEmail },
+      { ok: true, ticket, phase: "verify-current", currentEmail: base.sessionEmail },
       { status: 200, headers: NO_STORE_HEADERS },
     );
   } catch (error) {
@@ -542,31 +574,136 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const available = await ensureEmailAvailable({
-      sb: base.sb,
-      userId: String(base.userRow.id),
-      nextEmail: ticketRes.payload.nextEmail,
-    });
-    if (!available.ok) {
+    const requestedNewEmail = normalizeEmail(body?.newEmail);
+
+    if (requestedNewEmail) {
+      if (ticketRes.payload.phase !== "set-new") {
+        return NextResponse.json(
+          { ok: false, error: "Valide primeiro o e-mail atual." },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      if (!isValidEmail(requestedNewEmail)) {
+        return NextResponse.json(
+          { ok: false, error: "E-mail invalido." },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      if (requestedNewEmail === base.sessionEmail) {
+        return NextResponse.json(
+          { ok: false, error: "Informe um e-mail diferente do atual." },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const available = await ensureEmailAvailable({
+        sb: base.sb,
+        userId: String(base.userRow.id),
+        nextEmail: requestedNewEmail,
+      });
+      if (!available.ok) {
+        return NextResponse.json(
+          { ok: false, error: available.error },
+          { status: 409, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const currentAuthUserId = await resolveCurrentAuthUserId({
+        sb: base.sb,
+        userRow: base.userRow,
+        sessionEmail: base.sessionEmail,
+      });
+      if (!currentAuthUserId) {
+        return NextResponse.json(
+          { ok: false, error: "Nao foi possivel localizar seu acesso de autenticacao." },
+          { status: 500, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const nextAuthUserId = await findAuthUserIdByEmail(base.sb, requestedNewEmail);
+      if (nextAuthUserId && nextAuthUserId !== currentAuthUserId) {
+        return NextResponse.json(
+          { ok: false, error: "Este e-mail ja esta vinculado a outro acesso." },
+          { status: 409, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const code = await createEmailChallenge(base.sb, requestedNewEmail);
+      await sendLoginCodeEmail(requestedNewEmail, code, { heading: "Alterando seu e-mail" });
+
+      const ticket = createEmailChangeTicket({
+        userId: String(base.userRow.id),
+        currentEmail: base.sessionEmail,
+        phase: "verify-new",
+        nextEmail: requestedNewEmail,
+      });
+
       return NextResponse.json(
-        { ok: false, error: available.error },
-        { status: 409, headers: NO_STORE_HEADERS },
+        { ok: true, ticket, phase: "verify-new", nextEmail: requestedNewEmail },
+        { status: 200, headers: NO_STORE_HEADERS },
       );
     }
 
-    const code = await createEmailChallenge(base.sb, ticketRes.payload.nextEmail);
-    await sendLoginCodeEmail(ticketRes.payload.nextEmail, code, {
-      heading: "Alterando seu e-mail",
+    if (ticketRes.payload.phase === "set-new") {
+      return NextResponse.json(
+        { ok: false, error: "Informe o novo e-mail antes de reenviar codigo." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const resendToEmail =
+      ticketRes.payload.phase === "verify-current"
+        ? base.sessionEmail
+        : normalizeEmail(ticketRes.payload.nextEmail);
+
+    if (!isValidEmail(resendToEmail)) {
+      return NextResponse.json(
+        { ok: false, error: "E-mail de destino invalido para reenvio." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    if (ticketRes.payload.phase === "verify-new") {
+      const available = await ensureEmailAvailable({
+        sb: base.sb,
+        userId: String(base.userRow.id),
+        nextEmail: resendToEmail,
+      });
+      if (!available.ok) {
+        return NextResponse.json(
+          { ok: false, error: available.error },
+          { status: 409, headers: NO_STORE_HEADERS },
+        );
+      }
+    }
+
+    const code = await createEmailChallenge(base.sb, resendToEmail);
+    await sendLoginCodeEmail(resendToEmail, code, { heading: "Alterando seu e-mail" });
+
+    const refreshedTicket = createEmailChangeTicket({
+      userId: String(base.userRow.id),
+      currentEmail: base.sessionEmail,
+      phase: ticketRes.payload.phase,
+      nextEmail: ticketRes.payload.nextEmail,
     });
 
     return NextResponse.json(
-      { ok: true, nextEmail: ticketRes.payload.nextEmail },
+      {
+        ok: true,
+        ticket: refreshedTicket,
+        phase: ticketRes.payload.phase,
+        ...(ticketRes.payload.phase === "verify-new"
+          ? { nextEmail: ticketRes.payload.nextEmail }
+          : {}),
+      },
       { status: 200, headers: NO_STORE_HEADERS },
     );
   } catch (error) {
-    console.error("[change-email] resend error:", error);
+    console.error("[change-email] patch error:", error);
     return NextResponse.json(
-      { ok: false, error: "Erro inesperado ao reenviar codigo." },
+      { ok: false, error: "Erro inesperado ao processar alteracao de e-mail." },
       { status: 500, headers: NO_STORE_HEADERS },
     );
   }
@@ -598,17 +735,69 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    if (ticketRes.payload.phase === "verify-current") {
+      const verifyCurrent = await verifyEmailChallengeCode({
+        sb: base.sb,
+        email: base.sessionEmail,
+        code,
+      });
+      if (!verifyCurrent.ok) {
+        return NextResponse.json(
+          { ok: false, error: verifyCurrent.error },
+          { status: verifyCurrent.status, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const nextTicket = createEmailChangeTicket({
+        userId: String(base.userRow.id),
+        currentEmail: base.sessionEmail,
+        phase: "set-new",
+      });
+
+      return NextResponse.json(
+        { ok: true, next: "set-new", phase: "set-new", ticket: nextTicket },
+        { status: 200, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    if (ticketRes.payload.phase !== "verify-new") {
+      return NextResponse.json(
+        { ok: false, error: "Etapa invalida para validacao de codigo." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const nextEmail = normalizeEmail(ticketRes.payload.nextEmail);
+    if (!isValidEmail(nextEmail)) {
+      return NextResponse.json(
+        { ok: false, error: "E-mail de destino invalido." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const verifyNew = await verifyEmailChallengeCode({
+      sb: base.sb,
+      email: nextEmail,
+      code,
+    });
+    if (!verifyNew.ok) {
+      return NextResponse.json(
+        { ok: false, error: verifyNew.error },
+        { status: verifyNew.status, headers: NO_STORE_HEADERS },
+      );
+    }
+
     const currentRowEmail = normalizeEmail(base.userRow.email);
-    if (currentRowEmail === ticketRes.payload.nextEmail) {
+    if (currentRowEmail === nextEmail) {
       const okRes = NextResponse.json(
-        { ok: true, email: ticketRes.payload.nextEmail },
+        { ok: true, email: nextEmail },
         { status: 200, headers: NO_STORE_HEADERS },
       );
       setSessionCookie(
         okRes,
         {
           userId: String(base.userRow.id),
-          email: ticketRes.payload.nextEmail,
+          email: nextEmail,
           fullName: sanitizeFullName(base.userRow.full_name || base.session.fullName),
         },
         req.headers,
@@ -629,7 +818,7 @@ export async function PUT(req: NextRequest) {
     const available = await ensureEmailAvailable({
       sb: base.sb,
       userId: String(base.userRow.id),
-      nextEmail: ticketRes.payload.nextEmail,
+      nextEmail,
     });
     if (!available.ok) {
       return NextResponse.json(
@@ -637,52 +826,6 @@ export async function PUT(req: NextRequest) {
         { status: 409, headers: NO_STORE_HEADERS },
       );
     }
-
-    const { data: challenge, error: challengeErr } = await base.sb
-      .from("wz_auth_challenges")
-      .select("*")
-      .eq("email", ticketRes.payload.nextEmail)
-      .eq("channel", "email")
-      .eq("consumed", false)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (challengeErr || !challenge) {
-      return NextResponse.json(
-        { ok: false, error: "Codigo expirado. Reenvie o codigo." },
-        { status: 400, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    if (new Date(challenge.expires_at).getTime() < Date.now()) {
-      await base.sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", challenge.id);
-      return NextResponse.json(
-        { ok: false, error: "Codigo expirado. Reenvie o codigo." },
-        { status: 400, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    if (Number(challenge.attempts_left) <= 0) {
-      return NextResponse.json(
-        { ok: false, error: "Muitas tentativas. Reenvie o codigo." },
-        { status: 429, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    const hash = sha(code, challenge.salt);
-    if (hash !== challenge.code_hash) {
-      await base.sb
-        .from("wz_auth_challenges")
-        .update({ attempts_left: Math.max(0, Number(challenge.attempts_left) - 1) })
-        .eq("id", challenge.id);
-      return NextResponse.json(
-        { ok: false, error: "Codigo invalido." },
-        { status: 400, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    await base.sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", challenge.id);
 
     const currentAuthUserId = await resolveCurrentAuthUserId({
       sb: base.sb,
@@ -696,9 +839,17 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    const nextAuthUserId = await findAuthUserIdByEmail(base.sb, nextEmail);
+    if (nextAuthUserId && nextAuthUserId !== currentAuthUserId) {
+      return NextResponse.json(
+        { ok: false, error: "Este e-mail ja esta em uso em outro acesso." },
+        { status: 409, headers: NO_STORE_HEADERS },
+      );
+    }
+
     const { error: authUpdateError } = await base.sb.auth.admin.updateUserById(
       currentAuthUserId,
-      { email: ticketRes.payload.nextEmail, email_confirm: true },
+      { email: nextEmail, email_confirm: true },
     );
     if (authUpdateError) {
       const status = isUniqueViolation(authUpdateError) ? 409 : 500;
@@ -715,7 +866,7 @@ export async function PUT(req: NextRequest) {
 
     const { error: userUpdateError } = await base.sb
       .from("wz_users")
-      .update({ email: ticketRes.payload.nextEmail })
+      .update({ email: nextEmail })
       .eq("id", base.userRow.id);
 
     if (userUpdateError) {
@@ -742,22 +893,22 @@ export async function PUT(req: NextRequest) {
 
     await Promise.allSettled([
       base.sb.from("wz_pending_auth").delete().eq("email", ticketRes.payload.currentEmail),
-      base.sb.from("wz_pending_auth").delete().eq("email", ticketRes.payload.nextEmail),
+      base.sb.from("wz_pending_auth").delete().eq("email", nextEmail),
       base.sb
         .from("wz_auth_trusted_devices")
-        .update({ email: ticketRes.payload.nextEmail })
+        .update({ email: nextEmail })
         .eq("email", ticketRes.payload.currentEmail),
     ]);
 
     const res = NextResponse.json(
-      { ok: true, email: ticketRes.payload.nextEmail },
+      { ok: true, email: nextEmail },
       { status: 200, headers: NO_STORE_HEADERS },
     );
     setSessionCookie(
       res,
       {
         userId: String(base.userRow.id),
-        email: ticketRes.payload.nextEmail,
+        email: nextEmail,
         fullName: sanitizeFullName(base.userRow.full_name || base.session.fullName),
       },
       req.headers,
