@@ -11,16 +11,26 @@ function pickFrom() {
   return must("WZ_EMAIL_FROM", process.env.WZ_EMAIL_FROM);
 }
 
-export async function sendLoginCodeEmail(to: string, code: string) {
+type SendLoginCodeEmailOptions = {
+  heading?: string;
+  subject?: string;
+};
+
+export async function sendLoginCodeEmail(
+  to: string,
+  code: string,
+  options?: SendLoginCodeEmailOptions,
+) {
   must("RESEND_API_KEY", process.env.RESEND_API_KEY);
 
   const from = pickFrom();
-  const subject = "Seu código de acesso Wyzer";
+  const subject = String(options?.subject || "").trim() || "Seu código de acesso Wyzer";
+  const heading = String(options?.heading || "").trim() || "Confirme seu e-mail";
 
   const html = `
     <div style="font-family: ui-sans-serif, system-ui; line-height: 1.45; color: #111">
       <div style="max-width:520px;margin:0 auto;padding:24px;border:1px solid #eee;border-radius:16px">
-        <h2 style="margin:0 0 10px">Confirme seu e-mail</h2>
+        <h2 style="margin:0 0 10px">${heading}</h2>
         <p style="margin:0 0 18px;color:#555">Use o código abaixo para continuar:</p>
 
         <div style="display:inline-block;padding:14px 16px;border-radius:14px;background:#111;color:#fff;font-size:26px;letter-spacing:6px;font-weight:700">
@@ -36,12 +46,16 @@ export async function sendLoginCodeEmail(to: string, code: string) {
 
   const result = await resend.emails.send({ from, to, subject, html });
 
-  const anyRes = result as any;
-  if (anyRes?.error) {
-    console.error("[RESEND] error:", anyRes.error);
-    throw new Error(anyRes.error?.message || "Resend falhou ao enviar o e-mail");
+  const typedResult = result as {
+    error?: { message?: string } | null;
+    data?: { id?: string } | null;
+  };
+
+  if (typedResult?.error) {
+    console.error("[RESEND] error:", typedResult.error);
+    throw new Error(typedResult.error?.message || "Resend falhou ao enviar o e-mail");
   }
 
-  console.log("[RESEND] sent:", anyRes?.data?.id);
+  console.log("[RESEND] sent:", typedResult?.data?.id);
   return result;
 }

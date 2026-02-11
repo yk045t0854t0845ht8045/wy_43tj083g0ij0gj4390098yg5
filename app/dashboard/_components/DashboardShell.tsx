@@ -21,6 +21,9 @@ export default function DashboardShell({
 }: DashboardShellProps) {
   const [configOpen, setConfigOpen] = useState(false);
   const [configSection, setConfigSection] = useState<ConfigSectionId>("my-account");
+  const [profileEmail, setProfileEmail] = useState<string>(
+    String(userEmail || "").trim().toLowerCase() || "conta@wyzer.com.br"
+  );
   const [profilePhotoLink, setProfilePhotoLink] = useState<string | null>(
     userPhotoLink
   );
@@ -33,6 +36,11 @@ export default function DashboardShell({
   useEffect(() => {
     setProfilePhotoLink(normalizedInitialPhotoLink);
   }, [normalizedInitialPhotoLink]);
+
+  useEffect(() => {
+    const normalized = String(userEmail || "").trim().toLowerCase();
+    setProfileEmail(normalized || "conta@wyzer.com.br");
+  }, [userEmail]);
 
   const handleOpenConfig = useCallback((section: ConfigSectionId = "my-account") => {
     setConfigSection(section);
@@ -49,7 +57,7 @@ export default function DashboardShell({
       <Sidebar
         activeMain="overview"
         userNickname={userNickname}
-        userEmail={userEmail}
+        userEmail={profileEmail}
         userPhotoLink={profilePhotoLink}
         onOpenConfig={handleOpenConfig}
       />
@@ -66,9 +74,10 @@ export default function DashboardShell({
         onSectionChange={setConfigSection}
         userNickname={userNickname}
         userFullName={userFullName}
-        userEmail={userEmail}
+        userEmail={profileEmail}
         userPhotoLink={profilePhotoLink}
         onUserPhotoChange={setProfilePhotoLink}
+        onUserEmailChange={setProfileEmail}
       />
     </div>
   );
