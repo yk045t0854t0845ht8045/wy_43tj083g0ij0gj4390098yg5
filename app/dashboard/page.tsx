@@ -12,6 +12,7 @@ type SidebarProfile = {
   firstName: string | null;
   fullName: string | null;
   photoLink: string | null;
+  phoneE164: string | null;
 };
 
 type WzUserLookupMode = "eq" | "ilike";
@@ -25,6 +26,7 @@ type WzUserLookupParams = {
 type WzUserLookupRow = {
   full_name?: string | null;
   photo_link?: string | null;
+  phone_e164?: string | null;
 };
 
 function buildLoginUrl(hostHeader: string | null) {
@@ -74,6 +76,13 @@ function sanitizePhotoLink(value?: string | null) {
   return clean.slice(0, 2048);
 }
 
+function sanitizePhoneE164(value?: string | null) {
+  const clean = String(value || "").trim();
+  if (!clean) return null;
+  if (!/^\+55\d{11}$/.test(clean)) return null;
+  return clean;
+}
+
 async function queryWzUsersRows(
   sb: ReturnType<typeof supabaseAdmin>,
   params: WzUserLookupParams,
@@ -86,9 +95,25 @@ async function queryWzUsersRows(
     return base.eq(params.column, params.value);
   };
 
+  const withPhotoAndPhone = await runSelect("full_name,photo_link,phone_e164");
+  if (!withPhotoAndPhone.error) {
+    return (withPhotoAndPhone.data || []) as WzUserLookupRow[];
+  }
+
   const withPhoto = await runSelect("full_name,photo_link");
   if (!withPhoto.error) {
-    return (withPhoto.data || []) as WzUserLookupRow[];
+    return ((withPhoto.data || []) as WzUserLookupRow[]).map((row) => ({
+      ...row,
+      phone_e164: null,
+    }));
+  }
+
+  const withPhone = await runSelect("full_name,phone_e164");
+  if (!withPhone.error) {
+    return ((withPhone.data || []) as WzUserLookupRow[]).map((row) => ({
+      ...row,
+      photo_link: null,
+    }));
   }
 
   const withoutPhoto = await runSelect("full_name");
@@ -96,34 +121,48 @@ async function queryWzUsersRows(
     return ((withoutPhoto.data || []) as WzUserLookupRow[]).map((row) => ({
       ...row,
       photo_link: null,
+      phone_e164: null,
     }));
   }
 
   return [] as WzUserLookupRow[];
 }
 
-function pickProfileFromRows(rows: WzUserLookupRow[], fallbackPhotoLink: string | null) {
+function pickProfileFromRows(
+  rows: WzUserLookupRow[],
+  fallbackPhotoLink: string | null,
+  fallbackPhoneE164: string | null,
+) {
   let nextFallbackPhoto = fallbackPhotoLink;
+  let nextFallbackPhone = fallbackPhoneE164;
 
   for (const row of rows) {
     const rowPhoto = sanitizePhotoLink(row.photo_link);
+    const rowPhone = sanitizePhoneE164(row.phone_e164);
     if (!nextFallbackPhoto && rowPhoto) nextFallbackPhoto = rowPhoto;
+    if (!nextFallbackPhone && rowPhone) nextFallbackPhone = rowPhone;
 
     const fullName = sanitizeFullName(row.full_name);
     const firstName = pickFirstName(row.full_name);
-    if (firstName || fullName) {
+    if (firstName || fullName || rowPhone) {
       return {
         profile: {
           firstName: firstName || null,
           fullName: fullName || null,
           photoLink: rowPhoto || nextFallbackPhoto,
+          phoneE164: rowPhone || nextFallbackPhone,
         } as SidebarProfile,
         fallbackPhotoLink: nextFallbackPhoto,
+        fallbackPhoneE164: nextFallbackPhone,
       };
     }
   }
 
-  return { profile: null as SidebarProfile | null, fallbackPhotoLink: nextFallbackPhoto };
+  return {
+    profile: null as SidebarProfile | null,
+    fallbackPhotoLink: nextFallbackPhoto,
+    fallbackPhoneE164: nextFallbackPhone,
+  };
 }
 
 async function getSidebarProfile(params: {
@@ -140,12 +179,14 @@ async function getSidebarProfile(params: {
       firstName: null,
       fullName: null,
       photoLink: null,
+      phoneE164: null,
     } as SidebarProfile;
   }
 
   try {
     const sb = supabaseAdmin();
     let fallbackPhotoLink: string | null = null;
+    let fallbackPhoneE164: string | null = null;
 
     if (email) {
       const rowsByEmail = await queryWzUsersRows(sb, {
@@ -153,8 +194,9 @@ async function getSidebarProfile(params: {
         value: email,
         mode: "ilike",
       });
-      const result = pickProfileFromRows(rowsByEmail, fallbackPhotoLink);
+      const result = pickProfileFromRows(rowsByEmail, fallbackPhotoLink, fallbackPhoneE164);
       fallbackPhotoLink = result.fallbackPhotoLink;
+      fallbackPhoneE164 = result.fallbackPhoneE164;
       if (result.profile) return result.profile;
     }
 
@@ -164,8 +206,9 @@ async function getSidebarProfile(params: {
         value: userId,
         mode: "eq",
       });
-      const result = pickProfileFromRows(rowsByAuthId, fallbackPhotoLink);
+      const result = pickProfileFromRows(rowsByAuthId, fallbackPhotoLink, fallbackPhoneE164);
       fallbackPhotoLink = result.fallbackPhotoLink;
+      fallbackPhoneE164 = result.fallbackPhoneE164;
       if (result.profile) return result.profile;
     }
 
@@ -175,8 +218,9 @@ async function getSidebarProfile(params: {
         value: userId,
         mode: "eq",
       });
-      const result = pickProfileFromRows(rowsByUserId, fallbackPhotoLink);
+      const result = pickProfileFromRows(rowsByUserId, fallbackPhotoLink, fallbackPhoneE164);
       fallbackPhotoLink = result.fallbackPhotoLink;
+      fallbackPhoneE164 = result.fallbackPhoneE164;
       if (result.profile) return result.profile;
     }
 
@@ -186,8 +230,9 @@ async function getSidebarProfile(params: {
         value: userId,
         mode: "eq",
       });
-      const result = pickProfileFromRows(rowsById, fallbackPhotoLink);
+      const result = pickProfileFromRows(rowsById, fallbackPhotoLink, fallbackPhoneE164);
       fallbackPhotoLink = result.fallbackPhotoLink;
+      fallbackPhoneE164 = result.fallbackPhoneE164;
       if (result.profile) return result.profile;
     }
 
@@ -195,6 +240,7 @@ async function getSidebarProfile(params: {
       firstName: null,
       fullName: null,
       photoLink: fallbackPhotoLink,
+      phoneE164: fallbackPhoneE164,
     } as SidebarProfile;
   } catch (error) {
     console.error("[dashboard] failed to load wz_users profile:", error);
@@ -204,6 +250,7 @@ async function getSidebarProfile(params: {
     firstName: null,
     fullName: null,
     photoLink: null,
+    phoneE164: null,
   } as SidebarProfile;
 }
 
@@ -222,6 +269,7 @@ export default async function DashboardHomePage() {
   let sidebarNickname = shouldBypassAuth ? "Local User" : "Usuario";
   let accountFullName = shouldBypassAuth ? "Local User" : "Usuario";
   let sidebarPhotoLink: string | null = null;
+  let sidebarPhoneE164: string | null = null;
 
   if (session) {
     const profile = await getSidebarProfile({
@@ -248,6 +296,10 @@ export default async function DashboardHomePage() {
     if (profile.photoLink) {
       sidebarPhotoLink = profile.photoLink;
     }
+
+    if (profile.phoneE164) {
+      sidebarPhoneE164 = profile.phoneE164;
+    }
   }
 
   const loginUrl = buildLoginUrl(hostHeader);
@@ -266,6 +318,7 @@ export default async function DashboardHomePage() {
       userFullName={accountFullName}
       userEmail={sidebarEmail}
       userPhotoLink={sidebarPhotoLink}
+      userPhoneE164={sidebarPhoneE164}
     />
   );
 }

@@ -46,9 +46,11 @@ type ConfigMainProps = {
   userNickname?: string;
   userFullName?: string;
   userEmail?: string;
+  userPhoneE164?: string | null;
   userPhotoLink?: string | null;
   onUserPhotoChange?: (photoLink: string | null) => void;
   onUserEmailChange?: (email: string) => void;
+  onUserPhoneChange?: (phoneE164: string | null) => void;
 };
 
 // LINKS DOS ICONES (PNG) DA SIDEBAR DE CONFIGURACOES
@@ -131,6 +133,82 @@ function isValidEmail(value: string) {
 
 function onlyDigits(value: string) {
   return String(value || "").replace(/\D+/g, "");
+}
+
+const BR_DDD_SET = new Set<string>([
+  "11","12","13","14","15","16","17","18","19",
+  "21","22","24","27","28",
+  "31","32","33","34","35","37","38",
+  "41","42","43","44","45","46",
+  "47","48","49",
+  "51","53","54","55",
+  "61","62","63","64","65","66","67",
+  "68","69",
+  "71","73","74","75","77","79",
+  "81","82","83","84","85","86","87","88","89",
+  "91","92","93","94","95","96","97","98","99",
+]);
+
+function isValidBRMobilePhoneDigits(value: string) {
+  const d = onlyDigits(value);
+  if (d.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(d)) return false;
+  if (!BR_DDD_SET.has(d.slice(0, 2))) return false;
+  if (d[2] !== "9") return false;
+  return true;
+}
+
+function normalizeE164Phone(value?: string | null) {
+  const clean = String(value || "").trim();
+  if (!clean) return "";
+  if (clean.startsWith("+")) return `+${onlyDigits(clean)}`;
+  const digits = onlyDigits(clean);
+  if (digits.length === 13 && digits.startsWith("55")) return `+${digits}`;
+  if (digits.length === 11) return `+55${digits}`;
+  return "";
+}
+
+function parsePhoneInputToE164(value: string) {
+  const clean = String(value || "").trim();
+  if (!clean) return "";
+
+  if (clean.startsWith("+")) {
+    const normalized = `+${onlyDigits(clean)}`;
+    return /^\+55\d{11}$/.test(normalized) ? normalized : "";
+  }
+
+  const digits = onlyDigits(clean);
+  if (digits.length === 13 && digits.startsWith("55")) {
+    const normalized = `+${digits}`;
+    return /^\+55\d{11}$/.test(normalized) ? normalized : "";
+  }
+
+  if (!isValidBRMobilePhoneDigits(digits)) return "";
+  return `+55${digits}`;
+}
+
+function formatPhoneBR(value: string) {
+  const digits = onlyDigits(value).replace(/^55/, "").slice(0, 11);
+  const ddd = digits.slice(0, 2);
+  const left = digits.slice(2, 7);
+  const right = digits.slice(7, 11);
+  if (digits.length <= 2) return ddd;
+  if (digits.length <= 7) return `(${ddd}) ${digits.slice(2)}`;
+  return `(${ddd}) ${left}-${right}`;
+}
+
+function maskSecureEmail(value: string) {
+  const [rawUser, rawDomain] = String(value || "").trim().toLowerCase().split("@");
+  if (!rawUser || !rawDomain) return value;
+  const visible = rawUser.slice(0, 3) || rawUser.slice(0, 1);
+  return `${visible}${"*".repeat(9)}@${rawDomain}`;
+}
+
+function maskSecurePhone(value?: string | null) {
+  const normalized = normalizeE164Phone(value);
+  const national = onlyDigits(normalized).replace(/^55/, "");
+  if (national.length !== 11) return "Nao informado";
+  return `${national.slice(0, 4)}${"*".repeat(7)}`;
 }
 
 function normalizePhotoLink(value?: string | null) {
@@ -303,19 +381,24 @@ function CodeBoxes({
 function AccountContent({
   nickname,
   email,
+  phoneE164,
   userPhotoLink,
   onUserPhotoChange,
   onUserEmailChange,
+  onUserPhoneChange,
 }: {
   nickname: string;
   email: string;
+  phoneE164?: string | null;
   userPhotoLink?: string | null;
   onUserPhotoChange?: (photoLink: string | null) => void;
   onUserEmailChange?: (email: string) => void;
+  onUserPhoneChange?: (phoneE164: string | null) => void;
 }) {
   const [supportAccess, setSupportAccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [localEmail, setLocalEmail] = useState(() => String(email || "").trim().toLowerCase());
+  const [localPhoneE164, setLocalPhoneE164] = useState(() => normalizeE164Phone(phoneE164));
   const [localPhoto, setLocalPhoto] = useState<string | null>(normalizePhotoLink(userPhotoLink));
   const [editorOpen, setEditorOpen] = useState(false);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
@@ -337,6 +420,18 @@ function AccountContent({
   const [sendingEmailCode, setSendingEmailCode] = useState(false);
   const [resendingEmailCode, setResendingEmailCode] = useState(false);
   const [verifyingEmailCode, setVerifyingEmailCode] = useState(false);
+  const [phoneModalOpen, setPhoneModalOpen] = useState(false);
+  const [phoneStep, setPhoneStep] = useState<
+    "confirm-current-intro" | "confirm-current-code" | "new-phone-input" | "confirm-new-code"
+  >("confirm-current-intro");
+  const [pendingPhone, setPendingPhone] = useState("");
+  const [phoneChangeTicket, setPhoneChangeTicket] = useState("");
+  const [phoneCode, setPhoneCode] = useState("");
+  const [phoneChangeError, setPhoneChangeError] = useState<string | null>(null);
+  const [phoneResendCooldown, setPhoneResendCooldown] = useState(0);
+  const [sendingPhoneCode, setSendingPhoneCode] = useState(false);
+  const [resendingPhoneCode, setResendingPhoneCode] = useState(false);
+  const [verifyingPhoneCode, setVerifyingPhoneCode] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
@@ -345,11 +440,17 @@ function AccountContent({
 
   useEffect(() => setLocalPhoto(normalizePhotoLink(userPhotoLink)), [userPhotoLink]);
   useEffect(() => setLocalEmail(String(email || "").trim().toLowerCase()), [email]);
+  useEffect(() => setLocalPhoneE164(normalizeE164Phone(phoneE164)), [phoneE164]);
 
   useEffect(() => {
     if (emailModalOpen) return;
     setPendingEmail("");
   }, [emailModalOpen, localEmail]);
+
+  useEffect(() => {
+    if (phoneModalOpen) return;
+    setPendingPhone("");
+  }, [phoneModalOpen, localPhoneE164]);
 
   useEffect(() => {
     if (emailResendCooldown <= 0) return;
@@ -358,6 +459,14 @@ function AccountContent({
     }, 1000);
     return () => window.clearInterval(timer);
   }, [emailResendCooldown]);
+
+  useEffect(() => {
+    if (phoneResendCooldown <= 0) return;
+    const timer = window.setInterval(() => {
+      setPhoneResendCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [phoneResendCooldown]);
 
   const baseScale = useMemo(() => {
     if (!natural.width || !natural.height) return 1;
@@ -747,7 +856,229 @@ function AccountContent({
     }
   };
 
+  const resetPhoneChangeFlow = useCallback(
+    () => {
+      setPhoneStep("confirm-current-intro");
+      setPendingPhone("");
+      setPhoneCode("");
+      setPhoneChangeTicket("");
+      setPhoneChangeError(null);
+      setPhoneResendCooldown(0);
+    },
+    []
+  );
+
+  const closePhoneModal = () => {
+    if (sendingPhoneCode || resendingPhoneCode || verifyingPhoneCode) return;
+    setPhoneModalOpen(false);
+    resetPhoneChangeFlow();
+  };
+
+  const openPhoneModal = () => {
+    if (sendingPhoneCode || resendingPhoneCode || verifyingPhoneCode) return;
+    resetPhoneChangeFlow();
+    setPhoneModalOpen(true);
+  };
+
+  const startCurrentPhoneConfirmation = async () => {
+    if (sendingPhoneCode || resendingPhoneCode || verifyingPhoneCode) return;
+
+    try {
+      setSendingPhoneCode(true);
+      setPhoneChangeError(null);
+
+      const res = await fetch("/api/wz_users/change-phone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        ticket?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok || !payload.ticket) {
+        throw new Error(payload.error || "Nao foi possivel enviar o codigo de verificacao por SMS.");
+      }
+
+      setPhoneChangeTicket(payload.ticket);
+      setPhoneCode("");
+      setPhoneStep("confirm-current-code");
+      setPhoneResendCooldown(60);
+    } catch (err) {
+      console.error("[config-account] start current phone confirmation failed:", err);
+      setPhoneChangeError(
+        err instanceof Error ? err.message : "Erro ao iniciar confirmacao do celular atual."
+      );
+    } finally {
+      setSendingPhoneCode(false);
+    }
+  };
+
+  const sendNewPhoneCode = async () => {
+    if (!phoneChangeTicket) {
+      setPhoneChangeError("Sessao de alteracao invalida. Reabra o modal.");
+      return;
+    }
+    if (sendingPhoneCode || resendingPhoneCode || verifyingPhoneCode) return;
+
+    const nextPhoneE164 = parsePhoneInputToE164(pendingPhone);
+    if (!nextPhoneE164) {
+      setPhoneChangeError("Digite um celular BR valido com DDD.");
+      return;
+    }
+    if (nextPhoneE164 === localPhoneE164) {
+      setPhoneChangeError("Informe um celular diferente do atual.");
+      return;
+    }
+
+    try {
+      setSendingPhoneCode(true);
+      setPhoneChangeError(null);
+
+      const res = await fetch("/api/wz_users/change-phone", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket: phoneChangeTicket, newPhone: nextPhoneE164 }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        ticket?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok || !payload.ticket) {
+        throw new Error(payload.error || "Nao foi possivel enviar o codigo para o novo celular.");
+      }
+
+      setPhoneChangeTicket(payload.ticket);
+      setPendingPhone(nextPhoneE164);
+      setPhoneCode("");
+      setPhoneStep("confirm-new-code");
+      setPhoneResendCooldown(60);
+    } catch (err) {
+      console.error("[config-account] send new phone code failed:", err);
+      setPhoneChangeError(
+        err instanceof Error ? err.message : "Erro ao enviar codigo para o novo celular."
+      );
+    } finally {
+      setSendingPhoneCode(false);
+    }
+  };
+
+  const resendPhoneChangeCode = async () => {
+    if (!phoneChangeTicket || phoneResendCooldown > 0) return;
+    if (sendingPhoneCode || resendingPhoneCode || verifyingPhoneCode) return;
+
+    try {
+      setResendingPhoneCode(true);
+      setPhoneChangeError(null);
+
+      const res = await fetch("/api/wz_users/change-phone", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket: phoneChangeTicket }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        ticket?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok) {
+        throw new Error(payload.error || "Nao foi possivel reenviar o codigo.");
+      }
+
+      if (payload.ticket) {
+        setPhoneChangeTicket(payload.ticket);
+      }
+      setPhoneResendCooldown(60);
+    } catch (err) {
+      console.error("[config-account] resend phone change code failed:", err);
+      setPhoneChangeError(err instanceof Error ? err.message : "Erro ao reenviar codigo.");
+    } finally {
+      setResendingPhoneCode(false);
+    }
+  };
+
+  const verifyPhoneChangeCode = async (nextValue?: string) => {
+    if (!phoneChangeTicket) {
+      setPhoneChangeError("Sessao de alteracao invalida. Reabra o modal.");
+      return;
+    }
+    if (sendingPhoneCode || resendingPhoneCode || verifyingPhoneCode) return;
+
+    const code = onlyDigits(String(nextValue || phoneCode || "")).slice(0, 7);
+    if (code.length !== 7) return;
+
+    try {
+      setVerifyingPhoneCode(true);
+      setPhoneChangeError(null);
+
+      const res = await fetch("/api/wz_users/change-phone", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket: phoneChangeTicket, code }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        next?: "set-new";
+        ticket?: string;
+        phone?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok) {
+        const fallback =
+          res.status === 429
+            ? "Voce atingiu o limite de 7 tentativas. Reenvie o codigo."
+            : "Codigo invalido. Tente novamente.";
+        setPhoneChangeError(String(payload.error || fallback));
+        setPhoneCode("");
+        if (res.status === 429) {
+          setPhoneResendCooldown(0);
+        }
+        return;
+      }
+
+      if (payload.next === "set-new") {
+        if (!payload.ticket) {
+          throw new Error("Resposta invalida do servidor.");
+        }
+        setPhoneChangeTicket(payload.ticket);
+        setPhoneCode("");
+        setPhoneChangeError(null);
+        setPhoneStep("new-phone-input");
+        setPhoneResendCooldown(0);
+        return;
+      }
+
+      const updatedPhone = normalizeE164Phone(payload.phone);
+      if (!updatedPhone) {
+        throw new Error("Resposta invalida do servidor.");
+      }
+
+      setLocalPhoneE164(updatedPhone);
+      onUserPhoneChange?.(updatedPhone);
+      setPhoneModalOpen(false);
+      resetPhoneChangeFlow();
+    } catch (err) {
+      console.error("[config-account] verify phone change code failed:", err);
+      setPhoneChangeError(
+        err instanceof Error ? err.message : "Erro ao validar codigo de celular. Tente novamente."
+      );
+    } finally {
+      setVerifyingPhoneCode(false);
+    }
+  };
+
   const initial = nickname.trim().charAt(0).toUpperCase() || "U";
+  const maskedEmailValue = maskSecureEmail(localEmail);
+  const maskedPhoneValue = maskSecurePhone(localPhoneE164);
   const buttonClass = cx(
     "rounded-xl border border-black/10 bg-white/95 px-4 py-2 text-[13px] font-semibold text-black/80",
     "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
@@ -809,7 +1140,8 @@ function AccountContent({
           <h4 className="text-[20px] font-semibold text-black/82">Seguranca da conta</h4>
           <div className="mt-4 border-t border-black/10" />
           <div className="space-y-6 pt-5">
-            <div className="flex items-start justify-between gap-4 -mx-2 rounded-xl px-2"><div><p className="text-[18px] font-semibold text-black/85">E-mail</p><p className="mt-1 text-[15px] text-black/58">{localEmail}</p></div><button type="button" onClick={openEmailModal} className={buttonClass}>Alterar E-mail</button></div>
+            <div className="flex items-start justify-between gap-4 -mx-2 rounded-xl px-2"><div><p className="text-[18px] font-semibold text-black/85">E-mail</p><p className="mt-1 text-[15px] text-black/58">{maskedEmailValue}</p></div><button type="button" onClick={openEmailModal} className={buttonClass}>Alterar E-mail</button></div>
+            <div className="flex items-start justify-between gap-4 -mx-2 rounded-xl px-2"><div><p className="text-[18px] font-semibold text-black/85">Numero de celular</p><p className="mt-1 text-[15px] text-black/58">{maskedPhoneValue}</p></div><button type="button" onClick={openPhoneModal} className={buttonClass}>Alterar celular</button></div>
             <div className="flex items-start justify-between gap-4 -mx-2 rounded-xl px-2"><div><p className="text-[18px] font-semibold text-black/85">Senha</p><p className="mt-1 text-[15px] text-black/58">Defina uma senha permanente para acessar sua conta.</p></div><button type="button" className={buttonClass}>Alterar Senha</button></div>
             <div className="flex items-start justify-between gap-4 -mx-2 rounded-xl px-2"><div><p className="text-[18px] font-semibold text-black/85">Verificacao em duas etapas</p><p className="mt-1 text-[15px] text-black/58">Adicione mais uma camada de seguranca a sua conta durante o login.</p></div><button type="button" className={buttonClass}>Adicionar um metodo de verificacao</button></div>
             <div className="flex items-start justify-between gap-4 -mx-2 rounded-xl px-2"><div><p className="text-[18px] font-semibold text-black/85">Chaves de acesso</p><p className="mt-1 text-[15px] text-black/58">Entre com seguranca com a autenticacao biometrica no dispositivo.</p></div><button type="button" className={buttonClass}>Adicionar passkey</button></div>
@@ -899,7 +1231,7 @@ function AccountContent({
                       Por seguranca, confirme primeiro o e-mail atual antes de informar o novo.
                     </p>
                     <p className="mt-4 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/72">
-                      E-mail atual: <span className="font-semibold text-black/86">{localEmail}</span>
+                      E-mail atual: <span className="font-semibold text-black/86">{maskSecureEmail(localEmail)}</span>
                     </p>
                   </>
                 )}
@@ -908,7 +1240,7 @@ function AccountContent({
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
                       Digite o codigo de 7 digitos enviado para o seu e-mail atual{" "}
-                      <span className="break-all font-semibold text-black/78">{localEmail}</span>.
+                      <span className="break-all font-semibold text-black/78">{maskSecureEmail(localEmail)}</span>.
                     </p>
                     <CodeBoxes
                       length={7}
@@ -963,7 +1295,7 @@ function AccountContent({
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
                       Enviamos um codigo de 7 digitos para o novo e-mail{" "}
-                      <span className="break-all font-semibold text-black/78">{pendingEmail}</span>.
+                      <span className="break-all font-semibold text-black/78">{maskSecureEmail(pendingEmail)}</span>.
                     </p>
                     <CodeBoxes
                       length={7}
@@ -1061,6 +1393,215 @@ function AccountContent({
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
                       {verifyingEmailCode ? "Validando..." : "Confirmar"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.section>
+          </motion.div>
+        )}
+
+        {phoneModalOpen && (
+          <motion.div
+            className="fixed inset-0 z-[226] flex items-center justify-center p-4 sm:p-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/45 backdrop-blur-[4px]"
+              onClick={closePhoneModal}
+            />
+            <motion.section
+              role="dialog"
+              aria-modal="true"
+              className="relative z-[1] w-[min(96vw,700px)] overflow-hidden rounded-2xl border border-black/15 bg-[#f3f3f4] shadow-[0_26px_70px_rgba(0,0,0,0.35)] sm:w-[min(92vw,700px)]"
+              initial={{ opacity: 0, y: 10, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.985 }}
+            >
+              <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6">
+                <h3 className="text-[18px] font-semibold text-black/80">Alterar celular</h3>
+                <button
+                  type="button"
+                  onClick={closePhoneModal}
+                  disabled={sendingPhoneCode || resendingPhoneCode || verifyingPhoneCode}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
+                {phoneStep === "confirm-current-intro" && (
+                  <>
+                    <p className="text-[14px] leading-[1.45] text-black/62">
+                      Por seguranca, confirme primeiro o celular atual antes de informar o novo.
+                    </p>
+                    <p className="mt-4 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/72">
+                      Celular atual: <span className="font-semibold text-black/86">{maskedPhoneValue}</span>
+                    </p>
+                  </>
+                )}
+
+                {phoneStep === "confirm-current-code" && (
+                  <>
+                    <p className="text-[14px] leading-[1.45] text-black/62">
+                      Digite o codigo de 7 digitos enviado por SMS para o celular atual{" "}
+                      <span className="font-semibold text-black/78">{maskedPhoneValue}</span>.
+                    </p>
+                    <CodeBoxes
+                      length={7}
+                      value={phoneCode}
+                      onChange={setPhoneCode}
+                      onComplete={verifyPhoneChangeCode}
+                      disabled={verifyingPhoneCode}
+                    />
+                    <div className="mt-4 flex items-center justify-center">
+                      <button
+                        type="button"
+                        onClick={resendPhoneChangeCode}
+                        disabled={
+                          resendingPhoneCode ||
+                          verifyingPhoneCode ||
+                          sendingPhoneCode ||
+                          phoneResendCooldown > 0
+                        }
+                        className="text-[13px] font-semibold text-black/72 transition-colors hover:text-black/88 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {phoneResendCooldown > 0
+                          ? `Reenviar codigo (${phoneResendCooldown}s)`
+                          : resendingPhoneCode
+                          ? "Reenviando..."
+                          : "Reenviar codigo"}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {phoneStep === "new-phone-input" && (
+                  <>
+                    <p className="text-[14px] leading-[1.45] text-black/62">
+                      Celular atual confirmado. Agora informe o novo celular para enviar o codigo final por SMS.
+                    </p>
+                    <label className="mt-5 block text-[13px] font-medium text-black/60">
+                      Novo celular
+                    </label>
+                    <input
+                      type="tel"
+                      autoComplete="tel"
+                      value={formatPhoneBR(pendingPhone)}
+                      onChange={(e) => setPendingPhone(onlyDigits(String(e.target.value || "")).slice(0, 13))}
+                      disabled={sendingPhoneCode}
+                      className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/80 outline-none transition-[border-color,box-shadow] focus:border-black/30 focus:ring-2 focus:ring-black/10 disabled:cursor-not-allowed disabled:opacity-70"
+                      placeholder="(11) 91234-5678"
+                    />
+                  </>
+                )}
+
+                {phoneStep === "confirm-new-code" && (
+                  <>
+                    <p className="text-[14px] leading-[1.45] text-black/62">
+                      Enviamos um codigo de 7 digitos por SMS para o novo celular{" "}
+                      <span className="font-semibold text-black/78">{maskSecurePhone(pendingPhone)}</span>.
+                    </p>
+                    <CodeBoxes
+                      length={7}
+                      value={phoneCode}
+                      onChange={setPhoneCode}
+                      onComplete={verifyPhoneChangeCode}
+                      disabled={verifyingPhoneCode}
+                    />
+                    <div className="mt-4 flex items-center justify-center">
+                      <button
+                        type="button"
+                        onClick={resendPhoneChangeCode}
+                        disabled={
+                          resendingPhoneCode ||
+                          verifyingPhoneCode ||
+                          sendingPhoneCode ||
+                          phoneResendCooldown > 0
+                        }
+                        className="text-[13px] font-semibold text-black/72 transition-colors hover:text-black/88 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {phoneResendCooldown > 0
+                          ? `Reenviar codigo (${phoneResendCooldown}s)`
+                          : resendingPhoneCode
+                          ? "Reenviando..."
+                          : "Reenviar codigo"}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {phoneChangeError && (
+                  <p className="mt-4 rounded-lg border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-2 text-[13px] font-medium text-[#b2433e]">
+                    {phoneChangeError}
+                  </p>
+                )}
+
+                <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                  {phoneStep === "confirm-current-code" || phoneStep === "confirm-new-code" ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (sendingPhoneCode || resendingPhoneCode || verifyingPhoneCode) return;
+                        setPhoneStep(
+                          phoneStep === "confirm-current-code"
+                            ? "confirm-current-intro"
+                            : "new-phone-input"
+                        );
+                        setPhoneCode("");
+                        setPhoneChangeError(null);
+                        setPhoneResendCooldown(0);
+                      }}
+                      disabled={sendingPhoneCode || resendingPhoneCode || verifyingPhoneCode}
+                      className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Voltar
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={closePhoneModal}
+                      disabled={sendingPhoneCode || resendingPhoneCode || verifyingPhoneCode}
+                      className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+
+                  {phoneStep === "confirm-current-intro" && (
+                    <button
+                      type="button"
+                      onClick={startCurrentPhoneConfirmation}
+                      disabled={sendingPhoneCode}
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {sendingPhoneCode ? "Enviando..." : "Enviar codigo"}
+                    </button>
+                  )}
+
+                  {phoneStep === "new-phone-input" && (
+                    <button
+                      type="button"
+                      onClick={sendNewPhoneCode}
+                      disabled={sendingPhoneCode}
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {sendingPhoneCode ? "Enviando..." : "Enviar codigo"}
+                    </button>
+                  )}
+
+                  {(phoneStep === "confirm-current-code" || phoneStep === "confirm-new-code") && (
+                    <button
+                      type="button"
+                      onClick={() => verifyPhoneChangeCode()}
+                      disabled={verifyingPhoneCode || onlyDigits(phoneCode).length !== 7}
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {verifyingPhoneCode ? "Validando..." : "Confirmar"}
                     </button>
                   )}
                 </div>
@@ -1205,9 +1746,11 @@ export default function ConfigMain({
   userNickname = "Usuario",
   userFullName,
   userEmail = "conta@wyzer.com.br",
+  userPhoneE164 = null,
   userPhotoLink = null,
   onUserPhotoChange,
   onUserEmailChange,
+  onUserPhoneChange,
 }: ConfigMainProps) {
   const prefersReducedMotion = useReducedMotion();
   const [searchTerm, setSearchTerm] = useState("");
@@ -1227,6 +1770,7 @@ export default function ConfigMain({
     [userFullName, userNickname]
   );
   const email = useMemo(() => String(userEmail || "").trim().toLowerCase() || "conta@wyzer.com.br", [userEmail]);
+  const phone = useMemo(() => normalizeE164Phone(userPhoneE164), [userPhoneE164]);
 
   const normalizedSearch = useMemo(() => normalizeForSearch(searchTerm), [searchTerm]);
   const filtered = useMemo(() => (!normalizedSearch ? menuItems : menuItems.filter((i) => normalizeForSearch(i.label).includes(normalizedSearch))), [normalizedSearch]);
@@ -1280,7 +1824,7 @@ export default function ConfigMain({
               <div className="min-w-0 flex-1 bg-[#f3f3f4]">
                 <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6"><h2 className="text-[20px] font-semibold text-black/75">{activeTitle}</h2><button type="button" onClick={onClose} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80"><X className="h-5 w-5" /></button></div>
                 <div className="h-[calc(100%-64px)] overflow-y-auto px-4 pb-8 pt-6 sm:px-8 md:px-10">
-                  {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} />}
+                  {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} />}
                   {activeSection === "devices" && <DevicesContent />}
                   {activeSection !== "my-account" && activeSection !== "devices" && <PlaceholderSection title={activeTitle} />}
                 </div>

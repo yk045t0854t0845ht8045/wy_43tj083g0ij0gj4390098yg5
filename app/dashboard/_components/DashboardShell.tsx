@@ -11,6 +11,7 @@ type DashboardShellProps = {
   userFullName?: string;
   userEmail: string;
   userPhotoLink?: string | null;
+  userPhoneE164?: string | null;
 };
 
 export default function DashboardShell({
@@ -18,6 +19,7 @@ export default function DashboardShell({
   userFullName,
   userEmail,
   userPhotoLink = null,
+  userPhoneE164 = null,
 }: DashboardShellProps) {
   const [configOpen, setConfigOpen] = useState(false);
   const [configSection, setConfigSection] = useState<ConfigSectionId>("my-account");
@@ -26,6 +28,9 @@ export default function DashboardShell({
   );
   const [profilePhotoLink, setProfilePhotoLink] = useState<string | null>(
     userPhotoLink
+  );
+  const [profilePhoneE164, setProfilePhoneE164] = useState<string | null>(
+    userPhoneE164
   );
 
   const normalizedInitialPhotoLink = useMemo(() => {
@@ -41,6 +46,11 @@ export default function DashboardShell({
     const normalized = String(userEmail || "").trim().toLowerCase();
     setProfileEmail(normalized || "conta@wyzer.com.br");
   }, [userEmail]);
+
+  useEffect(() => {
+    const normalized = String(userPhoneE164 || "").trim();
+    setProfilePhoneE164(normalized || null);
+  }, [userPhoneE164]);
 
   const handleOpenConfig = useCallback((section: ConfigSectionId = "my-account") => {
     setConfigSection(section);
@@ -78,6 +88,8 @@ export default function DashboardShell({
         userPhotoLink={profilePhotoLink}
         onUserPhotoChange={setProfilePhotoLink}
         onUserEmailChange={setProfileEmail}
+        userPhoneE164={profilePhoneE164}
+        onUserPhoneChange={setProfilePhoneE164}
       />
     </div>
   );
