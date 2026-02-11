@@ -92,7 +92,7 @@ function buildHtml(heading: string, code: string) {
   const safeHeading = escapeHtml(heading);
   const safeCode = escapeHtml(code);
   const origin = getPublicOrigin();
-  const logoUrl = escapeHtml(`${origin}/lg/Lg_Black.svg`);
+  const logoUrl = "https://www.wyzer.com.br/lg/Lg_Black.svg";
   const helpUrl = escapeHtml(`${origin}/ajuda`);
   const termsUrl = "https://terms.wyzer.com.br";
   const privacyUrl = "https://privacy.wyzer.com.br";
@@ -116,7 +116,7 @@ function buildHtml(heading: string, code: string) {
         </div>
 
         <div style="margin:16px auto 0;text-align:center;">
-          <div style="display:inline-block;padding:10px 22px;border-radius:14px;background:#f3f3f3;border:1px solid rgba(0,0,0,0.06);">
+          <div style="display:inline-block;padding:10px 22px;border-radius:14px;background:#f3f3f3;">
             <a href="${helpUrl}" target="_blank" rel="noopener noreferrer" style="font-size:14px;font-weight:700;color:#111;text-decoration:none;letter-spacing:0.2px;">AJUDA</a>
           </div>
           <p style="margin:12px 0 0;font-size:12px;color:#666;line-height:1.6;">
