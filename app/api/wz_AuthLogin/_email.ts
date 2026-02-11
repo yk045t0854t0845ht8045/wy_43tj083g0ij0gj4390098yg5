@@ -82,28 +82,58 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#39;");
 }
 
+function getPublicOrigin() {
+  const raw = String(process.env.DASHBOARD_ORIGIN || "").trim();
+  if (raw) return raw.replace(/\/+$/g, "");
+  return "https://dashboard.wyzer.com.br";
+}
+
 function buildHtml(heading: string, code: string) {
   const safeHeading = escapeHtml(heading);
   const safeCode = escapeHtml(code);
+  const origin = getPublicOrigin();
+  const logoUrl = escapeHtml(`${origin}/lg/Lg_Black.svg`);
+  const helpUrl = escapeHtml(`${origin}/ajuda`);
+  const termsUrl = "https://terms.wyzer.com.br";
+  const privacyUrl = "https://privacy.wyzer.com.br";
+  const cookiesUrl = escapeHtml(`${origin}/cookies`);
   return `
-    <div style="font-family: ui-sans-serif, system-ui; line-height: 1.45; color: #111">
-      <div style="max-width:520px;margin:0 auto;padding:24px;border:1px solid #eee;border-radius:16px">
-        <h2 style="margin:0 0 10px">${safeHeading}</h2>
-        <p style="margin:0 0 18px;color:#555">Use o codigo abaixo para continuar:</p>
+    <div style="font-family: ui-sans-serif, system-ui; line-height: 1.45; color: #111; background:#f6f6f7; padding:28px 16px;">
+      <div style="max-width:560px;margin:0 auto;text-align:center;">
+        <img src="${logoUrl}" alt="Wyzer" width="132" style="display:block;margin:0 auto 16px;height:auto;" />
 
-        <div style="display:inline-block;padding:14px 16px;border-radius:14px;background:#111;color:#fff;font-size:26px;letter-spacing:6px;font-weight:700">
-          ${safeCode}
+        <div style="max-width:520px;margin:0 auto;padding:24px;border:1px solid #eee;border-radius:16px;background:#fff;text-align:left;">
+          <h2 style="margin:0 0 10px">${safeHeading}</h2>
+          <p style="margin:0 0 18px;color:#555">Use o codigo abaixo para continuar:</p>
+
+          <div style="display:inline-block;padding:14px 16px;border-radius:14px;background:#111;color:#fff;font-size:26px;letter-spacing:6px;font-weight:700">
+            ${safeCode}
+          </div>
+
+          <p style="margin:18px 0 0;color:#777;font-size:12px">
+            Se voce nao solicitou, ignore este e-mail.
+          </p>
         </div>
 
-        <p style="margin:18px 0 0;color:#777;font-size:12px">
-          Se voce nao solicitou, ignore este e-mail.
-        </p>
+        <div style="margin:16px auto 0;text-align:center;">
+          <div style="display:inline-block;padding:10px 22px;border-radius:14px;background:#f3f3f3;border:1px solid rgba(0,0,0,0.06);">
+            <a href="${helpUrl}" target="_blank" rel="noopener noreferrer" style="font-size:14px;font-weight:700;color:#111;text-decoration:none;letter-spacing:0.2px;">AJUDA</a>
+          </div>
+          <p style="margin:12px 0 0;font-size:12px;color:#666;line-height:1.6;">
+            <a href="${termsUrl}" target="_blank" rel="noopener noreferrer" style="color:#666;text-decoration:none;">TERMOS</a>
+            &nbsp;&nbsp;|&nbsp;&nbsp;
+            <a href="${privacyUrl}" target="_blank" rel="noopener noreferrer" style="color:#666;text-decoration:none;">POLITICA DE PRIVACIDADE</a>
+            &nbsp;&nbsp;|&nbsp;&nbsp;
+            <a href="${cookiesUrl}" target="_blank" rel="noopener noreferrer" style="color:#666;text-decoration:none;">COOKIES</a>
+          </p>
+        </div>
       </div>
     </div>
   `;
 }
 
 function buildText(heading: string, code: string) {
+  const origin = getPublicOrigin();
   return [
     heading,
     "",
@@ -111,6 +141,11 @@ function buildText(heading: string, code: string) {
     code,
     "",
     "Se voce nao solicitou, ignore este e-mail.",
+    "",
+    "AJUDA: " + `${origin}/ajuda`,
+    "TERMOS: https://terms.wyzer.com.br",
+    "POLITICA DE PRIVACIDADE: https://privacy.wyzer.com.br",
+    "COOKIES: " + `${origin}/cookies`,
   ].join("\n");
 }
 
