@@ -208,6 +208,7 @@ function AccountContent({
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
@@ -353,6 +354,34 @@ function AccountContent({
     }
   };
 
+  const removeAvatar = async () => {
+    if (!localPhoto || saving || removing) return;
+
+    try {
+      setRemoving(true);
+      setError(null);
+
+      const res = await fetch("/api/wz_users/profile-photo", { method: "DELETE" });
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok) {
+        throw new Error(payload.error || "Nao foi possivel remover a foto de perfil.");
+      }
+
+      setLocalPhoto(null);
+      onUserPhotoChange?.(null);
+      closeEditor();
+    } catch (err) {
+      console.error("[config-account] remove avatar failed:", err);
+      setError(err instanceof Error ? err.message : "Erro ao remover foto de perfil.");
+    } finally {
+      setRemoving(false);
+    }
+  };
+
   const initial = nickname.trim().charAt(0).toUpperCase() || "U";
   const buttonClass = cx(
     "rounded-xl border border-black/10 bg-white/95 px-4 py-2 text-[13px] font-semibold text-black/80",
@@ -366,18 +395,31 @@ function AccountContent({
         <input ref={fileInputRef} type="file" accept={AVATAR_ACCEPT} onChange={onFilePicked} className="hidden" />
 
         <div className="flex items-start gap-4">
-          <button
-            type="button"
-            onClick={openPicker}
-            className="inline-flex h-[100px] w-[100px] shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#171717] text-[38px] font-semibold text-white transition-all duration-220 hover:opacity-95 active:translate-y-[0.6px] active:scale-[0.992]"
-          >
-            {localPhoto ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={localPhoto} alt="Foto de perfil" className="h-full w-full object-cover" />
-            ) : (
-              initial
+          <div className="flex w-[100px] shrink-0 flex-col items-center">
+            <button
+              type="button"
+              onClick={openPicker}
+              className="inline-flex h-[100px] w-[100px] items-center justify-center overflow-hidden rounded-xl bg-[#171717] text-[38px] font-semibold text-white transition-all duration-220 hover:opacity-95 active:translate-y-[0.6px] active:scale-[0.992]"
+            >
+              {localPhoto ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={localPhoto} alt="Foto de perfil" className="h-full w-full object-cover" />
+              ) : (
+                initial
+              )}
+            </button>
+
+            {localPhoto && (
+              <button
+                type="button"
+                onClick={removeAvatar}
+                disabled={removing || saving}
+                className="mt-2 text-[12px] font-medium text-black/55 transition-colors hover:text-black/75 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {removing ? "Removendo..." : "Remover foto"}
+              </button>
             )}
-          </button>
+          </div>
 
           <div className="min-w-0 max-w-[420px] flex-1">
             <label className="text-[14px] font-medium text-black/60">Nome</label>

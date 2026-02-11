@@ -320,3 +320,67 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const session = readSessionFromRequest(req);
+
+    if (!session) {
+      return NextResponse.json(
+        { ok: false, error: "Nao autenticado." },
+        { status: 401, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const sb = supabaseAdmin();
+    const userRow = await findWzUserRow({
+      sb,
+      userId: String(session.userId || "").trim(),
+      email: normalizeEmail(session.email),
+    });
+
+    if (!userRow?.id) {
+      return NextResponse.json(
+        { ok: false, error: "Usuario nao encontrado." },
+        { status: 404, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const previousObjectPath = extractObjectPathFromPublicUrl(userRow.photo_link);
+
+    const { error: updateError } = await sb
+      .from("wz_users")
+      .update({ photo_link: null })
+      .eq("id", userRow.id);
+
+    if (updateError) {
+      console.error("[profile-photo] remove wz_users photo_link error:", updateError);
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Nao foi possivel remover o avatar do usuario. Verifique se a coluna photo_link existe em wz_users.",
+        },
+        { status: 500, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    if (previousObjectPath) {
+      await sb.storage.from(USER_PHOTO_BUCKET).remove([previousObjectPath]);
+    }
+
+    return NextResponse.json(
+      {
+        ok: true,
+        photoLink: null,
+      },
+      { status: 200, headers: NO_STORE_HEADERS },
+    );
+  } catch (error) {
+    console.error("[profile-photo] unexpected delete error:", error);
+    return NextResponse.json(
+      { ok: false, error: "Erro inesperado ao remover a foto de perfil." },
+      { status: 500, headers: NO_STORE_HEADERS },
+    );
+  }
+}
