@@ -96,7 +96,7 @@ function buildHtml(heading: string, code: string) {
   const helpUrl = escapeHtml(`${origin}/ajuda`);
   const termsUrl = "https://terms.wyzer.com.br";
   const privacyUrl = "https://privacy.wyzer.com.br";
-  const cookiesUrl = escapeHtml(`${origin}/cookies`);
+  const cookiesUrl = "https://cookies.wyzer.com.br";
   return `
     <div style="font-family: ui-sans-serif, system-ui; line-height: 1.45; color: #111; background:#f6f6f7; padding:28px 16px;">
       <div style="max-width:560px;margin:0 auto;text-align:center;">
