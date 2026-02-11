@@ -67,7 +67,6 @@ function getDashboardOrigin() {
   if (env) return env.replace(/\/+$/g, "");
   return "https://dashboard.wyzer.com.br";
 }
-
 function sanitizeNext(nextRaw: string) {
   const s = String(nextRaw || "").trim();
   if (!s) return "/";
@@ -233,12 +232,33 @@ export async function POST(req: Request) {
     const hash = sha(code, ch.salt);
 
     if (hash !== ch.code_hash) {
+      const nextAttempts = Math.max(0, Number(ch.attempts_left) - 1);
       await sb
         .from("wz_auth_challenges")
-        .update({ attempts_left: Math.max(0, Number(ch.attempts_left) - 1) })
+        .update({
+          attempts_left: nextAttempts,
+          ...(nextAttempts <= 0 ? { consumed: true } : {}),
+        })
         .eq("id", ch.id);
 
-      return NextResponse.json({ ok: false, error: "Código inválido." }, { status: 400, headers: NO_STORE_HEADERS });
+      if (nextAttempts <= 0) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "Voce atingiu o limite de 7 tentativas. Reenvie o codigo, pois este nao e mais valido.",
+          },
+          { status: 429, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Codigo invalido. Tente novamente. Restam ${nextAttempts} tentativa${nextAttempts === 1 ? "" : "s"}.`,
+        },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
     }
 
     await sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", ch.id);
@@ -418,3 +438,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: message }, { status: 500, headers: NO_STORE_HEADERS });
   }
 }
+

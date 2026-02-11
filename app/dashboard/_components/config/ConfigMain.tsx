@@ -219,6 +219,7 @@ function CodeBoxes({
   disabled?: boolean;
 }) {
   const refs = useRef<Array<HTMLInputElement | null>>([]);
+  const lastCompletedRef = useRef<string>("");
 
   const digits = useMemo(() => {
     const clean = onlyDigits(value).slice(0, length);
@@ -227,7 +228,13 @@ function CodeBoxes({
 
   useEffect(() => {
     const clean = onlyDigits(value).slice(0, length);
-    if (clean.length === length) onComplete?.(clean);
+    if (clean.length !== length) {
+      lastCompletedRef.current = "";
+      return;
+    }
+    if (clean === lastCompletedRef.current) return;
+    lastCompletedRef.current = clean;
+    onComplete?.(clean);
   }, [length, onComplete, value]);
 
   const focusAt = (index: number) => {
@@ -242,7 +249,7 @@ function CodeBoxes({
   };
 
   return (
-    <div className="mt-5 flex items-center justify-center gap-2 sm:gap-3">
+    <div className="mt-5 flex w-full items-center justify-center gap-1 sm:gap-2">
       {digits.map((digit, i) => (
         <input
           key={i}
@@ -283,7 +290,7 @@ function CodeBoxes({
             focusAt(Math.min(pasted.length, length - 1));
           }}
           className={cx(
-            "h-12 w-10 rounded-[12px] border border-black/12 bg-[#ececef] text-center text-[18px] font-semibold text-black/85",
+            "h-11 w-8 rounded-[10px] border border-black/12 bg-[#ececef] text-center text-[16px] font-semibold text-black/85 sm:h-12 sm:w-10 sm:rounded-[12px] sm:text-[18px]",
             "focus:outline-none focus:ring-2 focus:ring-black/20",
             disabled ? "cursor-not-allowed opacity-70" : ""
           )}
@@ -695,7 +702,16 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok) {
-        throw new Error(payload.error || "Nao foi possivel validar o codigo.");
+        const fallback =
+          res.status === 429
+            ? "Voce atingiu o limite de 7 tentativas. Reenvie o codigo."
+            : "Codigo invalido. Tente novamente.";
+        setEmailChangeError(String(payload.error || fallback));
+        setEmailCode("");
+        if (res.status === 429) {
+          setEmailResendCooldown(0);
+        }
+        return;
       }
 
       if (payload.next === "set-new") {
@@ -722,7 +738,9 @@ function AccountContent({
     } catch (err) {
       console.error("[config-account] verify email change code failed:", err);
       setEmailChangeError(
-        err instanceof Error ? err.message : "Erro ao validar codigo de e-mail."
+        err instanceof Error
+          ? err.message
+          : "Erro ao validar codigo de e-mail. Tente novamente."
       );
     } finally {
       setVerifyingEmailCode(false);
@@ -857,7 +875,7 @@ function AccountContent({
             <motion.section
               role="dialog"
               aria-modal="true"
-              className="relative z-[1] w-[min(92vw,700px)] overflow-hidden rounded-2xl border border-black/15 bg-[#f3f3f4] shadow-[0_26px_70px_rgba(0,0,0,0.35)]"
+              className="relative z-[1] w-[min(96vw,700px)] overflow-hidden rounded-2xl border border-black/15 bg-[#f3f3f4] shadow-[0_26px_70px_rgba(0,0,0,0.35)] sm:w-[min(92vw,700px)]"
               initial={{ opacity: 0, y: 10, scale: 0.985 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8, scale: 0.985 }}
@@ -890,7 +908,7 @@ function AccountContent({
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
                       Digite o codigo de 7 digitos enviado para o seu e-mail atual{" "}
-                      <span className="font-semibold text-black/78">{localEmail}</span>.
+                      <span className="break-all font-semibold text-black/78">{localEmail}</span>.
                     </p>
                     <CodeBoxes
                       length={7}
@@ -945,7 +963,7 @@ function AccountContent({
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
                       Enviamos um codigo de 7 digitos para o novo e-mail{" "}
-                      <span className="font-semibold text-black/78">{pendingEmail}</span>.
+                      <span className="break-all font-semibold text-black/78">{pendingEmail}</span>.
                     </p>
                     <CodeBoxes
                       length={7}
@@ -982,7 +1000,7 @@ function AccountContent({
                   </p>
                 )}
 
-                <div className="mt-5 flex items-center justify-end gap-2">
+                <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
                   {emailStep === "confirm-current-code" || emailStep === "confirm-new-code" ? (
                     <button
                       type="button"

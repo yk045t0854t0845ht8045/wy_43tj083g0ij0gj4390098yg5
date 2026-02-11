@@ -180,6 +180,7 @@ function CodeBoxes({
   reduced?: boolean; // ✅ novo (pra girar suave ou não)
 }) {
   const refs = useRef<Array<HTMLInputElement | null>>([]);
+  const lastCompletedRef = useRef<string>("");
 
   const digits = useMemo(() => {
     const clean = onlyDigits(value).slice(0, length);
@@ -187,10 +188,15 @@ function CodeBoxes({
   }, [value, length]);
 
   useEffect(() => {
-    if (onlyDigits(value).length === length)
-      onComplete?.(onlyDigits(value).slice(0, length));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, length]);
+    const clean = onlyDigits(value).slice(0, length);
+    if (clean.length !== length) {
+      lastCompletedRef.current = "";
+      return;
+    }
+    if (clean === lastCompletedRef.current) return;
+    lastCompletedRef.current = clean;
+    onComplete?.(clean);
+  }, [length, onComplete, value]);
 
   const setAt = (idx: number, ch: string) => {
     const clean = onlyDigits(value).slice(0, length).split("");
@@ -749,7 +755,19 @@ export default function LinkLoginPage() {
         });
 
         const j = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(j?.error || "Código inválido.");
+        if (!res.ok || !j?.ok) {
+          const fallbackError =
+            res.status === 429
+              ? "Voce atingiu o limite de 7 tentativas. Reenvie o codigo."
+              : "Codigo invalido. Tente novamente.";
+          setMsgError(String(j?.error || fallbackError));
+          setEmailCode("");
+          setSmsCode("");
+          if (res.status === 429) {
+            setResendCooldown(0);
+          }
+          return;
+        }
 
         if (j?.next === "sms") {
           setPhoneMaskFromServer(String(j?.phoneMask || ""));
@@ -783,7 +801,7 @@ export default function LinkLoginPage() {
           router.push(nextUrl);
         }
       } catch (err: any) {
-        setMsgError(err?.message || "Erro inesperado.");
+        setMsgError(err?.message || "Erro inesperado. Tente novamente.");
       } finally {
         setBusy(false);
         setVerifyingEmailCodeBusy(false); // ✅ destrava
@@ -823,7 +841,19 @@ export default function LinkLoginPage() {
         });
 
         const j = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(j?.error || "Código inválido.");
+        if (!res.ok || !j?.ok) {
+          const fallbackError =
+            res.status === 429
+              ? "Voce atingiu o limite de 7 tentativas. Reenvie o codigo."
+              : "Codigo invalido. Tente novamente.";
+          setMsgError(String(j?.error || fallbackError));
+          setEmailCode("");
+          setSmsCode("");
+          if (res.status === 429) {
+            setResendCooldown(0);
+          }
+          return;
+        }
 
         const consumedReturnTo = consumeReturnTo();
         const nextUrl = String(j?.nextUrl || consumedReturnTo || "/app");
@@ -834,7 +864,7 @@ export default function LinkLoginPage() {
           router.push(nextUrl);
         }
       } catch (err: any) {
-        setMsgError(err?.message || "Erro inesperado.");
+        setMsgError(err?.message || "Erro inesperado. Tente novamente.");
       } finally {
         setBusy(false);
         setVerifyingSmsCodeBusy(false); // ✅ destrava

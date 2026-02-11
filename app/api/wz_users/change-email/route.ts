@@ -463,14 +463,28 @@ async function verifyEmailChallengeCode(params: {
 
   const hash = sha(params.code, challenge.salt);
   if (hash !== challenge.code_hash) {
+    const nextAttempts = Math.max(0, Number(challenge.attempts_left) - 1);
     await params.sb
       .from("wz_auth_challenges")
-      .update({ attempts_left: Math.max(0, Number(challenge.attempts_left) - 1) })
+      .update({
+        attempts_left: nextAttempts,
+        ...(nextAttempts <= 0 ? { consumed: true } : {}),
+      })
       .eq("id", challenge.id);
+
+    if (nextAttempts <= 0) {
+      return {
+        ok: false as const,
+        status: 429,
+        error:
+          "Voce atingiu o limite de 7 tentativas. Reenvie o codigo, pois este nao e mais valido.",
+      };
+    }
+
     return {
       ok: false as const,
       status: 400,
-      error: "Codigo invalido.",
+      error: `Codigo invalido. Tente novamente. Restam ${nextAttempts} tentativa${nextAttempts === 1 ? "" : "s"}.`,
     };
   }
 
