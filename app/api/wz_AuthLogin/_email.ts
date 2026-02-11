@@ -92,8 +92,8 @@ function buildHtml(heading: string, code: string) {
   const safeHeading = escapeHtml(heading);
   const safeCode = escapeHtml(code);
   const origin = getPublicOrigin();
-  const logoUrl = "https://www.wyzer.com.br/lg/Lg_Black.svg";
-  const helpUrl = escapeHtml(`${origin}/ajuda`);
+  const logoUrl = "https://www.wyzer.com.br/lg/Lg_Black.png";
+  const helpUrl = "https://help.wyzer.com.br";
   const termsUrl = "https://terms.wyzer.com.br";
   const privacyUrl = "https://privacy.wyzer.com.br";
   const cookiesUrl = "https://cookies.wyzer.com.br";
