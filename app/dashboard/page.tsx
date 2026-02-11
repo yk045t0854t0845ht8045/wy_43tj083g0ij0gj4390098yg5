@@ -13,6 +13,8 @@ type SidebarProfile = {
   fullName: string | null;
   photoLink: string | null;
   phoneE164: string | null;
+  emailChangedAt: string | null;
+  phoneChangedAt: string | null;
 };
 
 type WzUserLookupMode = "eq" | "ilike";
@@ -27,6 +29,8 @@ type WzUserLookupRow = {
   full_name?: string | null;
   photo_link?: string | null;
   phone_e164?: string | null;
+  email_changed_at?: string | null;
+  phone_changed_at?: string | null;
 };
 
 function buildLoginUrl(hostHeader: string | null) {
@@ -83,46 +87,45 @@ function sanitizePhoneE164(value?: string | null) {
   return clean;
 }
 
+function sanitizeIsoDatetime(value?: string | null) {
+  const clean = String(value || "").trim();
+  if (!clean) return null;
+  const parsed = Date.parse(clean);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed).toISOString();
+}
+
 async function queryWzUsersRows(
   sb: ReturnType<typeof supabaseAdmin>,
   params: WzUserLookupParams,
 ) {
-  const runSelect = async (columns: string) => {
+  const columnsToTry = [
+    "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at",
+    "full_name,photo_link,phone_e164,email_changed_at",
+    "full_name,photo_link,phone_e164,phone_changed_at",
+    "full_name,photo_link,phone_e164",
+    "full_name,photo_link",
+    "full_name,phone_e164",
+    "full_name",
+  ];
+
+  for (const columns of columnsToTry) {
     const base = sb.from("wz_users").select(columns).limit(5);
-    if (params.mode === "ilike") {
-      return base.ilike(params.column, params.value);
+    const res =
+      params.mode === "ilike"
+        ? await base.ilike(params.column, params.value)
+        : await base.eq(params.column, params.value);
+
+    if (!res.error) {
+      const rows = (res.data || []) as WzUserLookupRow[];
+      return rows.map((row) => ({
+        full_name: row.full_name || null,
+        photo_link: row.photo_link || null,
+        phone_e164: row.phone_e164 || null,
+        email_changed_at: row.email_changed_at || null,
+        phone_changed_at: row.phone_changed_at || null,
+      }));
     }
-    return base.eq(params.column, params.value);
-  };
-
-  const withPhotoAndPhone = await runSelect("full_name,photo_link,phone_e164");
-  if (!withPhotoAndPhone.error) {
-    return (withPhotoAndPhone.data || []) as WzUserLookupRow[];
-  }
-
-  const withPhoto = await runSelect("full_name,photo_link");
-  if (!withPhoto.error) {
-    return ((withPhoto.data || []) as WzUserLookupRow[]).map((row) => ({
-      ...row,
-      phone_e164: null,
-    }));
-  }
-
-  const withPhone = await runSelect("full_name,phone_e164");
-  if (!withPhone.error) {
-    return ((withPhone.data || []) as WzUserLookupRow[]).map((row) => ({
-      ...row,
-      photo_link: null,
-    }));
-  }
-
-  const withoutPhoto = await runSelect("full_name");
-  if (!withoutPhoto.error) {
-    return ((withoutPhoto.data || []) as WzUserLookupRow[]).map((row) => ({
-      ...row,
-      photo_link: null,
-      phone_e164: null,
-    }));
   }
 
   return [] as WzUserLookupRow[];
@@ -132,28 +135,44 @@ function pickProfileFromRows(
   rows: WzUserLookupRow[],
   fallbackPhotoLink: string | null,
   fallbackPhoneE164: string | null,
+  fallbackEmailChangedAt: string | null,
+  fallbackPhoneChangedAt: string | null,
 ) {
   let nextFallbackPhoto = fallbackPhotoLink;
   let nextFallbackPhone = fallbackPhoneE164;
+  let nextFallbackEmailChangedAt = fallbackEmailChangedAt;
+  let nextFallbackPhoneChangedAt = fallbackPhoneChangedAt;
 
   for (const row of rows) {
     const rowPhoto = sanitizePhotoLink(row.photo_link);
     const rowPhone = sanitizePhoneE164(row.phone_e164);
+    const rowEmailChangedAt = sanitizeIsoDatetime(row.email_changed_at);
+    const rowPhoneChangedAt = sanitizeIsoDatetime(row.phone_changed_at);
     if (!nextFallbackPhoto && rowPhoto) nextFallbackPhoto = rowPhoto;
     if (!nextFallbackPhone && rowPhone) nextFallbackPhone = rowPhone;
+    if (!nextFallbackEmailChangedAt && rowEmailChangedAt) {
+      nextFallbackEmailChangedAt = rowEmailChangedAt;
+    }
+    if (!nextFallbackPhoneChangedAt && rowPhoneChangedAt) {
+      nextFallbackPhoneChangedAt = rowPhoneChangedAt;
+    }
 
     const fullName = sanitizeFullName(row.full_name);
     const firstName = pickFirstName(row.full_name);
-    if (firstName || fullName || rowPhone) {
+    if (firstName || fullName || rowPhone || rowEmailChangedAt || rowPhoneChangedAt) {
       return {
         profile: {
           firstName: firstName || null,
           fullName: fullName || null,
           photoLink: rowPhoto || nextFallbackPhoto,
           phoneE164: rowPhone || nextFallbackPhone,
+          emailChangedAt: rowEmailChangedAt || nextFallbackEmailChangedAt,
+          phoneChangedAt: rowPhoneChangedAt || nextFallbackPhoneChangedAt,
         } as SidebarProfile,
         fallbackPhotoLink: nextFallbackPhoto,
         fallbackPhoneE164: nextFallbackPhone,
+        fallbackEmailChangedAt: nextFallbackEmailChangedAt,
+        fallbackPhoneChangedAt: nextFallbackPhoneChangedAt,
       };
     }
   }
@@ -162,6 +181,8 @@ function pickProfileFromRows(
     profile: null as SidebarProfile | null,
     fallbackPhotoLink: nextFallbackPhoto,
     fallbackPhoneE164: nextFallbackPhone,
+    fallbackEmailChangedAt: nextFallbackEmailChangedAt,
+    fallbackPhoneChangedAt: nextFallbackPhoneChangedAt,
   };
 }
 
@@ -180,6 +201,8 @@ async function getSidebarProfile(params: {
       fullName: null,
       photoLink: null,
       phoneE164: null,
+      emailChangedAt: null,
+      phoneChangedAt: null,
     } as SidebarProfile;
   }
 
@@ -187,6 +210,8 @@ async function getSidebarProfile(params: {
     const sb = supabaseAdmin();
     let fallbackPhotoLink: string | null = null;
     let fallbackPhoneE164: string | null = null;
+    let fallbackEmailChangedAt: string | null = null;
+    let fallbackPhoneChangedAt: string | null = null;
 
     if (email) {
       const rowsByEmail = await queryWzUsersRows(sb, {
@@ -194,9 +219,17 @@ async function getSidebarProfile(params: {
         value: email,
         mode: "ilike",
       });
-      const result = pickProfileFromRows(rowsByEmail, fallbackPhotoLink, fallbackPhoneE164);
+      const result = pickProfileFromRows(
+        rowsByEmail,
+        fallbackPhotoLink,
+        fallbackPhoneE164,
+        fallbackEmailChangedAt,
+        fallbackPhoneChangedAt,
+      );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
+      fallbackEmailChangedAt = result.fallbackEmailChangedAt;
+      fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
       if (result.profile) return result.profile;
     }
 
@@ -206,9 +239,17 @@ async function getSidebarProfile(params: {
         value: userId,
         mode: "eq",
       });
-      const result = pickProfileFromRows(rowsByAuthId, fallbackPhotoLink, fallbackPhoneE164);
+      const result = pickProfileFromRows(
+        rowsByAuthId,
+        fallbackPhotoLink,
+        fallbackPhoneE164,
+        fallbackEmailChangedAt,
+        fallbackPhoneChangedAt,
+      );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
+      fallbackEmailChangedAt = result.fallbackEmailChangedAt;
+      fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
       if (result.profile) return result.profile;
     }
 
@@ -218,9 +259,17 @@ async function getSidebarProfile(params: {
         value: userId,
         mode: "eq",
       });
-      const result = pickProfileFromRows(rowsByUserId, fallbackPhotoLink, fallbackPhoneE164);
+      const result = pickProfileFromRows(
+        rowsByUserId,
+        fallbackPhotoLink,
+        fallbackPhoneE164,
+        fallbackEmailChangedAt,
+        fallbackPhoneChangedAt,
+      );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
+      fallbackEmailChangedAt = result.fallbackEmailChangedAt;
+      fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
       if (result.profile) return result.profile;
     }
 
@@ -230,9 +279,17 @@ async function getSidebarProfile(params: {
         value: userId,
         mode: "eq",
       });
-      const result = pickProfileFromRows(rowsById, fallbackPhotoLink, fallbackPhoneE164);
+      const result = pickProfileFromRows(
+        rowsById,
+        fallbackPhotoLink,
+        fallbackPhoneE164,
+        fallbackEmailChangedAt,
+        fallbackPhoneChangedAt,
+      );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
+      fallbackEmailChangedAt = result.fallbackEmailChangedAt;
+      fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
       if (result.profile) return result.profile;
     }
 
@@ -241,6 +298,8 @@ async function getSidebarProfile(params: {
       fullName: null,
       photoLink: fallbackPhotoLink,
       phoneE164: fallbackPhoneE164,
+      emailChangedAt: fallbackEmailChangedAt,
+      phoneChangedAt: fallbackPhoneChangedAt,
     } as SidebarProfile;
   } catch (error) {
     console.error("[dashboard] failed to load wz_users profile:", error);
@@ -251,6 +310,8 @@ async function getSidebarProfile(params: {
     fullName: null,
     photoLink: null,
     phoneE164: null,
+    emailChangedAt: null,
+    phoneChangedAt: null,
   } as SidebarProfile;
 }
 
@@ -270,6 +331,8 @@ export default async function DashboardHomePage() {
   let accountFullName = shouldBypassAuth ? "Local User" : "Usuario";
   let sidebarPhotoLink: string | null = null;
   let sidebarPhoneE164: string | null = null;
+  let sidebarEmailChangedAt: string | null = null;
+  let sidebarPhoneChangedAt: string | null = null;
 
   if (session) {
     const profile = await getSidebarProfile({
@@ -300,6 +363,12 @@ export default async function DashboardHomePage() {
     if (profile.phoneE164) {
       sidebarPhoneE164 = profile.phoneE164;
     }
+    if (profile.emailChangedAt) {
+      sidebarEmailChangedAt = profile.emailChangedAt;
+    }
+    if (profile.phoneChangedAt) {
+      sidebarPhoneChangedAt = profile.phoneChangedAt;
+    }
   }
 
   const loginUrl = buildLoginUrl(hostHeader);
@@ -319,6 +388,8 @@ export default async function DashboardHomePage() {
       userEmail={sidebarEmail}
       userPhotoLink={sidebarPhotoLink}
       userPhoneE164={sidebarPhoneE164}
+      userEmailChangedAt={sidebarEmailChangedAt}
+      userPhoneChangedAt={sidebarPhoneChangedAt}
     />
   );
 }

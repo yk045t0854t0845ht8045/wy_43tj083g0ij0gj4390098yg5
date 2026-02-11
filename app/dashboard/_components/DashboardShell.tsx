@@ -12,7 +12,17 @@ type DashboardShellProps = {
   userEmail: string;
   userPhotoLink?: string | null;
   userPhoneE164?: string | null;
+  userEmailChangedAt?: string | null;
+  userPhoneChangedAt?: string | null;
 };
+
+function normalizeIsoDatetime(value?: string | null) {
+  const clean = String(value || "").trim();
+  if (!clean) return null;
+  const parsed = Date.parse(clean);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed).toISOString();
+}
 
 export default function DashboardShell({
   userNickname,
@@ -20,6 +30,8 @@ export default function DashboardShell({
   userEmail,
   userPhotoLink = null,
   userPhoneE164 = null,
+  userEmailChangedAt = null,
+  userPhoneChangedAt = null,
 }: DashboardShellProps) {
   const [configOpen, setConfigOpen] = useState(false);
   const [configSection, setConfigSection] = useState<ConfigSectionId>("my-account");
@@ -31,6 +43,12 @@ export default function DashboardShell({
   );
   const [profilePhoneE164, setProfilePhoneE164] = useState<string | null>(
     userPhoneE164
+  );
+  const [profileEmailChangedAt, setProfileEmailChangedAt] = useState<string | null>(
+    normalizeIsoDatetime(userEmailChangedAt)
+  );
+  const [profilePhoneChangedAt, setProfilePhoneChangedAt] = useState<string | null>(
+    normalizeIsoDatetime(userPhoneChangedAt)
   );
 
   const normalizedInitialPhotoLink = useMemo(() => {
@@ -51,6 +69,38 @@ export default function DashboardShell({
     const normalized = String(userPhoneE164 || "").trim();
     setProfilePhoneE164(normalized || null);
   }, [userPhoneE164]);
+
+  useEffect(() => {
+    setProfileEmailChangedAt(normalizeIsoDatetime(userEmailChangedAt));
+  }, [userEmailChangedAt]);
+
+  useEffect(() => {
+    setProfilePhoneChangedAt(normalizeIsoDatetime(userPhoneChangedAt));
+  }, [userPhoneChangedAt]);
+
+  const handleUserEmailChange = useCallback((nextEmail: string, changedAt?: string | null) => {
+    const normalized = String(nextEmail || "").trim().toLowerCase();
+    setProfileEmail(normalized || "conta@wyzer.com.br");
+
+    if (typeof changedAt !== "undefined") {
+      setProfileEmailChangedAt(normalizeIsoDatetime(changedAt));
+      return;
+    }
+
+    setProfileEmailChangedAt(new Date().toISOString());
+  }, []);
+
+  const handleUserPhoneChange = useCallback((nextPhoneE164: string | null, changedAt?: string | null) => {
+    const normalized = String(nextPhoneE164 || "").trim();
+    setProfilePhoneE164(normalized || null);
+
+    if (typeof changedAt !== "undefined") {
+      setProfilePhoneChangedAt(normalizeIsoDatetime(changedAt));
+      return;
+    }
+
+    setProfilePhoneChangedAt(new Date().toISOString());
+  }, []);
 
   const handleOpenConfig = useCallback((section: ConfigSectionId = "my-account") => {
     setConfigSection(section);
@@ -87,9 +137,11 @@ export default function DashboardShell({
         userEmail={profileEmail}
         userPhotoLink={profilePhotoLink}
         onUserPhotoChange={setProfilePhotoLink}
-        onUserEmailChange={setProfileEmail}
+        onUserEmailChange={handleUserEmailChange}
         userPhoneE164={profilePhoneE164}
-        onUserPhoneChange={setProfilePhoneE164}
+        onUserPhoneChange={handleUserPhoneChange}
+        userEmailChangedAt={profileEmailChangedAt}
+        userPhoneChangedAt={profilePhoneChangedAt}
       />
     </div>
   );

@@ -47,10 +47,12 @@ type ConfigMainProps = {
   userFullName?: string;
   userEmail?: string;
   userPhoneE164?: string | null;
+  userEmailChangedAt?: string | null;
+  userPhoneChangedAt?: string | null;
   userPhotoLink?: string | null;
   onUserPhotoChange?: (photoLink: string | null) => void;
-  onUserEmailChange?: (email: string) => void;
-  onUserPhoneChange?: (phoneE164: string | null) => void;
+  onUserEmailChange?: (email: string, changedAt?: string | null) => void;
+  onUserPhoneChange?: (phoneE164: string | null, changedAt?: string | null) => void;
 };
 
 // LINKS DOS ICONES (PNG) DA SIDEBAR DE CONFIGURACOES
@@ -209,6 +211,41 @@ function maskSecurePhone(value?: string | null) {
   const national = onlyDigits(normalized).replace(/^55/, "");
   if (national.length !== 11) return "Nao informado";
   return `${national.slice(0, 4)}${"*".repeat(7)}`;
+}
+
+function normalizeIsoDatetime(value?: string | null) {
+  const clean = String(value || "").trim();
+  if (!clean) return null;
+  const parsed = Date.parse(clean);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed).toISOString();
+}
+
+function formatElapsedTimeLabel(value?: string | null, nowMs = Date.now()) {
+  const normalized = normalizeIsoDatetime(value);
+  if (!normalized) return "nao informado";
+
+  const diffMs = Math.max(0, nowMs - Date.parse(normalized));
+  const diffMinutes = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  const diffMonths = Math.floor(diffDays / 30);
+  const diffYears = Math.floor(diffDays / 365);
+
+  if (diffMinutes <= 0) return "agora";
+  if (diffMinutes < 60) {
+    return `${diffMinutes} minuto${diffMinutes === 1 ? "" : "s"}`;
+  }
+  if (diffHours < 24) {
+    return `${diffHours} hora${diffHours === 1 ? "" : "s"}`;
+  }
+  if (diffDays < 30) {
+    return `${diffDays} dia${diffDays === 1 ? "" : "s"}`;
+  }
+  if (diffMonths < 12) {
+    return `${diffMonths} mes${diffMonths === 1 ? "" : "es"}`;
+  }
+  return `${diffYears} ano${diffYears === 1 ? "" : "s"}`;
 }
 
 function normalizePhotoLink(value?: string | null) {
@@ -382,6 +419,8 @@ function AccountContent({
   nickname,
   email,
   phoneE164,
+  emailChangedAt,
+  phoneChangedAt,
   userPhotoLink,
   onUserPhotoChange,
   onUserEmailChange,
@@ -390,15 +429,24 @@ function AccountContent({
   nickname: string;
   email: string;
   phoneE164?: string | null;
+  emailChangedAt?: string | null;
+  phoneChangedAt?: string | null;
   userPhotoLink?: string | null;
   onUserPhotoChange?: (photoLink: string | null) => void;
-  onUserEmailChange?: (email: string) => void;
-  onUserPhoneChange?: (phoneE164: string | null) => void;
+  onUserEmailChange?: (email: string, changedAt?: string | null) => void;
+  onUserPhoneChange?: (phoneE164: string | null, changedAt?: string | null) => void;
 }) {
   const [supportAccess, setSupportAccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [localEmail, setLocalEmail] = useState(() => String(email || "").trim().toLowerCase());
   const [localPhoneE164, setLocalPhoneE164] = useState(() => normalizeE164Phone(phoneE164));
+  const [localEmailChangedAt, setLocalEmailChangedAt] = useState<string | null>(() =>
+    normalizeIsoDatetime(emailChangedAt)
+  );
+  const [localPhoneChangedAt, setLocalPhoneChangedAt] = useState<string | null>(() =>
+    normalizeIsoDatetime(phoneChangedAt)
+  );
+  const [relativeNowMs, setRelativeNowMs] = useState(() => Date.now());
   const [localPhoto, setLocalPhoto] = useState<string | null>(normalizePhotoLink(userPhotoLink));
   const [editorOpen, setEditorOpen] = useState(false);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
@@ -441,6 +489,15 @@ function AccountContent({
   useEffect(() => setLocalPhoto(normalizePhotoLink(userPhotoLink)), [userPhotoLink]);
   useEffect(() => setLocalEmail(String(email || "").trim().toLowerCase()), [email]);
   useEffect(() => setLocalPhoneE164(normalizeE164Phone(phoneE164)), [phoneE164]);
+  useEffect(() => setLocalEmailChangedAt(normalizeIsoDatetime(emailChangedAt)), [emailChangedAt]);
+  useEffect(() => setLocalPhoneChangedAt(normalizeIsoDatetime(phoneChangedAt)), [phoneChangedAt]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setRelativeNowMs(Date.now());
+    }, 60000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (emailModalOpen) return;
@@ -807,6 +864,7 @@ function AccountContent({
         next?: "set-new";
         ticket?: string;
         email?: string;
+        emailChangedAt?: string | null;
         error?: string;
       };
 
@@ -840,8 +898,11 @@ function AccountContent({
       }
 
       const updatedEmail = String(payload.email || "").trim().toLowerCase();
+      const nextEmailChangedAt =
+        normalizeIsoDatetime(payload.emailChangedAt) || new Date().toISOString();
       setLocalEmail(updatedEmail);
-      onUserEmailChange?.(updatedEmail);
+      setLocalEmailChangedAt(nextEmailChangedAt);
+      onUserEmailChange?.(updatedEmail, nextEmailChangedAt);
       setEmailModalOpen(false);
       resetEmailChangeFlow();
     } catch (err) {
@@ -1029,6 +1090,7 @@ function AccountContent({
         next?: "set-new";
         ticket?: string;
         phone?: string;
+        phoneChangedAt?: string | null;
         error?: string;
       };
 
@@ -1062,8 +1124,11 @@ function AccountContent({
         throw new Error("Resposta invalida do servidor.");
       }
 
+      const nextPhoneChangedAt =
+        normalizeIsoDatetime(payload.phoneChangedAt) || new Date().toISOString();
       setLocalPhoneE164(updatedPhone);
-      onUserPhoneChange?.(updatedPhone);
+      setLocalPhoneChangedAt(nextPhoneChangedAt);
+      onUserPhoneChange?.(updatedPhone, nextPhoneChangedAt);
       setPhoneModalOpen(false);
       resetPhoneChangeFlow();
     } catch (err) {
@@ -1079,6 +1144,8 @@ function AccountContent({
   const initial = nickname.trim().charAt(0).toUpperCase() || "U";
   const maskedEmailValue = maskSecureEmail(localEmail);
   const maskedPhoneValue = maskSecurePhone(localPhoneE164);
+  const emailChangedLabel = `Alterado ha: ${formatElapsedTimeLabel(localEmailChangedAt, relativeNowMs)}`;
+  const phoneChangedLabel = `Alterado ha: ${formatElapsedTimeLabel(localPhoneChangedAt, relativeNowMs)}`;
   const buttonClass = cx(
     "rounded-xl border border-black/10 bg-white/95 px-4 py-2 text-[13px] font-semibold text-black/80",
     "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
@@ -1140,8 +1207,8 @@ function AccountContent({
           <h4 className="text-[20px] font-semibold text-black/82">Seguranca da conta</h4>
           <div className="mt-4 border-t border-black/10" />
           <div className="space-y-6 pt-5">
-            <div className="flex items-start justify-between gap-4 -mx-2 rounded-xl px-2"><div><p className="text-[18px] font-semibold text-black/85">E-mail</p><p className="mt-1 text-[15px] text-black/58">{maskedEmailValue}</p></div><button type="button" onClick={openEmailModal} className={buttonClass}>Alterar E-mail</button></div>
-            <div className="flex items-start justify-between gap-4 -mx-2 rounded-xl px-2"><div><p className="text-[18px] font-semibold text-black/85">Numero de celular</p><p className="mt-1 text-[15px] text-black/58">{maskedPhoneValue}</p></div><button type="button" onClick={openPhoneModal} className={buttonClass}>Alterar celular</button></div>
+            <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">E-mail</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{emailChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedEmailValue}</p></div><button type="button" onClick={openEmailModal} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar E-mail</button></div>
+            <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Numero de celular</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{phoneChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedPhoneValue}</p></div><button type="button" onClick={openPhoneModal} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar celular</button></div>
             <div className="flex items-start justify-between gap-4 -mx-2 rounded-xl px-2"><div><p className="text-[18px] font-semibold text-black/85">Senha</p><p className="mt-1 text-[15px] text-black/58">Defina uma senha permanente para acessar sua conta.</p></div><button type="button" className={buttonClass}>Alterar Senha</button></div>
             <div className="flex items-start justify-between gap-4 -mx-2 rounded-xl px-2"><div><p className="text-[18px] font-semibold text-black/85">Verificacao em duas etapas</p><p className="mt-1 text-[15px] text-black/58">Adicione mais uma camada de seguranca a sua conta durante o login.</p></div><button type="button" className={buttonClass}>Adicionar um metodo de verificacao</button></div>
             <div className="flex items-start justify-between gap-4 -mx-2 rounded-xl px-2"><div><p className="text-[18px] font-semibold text-black/85">Chaves de acesso</p><p className="mt-1 text-[15px] text-black/58">Entre com seguranca com a autenticacao biometrica no dispositivo.</p></div><button type="button" className={buttonClass}>Adicionar passkey</button></div>
@@ -1747,6 +1814,8 @@ export default function ConfigMain({
   userFullName,
   userEmail = "conta@wyzer.com.br",
   userPhoneE164 = null,
+  userEmailChangedAt = null,
+  userPhoneChangedAt = null,
   userPhotoLink = null,
   onUserPhotoChange,
   onUserEmailChange,
@@ -1771,6 +1840,8 @@ export default function ConfigMain({
   );
   const email = useMemo(() => String(userEmail || "").trim().toLowerCase() || "conta@wyzer.com.br", [userEmail]);
   const phone = useMemo(() => normalizeE164Phone(userPhoneE164), [userPhoneE164]);
+  const emailChangedAt = useMemo(() => normalizeIsoDatetime(userEmailChangedAt), [userEmailChangedAt]);
+  const phoneChangedAt = useMemo(() => normalizeIsoDatetime(userPhoneChangedAt), [userPhoneChangedAt]);
 
   const normalizedSearch = useMemo(() => normalizeForSearch(searchTerm), [searchTerm]);
   const filtered = useMemo(() => (!normalizedSearch ? menuItems : menuItems.filter((i) => normalizeForSearch(i.label).includes(normalizedSearch))), [normalizedSearch]);
@@ -1824,7 +1895,7 @@ export default function ConfigMain({
               <div className="min-w-0 flex-1 bg-[#f3f3f4]">
                 <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6"><h2 className="text-[20px] font-semibold text-black/75">{activeTitle}</h2><button type="button" onClick={onClose} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80"><X className="h-5 w-5" /></button></div>
                 <div className="h-[calc(100%-64px)] overflow-y-auto px-4 pb-8 pt-6 sm:px-8 md:px-10">
-                  {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} />}
+                  {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} emailChangedAt={emailChangedAt} phoneChangedAt={phoneChangedAt} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} />}
                   {activeSection === "devices" && <DevicesContent />}
                   {activeSection !== "my-account" && activeSection !== "devices" && <PlaceholderSection title={activeTitle} />}
                 </div>

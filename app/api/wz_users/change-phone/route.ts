@@ -260,6 +260,59 @@ function isUniqueViolation(error: unknown) {
   return code === "23505" || message.includes("duplicate key") || message.includes("already registered");
 }
 
+function isMissingColumnError(error: unknown, column: string) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  const hint = String((error as { hint?: unknown } | null)?.hint || "").toLowerCase();
+  const needle = String(column || "").trim().toLowerCase();
+
+  if (!needle) return false;
+  if (code === "42703") return true;
+  if (code === "PGRST204") return true;
+  return (
+    (message.includes(needle) || details.includes(needle) || hint.includes(needle)) &&
+    (message.includes("column") || details.includes("column") || hint.includes("column"))
+  );
+}
+
+async function updateWzUserPhoneRecord(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+  nextPhone: string;
+}) {
+  const phoneChangedAt = new Date().toISOString();
+  const primaryUpdate = await params.sb
+    .from("wz_users")
+    .update({
+      phone_e164: params.nextPhone,
+      phone_verified: true,
+      phone_changed_at: phoneChangedAt,
+    })
+    .eq("id", params.userId);
+
+  if (!primaryUpdate.error) {
+    return { error: null as unknown, phoneChangedAt };
+  }
+
+  if (!isMissingColumnError(primaryUpdate.error, "phone_changed_at")) {
+    return { error: primaryUpdate.error, phoneChangedAt: null as string | null };
+  }
+
+  const fallbackUpdate = await params.sb
+    .from("wz_users")
+    .update({ phone_e164: params.nextPhone, phone_verified: true })
+    .eq("id", params.userId);
+
+  return {
+    error: fallbackUpdate.error,
+    phoneChangedAt: fallbackUpdate.error ? null : phoneChangedAt,
+  };
+}
+
 async function queryWzUsersRows(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   column: string;
@@ -792,7 +845,12 @@ export async function PUT(req: NextRequest) {
     const currentRowPhone = normalizeE164Phone(base.userRow.phone_e164);
     if (currentRowPhone === nextPhone) {
       return NextResponse.json(
-        { ok: true, phone: nextPhone, phoneMask: maskPhoneE164(nextPhone) },
+        {
+          ok: true,
+          phone: nextPhone,
+          phoneMask: maskPhoneE164(nextPhone),
+          phoneChangedAt: null,
+        },
         { status: 200, headers: NO_STORE_HEADERS },
       );
     }
@@ -819,10 +877,11 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const { error: userUpdateError } = await base.sb
-      .from("wz_users")
-      .update({ phone_e164: nextPhone, phone_verified: true })
-      .eq("id", base.userRow.id);
+    const { error: userUpdateError, phoneChangedAt } = await updateWzUserPhoneRecord({
+      sb: base.sb,
+      userId: String(base.userRow.id),
+      nextPhone,
+    });
 
     if (userUpdateError) {
       const status = isUniqueViolation(userUpdateError) ? 409 : 500;
@@ -844,7 +903,12 @@ export async function PUT(req: NextRequest) {
     ]);
 
     return NextResponse.json(
-      { ok: true, phone: nextPhone, phoneMask: maskPhoneE164(nextPhone) },
+      {
+        ok: true,
+        phone: nextPhone,
+        phoneMask: maskPhoneE164(nextPhone),
+        phoneChangedAt,
+      },
       { status: 200, headers: NO_STORE_HEADERS },
     );
   } catch (error) {
