@@ -3,27 +3,40 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
-import { WyzerAIWidget } from "@/app/wyzerai/page";
-import Sidebar from "./_components/sidebar";
-import LoadingBase from "./_components/LoadingBase";
+import DashboardShell from "./_components/DashboardShell";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type SidebarProfile = {
+  firstName: string | null;
+  photoLink: string | null;
+};
+
+type WzUserLookupMode = "eq" | "ilike";
+
+type WzUserLookupParams = {
+  column: string;
+  value: string;
+  mode: WzUserLookupMode;
+};
+
+type WzUserLookupRow = {
+  full_name?: string | null;
+  photo_link?: string | null;
+};
+
 function buildLoginUrl(hostHeader: string | null) {
   const host = String(hostHeader || "").split(":")[0].toLowerCase();
 
-  // local/dev
   if (host.endsWith(".localhost") || host === "localhost") {
     return "http://login.localhost:3000/";
   }
 
-  // prod
   if (host.endsWith(".wyzer.com.br")) {
     return "https://login.wyzer.com.br/";
   }
 
-  // fallback
   return "https://login.wyzer.com.br/";
 }
 
@@ -46,7 +59,63 @@ function pickFirstName(fullName?: string | null) {
   return first ? first.slice(0, 24) : null;
 }
 
-async function getSidebarFirstName(params: {
+function sanitizePhotoLink(value?: string | null) {
+  const clean = String(value || "").trim();
+  if (!clean) return null;
+  return clean.slice(0, 2048);
+}
+
+async function queryWzUsersRows(
+  sb: ReturnType<typeof supabaseAdmin>,
+  params: WzUserLookupParams,
+) {
+  const runSelect = async (columns: string) => {
+    const base = sb.from("wz_users").select(columns).limit(5);
+    if (params.mode === "ilike") {
+      return base.ilike(params.column, params.value);
+    }
+    return base.eq(params.column, params.value);
+  };
+
+  const withPhoto = await runSelect("full_name,photo_link");
+  if (!withPhoto.error) {
+    return (withPhoto.data || []) as WzUserLookupRow[];
+  }
+
+  const withoutPhoto = await runSelect("full_name");
+  if (!withoutPhoto.error) {
+    return ((withoutPhoto.data || []) as WzUserLookupRow[]).map((row) => ({
+      ...row,
+      photo_link: null,
+    }));
+  }
+
+  return [] as WzUserLookupRow[];
+}
+
+function pickProfileFromRows(rows: WzUserLookupRow[], fallbackPhotoLink: string | null) {
+  let nextFallbackPhoto = fallbackPhotoLink;
+
+  for (const row of rows) {
+    const rowPhoto = sanitizePhotoLink(row.photo_link);
+    if (!nextFallbackPhoto && rowPhoto) nextFallbackPhoto = rowPhoto;
+
+    const firstName = pickFirstName(row.full_name);
+    if (firstName) {
+      return {
+        profile: {
+          firstName,
+          photoLink: rowPhoto || nextFallbackPhoto,
+        } as SidebarProfile,
+        fallbackPhotoLink: nextFallbackPhoto,
+      };
+    }
+  }
+
+  return { profile: null as SidebarProfile | null, fallbackPhotoLink: nextFallbackPhoto };
+}
+
+async function getSidebarProfile(params: {
   userId?: string | null;
   email?: string | null;
 }) {
@@ -55,79 +124,73 @@ async function getSidebarFirstName(params: {
     .trim()
     .toLowerCase();
 
-  if (!userId && !email) return null;
+  if (!userId && !email) {
+    return {
+      firstName: null,
+      photoLink: null,
+    } as SidebarProfile;
+  }
 
   try {
     const sb = supabaseAdmin();
+    let fallbackPhotoLink: string | null = null;
 
-    // 1) Igual ao fluxo do e-mail da sessão: prioriza lookup por email (case-insensitive).
     if (email) {
-      const { data, error } = await sb
-        .from("wz_users")
-        .select("full_name")
-        .ilike("email", email)
-        .limit(5);
-
-      if (!error) {
-        for (const row of data || []) {
-          const firstByEmail = pickFirstName((row as { full_name?: string | null }).full_name);
-          if (firstByEmail) return firstByEmail;
-        }
-      }
+      const rowsByEmail = await queryWzUsersRows(sb, {
+        column: "email",
+        value: email,
+        mode: "ilike",
+      });
+      const result = pickProfileFromRows(rowsByEmail, fallbackPhotoLink);
+      fallbackPhotoLink = result.fallbackPhotoLink;
+      if (result.profile) return result.profile;
     }
 
-    // 2) Fallback para sessões antigas ou migrações: auth_user_id.
     if (userId) {
-      const { data, error } = await sb
-        .from("wz_users")
-        .select("full_name")
-        .eq("auth_user_id", userId)
-        .limit(5);
-
-      if (!error) {
-        for (const row of data || []) {
-          const firstByAuthId = pickFirstName((row as { full_name?: string | null }).full_name);
-          if (firstByAuthId) return firstByAuthId;
-        }
-      }
+      const rowsByAuthId = await queryWzUsersRows(sb, {
+        column: "auth_user_id",
+        value: userId,
+        mode: "eq",
+      });
+      const result = pickProfileFromRows(rowsByAuthId, fallbackPhotoLink);
+      fallbackPhotoLink = result.fallbackPhotoLink;
+      if (result.profile) return result.profile;
     }
 
-    // 3) Fallback para bases onde wz_users usa user_id.
     if (userId) {
-      const { data, error } = await sb
-        .from("wz_users")
-        .select("full_name")
-        .eq("user_id", userId)
-        .limit(5);
-
-      if (!error) {
-        for (const row of data || []) {
-          const firstByUserId = pickFirstName((row as { full_name?: string | null }).full_name);
-          if (firstByUserId) return firstByUserId;
-        }
-      }
+      const rowsByUserId = await queryWzUsersRows(sb, {
+        column: "user_id",
+        value: userId,
+        mode: "eq",
+      });
+      const result = pickProfileFromRows(rowsByUserId, fallbackPhotoLink);
+      fallbackPhotoLink = result.fallbackPhotoLink;
+      if (result.profile) return result.profile;
     }
 
-    // 4) Fallback final: id da tabela wz_users.
     if (userId) {
-      const { data, error } = await sb
-        .from("wz_users")
-        .select("full_name")
-        .eq("id", userId)
-        .limit(5);
-
-      if (!error) {
-        for (const row of data || []) {
-          const firstById = pickFirstName((row as { full_name?: string | null }).full_name);
-          if (firstById) return firstById;
-        }
-      }
+      const rowsById = await queryWzUsersRows(sb, {
+        column: "id",
+        value: userId,
+        mode: "eq",
+      });
+      const result = pickProfileFromRows(rowsById, fallbackPhotoLink);
+      fallbackPhotoLink = result.fallbackPhotoLink;
+      if (result.profile) return result.profile;
     }
+
+    return {
+      firstName: null,
+      photoLink: fallbackPhotoLink,
+    } as SidebarProfile;
   } catch (error) {
-    console.error("[dashboard] failed to load wz_users full_name:", error);
+    console.error("[dashboard] failed to load wz_users profile:", error);
   }
 
-  return null;
+  return {
+    firstName: null,
+    photoLink: null,
+  } as SidebarProfile;
 }
 
 export default async function DashboardHomePage() {
@@ -143,17 +206,23 @@ export default async function DashboardHomePage() {
   const session = readSessionFromCookieHeader(cookieHeader, headerLike);
   const sidebarEmail = session?.email || (shouldBypassAuth ? "local@localhost" : "");
   let sidebarNickname = shouldBypassAuth ? "Local User" : "Usuario";
+  let sidebarPhotoLink: string | null = null;
 
   if (session) {
+    const profile = await getSidebarProfile({
+      userId: session.userId,
+      email: session.email,
+    });
     const firstNameFromSession = pickFirstName(session.fullName);
+
     if (firstNameFromSession) {
       sidebarNickname = firstNameFromSession;
-    } else {
-      const dbFirstName = await getSidebarFirstName({
-        userId: session.userId,
-        email: session.email,
-      });
-      if (dbFirstName) sidebarNickname = dbFirstName;
+    } else if (profile.firstName) {
+      sidebarNickname = profile.firstName;
+    }
+
+    if (profile.photoLink) {
+      sidebarPhotoLink = profile.photoLink;
     }
   }
 
@@ -168,22 +237,10 @@ export default async function DashboardHomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex">
-      <LoadingBase />
-      <Sidebar
-        activeMain="overview"
-        userNickname={sidebarNickname}
-        userEmail={sidebarEmail}
-      />
-
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          {/* <div>{session.email}</div>
-          <div>{session.userId}</div> */}
-        </div>
-
-        <WyzerAIWidget />
-      </div>
-    </div>
+    <DashboardShell
+      userNickname={sidebarNickname}
+      userEmail={sidebarEmail}
+      userPhotoLink={sidebarPhotoLink}
+    />
   );
 }

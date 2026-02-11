@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Script from "next/script";
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
-import { ArrowRight, LogOut, Settings, User, X } from "lucide-react";
+import { ArrowRight, X } from "lucide-react";
 import React, {
   useEffect,
   useId,
@@ -12,6 +12,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import type { ConfigSectionId } from "./config/ConfigMain";
 
 type MainItemId =
   | "overview"
@@ -24,6 +25,52 @@ type SubItemId = "orders" | "drafts";
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
+}
+
+type UserAvatarProps = {
+  photoLink?: string | null;
+  initial: string;
+  sizeClass: string;
+  roundedClass: string;
+  textClass: string;
+  backgroundClass: string;
+};
+
+function UserAvatar({
+  photoLink,
+  initial,
+  sizeClass,
+  roundedClass,
+  textClass,
+  backgroundClass,
+}: UserAvatarProps) {
+  const cleanPhotoLink = String(photoLink || "").trim();
+
+  return (
+    <span
+      className={cx(
+        "inline-flex shrink-0 items-center justify-center overflow-hidden",
+        sizeClass,
+        roundedClass,
+        cleanPhotoLink ? "bg-black/[0.08]" : backgroundClass,
+        textClass,
+        "font-semibold text-white"
+      )}
+    >
+      {cleanPhotoLink ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={cleanPhotoLink}
+          alt=""
+          className="h-full w-full object-cover"
+          draggable={false}
+          referrerPolicy="no-referrer"
+        />
+      ) : (
+        initial
+      )}
+    </span>
+  );
 }
 
 function useIsMobileSm() {
@@ -47,6 +94,7 @@ type LordIconProps = React.HTMLAttributes<HTMLElement> & {
   trigger?: string;
   target?: string;
   state?: string;
+  delay?: string | number;
 };
 
 function IOverview({ target }: { target?: string }) {
@@ -133,6 +181,19 @@ function ISettings({ target }: { target?: string }) {
       {React.createElement<LordIconProps>("lord-icon", {
         src: "https://cdn.lordicon.com/umuwriak.json",
         state: "hover-cog-4",
+        trigger: "hover",
+        target,
+        style: { width: "18px", height: "18px" },
+      })}
+    </span>
+  );
+}
+
+function IMyAccount({ target }: { target?: string }) {
+  return (
+    <span className="w-[18px] h-[18px] inline-flex items-center justify-center overflow-hidden">
+      {React.createElement<LordIconProps>("lord-icon", {
+        src: "https://cdn.lordicon.com/spzqjmbt.json",
         trigger: "hover",
         target,
         style: { width: "18px", height: "18px" },
@@ -315,6 +376,8 @@ type Props = {
   activeSub?: SubItemId | null;
   userNickname?: string;
   userEmail?: string;
+  userPhotoLink?: string | null;
+  onOpenConfig?: (section?: ConfigSectionId) => void;
 };
 
 const SIDEBAR_COLLAPSE_STORAGE_KEY = "dashboard-sidebar-collapsed-v1";
@@ -324,6 +387,8 @@ export default function Sidebar({
   activeSub = null,
   userNickname = "Usuario",
   userEmail = "conta@wyzer.com.br",
+  userPhotoLink = null,
+  onOpenConfig,
 }: Props) {
   const [transactionsOpen, setTransactionsOpen] = useState(
     () => activeMain === "transactions"
@@ -375,6 +440,10 @@ export default function Sidebar({
     const first = resolvedUserNickname.trim().charAt(0);
     return first ? first.toUpperCase() : "U";
   }, [resolvedUserNickname]);
+  const resolvedUserPhotoLink = useMemo(() => {
+    const value = String(userPhotoLink || "").trim();
+    return value || null;
+  }, [userPhotoLink]);
 
   useEffect(() => setActiveMainState(activeMain), [activeMain]);
   useEffect(() => setActiveSubState(activeSub), [activeSub]);
@@ -491,6 +560,8 @@ export default function Sidebar({
   const helpHoverTargetId = `sidebar-ajuda-${cleanIdBase}`;
   const settingsHoverTargetId = `sidebar-configuracoes-${cleanIdBase}`;
   const invoicesInfoTargetId = `sidebar-invoices-info-${cleanIdBase}`;
+  const profileMyAccountHoverTargetId = `profile-minha-conta-${cleanIdBase}`;
+  const profileSettingsHoverTargetId = `profile-configuracoes-${cleanIdBase}`;
 
   const submenuWrapRef = useRef<HTMLDivElement | null>(null);
   const subBtnRefs = useRef<Record<SubItemId, HTMLButtonElement | null>>({
@@ -603,6 +674,12 @@ export default function Sidebar({
     setActiveMainState("transactions");
     if (!transactionsOpen) setTransactionsOpen(true);
     setActiveSubState(id);
+    setMobileMenuOpen(false);
+  };
+
+  const openConfigModal = (section: ConfigSectionId = "my-account") => {
+    onOpenConfig?.(section);
+    setProfileMenuOpen(false);
     setMobileMenuOpen(false);
   };
 
@@ -1144,6 +1221,7 @@ export default function Sidebar({
               <motion.button
                 id={settingsHoverTargetId}
                 type="button"
+                onClick={() => openConfigModal("my-account")}
                 whileTap={tapFeedback}
                 transition={tapFeedbackTransition}
                 className={cx(mainBtnBase, "hover:bg-black/[0.04]")}
@@ -1287,9 +1365,14 @@ export default function Sidebar({
               aria-label={`Expandir perfil ${resolvedUserNickname}`}
               title={resolvedUserNickname}
             >
-              <span className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-lg bg-[#121330] text-[12px] font-semibold text-white">
-                {profileInitial}
-              </span>
+              <UserAvatar
+                photoLink={resolvedUserPhotoLink}
+                initial={profileInitial}
+                sizeClass="h-[30px] w-[30px]"
+                roundedClass="rounded-lg"
+                textClass="text-[12px]"
+                backgroundClass="bg-[#121330]"
+              />
             </button>
           ) : (
             <div ref={profileMenuWrapRef} className="relative">
@@ -1308,9 +1391,14 @@ export default function Sidebar({
                   >
                     <div className="max-h-[65vh] overflow-y-auto rounded-2xl border border-black/10 bg-white/98 p-2 shadow-[0_18px_38px_rgba(0,0,0,0.18)] backdrop-blur-[2px]">
                       <div className="flex items-center gap-3 px-2 pb-2 pt-1">
-                        <span className="inline-flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#121330] text-[14px] font-semibold text-white">
-                          {profileInitial}
-                        </span>
+                        <UserAvatar
+                          photoLink={resolvedUserPhotoLink}
+                          initial={profileInitial}
+                          sizeClass="h-[42px] w-[42px]"
+                          roundedClass="rounded-xl"
+                          textClass="text-[14px]"
+                          backgroundClass="bg-[#171717]"
+                        />
                         <span className="min-w-0">
                           <span className="block truncate text-[14px] font-semibold text-black/90">
                             {resolvedUserNickname}
@@ -1324,47 +1412,64 @@ export default function Sidebar({
                       <div className="mx-2 mb-1 border-t border-black/10" />
 
                       <div className="space-y-1.5 px-1 py-1">
-                        <button
+                        <motion.button
+                          id={profileMyAccountHoverTargetId}
                           type="button"
-                          onClick={() => setProfileMenuOpen(false)}
+                          onClick={() => openConfigModal("my-account")}
+                          whileTap={tapFeedback}
+                          transition={tapFeedbackTransition}
                           className={cx(
                             "flex h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left",
                             "text-[14px] font-medium text-black/80",
                             "transition-colors duration-200 ease-out hover:bg-black/[0.06]"
                           )}
                         >
-                          <User className="h-[18px] w-[18px] text-black/55" />
-                          <span>Account Settings</span>
-                        </button>
+                          <IMyAccount target={`#${profileMyAccountHoverTargetId}`} />
+                          <span>Minha conta</span>
+                        </motion.button>
 
-                        <button
+                        <motion.button
+                          id={profileSettingsHoverTargetId}
                           type="button"
-                          onClick={() => setProfileMenuOpen(false)}
+                          onClick={() => openConfigModal("my-account")}
+                          whileTap={tapFeedback}
+                          transition={tapFeedbackTransition}
                           className={cx(
                             "flex h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left",
                             "text-[14px] font-medium text-black/80",
                             "transition-colors duration-200 ease-out hover:bg-black/[0.06]"
                           )}
                         >
-                          <Settings className="h-[18px] w-[18px] text-black/55" />
-                          <span>Settings</span>
-                        </button>
+                          <ISettings target={`#${profileSettingsHoverTargetId}`} />
+                          <span>Configurações</span>
+                        </motion.button>
                       </div>
 
                       <div className="mx-2 mb-1 mt-1 border-t border-black/10" />
 
                       <form method="post" action="/api/wz_AuthLogin/logout" className="px-1 pb-1 pt-0.5">
-                        <button
+                        <motion.button
                           type="submit"
+                          whileTap={tapFeedback}
+                          transition={tapFeedbackTransition}
                           className={cx(
                             "flex h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left",
                             "text-[14px] font-medium text-black/80",
                             "transition-colors duration-200 ease-out hover:bg-black/[0.06]"
                           )}
                         >
-                          <LogOut className="h-[18px] w-[18px] text-black/60" />
-                          <span>Sign Out</span>
-                        </button>
+                          <span className="inline-flex h-[18px] w-[18px] items-center justify-center overflow-hidden">
+                            <Image
+                              src="/f9dc89e1-e5a9-4eae-b48e-955160b064fe.svg"
+                              alt=""
+                              width={18}
+                              height={18}
+                              className="h-[18px] w-[18px]"
+                              aria-hidden="true"
+                            />
+                          </span>
+                          <span>Logout</span>
+                        </motion.button>
                       </form>
                     </div>
                   </motion.div>
@@ -1386,9 +1491,14 @@ export default function Sidebar({
                 aria-haspopup="menu"
               >
                 <span className="min-w-0 flex items-center gap-3 text-left">
-                  <span className="inline-flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-[#121330] text-[14px] font-semibold text-white">
-                    {profileInitial}
-                  </span>
+                  <UserAvatar
+                    photoLink={resolvedUserPhotoLink}
+                    initial={profileInitial}
+                    sizeClass="h-[42px] w-[42px]"
+                    roundedClass="rounded-xl"
+                    textClass="text-[14px]"
+                    backgroundClass="bg-[#171717]"
+                  />
                   <span className="min-w-0">
                     <span className="block truncate text-[14px] font-semibold text-black/90">
                       {resolvedUserNickname}
