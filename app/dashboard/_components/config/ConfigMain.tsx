@@ -52,6 +52,7 @@ type ConfigMainProps = {
   activeSection: ConfigSectionId;
   onSectionChange: (section: ConfigSectionId) => void;
   userNickname?: string;
+  userFullName?: string;
   userEmail?: string;
   userPhotoLink?: string | null;
   onUserPhotoChange?: (photoLink: string | null) => void;
@@ -424,7 +425,7 @@ function AccountContent({
           <div className="min-w-0 max-w-[420px] flex-1">
             <label className="text-[14px] font-medium text-black/60">Nome</label>
             <div className="mt-1.5 h-10 w-full rounded-lg border border-black/10 bg-black/[0.03] px-3 text-[18px] font-semibold leading-10 text-black/80">
-              {nickname} Account
+              {nickname}
             </div>
             <p className="mt-3 text-[14px] text-black/60">
               <button type="button" onClick={openPicker} className="text-sky-600 hover:text-sky-700">
@@ -620,6 +621,7 @@ export default function ConfigMain({
   activeSection,
   onSectionChange,
   userNickname = "Usuario",
+  userFullName,
   userEmail = "conta@wyzer.com.br",
   userPhotoLink = null,
   onUserPhotoChange,
@@ -637,7 +639,10 @@ export default function ConfigMain({
   const tapFeedback = useMemo(() => (prefersReducedMotion ? undefined : { scale: 0.992, y: 0.6 }), [prefersReducedMotion]);
   const tapTransition = useMemo(() => (prefersReducedMotion ? { duration: 0.08 } : ({ type: "spring" as const, stiffness: 1200, damping: 52, mass: 0.24 })), [prefersReducedMotion]);
 
-  const nickname = useMemo(() => String(userNickname || "").trim() || "usuario", [userNickname]);
+  const nickname = useMemo(
+    () => String(userFullName || "").trim() || String(userNickname || "").trim() || "usuario",
+    [userFullName, userNickname]
+  );
   const email = useMemo(() => String(userEmail || "").trim().toLowerCase() || "conta@wyzer.com.br", [userEmail]);
 
   const normalizedSearch = useMemo(() => normalizeForSearch(searchTerm), [searchTerm]);

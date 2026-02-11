@@ -10,6 +10,7 @@ export const revalidate = 0;
 
 type SidebarProfile = {
   firstName: string | null;
+  fullName: string | null;
   photoLink: string | null;
 };
 
@@ -59,6 +60,14 @@ function pickFirstName(fullName?: string | null) {
   return first ? first.slice(0, 24) : null;
 }
 
+function sanitizeFullName(fullName?: string | null) {
+  const clean = String(fullName || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return null;
+  return clean.slice(0, 120);
+}
+
 function sanitizePhotoLink(value?: string | null) {
   const clean = String(value || "").trim();
   if (!clean) return null;
@@ -100,11 +109,13 @@ function pickProfileFromRows(rows: WzUserLookupRow[], fallbackPhotoLink: string 
     const rowPhoto = sanitizePhotoLink(row.photo_link);
     if (!nextFallbackPhoto && rowPhoto) nextFallbackPhoto = rowPhoto;
 
+    const fullName = sanitizeFullName(row.full_name);
     const firstName = pickFirstName(row.full_name);
-    if (firstName) {
+    if (firstName || fullName) {
       return {
         profile: {
-          firstName,
+          firstName: firstName || null,
+          fullName: fullName || null,
           photoLink: rowPhoto || nextFallbackPhoto,
         } as SidebarProfile,
         fallbackPhotoLink: nextFallbackPhoto,
@@ -127,6 +138,7 @@ async function getSidebarProfile(params: {
   if (!userId && !email) {
     return {
       firstName: null,
+      fullName: null,
       photoLink: null,
     } as SidebarProfile;
   }
@@ -181,6 +193,7 @@ async function getSidebarProfile(params: {
 
     return {
       firstName: null,
+      fullName: null,
       photoLink: fallbackPhotoLink,
     } as SidebarProfile;
   } catch (error) {
@@ -189,6 +202,7 @@ async function getSidebarProfile(params: {
 
   return {
     firstName: null,
+    fullName: null,
     photoLink: null,
   } as SidebarProfile;
 }
@@ -206,6 +220,7 @@ export default async function DashboardHomePage() {
   const session = readSessionFromCookieHeader(cookieHeader, headerLike);
   const sidebarEmail = session?.email || (shouldBypassAuth ? "local@localhost" : "");
   let sidebarNickname = shouldBypassAuth ? "Local User" : "Usuario";
+  let accountFullName = shouldBypassAuth ? "Local User" : "Usuario";
   let sidebarPhotoLink: string | null = null;
 
   if (session) {
@@ -213,12 +228,21 @@ export default async function DashboardHomePage() {
       userId: session.userId,
       email: session.email,
     });
+    const fullNameFromSession = sanitizeFullName(session.fullName);
     const firstNameFromSession = pickFirstName(session.fullName);
+
+    if (fullNameFromSession) {
+      accountFullName = fullNameFromSession;
+    } else if (profile.fullName) {
+      accountFullName = profile.fullName;
+    }
 
     if (firstNameFromSession) {
       sidebarNickname = firstNameFromSession;
     } else if (profile.firstName) {
       sidebarNickname = profile.firstName;
+    } else if (accountFullName) {
+      sidebarNickname = pickFirstName(accountFullName) || sidebarNickname;
     }
 
     if (profile.photoLink) {
@@ -239,6 +263,7 @@ export default async function DashboardHomePage() {
   return (
     <DashboardShell
       userNickname={sidebarNickname}
+      userFullName={accountFullName}
       userEmail={sidebarEmail}
       userPhotoLink={sidebarPhotoLink}
     />

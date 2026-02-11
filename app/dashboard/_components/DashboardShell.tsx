@@ -8,12 +8,14 @@ import ConfigMain, { type ConfigSectionId } from "./config/ConfigMain";
 
 type DashboardShellProps = {
   userNickname: string;
+  userFullName?: string;
   userEmail: string;
   userPhotoLink?: string | null;
 };
 
 export default function DashboardShell({
   userNickname,
+  userFullName,
   userEmail,
   userPhotoLink = null,
 }: DashboardShellProps) {
@@ -63,6 +65,7 @@ export default function DashboardShell({
         activeSection={configSection}
         onSectionChange={setConfigSection}
         userNickname={userNickname}
+        userFullName={userFullName}
         userEmail={userEmail}
         userPhotoLink={profilePhotoLink}
         onUserPhotoChange={setProfilePhotoLink}
