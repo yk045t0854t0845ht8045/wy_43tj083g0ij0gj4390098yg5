@@ -49,10 +49,12 @@ type ConfigMainProps = {
   userPhoneE164?: string | null;
   userEmailChangedAt?: string | null;
   userPhoneChangedAt?: string | null;
+  userPasswordChangedAt?: string | null;
   userPhotoLink?: string | null;
   onUserPhotoChange?: (photoLink: string | null) => void;
   onUserEmailChange?: (email: string, changedAt?: string | null) => void;
   onUserPhoneChange?: (phoneE164: string | null, changedAt?: string | null) => void;
+  onUserPasswordChange?: (changedAt?: string | null) => void;
 };
 
 // LINKS DOS ICONES (PNG) DA SIDEBAR DE CONFIGURACOES
@@ -421,20 +423,24 @@ function AccountContent({
   phoneE164,
   emailChangedAt,
   phoneChangedAt,
+  passwordChangedAt,
   userPhotoLink,
   onUserPhotoChange,
   onUserEmailChange,
   onUserPhoneChange,
+  onUserPasswordChange,
 }: {
   nickname: string;
   email: string;
   phoneE164?: string | null;
   emailChangedAt?: string | null;
   phoneChangedAt?: string | null;
+  passwordChangedAt?: string | null;
   userPhotoLink?: string | null;
   onUserPhotoChange?: (photoLink: string | null) => void;
   onUserEmailChange?: (email: string, changedAt?: string | null) => void;
   onUserPhoneChange?: (phoneE164: string | null, changedAt?: string | null) => void;
+  onUserPasswordChange?: (changedAt?: string | null) => void;
 }) {
   const [supportAccess, setSupportAccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -445,6 +451,9 @@ function AccountContent({
   );
   const [localPhoneChangedAt, setLocalPhoneChangedAt] = useState<string | null>(() =>
     normalizeIsoDatetime(phoneChangedAt)
+  );
+  const [localPasswordChangedAt, setLocalPasswordChangedAt] = useState<string | null>(() =>
+    normalizeIsoDatetime(passwordChangedAt)
   );
   const [relativeNowMs, setRelativeNowMs] = useState(() => Date.now());
   const [localPhoto, setLocalPhoto] = useState<string | null>(normalizePhotoLink(userPhotoLink));
@@ -480,6 +489,18 @@ function AccountContent({
   const [sendingPhoneCode, setSendingPhoneCode] = useState(false);
   const [resendingPhoneCode, setResendingPhoneCode] = useState(false);
   const [verifyingPhoneCode, setVerifyingPhoneCode] = useState(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [passwordStep, setPasswordStep] = useState<"form" | "confirm-code">("form");
+  const [passwordChangeTicket, setPasswordChangeTicket] = useState("");
+  const [currentPasswordInput, setCurrentPasswordInput] = useState("");
+  const [newPasswordInput, setNewPasswordInput] = useState("");
+  const [confirmNewPasswordInput, setConfirmNewPasswordInput] = useState("");
+  const [passwordCode, setPasswordCode] = useState("");
+  const [passwordChangeError, setPasswordChangeError] = useState<string | null>(null);
+  const [passwordResendCooldown, setPasswordResendCooldown] = useState(0);
+  const [sendingPasswordCode, setSendingPasswordCode] = useState(false);
+  const [resendingPasswordCode, setResendingPasswordCode] = useState(false);
+  const [verifyingPasswordCode, setVerifyingPasswordCode] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
@@ -491,6 +512,7 @@ function AccountContent({
   useEffect(() => setLocalPhoneE164(normalizeE164Phone(phoneE164)), [phoneE164]);
   useEffect(() => setLocalEmailChangedAt(normalizeIsoDatetime(emailChangedAt)), [emailChangedAt]);
   useEffect(() => setLocalPhoneChangedAt(normalizeIsoDatetime(phoneChangedAt)), [phoneChangedAt]);
+  useEffect(() => setLocalPasswordChangedAt(normalizeIsoDatetime(passwordChangedAt)), [passwordChangedAt]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -524,6 +546,14 @@ function AccountContent({
     }, 1000);
     return () => window.clearInterval(timer);
   }, [phoneResendCooldown]);
+
+  useEffect(() => {
+    if (passwordResendCooldown <= 0) return;
+    const timer = window.setInterval(() => {
+      setPasswordResendCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [passwordResendCooldown]);
 
   const baseScale = useMemo(() => {
     if (!natural.width || !natural.height) return 1;
@@ -1141,11 +1171,194 @@ function AccountContent({
     }
   };
 
+  const resetPasswordChangeFlow = useCallback(() => {
+    setPasswordStep("form");
+    setPasswordChangeTicket("");
+    setCurrentPasswordInput("");
+    setNewPasswordInput("");
+    setConfirmNewPasswordInput("");
+    setPasswordCode("");
+    setPasswordChangeError(null);
+    setPasswordResendCooldown(0);
+  }, []);
+
+  const closePasswordModal = () => {
+    if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
+    setPasswordModalOpen(false);
+    resetPasswordChangeFlow();
+  };
+
+  const openPasswordModal = () => {
+    if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
+    resetPasswordChangeFlow();
+    setPasswordModalOpen(true);
+  };
+
+  const startPasswordChange = async () => {
+    if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
+
+    const currentPassword = String(currentPasswordInput || "");
+    const newPassword = String(newPasswordInput || "");
+    const confirmNewPassword = String(confirmNewPasswordInput || "");
+
+    if (!currentPassword) {
+      setPasswordChangeError("Informe a senha atual.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordChangeError("A nova senha precisa ter pelo menos 6 caracteres.");
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      setPasswordChangeError("A confirmacao da nova senha nao confere.");
+      return;
+    }
+    if (newPassword === currentPassword) {
+      setPasswordChangeError("A nova senha precisa ser diferente da senha atual.");
+      return;
+    }
+
+    try {
+      setSendingPasswordCode(true);
+      setPasswordChangeError(null);
+
+      const res = await fetch("/api/wz_users/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+          confirmNewPassword,
+        }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        ticket?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok || !payload.ticket) {
+        throw new Error(payload.error || "Nao foi possivel enviar o codigo para alterar a senha.");
+      }
+
+      setPasswordChangeTicket(payload.ticket);
+      setPasswordCode("");
+      setPasswordStep("confirm-code");
+      setPasswordResendCooldown(60);
+    } catch (err) {
+      console.error("[config-account] start password change failed:", err);
+      setPasswordChangeError(
+        err instanceof Error ? err.message : "Erro ao iniciar alteracao de senha."
+      );
+    } finally {
+      setSendingPasswordCode(false);
+    }
+  };
+
+  const resendPasswordChangeCode = async () => {
+    if (!passwordChangeTicket || passwordResendCooldown > 0) return;
+    if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
+
+    try {
+      setResendingPasswordCode(true);
+      setPasswordChangeError(null);
+
+      const res = await fetch("/api/wz_users/change-password", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket: passwordChangeTicket }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        ticket?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok) {
+        throw new Error(payload.error || "Nao foi possivel reenviar o codigo.");
+      }
+
+      if (payload.ticket) {
+        setPasswordChangeTicket(payload.ticket);
+      }
+      setPasswordResendCooldown(60);
+    } catch (err) {
+      console.error("[config-account] resend password change code failed:", err);
+      setPasswordChangeError(err instanceof Error ? err.message : "Erro ao reenviar codigo.");
+    } finally {
+      setResendingPasswordCode(false);
+    }
+  };
+
+  const verifyPasswordChangeCode = async (nextValue?: string) => {
+    if (!passwordChangeTicket) {
+      setPasswordChangeError("Sessao de alteracao invalida. Reabra o modal.");
+      return;
+    }
+    if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
+
+    const code = onlyDigits(String(nextValue || passwordCode || "")).slice(0, 7);
+    if (code.length !== 7) return;
+
+    try {
+      setVerifyingPasswordCode(true);
+      setPasswordChangeError(null);
+
+      const res = await fetch("/api/wz_users/change-password", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ticket: passwordChangeTicket,
+          code,
+          currentPassword: currentPasswordInput,
+          newPassword: newPasswordInput,
+          confirmNewPassword: confirmNewPasswordInput,
+        }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        passwordChangedAt?: string | null;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok) {
+        const fallback =
+          res.status === 429
+            ? "Voce atingiu o limite de 7 tentativas. Reenvie o codigo."
+            : "Codigo invalido. Tente novamente.";
+        setPasswordChangeError(String(payload.error || fallback));
+        setPasswordCode("");
+        if (res.status === 429) {
+          setPasswordResendCooldown(0);
+        }
+        return;
+      }
+
+      const nextPasswordChangedAt =
+        normalizeIsoDatetime(payload.passwordChangedAt) || new Date().toISOString();
+      setLocalPasswordChangedAt(nextPasswordChangedAt);
+      onUserPasswordChange?.(nextPasswordChangedAt);
+      setPasswordModalOpen(false);
+      resetPasswordChangeFlow();
+    } catch (err) {
+      console.error("[config-account] verify password change code failed:", err);
+      setPasswordChangeError(
+        err instanceof Error ? err.message : "Erro ao validar codigo de senha."
+      );
+    } finally {
+      setVerifyingPasswordCode(false);
+    }
+  };
+
   const initial = nickname.trim().charAt(0).toUpperCase() || "U";
   const maskedEmailValue = maskSecureEmail(localEmail);
   const maskedPhoneValue = maskSecurePhone(localPhoneE164);
-  const emailChangedLabel = `Alterado ha: ${formatElapsedTimeLabel(localEmailChangedAt, relativeNowMs)}`;
-  const phoneChangedLabel = `Alterado ha: ${formatElapsedTimeLabel(localPhoneChangedAt, relativeNowMs)}`;
+  const emailChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localEmailChangedAt, relativeNowMs)}`;
+  const phoneChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localPhoneChangedAt, relativeNowMs)}`;
+  const passwordChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localPasswordChangedAt, relativeNowMs)}`;
   const buttonClass = cx(
     "rounded-xl border border-black/10 bg-white/95 px-4 py-2 text-[13px] font-semibold text-black/80",
     "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
@@ -1209,7 +1422,7 @@ function AccountContent({
           <div className="space-y-6 pt-5">
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">E-mail</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{emailChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedEmailValue}</p></div><button type="button" onClick={openEmailModal} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar E-mail</button></div>
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Numero de celular</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{phoneChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedPhoneValue}</p></div><button type="button" onClick={openPhoneModal} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar celular</button></div>
-            <div className="flex items-start justify-between gap-4 -mx-2 rounded-xl px-2"><div><p className="text-[18px] font-semibold text-black/85">Senha</p><p className="mt-1 text-[15px] text-black/58">Defina uma senha permanente para acessar sua conta.</p></div><button type="button" className={buttonClass}>Alterar Senha</button></div>
+            <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Senha</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{passwordChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">Atualize sua senha com confirmacao por codigo enviado no e-mail.</p></div><button type="button" onClick={openPasswordModal} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar Senha</button></div>
             <div className="flex items-start justify-between gap-4 -mx-2 rounded-xl px-2"><div><p className="text-[18px] font-semibold text-black/85">Verificacao em duas etapas</p><p className="mt-1 text-[15px] text-black/58">Adicione mais uma camada de seguranca a sua conta durante o login.</p></div><button type="button" className={buttonClass}>Adicionar um metodo de verificacao</button></div>
             <div className="flex items-start justify-between gap-4 -mx-2 rounded-xl px-2"><div><p className="text-[18px] font-semibold text-black/85">Chaves de acesso</p><p className="mt-1 text-[15px] text-black/58">Entre com seguranca com a autenticacao biometrica no dispositivo.</p></div><button type="button" className={buttonClass}>Adicionar passkey</button></div>
           </div>
@@ -1676,6 +1889,181 @@ function AccountContent({
             </motion.section>
           </motion.div>
         )}
+
+        {passwordModalOpen && (
+          <motion.div
+            className="fixed inset-0 z-[227] flex items-center justify-center p-4 sm:p-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/45 backdrop-blur-[4px]"
+              onClick={closePasswordModal}
+            />
+            <motion.section
+              role="dialog"
+              aria-modal="true"
+              className="relative z-[1] w-[min(96vw,700px)] overflow-hidden rounded-2xl border border-black/15 bg-[#f3f3f4] shadow-[0_26px_70px_rgba(0,0,0,0.35)] sm:w-[min(92vw,700px)]"
+              initial={{ opacity: 0, y: 10, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.985 }}
+            >
+              <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6">
+                <h3 className="text-[18px] font-semibold text-black/80">Alterar senha</h3>
+                <button
+                  type="button"
+                  onClick={closePasswordModal}
+                  disabled={sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
+                {passwordStep === "form" && (
+                  <>
+                    <p className="text-[14px] leading-[1.45] text-black/62">
+                      Informe sua senha atual e a nova senha para continuar.
+                    </p>
+
+                    <label className="mt-5 block text-[13px] font-medium text-black/60">
+                      Senha atual
+                    </label>
+                    <input
+                      type="password"
+                      autoComplete="current-password"
+                      value={currentPasswordInput}
+                      onChange={(e) => setCurrentPasswordInput(String(e.target.value || ""))}
+                      disabled={sendingPasswordCode}
+                      className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/80 outline-none transition-[border-color,box-shadow] focus:border-black/30 focus:ring-2 focus:ring-black/10 disabled:cursor-not-allowed disabled:opacity-70"
+                      placeholder="Digite sua senha atual"
+                    />
+
+                    <label className="mt-4 block text-[13px] font-medium text-black/60">
+                      Nova senha
+                    </label>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={newPasswordInput}
+                      onChange={(e) => setNewPasswordInput(String(e.target.value || ""))}
+                      disabled={sendingPasswordCode}
+                      className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/80 outline-none transition-[border-color,box-shadow] focus:border-black/30 focus:ring-2 focus:ring-black/10 disabled:cursor-not-allowed disabled:opacity-70"
+                      placeholder="Digite a nova senha"
+                    />
+
+                    <label className="mt-4 block text-[13px] font-medium text-black/60">
+                      Confirmar nova senha
+                    </label>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={confirmNewPasswordInput}
+                      onChange={(e) => setConfirmNewPasswordInput(String(e.target.value || ""))}
+                      disabled={sendingPasswordCode}
+                      className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/80 outline-none transition-[border-color,box-shadow] focus:border-black/30 focus:ring-2 focus:ring-black/10 disabled:cursor-not-allowed disabled:opacity-70"
+                      placeholder="Confirme a nova senha"
+                    />
+                  </>
+                )}
+
+                {passwordStep === "confirm-code" && (
+                  <>
+                    <p className="text-[14px] leading-[1.45] text-black/62">
+                      Enviamos um codigo de 7 digitos para o e-mail{" "}
+                      <span className="break-all font-semibold text-black/78">{maskSecureEmail(localEmail)}</span>.
+                    </p>
+                    <CodeBoxes
+                      length={7}
+                      value={passwordCode}
+                      onChange={setPasswordCode}
+                      onComplete={verifyPasswordChangeCode}
+                      disabled={verifyingPasswordCode}
+                    />
+                    <div className="mt-4 flex items-center justify-center">
+                      <button
+                        type="button"
+                        onClick={resendPasswordChangeCode}
+                        disabled={
+                          resendingPasswordCode ||
+                          verifyingPasswordCode ||
+                          sendingPasswordCode ||
+                          passwordResendCooldown > 0
+                        }
+                        className="text-[13px] font-semibold text-black/72 transition-colors hover:text-black/88 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {passwordResendCooldown > 0
+                          ? `Reenviar codigo (${passwordResendCooldown}s)`
+                          : resendingPasswordCode
+                          ? "Reenviando..."
+                          : "Reenviar codigo"}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {passwordChangeError && (
+                  <p className="mt-4 rounded-lg border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-2 text-[13px] font-medium text-[#b2433e]">
+                    {passwordChangeError}
+                  </p>
+                )}
+
+                <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                  {passwordStep === "confirm-code" ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
+                        setPasswordStep("form");
+                        setPasswordCode("");
+                        setPasswordChangeError(null);
+                        setPasswordResendCooldown(0);
+                      }}
+                      disabled={sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode}
+                      className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Voltar
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={closePasswordModal}
+                      disabled={sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode}
+                      className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+
+                  {passwordStep === "form" && (
+                    <button
+                      type="button"
+                      onClick={startPasswordChange}
+                      disabled={sendingPasswordCode}
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {sendingPasswordCode ? "Enviando..." : "Enviar codigo"}
+                    </button>
+                  )}
+
+                  {passwordStep === "confirm-code" && (
+                    <button
+                      type="button"
+                      onClick={() => verifyPasswordChangeCode()}
+                      disabled={verifyingPasswordCode || onlyDigits(passwordCode).length !== 7}
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {verifyingPasswordCode ? "Validando..." : "Confirmar"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.section>
+          </motion.div>
+        )}
       </AnimatePresence>
     </>
   );
@@ -1816,10 +2204,12 @@ export default function ConfigMain({
   userPhoneE164 = null,
   userEmailChangedAt = null,
   userPhoneChangedAt = null,
+  userPasswordChangedAt = null,
   userPhotoLink = null,
   onUserPhotoChange,
   onUserEmailChange,
   onUserPhoneChange,
+  onUserPasswordChange,
 }: ConfigMainProps) {
   const prefersReducedMotion = useReducedMotion();
   const [searchTerm, setSearchTerm] = useState("");
@@ -1842,6 +2232,10 @@ export default function ConfigMain({
   const phone = useMemo(() => normalizeE164Phone(userPhoneE164), [userPhoneE164]);
   const emailChangedAt = useMemo(() => normalizeIsoDatetime(userEmailChangedAt), [userEmailChangedAt]);
   const phoneChangedAt = useMemo(() => normalizeIsoDatetime(userPhoneChangedAt), [userPhoneChangedAt]);
+  const passwordChangedAt = useMemo(
+    () => normalizeIsoDatetime(userPasswordChangedAt),
+    [userPasswordChangedAt]
+  );
 
   const normalizedSearch = useMemo(() => normalizeForSearch(searchTerm), [searchTerm]);
   const filtered = useMemo(() => (!normalizedSearch ? menuItems : menuItems.filter((i) => normalizeForSearch(i.label).includes(normalizedSearch))), [normalizedSearch]);
@@ -1895,7 +2289,7 @@ export default function ConfigMain({
               <div className="min-w-0 flex-1 bg-[#f3f3f4]">
                 <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6"><h2 className="text-[20px] font-semibold text-black/75">{activeTitle}</h2><button type="button" onClick={onClose} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80"><X className="h-5 w-5" /></button></div>
                 <div className="h-[calc(100%-64px)] overflow-y-auto px-4 pb-8 pt-6 sm:px-8 md:px-10">
-                  {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} emailChangedAt={emailChangedAt} phoneChangedAt={phoneChangedAt} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} />}
+                  {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} emailChangedAt={emailChangedAt} phoneChangedAt={phoneChangedAt} passwordChangedAt={passwordChangedAt} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} onUserPasswordChange={onUserPasswordChange} />}
                   {activeSection === "devices" && <DevicesContent />}
                   {activeSection !== "my-account" && activeSection !== "devices" && <PlaceholderSection title={activeTitle} />}
                 </div>

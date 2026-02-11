@@ -14,6 +14,7 @@ type DashboardShellProps = {
   userPhoneE164?: string | null;
   userEmailChangedAt?: string | null;
   userPhoneChangedAt?: string | null;
+  userPasswordChangedAt?: string | null;
 };
 
 function normalizeIsoDatetime(value?: string | null) {
@@ -32,6 +33,7 @@ export default function DashboardShell({
   userPhoneE164 = null,
   userEmailChangedAt = null,
   userPhoneChangedAt = null,
+  userPasswordChangedAt = null,
 }: DashboardShellProps) {
   const [configOpen, setConfigOpen] = useState(false);
   const [configSection, setConfigSection] = useState<ConfigSectionId>("my-account");
@@ -49,6 +51,9 @@ export default function DashboardShell({
   );
   const [profilePhoneChangedAt, setProfilePhoneChangedAt] = useState<string | null>(
     normalizeIsoDatetime(userPhoneChangedAt)
+  );
+  const [profilePasswordChangedAt, setProfilePasswordChangedAt] = useState<string | null>(
+    normalizeIsoDatetime(userPasswordChangedAt)
   );
 
   const normalizedInitialPhotoLink = useMemo(() => {
@@ -78,6 +83,10 @@ export default function DashboardShell({
     setProfilePhoneChangedAt(normalizeIsoDatetime(userPhoneChangedAt));
   }, [userPhoneChangedAt]);
 
+  useEffect(() => {
+    setProfilePasswordChangedAt(normalizeIsoDatetime(userPasswordChangedAt));
+  }, [userPasswordChangedAt]);
+
   const handleUserEmailChange = useCallback((nextEmail: string, changedAt?: string | null) => {
     const normalized = String(nextEmail || "").trim().toLowerCase();
     setProfileEmail(normalized || "conta@wyzer.com.br");
@@ -100,6 +109,14 @@ export default function DashboardShell({
     }
 
     setProfilePhoneChangedAt(new Date().toISOString());
+  }, []);
+
+  const handleUserPasswordChange = useCallback((changedAt?: string | null) => {
+    if (typeof changedAt !== "undefined") {
+      setProfilePasswordChangedAt(normalizeIsoDatetime(changedAt));
+      return;
+    }
+    setProfilePasswordChangedAt(new Date().toISOString());
   }, []);
 
   const handleOpenConfig = useCallback((section: ConfigSectionId = "my-account") => {
@@ -142,6 +159,8 @@ export default function DashboardShell({
         onUserPhoneChange={handleUserPhoneChange}
         userEmailChangedAt={profileEmailChangedAt}
         userPhoneChangedAt={profilePhoneChangedAt}
+        userPasswordChangedAt={profilePasswordChangedAt}
+        onUserPasswordChange={handleUserPasswordChange}
       />
     </div>
   );

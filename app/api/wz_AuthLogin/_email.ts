@@ -100,7 +100,7 @@ function buildHtml(heading: string, code: string) {
   return `
     <div style="font-family: ui-sans-serif, system-ui; line-height: 1.45; color: #111; background:#f6f6f7; padding:28px 16px;">
       <div style="max-width:560px;margin:0 auto;text-align:center;">
-        <img src="${logoUrl}" alt="Wyzer" width="132" style="display:block;margin:0 auto 16px;height:auto;" />
+        <img src="${logoUrl}" alt="Wyzer" width="200" style="display:block;margin:0 auto 16px;height:auto;" />
 
         <div style="max-width:520px;margin:0 auto;padding:24px;border:1px solid #eee;border-radius:16px;background:#fff;text-align:left;">
           <h2 style="margin:0 0 10px">${safeHeading}</h2>

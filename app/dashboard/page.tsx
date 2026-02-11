@@ -15,6 +15,7 @@ type SidebarProfile = {
   phoneE164: string | null;
   emailChangedAt: string | null;
   phoneChangedAt: string | null;
+  passwordChangedAt: string | null;
 };
 
 type WzUserLookupMode = "eq" | "ilike";
@@ -31,6 +32,7 @@ type WzUserLookupRow = {
   phone_e164?: string | null;
   email_changed_at?: string | null;
   phone_changed_at?: string | null;
+  password_changed_at?: string | null;
 };
 
 function buildLoginUrl(hostHeader: string | null) {
@@ -100,9 +102,11 @@ async function queryWzUsersRows(
   params: WzUserLookupParams,
 ) {
   const columnsToTry = [
+    "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at,password_changed_at",
     "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at",
-    "full_name,photo_link,phone_e164,email_changed_at",
-    "full_name,photo_link,phone_e164,phone_changed_at",
+    "full_name,photo_link,phone_e164,email_changed_at,password_changed_at",
+    "full_name,photo_link,phone_e164,phone_changed_at,password_changed_at",
+    "full_name,photo_link,phone_e164,password_changed_at",
     "full_name,photo_link,phone_e164",
     "full_name,photo_link",
     "full_name,phone_e164",
@@ -124,6 +128,7 @@ async function queryWzUsersRows(
         phone_e164: row.phone_e164 || null,
         email_changed_at: row.email_changed_at || null,
         phone_changed_at: row.phone_changed_at || null,
+        password_changed_at: row.password_changed_at || null,
       }));
     }
   }
@@ -137,17 +142,20 @@ function pickProfileFromRows(
   fallbackPhoneE164: string | null,
   fallbackEmailChangedAt: string | null,
   fallbackPhoneChangedAt: string | null,
+  fallbackPasswordChangedAt: string | null,
 ) {
   let nextFallbackPhoto = fallbackPhotoLink;
   let nextFallbackPhone = fallbackPhoneE164;
   let nextFallbackEmailChangedAt = fallbackEmailChangedAt;
   let nextFallbackPhoneChangedAt = fallbackPhoneChangedAt;
+  let nextFallbackPasswordChangedAt = fallbackPasswordChangedAt;
 
   for (const row of rows) {
     const rowPhoto = sanitizePhotoLink(row.photo_link);
     const rowPhone = sanitizePhoneE164(row.phone_e164);
     const rowEmailChangedAt = sanitizeIsoDatetime(row.email_changed_at);
     const rowPhoneChangedAt = sanitizeIsoDatetime(row.phone_changed_at);
+    const rowPasswordChangedAt = sanitizeIsoDatetime(row.password_changed_at);
     if (!nextFallbackPhoto && rowPhoto) nextFallbackPhoto = rowPhoto;
     if (!nextFallbackPhone && rowPhone) nextFallbackPhone = rowPhone;
     if (!nextFallbackEmailChangedAt && rowEmailChangedAt) {
@@ -156,10 +164,13 @@ function pickProfileFromRows(
     if (!nextFallbackPhoneChangedAt && rowPhoneChangedAt) {
       nextFallbackPhoneChangedAt = rowPhoneChangedAt;
     }
+    if (!nextFallbackPasswordChangedAt && rowPasswordChangedAt) {
+      nextFallbackPasswordChangedAt = rowPasswordChangedAt;
+    }
 
     const fullName = sanitizeFullName(row.full_name);
     const firstName = pickFirstName(row.full_name);
-    if (firstName || fullName || rowPhone || rowEmailChangedAt || rowPhoneChangedAt) {
+    if (firstName || fullName || rowPhone || rowEmailChangedAt || rowPhoneChangedAt || rowPasswordChangedAt) {
       return {
         profile: {
           firstName: firstName || null,
@@ -168,11 +179,13 @@ function pickProfileFromRows(
           phoneE164: rowPhone || nextFallbackPhone,
           emailChangedAt: rowEmailChangedAt || nextFallbackEmailChangedAt,
           phoneChangedAt: rowPhoneChangedAt || nextFallbackPhoneChangedAt,
+          passwordChangedAt: rowPasswordChangedAt || nextFallbackPasswordChangedAt,
         } as SidebarProfile,
         fallbackPhotoLink: nextFallbackPhoto,
         fallbackPhoneE164: nextFallbackPhone,
         fallbackEmailChangedAt: nextFallbackEmailChangedAt,
         fallbackPhoneChangedAt: nextFallbackPhoneChangedAt,
+        fallbackPasswordChangedAt: nextFallbackPasswordChangedAt,
       };
     }
   }
@@ -183,6 +196,7 @@ function pickProfileFromRows(
     fallbackPhoneE164: nextFallbackPhone,
     fallbackEmailChangedAt: nextFallbackEmailChangedAt,
     fallbackPhoneChangedAt: nextFallbackPhoneChangedAt,
+    fallbackPasswordChangedAt: nextFallbackPasswordChangedAt,
   };
 }
 
@@ -203,6 +217,7 @@ async function getSidebarProfile(params: {
       phoneE164: null,
       emailChangedAt: null,
       phoneChangedAt: null,
+      passwordChangedAt: null,
     } as SidebarProfile;
   }
 
@@ -212,6 +227,7 @@ async function getSidebarProfile(params: {
     let fallbackPhoneE164: string | null = null;
     let fallbackEmailChangedAt: string | null = null;
     let fallbackPhoneChangedAt: string | null = null;
+    let fallbackPasswordChangedAt: string | null = null;
 
     if (email) {
       const rowsByEmail = await queryWzUsersRows(sb, {
@@ -225,11 +241,13 @@ async function getSidebarProfile(params: {
         fallbackPhoneE164,
         fallbackEmailChangedAt,
         fallbackPhoneChangedAt,
+        fallbackPasswordChangedAt,
       );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
       fallbackEmailChangedAt = result.fallbackEmailChangedAt;
       fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
+      fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
       if (result.profile) return result.profile;
     }
 
@@ -245,11 +263,13 @@ async function getSidebarProfile(params: {
         fallbackPhoneE164,
         fallbackEmailChangedAt,
         fallbackPhoneChangedAt,
+        fallbackPasswordChangedAt,
       );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
       fallbackEmailChangedAt = result.fallbackEmailChangedAt;
       fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
+      fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
       if (result.profile) return result.profile;
     }
 
@@ -265,11 +285,13 @@ async function getSidebarProfile(params: {
         fallbackPhoneE164,
         fallbackEmailChangedAt,
         fallbackPhoneChangedAt,
+        fallbackPasswordChangedAt,
       );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
       fallbackEmailChangedAt = result.fallbackEmailChangedAt;
       fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
+      fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
       if (result.profile) return result.profile;
     }
 
@@ -285,11 +307,13 @@ async function getSidebarProfile(params: {
         fallbackPhoneE164,
         fallbackEmailChangedAt,
         fallbackPhoneChangedAt,
+        fallbackPasswordChangedAt,
       );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
       fallbackEmailChangedAt = result.fallbackEmailChangedAt;
       fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
+      fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
       if (result.profile) return result.profile;
     }
 
@@ -300,6 +324,7 @@ async function getSidebarProfile(params: {
       phoneE164: fallbackPhoneE164,
       emailChangedAt: fallbackEmailChangedAt,
       phoneChangedAt: fallbackPhoneChangedAt,
+      passwordChangedAt: fallbackPasswordChangedAt,
     } as SidebarProfile;
   } catch (error) {
     console.error("[dashboard] failed to load wz_users profile:", error);
@@ -312,6 +337,7 @@ async function getSidebarProfile(params: {
     phoneE164: null,
     emailChangedAt: null,
     phoneChangedAt: null,
+    passwordChangedAt: null,
   } as SidebarProfile;
 }
 
@@ -333,6 +359,7 @@ export default async function DashboardHomePage() {
   let sidebarPhoneE164: string | null = null;
   let sidebarEmailChangedAt: string | null = null;
   let sidebarPhoneChangedAt: string | null = null;
+  let sidebarPasswordChangedAt: string | null = null;
 
   if (session) {
     const profile = await getSidebarProfile({
@@ -369,6 +396,9 @@ export default async function DashboardHomePage() {
     if (profile.phoneChangedAt) {
       sidebarPhoneChangedAt = profile.phoneChangedAt;
     }
+    if (profile.passwordChangedAt) {
+      sidebarPasswordChangedAt = profile.passwordChangedAt;
+    }
   }
 
   const loginUrl = buildLoginUrl(hostHeader);
@@ -390,6 +420,7 @@ export default async function DashboardHomePage() {
       userPhoneE164={sidebarPhoneE164}
       userEmailChangedAt={sidebarEmailChangedAt}
       userPhoneChangedAt={sidebarPhoneChangedAt}
+      userPasswordChangedAt={sidebarPasswordChangedAt}
     />
   );
 }

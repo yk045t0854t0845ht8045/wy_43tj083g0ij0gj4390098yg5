@@ -1,0 +1,735 @@
+import crypto from "crypto";
+import { NextResponse, type NextRequest } from "next/server";
+import { gen7, newSalt, sha } from "@/app/api/wz_AuthLogin/_codes";
+import { sendLoginCodeEmail } from "@/app/api/wz_AuthLogin/_email";
+import { readSessionFromRequest } from "@/app/api/wz_AuthLogin/_session";
+import { supabaseAdmin, supabaseAnon } from "@/app/api/wz_AuthLogin/_supabase";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+  Pragma: "no-cache",
+  Expires: "0",
+};
+
+type WzUserRow = {
+  id?: string | null;
+  email?: string | null;
+  full_name?: string | null;
+  auth_user_id?: string | null;
+  user_id?: string | null;
+};
+
+type PasswordChangeTicketPayload = {
+  typ: "wz-change-password";
+  uid: string;
+  currentEmail: string;
+  iat: number;
+  exp: number;
+  nonce: string;
+};
+
+function normalizeEmail(value?: string | null) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeOptionalText(value?: string | null) {
+  const clean = String(value || "").trim();
+  return clean || null;
+}
+
+function onlyDigits(value: string) {
+  return String(value || "").replace(/\D+/g, "");
+}
+
+function base64UrlEncode(input: Buffer | string) {
+  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input, "utf8");
+  return buf
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function base64UrlDecode(input: string) {
+  const padded = String(input || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padLen = (4 - (padded.length % 4)) % 4;
+  const withPad = padded + "=".repeat(padLen);
+  return Buffer.from(withPad, "base64").toString("utf8");
+}
+
+function getTicketSecret() {
+  return process.env.SESSION_SECRET || process.env.WZ_AUTH_SECRET || "";
+}
+
+function signTicket(payloadB64: string, secret: string) {
+  return base64UrlEncode(crypto.createHmac("sha256", secret).update(payloadB64).digest());
+}
+
+function createPasswordChangeTicket(params: {
+  userId: string;
+  currentEmail: string;
+  ttlMs?: number;
+}) {
+  const secret = getTicketSecret();
+  if (!secret) throw new Error("SESSION_SECRET/WZ_AUTH_SECRET nao configurado.");
+
+  const now = Date.now();
+  const ttlMs = Number(params.ttlMs ?? 1000 * 60 * 10);
+
+  const payload: PasswordChangeTicketPayload = {
+    typ: "wz-change-password",
+    uid: String(params.userId || "").trim(),
+    currentEmail: normalizeEmail(params.currentEmail),
+    iat: now,
+    exp: now + ttlMs,
+    nonce: crypto.randomBytes(8).toString("hex"),
+  };
+
+  const payloadB64 = base64UrlEncode(JSON.stringify(payload));
+  const sig = signTicket(payloadB64, secret);
+  return `${payloadB64}.${sig}`;
+}
+
+function readPasswordChangeTicket(params: {
+  ticket: string;
+  sessionUserId: string;
+  sessionEmail: string;
+}) {
+  const secret = getTicketSecret();
+  if (!secret) {
+    return {
+      ok: false as const,
+      error: "Configuracao de sessao ausente no servidor.",
+    };
+  }
+
+  const token = String(params.ticket || "").trim();
+  if (!token.includes(".")) {
+    return {
+      ok: false as const,
+      error: "Sessao de alteracao invalida. Reabra o modal.",
+    };
+  }
+
+  const [payloadB64, sig] = token.split(".");
+  if (!payloadB64 || !sig) {
+    return {
+      ok: false as const,
+      error: "Sessao de alteracao invalida. Reabra o modal.",
+    };
+  }
+
+  const expectedSig = signTicket(payloadB64, secret);
+  if (expectedSig !== sig) {
+    return {
+      ok: false as const,
+      error: "Sessao de alteracao invalida. Reabra o modal.",
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(base64UrlDecode(payloadB64)) as PasswordChangeTicketPayload;
+    if (parsed?.typ !== "wz-change-password") {
+      return {
+        ok: false as const,
+        error: "Sessao de alteracao invalida. Reabra o modal.",
+      };
+    }
+
+    if (!parsed?.uid || parsed.exp < Date.now()) {
+      return {
+        ok: false as const,
+        error: "Sessao de alteracao expirada. Reabra o fluxo e tente novamente.",
+      };
+    }
+
+    if (String(parsed.uid) !== String(params.sessionUserId)) {
+      return {
+        ok: false as const,
+        error: "Sessao de alteracao invalida para este usuario.",
+      };
+    }
+
+    if (normalizeEmail(parsed.currentEmail) !== normalizeEmail(params.sessionEmail)) {
+      return {
+        ok: false as const,
+        error: "Sessao desatualizada. Reabra o modal para continuar.",
+      };
+    }
+
+    return { ok: true as const, payload: parsed };
+  } catch {
+    return {
+      ok: false as const,
+      error: "Sessao de alteracao invalida. Reabra o modal.",
+    };
+  }
+}
+
+function isMissingColumnError(error: unknown, column: string) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  const hint = String((error as { hint?: unknown } | null)?.hint || "").toLowerCase();
+  const needle = String(column || "").trim().toLowerCase();
+
+  if (!needle) return false;
+  if (code === "42703") return true;
+  if (code === "PGRST204") return true;
+  return (
+    (message.includes(needle) || details.includes(needle) || hint.includes(needle)) &&
+    (message.includes("column") || details.includes("column") || hint.includes("column"))
+  );
+}
+
+async function updateWzUserPasswordChangedAt(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+}) {
+  const passwordChangedAt = new Date().toISOString();
+  const updateRes = await params.sb
+    .from("wz_users")
+    .update({ password_changed_at: passwordChangedAt })
+    .eq("id", params.userId);
+
+  if (!updateRes.error) {
+    return { error: null as unknown, passwordChangedAt };
+  }
+
+  if (isMissingColumnError(updateRes.error, "password_changed_at")) {
+    return { error: null as unknown, passwordChangedAt: null as string | null };
+  }
+
+  return { error: updateRes.error, passwordChangedAt: null as string | null };
+}
+
+async function queryWzUsersRows(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  column: string;
+  value: string;
+  mode: "eq" | "ilike";
+}) {
+  const columnsToTry = [
+    "id,email,full_name,auth_user_id,user_id",
+    "id,email,full_name,auth_user_id",
+    "id,email,full_name,user_id",
+    "id,email,full_name",
+    "id,email",
+  ];
+
+  for (const columns of columnsToTry) {
+    const base = params.sb.from("wz_users").select(columns).limit(5);
+    const res =
+      params.mode === "ilike"
+        ? await base.ilike(params.column, params.value)
+        : await base.eq(params.column, params.value);
+
+    if (!res.error) {
+      const rows = (res.data || []) as unknown as Array<Record<string, unknown>>;
+      return rows.map((row) => ({
+        id: normalizeOptionalText(String(row.id || "")),
+        email: normalizeOptionalText(String(row.email || "")),
+        full_name: normalizeOptionalText(String(row.full_name || "")),
+        auth_user_id: normalizeOptionalText(String(row.auth_user_id || "")),
+        user_id: normalizeOptionalText(String(row.user_id || "")),
+      })) as WzUserRow[];
+    }
+  }
+
+  return [] as WzUserRow[];
+}
+
+function pickBestRow(rows: WzUserRow[], expectedEmail?: string | null) {
+  if (!rows.length) return null;
+
+  const normalizedExpected = normalizeEmail(expectedEmail);
+  if (normalizedExpected) {
+    const exact = rows.find((row) => normalizeEmail(row.email) === normalizedExpected);
+    if (exact?.id) return exact;
+  }
+
+  const firstWithId = rows.find((row) => normalizeOptionalText(row.id));
+  return firstWithId || null;
+}
+
+async function findWzUserRow(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+  email: string;
+}) {
+  if (params.email) {
+    const byEmail = await queryWzUsersRows({
+      sb: params.sb,
+      column: "email",
+      value: params.email,
+      mode: "ilike",
+    });
+    const best = pickBestRow(byEmail, params.email);
+    if (best?.id) return best;
+  }
+
+  if (params.userId) {
+    const byAuthUserId = await queryWzUsersRows({
+      sb: params.sb,
+      column: "auth_user_id",
+      value: params.userId,
+      mode: "eq",
+    });
+    const bestByAuthUserId = pickBestRow(byAuthUserId, params.email);
+    if (bestByAuthUserId?.id) return bestByAuthUserId;
+
+    const byUserId = await queryWzUsersRows({
+      sb: params.sb,
+      column: "user_id",
+      value: params.userId,
+      mode: "eq",
+    });
+    const bestByUserId = pickBestRow(byUserId, params.email);
+    if (bestByUserId?.id) return bestByUserId;
+
+    const byId = await queryWzUsersRows({
+      sb: params.sb,
+      column: "id",
+      value: params.userId,
+      mode: "eq",
+    });
+    const bestById = pickBestRow(byId, params.email);
+    if (bestById?.id) return bestById;
+  }
+
+  return null;
+}
+
+async function findAuthUserIdByEmail(
+  sb: ReturnType<typeof supabaseAdmin>,
+  email: string,
+) {
+  const target = normalizeEmail(email);
+  if (!target) return null;
+
+  const PER_PAGE = 200;
+  const MAX_PAGES = 20;
+
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const { data, error } = await sb.auth.admin.listUsers({
+      page,
+      perPage: PER_PAGE,
+    });
+
+    if (error) {
+      console.error("[change-password] listUsers error:", error);
+      return null;
+    }
+
+    const users = (data?.users || []) as Array<{ id?: string | null; email?: string | null }>;
+    const found = users.find((u) => normalizeEmail(u.email) === target);
+    if (found?.id) return String(found.id);
+    if (users.length < PER_PAGE) break;
+  }
+
+  return null;
+}
+
+async function resolveCurrentAuthUserId(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userRow: WzUserRow;
+  sessionEmail: string;
+}) {
+  const byRow = normalizeOptionalText(params.userRow.auth_user_id);
+  if (byRow) return byRow;
+
+  const bySessionEmail = await findAuthUserIdByEmail(params.sb, params.sessionEmail);
+  if (bySessionEmail) return bySessionEmail;
+
+  const byRowEmail = await findAuthUserIdByEmail(params.sb, normalizeEmail(params.userRow.email));
+  if (byRowEmail) return byRowEmail;
+
+  return null;
+}
+
+function validatePasswordChangeInput(params: {
+  currentPassword: string;
+  newPassword: string;
+  confirmNewPassword: string;
+}) {
+  const currentPassword = String(params.currentPassword || "");
+  const newPassword = String(params.newPassword || "");
+  const confirmNewPassword = String(params.confirmNewPassword || "");
+
+  if (!currentPassword) {
+    return "Informe a senha atual.";
+  }
+  if (newPassword.length < 6) {
+    return "A nova senha precisa ter pelo menos 6 caracteres.";
+  }
+  if (newPassword !== confirmNewPassword) {
+    return "A confirmacao da nova senha nao confere.";
+  }
+  if (newPassword === currentPassword) {
+    return "A nova senha precisa ser diferente da senha atual.";
+  }
+  return null;
+}
+
+async function verifyCurrentPassword(email: string, currentPassword: string) {
+  const anon = supabaseAnon();
+  const { error } = await anon.auth.signInWithPassword({
+    email,
+    password: String(currentPassword || ""),
+  });
+  return !error;
+}
+
+async function createEmailChallenge(sb: ReturnType<typeof supabaseAdmin>, email: string) {
+  await sb
+    .from("wz_auth_challenges")
+    .update({ consumed: true })
+    .eq("email", email)
+    .eq("channel", "email")
+    .eq("consumed", false);
+
+  const code = gen7();
+  const salt = newSalt();
+  const hash = sha(code, salt);
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 10).toISOString();
+
+  const { error } = await sb.from("wz_auth_challenges").insert({
+    email,
+    channel: "email",
+    code_hash: hash,
+    salt,
+    expires_at: expiresAt,
+    attempts_left: 7,
+    consumed: false,
+  });
+
+  if (error) {
+    throw new Error("Nao foi possivel gerar o codigo de verificacao.");
+  }
+
+  return code;
+}
+
+async function verifyEmailChallengeCode(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  email: string;
+  code: string;
+}) {
+  const { data: challenge, error: challengeErr } = await params.sb
+    .from("wz_auth_challenges")
+    .select("*")
+    .eq("email", params.email)
+    .eq("channel", "email")
+    .eq("consumed", false)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (challengeErr || !challenge) {
+    return {
+      ok: false as const,
+      status: 400,
+      error: "Codigo expirado. Reenvie o codigo.",
+    };
+  }
+
+  if (new Date(challenge.expires_at).getTime() < Date.now()) {
+    await params.sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", challenge.id);
+    return {
+      ok: false as const,
+      status: 400,
+      error: "Codigo expirado. Reenvie o codigo.",
+    };
+  }
+
+  if (Number(challenge.attempts_left) <= 0) {
+    return {
+      ok: false as const,
+      status: 429,
+      error: "Muitas tentativas. Reenvie o codigo.",
+    };
+  }
+
+  const hash = sha(params.code, challenge.salt);
+  if (hash !== challenge.code_hash) {
+    const nextAttempts = Math.max(0, Number(challenge.attempts_left) - 1);
+    await params.sb
+      .from("wz_auth_challenges")
+      .update({
+        attempts_left: nextAttempts,
+        ...(nextAttempts <= 0 ? { consumed: true } : {}),
+      })
+      .eq("id", challenge.id);
+
+    if (nextAttempts <= 0) {
+      return {
+        ok: false as const,
+        status: 429,
+        error:
+          "Voce atingiu o limite de 7 tentativas. Reenvie o codigo, pois este nao e mais valido.",
+      };
+    }
+
+    return {
+      ok: false as const,
+      status: 400,
+      error: `Codigo invalido. Tente novamente. Restam ${nextAttempts} tentativa${nextAttempts === 1 ? "" : "s"}.`,
+    };
+  }
+
+  await params.sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", challenge.id);
+  return { ok: true as const };
+}
+
+async function getSessionAndUser(req: NextRequest) {
+  const session = readSessionFromRequest(req);
+  if (!session) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { ok: false, error: "Nao autenticado." },
+        { status: 401, headers: NO_STORE_HEADERS },
+      ),
+    };
+  }
+
+  const sessionUserId = String(session.userId || "").trim();
+  const sessionEmail = normalizeEmail(session.email);
+  if (!sessionUserId || !sessionEmail) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { ok: false, error: "Sessao invalida." },
+        { status: 401, headers: NO_STORE_HEADERS },
+      ),
+    };
+  }
+
+  const sb = supabaseAdmin();
+  const userRow = await findWzUserRow({
+    sb,
+    userId: sessionUserId,
+    email: sessionEmail,
+  });
+
+  if (!userRow?.id) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { ok: false, error: "Usuario nao encontrado." },
+        { status: 404, headers: NO_STORE_HEADERS },
+      ),
+    };
+  }
+
+  return {
+    ok: true as const,
+    sb,
+    sessionUserId,
+    sessionEmail,
+    userRow,
+  };
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const base = await getSessionAndUser(req);
+    if (!base.ok) return base.response;
+
+    const body = await req.json().catch(() => ({}));
+    const currentPassword = String(body?.currentPassword || "");
+    const newPassword = String(body?.newPassword || "");
+    const confirmNewPassword = String(body?.confirmNewPassword || "");
+
+    const inputError = validatePasswordChangeInput({
+      currentPassword,
+      newPassword,
+      confirmNewPassword,
+    });
+    if (inputError) {
+      return NextResponse.json(
+        { ok: false, error: inputError },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const currentPasswordOk = await verifyCurrentPassword(base.sessionEmail, currentPassword);
+    if (!currentPasswordOk) {
+      return NextResponse.json(
+        { ok: false, error: "Senha atual invalida." },
+        { status: 401, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const code = await createEmailChallenge(base.sb, base.sessionEmail);
+    await sendLoginCodeEmail(base.sessionEmail, code, { heading: "Alterando sua senha" });
+
+    const ticket = createPasswordChangeTicket({
+      userId: String(base.userRow.id),
+      currentEmail: base.sessionEmail,
+    });
+
+    return NextResponse.json(
+      { ok: true, ticket },
+      { status: 200, headers: NO_STORE_HEADERS },
+    );
+  } catch (error) {
+    console.error("[change-password] start error:", error);
+    return NextResponse.json(
+      { ok: false, error: "Erro inesperado ao iniciar alteracao de senha." },
+      { status: 500, headers: NO_STORE_HEADERS },
+    );
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const base = await getSessionAndUser(req);
+    if (!base.ok) return base.response;
+
+    const body = await req.json().catch(() => ({}));
+    const ticketRes = readPasswordChangeTicket({
+      ticket: String(body?.ticket || ""),
+      sessionUserId: base.sessionUserId,
+      sessionEmail: base.sessionEmail,
+    });
+    if (!ticketRes.ok) {
+      return NextResponse.json(
+        { ok: false, error: ticketRes.error },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const code = await createEmailChallenge(base.sb, base.sessionEmail);
+    await sendLoginCodeEmail(base.sessionEmail, code, { heading: "Alterando sua senha" });
+
+    const refreshedTicket = createPasswordChangeTicket({
+      userId: String(base.userRow.id),
+      currentEmail: base.sessionEmail,
+    });
+
+    return NextResponse.json(
+      { ok: true, ticket: refreshedTicket },
+      { status: 200, headers: NO_STORE_HEADERS },
+    );
+  } catch (error) {
+    console.error("[change-password] resend error:", error);
+    return NextResponse.json(
+      { ok: false, error: "Erro inesperado ao reenviar codigo de senha." },
+      { status: 500, headers: NO_STORE_HEADERS },
+    );
+  }
+}
+
+export async function PUT(req: NextRequest) {
+  try {
+    const base = await getSessionAndUser(req);
+    if (!base.ok) return base.response;
+
+    const body = await req.json().catch(() => ({}));
+    const ticketRes = readPasswordChangeTicket({
+      ticket: String(body?.ticket || ""),
+      sessionUserId: base.sessionUserId,
+      sessionEmail: base.sessionEmail,
+    });
+    if (!ticketRes.ok) {
+      return NextResponse.json(
+        { ok: false, error: ticketRes.error },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const code = onlyDigits(String(body?.code || "")).slice(0, 7);
+    if (code.length !== 7) {
+      return NextResponse.json(
+        { ok: false, error: "Codigo invalido." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const currentPassword = String(body?.currentPassword || "");
+    const newPassword = String(body?.newPassword || "");
+    const confirmNewPassword = String(body?.confirmNewPassword || "");
+
+    const inputError = validatePasswordChangeInput({
+      currentPassword,
+      newPassword,
+      confirmNewPassword,
+    });
+    if (inputError) {
+      return NextResponse.json(
+        { ok: false, error: inputError },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const currentPasswordOk = await verifyCurrentPassword(base.sessionEmail, currentPassword);
+    if (!currentPasswordOk) {
+      return NextResponse.json(
+        { ok: false, error: "Senha atual invalida." },
+        { status: 401, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const verifyCode = await verifyEmailChallengeCode({
+      sb: base.sb,
+      email: base.sessionEmail,
+      code,
+    });
+    if (!verifyCode.ok) {
+      return NextResponse.json(
+        { ok: false, error: verifyCode.error },
+        { status: verifyCode.status, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const currentAuthUserId = await resolveCurrentAuthUserId({
+      sb: base.sb,
+      userRow: base.userRow,
+      sessionEmail: base.sessionEmail,
+    });
+    if (!currentAuthUserId) {
+      return NextResponse.json(
+        { ok: false, error: "Nao foi possivel localizar seu usuario de autenticacao." },
+        { status: 500, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const { error: authUpdateError } = await base.sb.auth.admin.updateUserById(
+      currentAuthUserId,
+      { password: newPassword },
+    );
+    if (authUpdateError) {
+      console.error("[change-password] auth update error:", authUpdateError);
+      return NextResponse.json(
+        { ok: false, error: "Nao foi possivel atualizar sua senha." },
+        { status: 500, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const { error: userUpdateError, passwordChangedAt } = await updateWzUserPasswordChangedAt({
+      sb: base.sb,
+      userId: String(base.userRow.id),
+    });
+    if (userUpdateError) {
+      console.error("[change-password] wz_users timestamp update error:", userUpdateError);
+    }
+
+    return NextResponse.json(
+      { ok: true, passwordChangedAt },
+      { status: 200, headers: NO_STORE_HEADERS },
+    );
+  } catch (error) {
+    console.error("[change-password] verify error:", error);
+    return NextResponse.json(
+      { ok: false, error: "Erro inesperado ao validar codigo de alteracao de senha." },
+      { status: 500, headers: NO_STORE_HEADERS },
+    );
+  }
+}
