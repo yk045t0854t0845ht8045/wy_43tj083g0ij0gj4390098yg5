@@ -501,6 +501,30 @@ function AccountContent({
   const [sendingPasswordCode, setSendingPasswordCode] = useState(false);
   const [resendingPasswordCode, setResendingPasswordCode] = useState(false);
   const [verifyingPasswordCode, setVerifyingPasswordCode] = useState(false);
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  const [twoFactorEnabledAt, setTwoFactorEnabledAt] = useState<string | null>(null);
+  const [twoFactorDisabledAt, setTwoFactorDisabledAt] = useState<string | null>(null);
+  const [twoFactorStatusLoaded, setTwoFactorStatusLoaded] = useState(false);
+  const [loadingTwoFactorStatus, setLoadingTwoFactorStatus] = useState(false);
+  const [twoFactorModalOpen, setTwoFactorModalOpen] = useState(false);
+  const [twoFactorStep, setTwoFactorStep] = useState<
+    "enable-verify-app" | "disable-verify-email" | "disable-verify-app"
+  >("enable-verify-app");
+  const [twoFactorTicket, setTwoFactorTicket] = useState("");
+  const [twoFactorManualCode, setTwoFactorManualCode] = useState("");
+  const [twoFactorQrCodeDataUrl, setTwoFactorQrCodeDataUrl] = useState("");
+  const [twoFactorOtpAuthUri, setTwoFactorOtpAuthUri] = useState("");
+  const [twoFactorEmailMask, setTwoFactorEmailMask] = useState("");
+  const [twoFactorAppCode, setTwoFactorAppCode] = useState("");
+  const [twoFactorEmailCode, setTwoFactorEmailCode] = useState("");
+  const [twoFactorError, setTwoFactorError] = useState<string | null>(null);
+  const [twoFactorResendCooldown, setTwoFactorResendCooldown] = useState(0);
+  const [startingTwoFactorFlow, setStartingTwoFactorFlow] = useState(false);
+  const [resendingTwoFactorCode, setResendingTwoFactorCode] = useState(false);
+  const [verifyingTwoFactorStep, setVerifyingTwoFactorStep] = useState(false);
+  const [copyingTwoFactorCode, setCopyingTwoFactorCode] = useState<"idle" | "copied" | "failed">(
+    "idle"
+  );
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
@@ -554,6 +578,14 @@ function AccountContent({
     }, 1000);
     return () => window.clearInterval(timer);
   }, [passwordResendCooldown]);
+
+  useEffect(() => {
+    if (twoFactorResendCooldown <= 0) return;
+    const timer = window.setInterval(() => {
+      setTwoFactorResendCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [twoFactorResendCooldown]);
 
   const baseScale = useMemo(() => {
     if (!natural.width || !natural.height) return 1;
@@ -1353,6 +1385,362 @@ function AccountContent({
     }
   };
 
+  const resetTwoFactorFlow = useCallback(() => {
+    setTwoFactorStep("enable-verify-app");
+    setTwoFactorTicket("");
+    setTwoFactorManualCode("");
+    setTwoFactorQrCodeDataUrl("");
+    setTwoFactorOtpAuthUri("");
+    setTwoFactorEmailMask("");
+    setTwoFactorAppCode("");
+    setTwoFactorEmailCode("");
+    setTwoFactorError(null);
+    setTwoFactorResendCooldown(0);
+    setCopyingTwoFactorCode("idle");
+  }, []);
+
+  const isTwoFactorBusy =
+    startingTwoFactorFlow || resendingTwoFactorCode || verifyingTwoFactorStep;
+
+  const loadTwoFactorStatus = useCallback(async () => {
+    try {
+      setLoadingTwoFactorStatus(true);
+      const res = await fetch("/api/wz_users/two-factor", { method: "GET" });
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        enabled?: boolean;
+        twoFactorEnabledAt?: string | null;
+        twoFactorDisabledAt?: string | null;
+      };
+
+      if (!res.ok || !payload.ok) {
+        setTwoFactorEnabled(false);
+        setTwoFactorEnabledAt(null);
+        setTwoFactorDisabledAt(null);
+        return null as {
+          enabled: boolean;
+          twoFactorEnabledAt: string | null;
+          twoFactorDisabledAt: string | null;
+        } | null;
+      }
+
+      const nextStatus = {
+        enabled: Boolean(payload.enabled),
+        twoFactorEnabledAt: normalizeIsoDatetime(payload.twoFactorEnabledAt),
+        twoFactorDisabledAt: normalizeIsoDatetime(payload.twoFactorDisabledAt),
+      };
+      setTwoFactorEnabled(nextStatus.enabled);
+      setTwoFactorEnabledAt(nextStatus.twoFactorEnabledAt);
+      setTwoFactorDisabledAt(nextStatus.twoFactorDisabledAt);
+      return nextStatus;
+    } catch (err) {
+      console.error("[config-account] load two-factor status failed:", err);
+      return null;
+    } finally {
+      setLoadingTwoFactorStatus(false);
+      setTwoFactorStatusLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadTwoFactorStatus();
+  }, [loadTwoFactorStatus]);
+
+  useEffect(() => {
+    if (copyingTwoFactorCode === "idle") return;
+    const timer = window.setTimeout(() => {
+      setCopyingTwoFactorCode("idle");
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [copyingTwoFactorCode]);
+
+  const startTwoFactorEnableFlow = async () => {
+    if (isTwoFactorBusy) return;
+
+    try {
+      setStartingTwoFactorFlow(true);
+      setTwoFactorError(null);
+      const res = await fetch("/api/wz_users/two-factor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "enable-start" }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        ticket?: string;
+        manualCode?: string;
+        qrCodeDataUrl?: string;
+        otpAuthUri?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok || !payload.ticket || !payload.manualCode || !payload.qrCodeDataUrl) {
+        throw new Error(payload.error || "Nao foi possivel iniciar a configuracao de 2 etapas.");
+      }
+
+      setTwoFactorStep("enable-verify-app");
+      setTwoFactorTicket(payload.ticket);
+      setTwoFactorManualCode(String(payload.manualCode || "").trim());
+      setTwoFactorQrCodeDataUrl(String(payload.qrCodeDataUrl || ""));
+      setTwoFactorOtpAuthUri(String(payload.otpAuthUri || ""));
+      setTwoFactorAppCode("");
+      setTwoFactorEmailCode("");
+      setTwoFactorResendCooldown(0);
+    } catch (err) {
+      console.error("[config-account] start two-factor enable failed:", err);
+      setTwoFactorError(err instanceof Error ? err.message : "Erro ao iniciar configuracao de 2 etapas.");
+    } finally {
+      setStartingTwoFactorFlow(false);
+    }
+  };
+
+  const startTwoFactorDisableFlow = async () => {
+    if (isTwoFactorBusy) return;
+
+    try {
+      setStartingTwoFactorFlow(true);
+      setTwoFactorError(null);
+      const res = await fetch("/api/wz_users/two-factor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "disable-start" }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        ticket?: string;
+        emailMask?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok || !payload.ticket) {
+        throw new Error(payload.error || "Nao foi possivel iniciar a desativacao de 2 etapas.");
+      }
+
+      setTwoFactorStep("disable-verify-email");
+      setTwoFactorTicket(payload.ticket);
+      setTwoFactorEmailMask(String(payload.emailMask || maskSecureEmail(localEmail)));
+      setTwoFactorAppCode("");
+      setTwoFactorEmailCode("");
+      setTwoFactorResendCooldown(60);
+    } catch (err) {
+      console.error("[config-account] start two-factor disable failed:", err);
+      setTwoFactorError(err instanceof Error ? err.message : "Erro ao iniciar desativacao de 2 etapas.");
+    } finally {
+      setStartingTwoFactorFlow(false);
+    }
+  };
+
+  const openTwoFactorModal = async () => {
+    if (isTwoFactorBusy) return;
+    resetTwoFactorFlow();
+    setTwoFactorModalOpen(true);
+
+    const status = await loadTwoFactorStatus();
+    const shouldOpenDisableFlow = status ? status.enabled : twoFactorEnabled;
+    if (shouldOpenDisableFlow) {
+      await startTwoFactorDisableFlow();
+      return;
+    }
+    await startTwoFactorEnableFlow();
+  };
+
+  const closeTwoFactorModal = () => {
+    if (isTwoFactorBusy) return;
+    setTwoFactorModalOpen(false);
+    resetTwoFactorFlow();
+  };
+
+  const copyTwoFactorManualCode = async () => {
+    if (!twoFactorManualCode) return;
+    try {
+      await navigator.clipboard.writeText(twoFactorManualCode);
+      setCopyingTwoFactorCode("copied");
+    } catch {
+      setCopyingTwoFactorCode("failed");
+    }
+  };
+
+  const verifyTwoFactorEnableCode = async (nextValue?: string) => {
+    if (!twoFactorTicket || isTwoFactorBusy) return;
+    const code = onlyDigits(String(nextValue || twoFactorAppCode || "")).slice(0, 6);
+    if (code.length !== 6) return;
+
+    try {
+      setVerifyingTwoFactorStep(true);
+      setTwoFactorError(null);
+
+      const res = await fetch("/api/wz_users/two-factor", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket: twoFactorTicket, code }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        enabled?: boolean;
+        twoFactorEnabledAt?: string | null;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok || !payload.enabled) {
+        throw new Error(payload.error || "Codigo do aplicativo invalido.");
+      }
+
+      const nextEnabledAt =
+        normalizeIsoDatetime(payload.twoFactorEnabledAt) || new Date().toISOString();
+      setTwoFactorEnabled(true);
+      setTwoFactorEnabledAt(nextEnabledAt);
+      setTwoFactorDisabledAt(null);
+      setTwoFactorModalOpen(false);
+      resetTwoFactorFlow();
+    } catch (err) {
+      console.error("[config-account] verify two-factor enable failed:", err);
+      setTwoFactorError(
+        err instanceof Error ? err.message : "Erro ao validar codigo da autenticacao em 2 etapas."
+      );
+      setTwoFactorAppCode("");
+    } finally {
+      setVerifyingTwoFactorStep(false);
+    }
+  };
+
+  const resendTwoFactorDisableEmailCode = async () => {
+    if (!twoFactorTicket || twoFactorResendCooldown > 0 || isTwoFactorBusy) return;
+    if (twoFactorStep !== "disable-verify-email") return;
+
+    try {
+      setResendingTwoFactorCode(true);
+      setTwoFactorError(null);
+
+      const res = await fetch("/api/wz_users/two-factor", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket: twoFactorTicket }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        ticket?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok) {
+        throw new Error(payload.error || "Nao foi possivel reenviar o codigo.");
+      }
+
+      if (payload.ticket) {
+        setTwoFactorTicket(String(payload.ticket));
+      }
+      setTwoFactorResendCooldown(60);
+    } catch (err) {
+      console.error("[config-account] resend two-factor disable email code failed:", err);
+      setTwoFactorError(err instanceof Error ? err.message : "Erro ao reenviar codigo.");
+    } finally {
+      setResendingTwoFactorCode(false);
+    }
+  };
+
+  const verifyTwoFactorDisableEmailCode = async (nextValue?: string) => {
+    if (!twoFactorTicket || isTwoFactorBusy) return;
+    if (twoFactorStep !== "disable-verify-email") return;
+    const emailCode = onlyDigits(String(nextValue || twoFactorEmailCode || "")).slice(0, 7);
+    if (emailCode.length !== 7) return;
+
+    try {
+      setVerifyingTwoFactorStep(true);
+      setTwoFactorError(null);
+
+      const res = await fetch("/api/wz_users/two-factor", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket: twoFactorTicket, emailCode }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        next?: "verify-authenticator";
+        ticket?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok || payload.next !== "verify-authenticator" || !payload.ticket) {
+        const fallback =
+          res.status === 429
+            ? "Voce atingiu o limite de tentativas. Reenvie o codigo."
+            : "Codigo de e-mail invalido.";
+        setTwoFactorError(String(payload.error || fallback));
+        setTwoFactorEmailCode("");
+        if (res.status === 429) {
+          setTwoFactorResendCooldown(0);
+        }
+        return;
+      }
+
+      setTwoFactorStep("disable-verify-app");
+      setTwoFactorTicket(String(payload.ticket));
+      setTwoFactorEmailCode("");
+      setTwoFactorAppCode("");
+      setTwoFactorResendCooldown(0);
+    } catch (err) {
+      console.error("[config-account] verify two-factor disable email code failed:", err);
+      setTwoFactorError(
+        err instanceof Error ? err.message : "Erro ao validar codigo de e-mail."
+      );
+      setTwoFactorEmailCode("");
+    } finally {
+      setVerifyingTwoFactorStep(false);
+    }
+  };
+
+  const verifyTwoFactorDisableAppCode = async (nextValue?: string) => {
+    if (!twoFactorTicket || isTwoFactorBusy) return;
+    if (twoFactorStep !== "disable-verify-app") return;
+    const code = onlyDigits(String(nextValue || twoFactorAppCode || "")).slice(0, 6);
+    if (code.length !== 6) return;
+
+    try {
+      setVerifyingTwoFactorStep(true);
+      setTwoFactorError(null);
+
+      const res = await fetch("/api/wz_users/two-factor", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket: twoFactorTicket, code }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        enabled?: boolean;
+        twoFactorDisabledAt?: string | null;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok || payload.enabled !== false) {
+        throw new Error(payload.error || "Codigo do aplicativo invalido.");
+      }
+
+      const nextDisabledAt =
+        normalizeIsoDatetime(payload.twoFactorDisabledAt) || new Date().toISOString();
+      setTwoFactorEnabled(false);
+      setTwoFactorEnabledAt(null);
+      setTwoFactorDisabledAt(nextDisabledAt);
+      setTwoFactorModalOpen(false);
+      resetTwoFactorFlow();
+    } catch (err) {
+      console.error("[config-account] verify two-factor disable app code failed:", err);
+      setTwoFactorError(
+        err instanceof Error
+          ? err.message
+          : "Erro ao validar codigo do aplicativo para desativar."
+      );
+      setTwoFactorAppCode("");
+    } finally {
+      setVerifyingTwoFactorStep(false);
+    }
+  };
+
   const initial = nickname.trim().charAt(0).toUpperCase() || "U";
   const maskedEmailValue = maskSecureEmail(localEmail);
   const maskedPhoneValue = maskSecurePhone(localPhoneE164);
@@ -1363,6 +1751,22 @@ function AccountContent({
     "rounded-xl border border-black/10 bg-white/95 px-4 py-2 text-[13px] font-semibold text-black/80",
     "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
     "hover:border-black/15 hover:bg-black/[0.03] active:translate-y-[0.6px] active:scale-[0.992]"
+  );
+  const twoFactorStatusBadge = twoFactorEnabled
+    ? "Ativa"
+    : twoFactorStatusLoaded
+      ? "Inativa"
+      : "Carregando...";
+  const twoFactorChangedAt = twoFactorEnabled ? twoFactorEnabledAt : twoFactorDisabledAt;
+  const twoFactorChangedLabel = `Alterado ha: ${formatElapsedTimeLabel(twoFactorChangedAt, relativeNowMs)}`;
+  const twoFactorActionLabel = twoFactorEnabled
+    ? "Autenticacao de 2 etapas ativa"
+    : "Adicionar um metodo de verificacao";
+  const twoFactorButtonClass = cx(
+    buttonClass,
+    twoFactorEnabled &&
+      "border-[#1f9d55]/70 bg-[#1f9d55] text-white hover:border-[#188047] hover:bg-[#188047]",
+    (loadingTwoFactorStatus || isTwoFactorBusy) && "cursor-wait opacity-70"
   );
 
   return (
@@ -1423,7 +1827,28 @@ function AccountContent({
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">E-mail</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{emailChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedEmailValue}</p></div><button type="button" onClick={openEmailModal} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar E-mail</button></div>
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Numero de celular</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{phoneChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedPhoneValue}</p></div><button type="button" onClick={openPhoneModal} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar celular</button></div>
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Senha</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{passwordChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">Atualize sua senha com confirmacao por codigo enviado no e-mail.</p></div><button type="button" onClick={openPasswordModal} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar Senha</button></div>
-            <div className="flex items-start justify-between gap-4 -mx-2 rounded-xl px-2"><div><p className="text-[18px] font-semibold text-black/85">Verificacao em duas etapas</p><p className="mt-1 text-[15px] text-black/58">Adicione mais uma camada de seguranca a sua conta durante o login.</p></div><button type="button" className={buttonClass}>Adicionar um metodo de verificacao</button></div>
+            <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-[18px] font-semibold text-black/85">Verificacao em duas etapas</p>
+                  <span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">
+                    {twoFactorStatusBadge}
+                  </span>
+                </div>
+                <p className="mt-1 text-[15px] text-black/58">
+                  Adicione mais uma camada de seguranca a sua conta durante o login.
+                </p>
+                <p className="mt-1 text-[12px] text-black/45">{twoFactorChangedLabel}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void openTwoFactorModal()}
+                disabled={loadingTwoFactorStatus || isTwoFactorBusy}
+                className={cx(twoFactorButtonClass, "self-start sm:self-auto")}
+              >
+                {twoFactorActionLabel}
+              </button>
+            </div>
             <div className="flex items-start justify-between gap-4 -mx-2 rounded-xl px-2"><div><p className="text-[18px] font-semibold text-black/85">Chaves de acesso</p><p className="mt-1 text-[15px] text-black/58">Entre com seguranca com a autenticacao biometrica no dispositivo.</p></div><button type="button" className={buttonClass}>Adicionar passkey</button></div>
           </div>
         </section>
@@ -2057,6 +2482,217 @@ function AccountContent({
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
                       {verifyingPasswordCode ? "Validando..." : "Confirmar"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.section>
+          </motion.div>
+        )}
+
+        {twoFactorModalOpen && (
+          <motion.div
+            className="fixed inset-0 z-[228] flex items-center justify-center p-4 sm:p-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/45 backdrop-blur-[4px]"
+              onClick={closeTwoFactorModal}
+            />
+            <motion.section
+              role="dialog"
+              aria-modal="true"
+              className="relative z-[1] w-[min(96vw,700px)] overflow-hidden rounded-2xl border border-black/15 bg-[#f3f3f4] shadow-[0_26px_70px_rgba(0,0,0,0.35)] sm:w-[min(92vw,700px)]"
+              initial={{ opacity: 0, y: 10, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.985 }}
+            >
+              <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6">
+                <h3 className="text-[18px] font-semibold text-black/80">
+                  {twoFactorEnabled ? "Desativar autenticacao de 2 etapas" : "Ativar autenticacao de 2 etapas"}
+                </h3>
+                <button
+                  type="button"
+                  onClick={closeTwoFactorModal}
+                  disabled={isTwoFactorBusy}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
+                {twoFactorStep === "enable-verify-app" && (
+                  <>
+                    <p className="text-[14px] leading-[1.45] text-black/62">
+                      Escaneie o QR code com Google Authenticator, Microsoft Authenticator ou app
+                      equivalente. Se preferir, use o codigo manual.
+                    </p>
+
+                    {twoFactorQrCodeDataUrl ? (
+                      <div className="mt-4 flex justify-center">
+                        <div className="rounded-2xl border border-black/10 bg-white p-3">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={twoFactorQrCodeDataUrl}
+                            alt="QR code para autenticacao em duas etapas"
+                            className="h-[220px] w-[220px] object-contain"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-xl border border-black/10 bg-white/80 px-3 py-3 text-[13px] text-black/62">
+                        Gerando QR code...
+                      </div>
+                    )}
+
+                    <p className="mt-4 text-[13px] font-medium text-black/62">Codigo manual</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <code className="rounded-lg border border-black/12 bg-white/92 px-3 py-2 text-[13px] font-semibold tracking-[0.08em] text-black/80">
+                        {twoFactorManualCode || "-"}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => void copyTwoFactorManualCode()}
+                        disabled={!twoFactorManualCode || isTwoFactorBusy}
+                        className="rounded-lg border border-black/12 bg-white/90 px-3 py-2 text-[12px] font-semibold text-black/70 transition-colors hover:bg-black/[0.03] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {copyingTwoFactorCode === "copied"
+                          ? "Copiado"
+                          : copyingTwoFactorCode === "failed"
+                          ? "Falhou ao copiar"
+                          : "Copiar codigo"}
+                      </button>
+                    </div>
+
+                    {twoFactorOtpAuthUri && (
+                      <p className="mt-3 break-all text-[12px] text-black/52">{twoFactorOtpAuthUri}</p>
+                    )}
+
+                    <p className="mt-5 text-[14px] leading-[1.45] text-black/62">
+                      Digite o codigo de 6 digitos gerado no aplicativo para ativar.
+                    </p>
+                    <CodeBoxes
+                      length={6}
+                      value={twoFactorAppCode}
+                      onChange={setTwoFactorAppCode}
+                      onComplete={verifyTwoFactorEnableCode}
+                      disabled={isTwoFactorBusy}
+                    />
+                  </>
+                )}
+
+                {twoFactorStep === "disable-verify-email" && (
+                  <>
+                    <p className="text-[14px] leading-[1.45] text-black/62">
+                      Para desativar, confirme primeiro o codigo enviado para seu e-mail.
+                    </p>
+                    <p className="mt-3 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/72">
+                      E-mail atual:{" "}
+                      <span className="font-semibold text-black/86">
+                        {twoFactorEmailMask || maskSecureEmail(localEmail)}
+                      </span>
+                    </p>
+                    <CodeBoxes
+                      length={7}
+                      value={twoFactorEmailCode}
+                      onChange={setTwoFactorEmailCode}
+                      onComplete={verifyTwoFactorDisableEmailCode}
+                      disabled={isTwoFactorBusy}
+                    />
+                    <div className="mt-4 flex items-center justify-center">
+                      <button
+                        type="button"
+                        onClick={resendTwoFactorDisableEmailCode}
+                        disabled={isTwoFactorBusy || twoFactorResendCooldown > 0}
+                        className="text-[13px] font-semibold text-black/72 transition-colors hover:text-black/88 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {twoFactorResendCooldown > 0
+                          ? `Reenviar codigo (${twoFactorResendCooldown}s)`
+                          : resendingTwoFactorCode
+                          ? "Reenviando..."
+                          : "Reenviar codigo"}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {twoFactorStep === "disable-verify-app" && (
+                  <>
+                    <p className="text-[14px] leading-[1.45] text-black/62">
+                      E-mail confirmado. Agora digite o codigo de 6 digitos do aplicativo para
+                      confirmar a desativacao.
+                    </p>
+                    <CodeBoxes
+                      length={6}
+                      value={twoFactorAppCode}
+                      onChange={setTwoFactorAppCode}
+                      onComplete={verifyTwoFactorDisableAppCode}
+                      disabled={isTwoFactorBusy}
+                    />
+                  </>
+                )}
+
+                {twoFactorError && (
+                  <p className="mt-4 rounded-lg border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-2 text-[13px] font-medium text-[#b2433e]">
+                    {twoFactorError}
+                  </p>
+                )}
+
+                <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={closeTwoFactorModal}
+                    disabled={isTwoFactorBusy}
+                    className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancelar
+                  </button>
+
+                  {twoFactorStep === "enable-verify-app" && (
+                    <button
+                      type="button"
+                      onClick={() => void startTwoFactorEnableFlow()}
+                      disabled={isTwoFactorBusy}
+                      className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {startingTwoFactorFlow ? "Gerando..." : "Gerar novo QR"}
+                    </button>
+                  )}
+
+                  {twoFactorStep === "enable-verify-app" && (
+                    <button
+                      type="button"
+                      onClick={() => void verifyTwoFactorEnableCode()}
+                      disabled={isTwoFactorBusy || onlyDigits(twoFactorAppCode).length !== 6}
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {verifyingTwoFactorStep ? "Validando..." : "Ativar 2 etapas"}
+                    </button>
+                  )}
+
+                  {twoFactorStep === "disable-verify-email" && (
+                    <button
+                      type="button"
+                      onClick={() => void verifyTwoFactorDisableEmailCode()}
+                      disabled={isTwoFactorBusy || onlyDigits(twoFactorEmailCode).length !== 7}
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {verifyingTwoFactorStep ? "Validando..." : "Confirmar e-mail"}
+                    </button>
+                  )}
+
+                  {twoFactorStep === "disable-verify-app" && (
+                    <button
+                      type="button"
+                      onClick={() => void verifyTwoFactorDisableAppCode()}
+                      disabled={isTwoFactorBusy || onlyDigits(twoFactorAppCode).length !== 6}
+                      className="rounded-xl bg-[#e3524b] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#d34942] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {verifyingTwoFactorStep ? "Validando..." : "Desativar 2 etapas"}
                     </button>
                   )}
                 </div>
