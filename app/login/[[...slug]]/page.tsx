@@ -126,7 +126,19 @@ function resolveSafeReturnTo(raw: string, loginHost: string) {
   }
 }
 
-function SpinnerMini({ reduced }: { reduced: boolean }) {
+function SpinnerMini({
+  reduced,
+  tone = "dark",
+}: {
+  reduced: boolean;
+  tone?: "dark" | "light";
+}) {
+  const trackClass = tone === "light" ? "border-white/16" : "border-black/15";
+  const spinnerClass =
+    tone === "light"
+      ? "border-white/70 border-t-transparent"
+      : "border-black/50 border-t-transparent";
+
   return (
     <motion.span
       aria-hidden
@@ -136,9 +148,9 @@ function SpinnerMini({ reduced }: { reduced: boolean }) {
       transition={{ duration: reduced ? 0 : 0.18 }}
     >
       <span className="relative h-5 w-5">
-        <span className="absolute inset-0 rounded-full border-2 border-black/15" />
+        <span className={cx("absolute inset-0 rounded-full border-2", trackClass)} />
         <motion.span
-          className="absolute inset-0 rounded-full border-2 border-black/50 border-t-transparent"
+          className={cx("absolute inset-0 rounded-full border-2", spinnerClass)}
           animate={reduced ? undefined : { rotate: 360 }}
           transition={
             reduced
@@ -170,6 +182,7 @@ function CodeBoxes({
   disabled,
   loading,
   reduced,
+  variant = "light",
 }: {
   length: number;
   value: string;
@@ -177,10 +190,12 @@ function CodeBoxes({
   onComplete?: (v: string) => void;
   disabled?: boolean;
   loading?: boolean; // ✅ novo
-  reduced?: boolean; // ✅ novo (pra girar suave ou não)
+  reduced?: boolean;
+  variant?: "light" | "dark";
 }) {
   const refs = useRef<Array<HTMLInputElement | null>>([]);
   const lastCompletedRef = useRef<string>("");
+  const dark = variant === "dark";
 
   const digits = useMemo(() => {
     const clean = onlyDigits(value).slice(0, length);
@@ -251,8 +266,12 @@ function CodeBoxes({
             focus(nextIndex);
           }}
           className={cx(
-            "h-14 w-14 rounded-[14px] bg-[#f3f3f3] ring-1 ring-black/5 text-center text-[18px] font-semibold text-black",
-            "focus:outline-none focus:ring-2 focus:ring-black/20",
+            dark
+              ? "h-11 w-8 rounded-[10px] border border-white/14 bg-black/[0.58] text-center text-[16px] font-semibold text-white/94 sm:h-12 sm:w-10 sm:rounded-[12px] sm:text-[18px]"
+              : "h-14 w-14 rounded-[14px] bg-[#f3f3f3] ring-1 ring-black/5 text-center text-[18px] font-semibold text-black",
+            dark
+              ? "focus:outline-none focus:ring-2 focus:ring-white/22"
+              : "focus:outline-none focus:ring-2 focus:ring-black/20",
             "transition-all duration-200",
             disabled ? "opacity-70 cursor-not-allowed" : "",
           )}
@@ -271,9 +290,14 @@ function CodeBoxes({
             className="absolute inset-0 flex items-center justify-center"
             style={{ pointerEvents: "none" }}
           >
-            <div className="absolute inset-0 rounded-[18px] bg-white/55 backdrop-blur-[2px]" />
+            <div
+              className={cx(
+                "absolute inset-0 rounded-[18px] backdrop-blur-[2px]",
+                dark ? "bg-black/48" : "bg-white/55"
+              )}
+            />
             <div className="relative z-10">
-              <SpinnerMini reduced={!!reduced} />
+              <SpinnerMini reduced={!!reduced} tone={dark ? "light" : "dark"} />
             </div>
           </motion.div>
         )}
@@ -373,6 +397,8 @@ export default function LinkLoginPage() {
   const [verifyingTwoFactorCodeBusy, setVerifyingTwoFactorCodeBusy] =
     useState(false);
   const [verifyingSmsCodeBusy, setVerifyingSmsCodeBusy] = useState(false); // ✅ novo (só validação do sms code)
+  const [twoFactorIslandLoading, setTwoFactorIslandLoading] = useState(false);
+  const [twoFactorShakeTick, setTwoFactorShakeTick] = useState(0);
   const [msgError, setMsgError] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
 
@@ -551,6 +577,8 @@ export default function LinkLoginPage() {
     setBusy(false);
     setMsgError(null);
     setResendCooldown(0);
+    setTwoFactorIslandLoading(false);
+    setTwoFactorShakeTick(0);
 
     setEmail("");
     setEmailLocked(false);
@@ -571,6 +599,41 @@ export default function LinkLoginPage() {
     if (typeof window !== "undefined") window.history.replaceState({}, "", "/");
   }, []);
 
+  const twoFactorInvalidError = useMemo(() => {
+    if (step !== "twoFactorCode") return null;
+    const message = String(msgError || "").trim();
+    if (!message) return null;
+    return /(invalido|inv\u00e1lido)/i.test(message) ? message : null;
+  }, [msgError, step]);
+
+  const clearTwoFactorFeedback = useCallback(() => {
+    if (step !== "twoFactorCode") return;
+    setMsgError(null);
+  }, [step]);
+
+  const setTwoFactorFeedback = useCallback((message?: string | null) => {
+    const nextMessage = String(message || "").trim();
+    if (!nextMessage) {
+      setMsgError(null);
+      return;
+    }
+    setMsgError(nextMessage);
+    if (/(invalido|inv\u00e1lido)/i.test(nextMessage)) {
+      setTwoFactorShakeTick((value) => value + 1);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (step !== "twoFactorCode") {
+      setTwoFactorIslandLoading(false);
+      return;
+    }
+    setTwoFactorIslandLoading(true);
+    const timer = window.setTimeout(() => {
+      setTwoFactorIslandLoading(false);
+    }, prefersReducedMotion ? 0 : 1500);
+    return () => window.clearTimeout(timer);
+  }, [prefersReducedMotion, step]);
   // adornment (alinhado perfeito)
   const EmailAdornment = useMemo(() => {
     const s = check.state;
@@ -639,8 +702,7 @@ export default function LinkLoginPage() {
 
   const helperText = useMemo(() => {
     if (step === "emailCode") return "Insira o código enviado para seu e-mail.";
-    if (step === "twoFactorCode")
-      return "Insira o código de 6 dígitos do aplicativo autenticador.";
+    if (step === "twoFactorCode") return "Abra seu aplicativo autenticador para continuar.";
     if (step === "smsCode") return "Insira o código enviado por SMS.";
     if (check.state === "checking") return "Verificando seu e-mail…";
     if (check.state === "exists")
@@ -856,7 +918,7 @@ export default function LinkLoginPage() {
 
       setVerifyingTwoFactorCodeBusy(true);
       setBusy(true);
-      setMsgError(null);
+      setTwoFactorFeedback(null);
 
       try {
         const res = await fetch("/api/wz_AuthLogin/verify-two-factor", {
@@ -875,8 +937,8 @@ export default function LinkLoginPage() {
           if (j?.twoFactorTicket) {
             setTwoFactorTicket(String(j.twoFactorTicket || ""));
           }
-          setMsgError(
-            String(j?.error || "Código de 2 etapas inválido. Tente novamente."),
+          setTwoFactorFeedback(
+            String(j?.error || "Codigo de 2 etapas invalido. Tente novamente."),
           );
           setTwoFactorCode("");
           return;
@@ -890,7 +952,7 @@ export default function LinkLoginPage() {
           router.push(nextUrl);
         }
       } catch (err: any) {
-        setMsgError(err?.message || "Erro inesperado. Tente novamente.");
+        setTwoFactorFeedback(err?.message || "Erro inesperado. Tente novamente.");
       } finally {
         setBusy(false);
         setVerifyingTwoFactorCodeBusy(false);
@@ -904,6 +966,7 @@ export default function LinkLoginPage() {
       twoFactorCode,
       twoFactorTicket,
       verifyingTwoFactorCodeBusy,
+      setTwoFactorFeedback,
     ],
   );
 
@@ -1436,7 +1499,7 @@ export default function LinkLoginPage() {
                     </span>
                   </>
                 ) : step === "twoFactorCode" ? (
-                  <>Digite o código de 6 dígitos do seu aplicativo autenticador.</>
+                  <>Abra seu aplicativo autenticador para continuar.</>
                 ) : step === "emailSuccess" ? (
                   <>
                     Verificação concluída. Vamos confirmar seu número por SMS.
@@ -1776,62 +1839,177 @@ export default function LinkLoginPage() {
               {step === "twoFactorCode" && (
                 <motion.div
                   key="twoFactorCode"
-                  initial={{ opacity: 0, y: 14, filter: "blur(10px)" }}
-                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                  exit={{ opacity: 0, y: 10, filter: "blur(10px)" }}
-                  transition={{
-                    duration: prefersReducedMotion ? 0 : DUR.md,
-                    ease: EASE,
-                  }}
-                  className="mt-10"
+                  className="fixed inset-0 z-[120] px-4 pt-4 sm:px-6 sm:pt-6"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
                 >
-                  <CodeBoxes
-                    length={6}
-                    value={twoFactorCode}
-                    onChange={setTwoFactorCode}
-                    onComplete={(v) => verifyTwoFactorCode(v)}
-                    disabled={busy || verifyingTwoFactorCodeBusy}
-                    loading={verifyingTwoFactorCodeBusy}
-                    reduced={!!prefersReducedMotion}
-                  />
+                  <div className="absolute inset-0 bg-black/62 backdrop-blur-[11px]" />
 
-                  <AnimatePresence initial={false}>
-                    {!!msgError && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 8, filter: "blur(8px)" }}
-                        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                        exit={{ opacity: 0, y: 8, filter: "blur(8px)" }}
-                        transition={{
-                          duration: prefersReducedMotion ? 0 : 0.22,
-                          ease: EASE,
-                        }}
-                        className="mt-4 rounded-[16px] bg-black/5 ring-1 ring-black/10 px-4 py-3 text-[13px] text-black/70 text-center"
-                      >
-                        {msgError}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  <div className="mt-6 flex items-center justify-center">
-                    <button
-                      type="button"
-                      onClick={resetAll}
-                      disabled={busy || verifyingTwoFactorCodeBusy}
+                  <div className="relative z-[1] flex flex-col items-center">
+                    <motion.section
+                      layout
+                      role="dialog"
+                      aria-modal="true"
                       className={cx(
-                        "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
-                        busy || verifyingTwoFactorCodeBusy
-                          ? "text-black/35 cursor-not-allowed"
-                          : "text-black/55 hover:text-black/75",
+                        "relative overflow-hidden border border-white/12 [background:linear-gradient(180deg,#121212_0%,#090909_28%,#000000_100%)] shadow-[0_30px_98px_rgba(0,0,0,0.66)]",
+                        twoFactorIslandLoading
+                          ? "h-11 w-11 rounded-full p-0"
+                          : "w-[min(96vw,560px)] rounded-[30px] px-4 pb-5 pt-3 sm:w-[min(92vw,580px)] sm:px-5 sm:pb-6"
                       )}
+                      initial={{ opacity: 0, y: -58, scale: 0.78, filter: "blur(3px)" }}
+                      animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+                      exit={{ opacity: 0, y: -74, scale: 0.86, filter: "blur(3px)" }}
+                      transition={
+                        prefersReducedMotion
+                          ? { duration: 0 }
+                          : {
+                              type: "spring",
+                              stiffness: 420,
+                              damping: 34,
+                              mass: 0.8,
+                              layout: {
+                                type: "spring",
+                                stiffness: 360,
+                                damping: 30,
+                                mass: 0.9,
+                              },
+                            }
+                      }
                     >
-                      <Undo2 className="h-4 w-4" />
-                      Reiniciar login
-                    </button>
+                      <span
+                        aria-hidden="true"
+                        className="twofactor-island-border pointer-events-none absolute inset-0 rounded-[inherit]"
+                        style={{
+                          padding: "1.2px",
+                          background:
+                            "conic-gradient(from var(--a), rgba(255,255,255,0) 0 76%, rgba(255,255,255,0.86) 84%, rgba(255,255,255,0.22) 91%, rgba(255,255,255,0) 100%)",
+                          WebkitMask:
+                            "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+                          WebkitMaskComposite: "xor",
+                          maskComposite: "exclude",
+                        }}
+                      />
+
+                      <div className="relative z-[1]">
+                        {twoFactorIslandLoading ? (
+                          <div className="h-full w-full" />
+                        ) : (
+                          <motion.div
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: prefersReducedMotion ? 0 : 0.22, ease: "easeOut" }}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h3 className="text-[14px] font-semibold tracking-[0.02em] text-white/92 sm:text-[15px]">
+                                  Confirme a autenticacao de 2 etapas
+                                </h3>
+                                <p className="mt-0.5 text-[12px] text-white/58">
+                                  Abra seu aplicativo autenticador para continuar.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={resetAll}
+                                disabled={busy || verifyingTwoFactorCodeBusy}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                aria-label="Cancelar autenticacao de 2 etapas"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </div>
+
+                            <motion.div
+                              animate={
+                                twoFactorShakeTick > 0
+                                  ? { x: [0, -3, 3, -2, 2, 0] }
+                                  : { x: 0 }
+                              }
+                              transition={{ duration: prefersReducedMotion ? 0 : 0.23, ease: "easeOut" }}
+                              onMouseDownCapture={clearTwoFactorFeedback}
+                              onTouchStartCapture={clearTwoFactorFeedback}
+                              onFocusCapture={clearTwoFactorFeedback}
+                            >
+                              <CodeBoxes
+                                length={6}
+                                value={twoFactorCode}
+                                onChange={setTwoFactorCode}
+                                onComplete={(v) => verifyTwoFactorCode(v)}
+                                disabled={busy || verifyingTwoFactorCodeBusy}
+                                loading={verifyingTwoFactorCodeBusy}
+                                reduced={!!prefersReducedMotion}
+                                variant="dark"
+                              />
+                            </motion.div>
+                          </motion.div>
+                        )}
+                      </div>
+                    </motion.section>
+
+                    <div className="relative z-[1] mt-2 flex w-full justify-center">
+                      <AnimatePresence initial={false}>
+                        {twoFactorInvalidError ? (
+                          <motion.div
+                            key="login-twofactor-error"
+                            initial={{ opacity: 0, y: -8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -8 }}
+                            transition={{ duration: prefersReducedMotion ? 0 : 0.16, ease: "easeOut" }}
+                            className="relative inline-flex overflow-hidden rounded-full"
+                          >
+                            <span
+                              aria-hidden="true"
+                              className="twofactor-error-border pointer-events-none absolute inset-0 rounded-[inherit]"
+                              style={{
+                                padding: "1px",
+                                background:
+                                  "conic-gradient(from var(--a), rgba(227,82,75,0) 0 74%, rgba(227,82,75,0.86) 84%, rgba(227,82,75,0.28) 92%, rgba(227,82,75,0) 100%)",
+                                WebkitMask:
+                                  "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+                                WebkitMaskComposite: "xor",
+                                maskComposite: "exclude",
+                              }}
+                            />
+                            <span className="relative inline-flex rounded-full bg-[#e3524b]/14 px-3 py-1 text-[11px] font-medium text-[#ff8b86]">
+                              {twoFactorInvalidError}
+                            </span>
+                          </motion.div>
+                        ) : msgError ? (
+                          <motion.div
+                            key="login-twofactor-generic-error"
+                            initial={{ opacity: 0, y: -8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -8 }}
+                            transition={{ duration: prefersReducedMotion ? 0 : 0.16, ease: "easeOut" }}
+                            className="inline-flex rounded-full bg-[#e3524b]/14 px-3 py-1 text-[11px] font-medium text-[#ffb2ae]"
+                          >
+                            {msgError}
+                          </motion.div>
+                        ) : null}
+                      </AnimatePresence>
+                    </div>
+
+                    <div className="relative z-[1] mt-4 flex items-center justify-center">
+                      <button
+                        type="button"
+                        onClick={resetAll}
+                        disabled={busy || verifyingTwoFactorCodeBusy}
+                        className={cx(
+                          "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
+                          busy || verifyingTwoFactorCodeBusy
+                            ? "text-white/35 cursor-not-allowed"
+                            : "text-white/55 hover:text-white/78"
+                        )}
+                      >
+                        <Undo2 className="h-4 w-4" />
+                        Reiniciar login
+                      </button>
+                    </div>
                   </div>
                 </motion.div>
               )}
             </AnimatePresence>
-
             {/* STEP: EMAIL SUCCESS */}
             <AnimatePresence mode="sync" initial={false}>
               {step === "emailSuccess" && (
@@ -2179,3 +2357,4 @@ export default function LinkLoginPage() {
     </div>
   );
 }
+
