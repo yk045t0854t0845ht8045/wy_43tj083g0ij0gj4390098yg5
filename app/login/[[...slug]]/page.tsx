@@ -2139,22 +2139,6 @@ export default function LinkLoginPage() {
                 </AnimatePresence>
               </div>
 
-              <div className="relative z-[1] mt-4 flex items-center justify-center">
-                <button
-                  type="button"
-                  onClick={resetAll}
-                  disabled={busy || verifyingTwoFactorCodeBusy}
-                  className={cx(
-                    "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
-                    busy || verifyingTwoFactorCodeBusy
-                      ? "text-white/35 cursor-not-allowed"
-                      : "text-white/55 hover:text-white/78"
-                  )}
-                >
-                  <Undo2 className="h-4 w-4" />
-                  Reiniciar login
-                </button>
-              </div>
             </div>
           </motion.div>
         )}
