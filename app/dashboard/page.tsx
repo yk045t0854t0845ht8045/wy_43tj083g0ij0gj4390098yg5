@@ -117,6 +117,26 @@ function sanitizeIsoDatetime(value?: string | null) {
   return new Date(parsed).toISOString();
 }
 
+async function getAuthUserCreatedAt(userId?: string | null) {
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return null;
+
+  try {
+    const sb = supabaseAdmin();
+    const { data, error } = await sb.auth.admin.getUserById(cleanUserId);
+    if (error) {
+      console.error("[dashboard] failed to load auth user created_at:", error);
+      return null;
+    }
+    return sanitizeIsoDatetime(
+      typeof data?.user?.created_at === "string" ? data.user.created_at : null,
+    );
+  } catch (error) {
+    console.error("[dashboard] unexpected error loading auth user created_at:", error);
+    return null;
+  }
+}
+
 function sanitizeBoolean(value: unknown) {
   if (typeof value === "boolean") return value;
   if (typeof value === "number") return value === 1;
@@ -622,8 +642,10 @@ export default async function DashboardHomePage() {
   let sidebarTwoFactorEnabled = false;
   let sidebarTwoFactorEnabledAt: string | null = null;
   let sidebarTwoFactorDisabledAt: string | null = null;
+  let sidebarAccountCreatedAt: string | null = null;
 
   if (session) {
+    sidebarAccountCreatedAt = await getAuthUserCreatedAt(session.userId);
     const profile = await getSidebarProfile({
       userId: session.userId,
       email: session.email,
@@ -693,6 +715,7 @@ export default async function DashboardHomePage() {
       userTwoFactorEnabled={sidebarTwoFactorEnabled}
       userTwoFactorEnabledAt={sidebarTwoFactorEnabledAt}
       userTwoFactorDisabledAt={sidebarTwoFactorDisabledAt}
+      userAccountCreatedAt={sidebarAccountCreatedAt}
     />
   );
 }

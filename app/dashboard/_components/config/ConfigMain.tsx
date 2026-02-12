@@ -56,6 +56,7 @@ type ConfigMainProps = {
   userTwoFactorEnabled?: boolean;
   userTwoFactorEnabledAt?: string | null;
   userTwoFactorDisabledAt?: string | null;
+  userAccountCreatedAt?: string | null;
   userPhotoLink?: string | null;
   onUserPhotoChange?: (photoLink: string | null) => void;
   onUserEmailChange?: (email: string, changedAt?: string | null) => void;
@@ -318,7 +319,7 @@ function normalizeIsoDatetime(value?: string | null) {
 
 function formatElapsedTimeLabel(value?: string | null, nowMs = Date.now()) {
   const normalized = normalizeIsoDatetime(value);
-  if (!normalized) return "Nao Alterado";
+  if (!normalized) return "agora";
 
   const diffMs = Math.max(0, nowMs - Date.parse(normalized));
   const diffMinutes = Math.floor(diffMs / 60000);
@@ -523,6 +524,7 @@ function AccountContent({
   emailChangedAt,
   phoneChangedAt,
   passwordChangedAt,
+  accountCreatedAt,
   twoFactorEnabled: initialTwoFactorEnabled,
   twoFactorEnabledAt: initialTwoFactorEnabledAt,
   twoFactorDisabledAt: initialTwoFactorDisabledAt,
@@ -539,6 +541,7 @@ function AccountContent({
   emailChangedAt?: string | null;
   phoneChangedAt?: string | null;
   passwordChangedAt?: string | null;
+  accountCreatedAt?: string | null;
   twoFactorEnabled?: boolean;
   twoFactorEnabledAt?: string | null;
   twoFactorDisabledAt?: string | null;
@@ -561,6 +564,10 @@ function AccountContent({
   );
   const [localPasswordChangedAt, setLocalPasswordChangedAt] = useState<string | null>(() =>
     normalizeIsoDatetime(passwordChangedAt)
+  );
+  const normalizedAccountCreatedAt = useMemo(
+    () => normalizeIsoDatetime(accountCreatedAt),
+    [accountCreatedAt]
   );
   const [relativeNowMs, setRelativeNowMs] = useState(() => Date.now());
   const [localPhoto, setLocalPhoto] = useState<string | null>(normalizePhotoLink(userPhotoLink));
@@ -1248,7 +1255,7 @@ function AccountContent({
           setEmailChangeError(null);
           openAccountActionTwoFactorModal(
             "email",
-            String(payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador."),
+            null,
             payload.authMethods,
           );
           return;
@@ -1509,7 +1516,7 @@ function AccountContent({
           setPhoneChangeError(null);
           openAccountActionTwoFactorModal(
             "phone",
-            String(payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador."),
+            null,
             payload.authMethods,
           );
           return;
@@ -1743,7 +1750,7 @@ function AccountContent({
           setPasswordChangeError(null);
           openAccountActionTwoFactorModal(
             "password",
-            String(payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador."),
+            null,
             payload.authMethods,
           );
           return;
@@ -3124,9 +3131,9 @@ function AccountContent({
   const initial = nickname.trim().charAt(0).toUpperCase() || "U";
   const maskedEmailValue = maskSecureEmail(localEmail);
   const maskedPhoneValue = maskSecurePhone(localPhoneE164);
-  const emailChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localEmailChangedAt, relativeNowMs)}`;
-  const phoneChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localPhoneChangedAt, relativeNowMs)}`;
-  const passwordChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localPasswordChangedAt, relativeNowMs)}`;
+  const emailChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localEmailChangedAt || normalizedAccountCreatedAt, relativeNowMs)}`;
+  const phoneChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localPhoneChangedAt || normalizedAccountCreatedAt, relativeNowMs)}`;
+  const passwordChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localPasswordChangedAt || normalizedAccountCreatedAt, relativeNowMs)}`;
   const buttonShellClass =
     "rounded-xl border px-4 py-2 text-[13px] font-semibold transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)] active:translate-y-[0.6px] active:scale-[0.992]";
   const buttonNeutralClass =
@@ -3146,7 +3153,7 @@ function AccountContent({
       ? "Inativa"
       : "Carregando...";
   const passkeyActionLabel = passkeyEnabled
-    ? "Windows Hello está ativa"
+    ? "Windows Hello está ativo"
     : "Ativar Windows Hello";
   const usingTwoFactorEnableIsland =
     twoFactorStep === "enable-verify-app" &&
@@ -3182,7 +3189,7 @@ function AccountContent({
       : accountActionTwoFactorContext === "passkey-disable"
         ? "Confirme com codigo de 2 etapas ou Windows Hello para desativar."
       : accountActionTwoFactorContext === "passkey"
-        ? "Confirme com o codigo de 6 digitos para continuar com o Windows Hello."
+        ? "Confirme com o codigo de 6 digitos de seu autenticador para ativação do Windows Hello."
       : "Abra seu aplicativo autenticador para continuar.";
   const twoFactorButtonClass = cx(
     buttonShellClass,
@@ -4880,6 +4887,7 @@ export default function ConfigMain({
   userTwoFactorEnabled = false,
   userTwoFactorEnabledAt = null,
   userTwoFactorDisabledAt = null,
+  userAccountCreatedAt = null,
   userPhotoLink = null,
   onUserPhotoChange,
   onUserEmailChange,
@@ -4911,6 +4919,10 @@ export default function ConfigMain({
   const passwordChangedAt = useMemo(
     () => normalizeIsoDatetime(userPasswordChangedAt),
     [userPasswordChangedAt]
+  );
+  const accountCreatedAt = useMemo(
+    () => normalizeIsoDatetime(userAccountCreatedAt),
+    [userAccountCreatedAt]
   );
   const twoFactorEnabled = useMemo(() => Boolean(userTwoFactorEnabled), [userTwoFactorEnabled]);
   const twoFactorEnabledAt = useMemo(
@@ -4974,7 +4986,7 @@ export default function ConfigMain({
               <div className="min-w-0 flex-1 bg-[#f3f3f4]">
                 <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6"><h2 className="text-[20px] font-semibold text-black/75">{activeTitle}</h2><button type="button" onClick={onClose} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80"><X className="h-5 w-5" /></button></div>
                 <div className="h-[calc(100%-64px)] overflow-y-auto px-4 pb-8 pt-6 sm:px-8 md:px-10">
-                  {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} emailChangedAt={emailChangedAt} phoneChangedAt={phoneChangedAt} passwordChangedAt={passwordChangedAt} twoFactorEnabled={twoFactorEnabled} twoFactorEnabledAt={twoFactorEnabledAt} twoFactorDisabledAt={twoFactorDisabledAt} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} onUserPasswordChange={onUserPasswordChange} onUserTwoFactorChange={onUserTwoFactorChange} />}
+                  {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} emailChangedAt={emailChangedAt} phoneChangedAt={phoneChangedAt} passwordChangedAt={passwordChangedAt} accountCreatedAt={accountCreatedAt} twoFactorEnabled={twoFactorEnabled} twoFactorEnabledAt={twoFactorEnabledAt} twoFactorDisabledAt={twoFactorDisabledAt} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} onUserPasswordChange={onUserPasswordChange} onUserTwoFactorChange={onUserTwoFactorChange} />}
                   {activeSection === "devices" && <DevicesContent />}
                   {activeSection !== "my-account" && activeSection !== "devices" && <PlaceholderSection title={activeTitle} />}
                 </div>

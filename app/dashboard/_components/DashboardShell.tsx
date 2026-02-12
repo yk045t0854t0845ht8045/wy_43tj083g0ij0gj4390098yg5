@@ -18,6 +18,7 @@ type DashboardShellProps = {
   userTwoFactorEnabled?: boolean;
   userTwoFactorEnabledAt?: string | null;
   userTwoFactorDisabledAt?: string | null;
+  userAccountCreatedAt?: string | null;
 };
 
 function normalizeIsoDatetime(value?: string | null) {
@@ -40,6 +41,7 @@ export default function DashboardShell({
   userTwoFactorEnabled = false,
   userTwoFactorEnabledAt = null,
   userTwoFactorDisabledAt = null,
+  userAccountCreatedAt = null,
 }: DashboardShellProps) {
   const [configOpen, setConfigOpen] = useState(false);
   const [configSection, setConfigSection] = useState<ConfigSectionId>("my-account");
@@ -213,6 +215,7 @@ export default function DashboardShell({
         userTwoFactorEnabled={profileTwoFactorEnabled}
         userTwoFactorEnabledAt={profileTwoFactorEnabledAt}
         userTwoFactorDisabledAt={profileTwoFactorDisabledAt}
+        userAccountCreatedAt={userAccountCreatedAt}
         onUserTwoFactorChange={handleUserTwoFactorChange}
       />
     </div>
