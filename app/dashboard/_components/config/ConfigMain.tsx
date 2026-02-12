@@ -674,6 +674,7 @@ function AccountContent({
     "idle"
   );
   const [passkeyModalOpen, setPasskeyModalOpen] = useState(false);
+  const [passkeyDisableIntroModalOpen, setPasskeyDisableIntroModalOpen] = useState(false);
   const [passkeyStatusLoaded, setPasskeyStatusLoaded] = useState(false);
   const [loadingPasskeyStatus, setLoadingPasskeyStatus] = useState(false);
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
@@ -2437,6 +2438,11 @@ function AccountContent({
     resetPasskeyFlow();
   };
 
+  const closePasskeyDisableIntroModal = () => {
+    if (isPasskeyBusy) return;
+    setPasskeyDisableIntroModalOpen(false);
+  };
+
   const registerPasskeyWithWindowsHello = async (
     registerTicket: string,
     optionsPayload: PasskeyCreateOptionsPayload
@@ -3126,13 +3132,23 @@ function AccountContent({
 
   const openPasskeyModal = async () => {
     if (isPasskeyBusy) return;
-    resetPasskeyFlow();
-    setPasskeyModalOpen(true);
     if (passkeyEnabled) {
-      await startPasskeyDisableFlow();
+      resetPasskeyFlow();
+      setPasskeyFlowMode("disable");
+      setPasskeyDisableIntroModalOpen(true);
       return;
     }
+    resetPasskeyFlow();
+    setPasskeyModalOpen(true);
     await startPasskeyActivationFlow();
+  };
+
+  const confirmPasskeyDisableFlow = async () => {
+    if (isPasskeyBusy) return;
+    resetPasskeyFlow();
+    setPasskeyModalOpen(true);
+    setPasskeyDisableIntroModalOpen(false);
+    await startPasskeyDisableFlow();
   };
 
   const resendPasskeyEmailCode = async () => {
@@ -4028,6 +4044,79 @@ function AccountContent({
                       {verifyingPasswordCode ? "Validando..." : "Confirmar"}
                     </button>
                   )}
+                </div>
+              </div>
+            </motion.section>
+          </motion.div>
+        )}
+
+        {passkeyDisableIntroModalOpen && (
+          <motion.div
+            className="fixed inset-0 z-[228] flex items-center justify-center p-4 sm:p-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/45 backdrop-blur-[4px]"
+              onClick={closePasskeyDisableIntroModal}
+            />
+            <motion.section
+              role="dialog"
+              aria-modal="true"
+              className="relative z-[1] w-[min(96vw,700px)] overflow-hidden rounded-2xl border border-black/15 bg-[#f3f3f4] shadow-[0_26px_70px_rgba(0,0,0,0.35)] sm:w-[min(92vw,700px)]"
+              initial={{ opacity: 0, y: 10, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.985 }}
+            >
+              <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6">
+                <h3 className="text-[18px] font-semibold text-black/80">Desativar Windows Hello</h3>
+                <button
+                  type="button"
+                  onClick={closePasskeyDisableIntroModal}
+                  disabled={isPasskeyBusy}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
+                <p className="text-[14px] leading-[1.45] text-black/62">
+                  O Windows Hello esta ativo nesta conta.
+                </p>
+                <p className="mt-3 text-[14px] leading-[1.45] text-black/62">
+                  Para desativar, voce vai confirmar em duas etapas:
+                </p>
+                <ol className="mt-2 list-decimal pl-5 text-[14px] leading-[1.5] text-black/62">
+                  <li>Codigo de 7 digitos enviado para seu e-mail.</li>
+                  <li>Confirmacao final com Windows Hello ou codigo de 2 etapas (se ativo).</li>
+                </ol>
+                <p className="mt-3 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/72">
+                  E-mail para confirmacao:{" "}
+                  <span className="font-semibold text-black/86">
+                    {passkeyEmailMask || maskSecureEmail(localEmail)}
+                  </span>
+                </p>
+
+                <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={closePasskeyDisableIntroModal}
+                    disabled={isPasskeyBusy}
+                    className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void confirmPasskeyDisableFlow()}
+                    disabled={isPasskeyBusy}
+                    className="rounded-xl bg-[#e3524b] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#d34942] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {startingPasskeyFlow ? "Iniciando..." : "Confirmar desativacao"}
+                  </button>
                 </div>
               </div>
             </motion.section>

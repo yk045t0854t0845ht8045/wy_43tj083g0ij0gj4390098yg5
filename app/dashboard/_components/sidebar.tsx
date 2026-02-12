@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Script from "next/script";
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
-import { ArrowRight, X } from "lucide-react";
+import { X } from "lucide-react";
 import React, {
   useEffect,
   useId,
@@ -202,18 +202,6 @@ function IMyAccount({ target }: { target?: string }) {
   );
 }
 
-function IInvoiceInfo({ target }: { target?: string }) {
-  return (
-    <span className="w-[16px] h-[16px] inline-flex items-center justify-center overflow-hidden">
-      {React.createElement<LordIconProps>("lord-icon", {
-        src: "https://cdn.lordicon.com/tnapqovl.json",
-        trigger: "hover",
-        target,
-        style: { width: "16px", height: "16px" },
-      })}
-    </span>
-  );
-}
 
 function SidebarCollapseIcon() {
   return (
@@ -559,7 +547,6 @@ export default function Sidebar({
   const transactionsHoverTargetId = `sidebar-pagamentos-${cleanIdBase}`;
   const helpHoverTargetId = `sidebar-ajuda-${cleanIdBase}`;
   const settingsHoverTargetId = `sidebar-configuracoes-${cleanIdBase}`;
-  const invoicesInfoTargetId = `sidebar-invoices-info-${cleanIdBase}`;
   const profileMyAccountHoverTargetId = `profile-minha-conta-${cleanIdBase}`;
   const profileSettingsHoverTargetId = `profile-configuracoes-${cleanIdBase}`;
 
@@ -1241,115 +1228,6 @@ export default function Sidebar({
             </li>
           </ul>
 
-          {!isCollapsed && (
-            <div
-              className={cx(
-                "mb-2 rounded-2xl border border-black/10 bg-white/[0.98] p-2.5",
-                "shadow-[0_12px_28px_rgba(0,0,0,0.08)]"
-              )}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-black/85">
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="shrink-0"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M12 3L14.5 9.5L21 12L14.5 14.5L12 21L9.5 14.5L3 12L9.5 9.5L12 3Z"
-                      fill="currentColor"
-                    />
-                  </svg>
-                  <span className="text-[14px] font-semibold tracking-[-0.01em]">
-                    Você possui pendências
-                  </span>
-                </div>
-                <span className="text-[13px] font-semibold text-black/70">79%</span>
-              </div>
-
-              <div className="mt-2 h-[7px] overflow-hidden rounded-full bg-black/[0.08]">
-                <span className="block h-full w-[69%] rounded-full bg-lime-400" />
-              </div>
-
-              <div className="mt-2 flex items-center gap-1.5 text-[13px] font-medium text-black/70">
-                <span className="truncate">36 of 50 Invoices created</span>
-                <span className="group/info relative inline-flex shrink-0 items-center">
-                  <button
-                    id={invoicesInfoTargetId}
-                    type="button"
-                    className={cx(
-                      "inline-flex h-[20px] w-[20px] items-center justify-center rounded-full",
-                      "transition-colors duration-200 ease-out hover:bg-black/[0.06]",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/20"
-                    )}
-                    aria-label="Detalhes das pendências do plano"
-                  >
-                    <IInvoiceInfo target={`#${invoicesInfoTargetId}`} />
-                  </button>
-
-                  <div
-                    role="tooltip"
-                    className={cx(
-                      "pointer-events-none absolute left-[calc(100%+8px)] top-1/2 z-[130] w-[230px] -translate-y-1/2",
-                      "rounded-xl border border-black/10 bg-white/98 px-3 py-2 backdrop-blur-[2px]",
-                      "shadow-[0_10px_24px_rgba(0,0,0,0.14)]",
-                      "opacity-0 translate-x-1 scale-[0.98]",
-                      "transition-[opacity,transform] duration-180 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-                      "group-hover/info:opacity-100 group-hover/info:translate-x-0 group-hover/info:scale-100",
-                      "group-focus-within/info:opacity-100 group-focus-within/info:translate-x-0 group-focus-within/info:scale-100"
-                    )}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className="absolute -left-[5px] top-1/2 h-[10px] w-[10px] -translate-y-1/2 rotate-45 border-b border-l border-black/10 bg-white/98"
-                    />
-                    <p className="text-[12px] font-semibold tracking-[-0.01em] text-black/90">
-                      Pendências do plano
-                    </p>
-                    <p className="mt-1 text-[11px] leading-4 text-black/70">
-                      Você já criou 36 de 50 invoices. Restam 14 antes do limite;
-                      ao atingir 100%, novos envios podem ficar indisponíveis.
-                    </p>
-                  </div>
-                </span>
-              </div>
-
-              <motion.button
-                type="button"
-                whileHover={prefersReducedMotion ? undefined : { y: -2, scale: 1.01 }}
-                whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
-                transition={{ duration: 0.24, ease: [0.2, 0.8, 0.2, 1] }}
-                className={cx(
-                  "group relative mt-2.5 w-full rounded-full bg-[#171717] px-5 py-3 text-left text-white",
-                  "border-2 border-[#454545] pr-14",
-                  "text-[13px] font-semibold",
-                  "transition-all duration-300 ease-out",
-                  "hover:border-[#6a6a6a] focus:outline-none focus:border-lime-400",
-                  "shadow-[0_16px_35px_rgba(0,0,0,0.16)] hover:shadow-[0_22px_45px_rgba(0,0,0,0.22)]",
-                  "transform-gpu"
-                )}
-                style={{ willChange: "transform" }}
-              >
-                <span className="relative z-10">Realizar Pendências</span>
-                <motion.span
-                  whileHover={prefersReducedMotion ? undefined : { scale: 1.06 }}
-                  whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
-                  transition={{ duration: 0.24, ease: [0.2, 0.8, 0.2, 1] }}
-                  className={cx(
-                    "absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-2.5",
-                    "bg-transparent transition-all duration-300 ease-out",
-                    "group-hover:translate-x-0.5 group-hover:bg-white/10"
-                  )}
-                >
-                  <ArrowRight className="h-5 w-5 text-white transition-transform duration-300 group-hover:translate-x-0.5" />
-                </motion.span>
-              </motion.button>
-            </div>
-          )}
 
           <div className="mb-3 border-t border-dashed border-black/15" />
 
