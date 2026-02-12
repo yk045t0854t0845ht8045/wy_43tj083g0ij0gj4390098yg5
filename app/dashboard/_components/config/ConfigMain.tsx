@@ -3146,7 +3146,7 @@ function AccountContent({
       ? "Inativa"
       : "Carregando...";
   const passkeyActionLabel = passkeyEnabled
-    ? "Desativar Windows Hello"
+    ? "Windows Hello está ativa"
     : "Ativar Windows Hello";
   const usingTwoFactorEnableIsland =
     twoFactorStep === "enable-verify-app" &&
