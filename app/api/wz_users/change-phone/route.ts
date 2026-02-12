@@ -893,9 +893,11 @@ export async function PUT(req: NextRequest) {
       sessionUserId: base.sessionUserId,
       wzUserId: String(base.userRow.id || ""),
     });
-    if (twoFactorState.enabled && twoFactorState.secret) {
+    const hasTotp = Boolean(twoFactorState.enabled && twoFactorState.secret);
+    const hasPasskey = await hasWindowsHelloPasskey(base.sb, base.sessionUserId);
+
+    if (hasTotp || hasPasskey) {
       const twoFactorCode = normalizeTotpCode(body?.twoFactorCode ?? body?.totpCode, 6);
-      const hasPasskey = await hasWindowsHelloPasskey(base.sb, String(base.userRow.id || ""));
       const passkeyProofRaw = String(body?.passkeyProof ?? body?.authProof ?? "").trim();
       const passkeyProofRes = passkeyProofRaw
         ? readPasskeyAuthProof({
@@ -904,23 +906,28 @@ export async function PUT(req: NextRequest) {
             email: base.sessionEmail,
           })
         : null;
+      const hasValidPasskeyProof = Boolean(passkeyProofRes?.ok);
+      const canUseTotp = hasTotp && twoFactorCode.length === 6;
 
-      if (twoFactorCode.length !== 6 && !passkeyProofRes?.ok) {
-        const fallbackMessage = passkeyProofRaw && passkeyProofRes && !passkeyProofRes.ok
-          ? passkeyProofRes.error
-          : "Digite o codigo de 6 digitos do aplicativo autenticador.";
+      if (!canUseTotp && !hasValidPasskeyProof) {
+        const fallbackMessage =
+          passkeyProofRaw && passkeyProofRes && !passkeyProofRes.ok
+            ? passkeyProofRes.error
+            : hasTotp
+              ? "Digite o codigo de 6 digitos do aplicativo autenticador."
+              : "Confirme com Windows Hello para continuar.";
         return NextResponse.json(
           {
             ok: false,
             requiresTwoFactor: true,
             requiresPasskey: hasPasskey,
-            authMethods: { totp: true, passkey: hasPasskey },
+            authMethods: { totp: hasTotp, passkey: hasPasskey },
             error: fallbackMessage,
           },
           { status: 428, headers: NO_STORE_HEADERS },
         );
       }
-      if (twoFactorCode.length === 6) {
+      if (canUseTotp && twoFactorState.secret) {
         const validTwoFactorCode = await verifyTwoFactorCodeWithRecovery({
           sb: base.sb,
           userId: base.sessionUserId,
@@ -933,7 +940,7 @@ export async function PUT(req: NextRequest) {
               ok: false,
               requiresTwoFactor: true,
               requiresPasskey: hasPasskey,
-              authMethods: { totp: true, passkey: hasPasskey },
+              authMethods: { totp: hasTotp, passkey: hasPasskey },
               error: "Codigo de 2 etapas invalido. Tente novamente.",
             },
             { status: 401, headers: NO_STORE_HEADERS },

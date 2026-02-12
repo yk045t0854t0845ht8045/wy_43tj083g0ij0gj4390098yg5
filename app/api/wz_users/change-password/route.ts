@@ -741,7 +741,7 @@ export async function PUT(req: NextRequest) {
       wzUserId: String(base.userRow.id || ""),
     });
     const hasTotp = Boolean(twoFactorState.enabled && twoFactorState.secret);
-    const hasPasskey = await hasWindowsHelloPasskey(base.sb, String(base.userRow.id || ""));
+    const hasPasskey = await hasWindowsHelloPasskey(base.sb, base.sessionUserId);
 
     if (hasTotp || hasPasskey) {
       const twoFactorCode = normalizeTotpCode(body?.twoFactorCode ?? body?.totpCode, 6);
