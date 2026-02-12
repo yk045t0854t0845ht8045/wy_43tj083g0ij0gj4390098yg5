@@ -2742,7 +2742,7 @@ function AccountContent({
                 role="dialog"
                 aria-modal="true"
                 className={cx(
-                  "overflow-hidden border border-white/12 bg-black [background:linear-gradient(180deg,rgba(255,255,255,0.018)_0%,rgba(255,255,255,0.006)_24%,rgba(0,0,0,0.998)_100%)] shadow-[0_30px_98px_rgba(0,0,0,0.66)]",
+                  "relative overflow-hidden border border-white/12 [background:linear-gradient(180deg,#121212_0%,#090909_28%,#000000_100%)] shadow-[0_30px_98px_rgba(0,0,0,0.66)]",
                   accountActionTwoFactorUiLoading
                     ? "h-11 w-11 rounded-full p-0"
                     : "w-[min(96vw,560px)] rounded-[30px] px-4 pb-5 pt-3 sm:w-[min(92vw,580px)] sm:px-5 sm:pb-6"
@@ -2758,6 +2758,19 @@ function AccountContent({
                   layout: { type: "spring", stiffness: 360, damping: 30, mass: 0.9 },
                 }}
               >
+                <span
+                  aria-hidden="true"
+                  className="twofactor-island-border pointer-events-none absolute inset-0 rounded-[inherit]"
+                  style={{
+                    padding: "1.2px",
+                    background:
+                      "conic-gradient(from var(--a), rgba(255,255,255,0) 0 76%, rgba(255,255,255,0.86) 84%, rgba(255,255,255,0.22) 91%, rgba(255,255,255,0) 100%)",
+                    WebkitMask:
+                      "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+                    WebkitMaskComposite: "xor",
+                    maskComposite: "exclude",
+                  }}
+                />
                 {accountActionTwoFactorUiLoading ? (
                   <div className="flex h-full w-full items-center justify-center">
                     <motion.span

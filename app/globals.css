@@ -343,3 +343,16 @@ select:-moz-autofill {
         animation: flowBorder 6s linear infinite;
         will-change: transform;
       }
+
+/* Borda animada sutil da ilha dinamica (2FA) */
+.twofactor-island-border {
+  animation: flowBorder 6s linear infinite;
+  will-change: transform;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.14));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .twofactor-island-border {
+    animation: none;
+  }
+}
