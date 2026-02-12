@@ -17,6 +17,8 @@ import {
   setTrustedLoginCookie,
 } from "../_trusted_login";
 import crypto from "crypto";
+import { createLoginTwoFactorTicket } from "../_login_two_factor_ticket";
+import { resolveTwoFactorState } from "@/app/api/_twoFactor";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -294,6 +296,29 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: false, error: "Conta não encontrada." }, { status: 404, headers: NO_STORE_HEADERS });
       }
 
+      const resolvedUserId = String(userRow.id || "").trim();
+      const twoFactorState = await resolveTwoFactorState({
+        sb,
+        sessionUserId: resolvedUserId,
+        wzUserId: resolvedUserId,
+      });
+      if (twoFactorState.enabled && twoFactorState.secret) {
+        const twoFactorTicket = createLoginTwoFactorTicket({
+          userId: resolvedUserId,
+          email,
+          fullName: resolvedFullName,
+        });
+        return NextResponse.json(
+          {
+            ok: true,
+            next: "two-factor",
+            requiresTwoFactor: true,
+            twoFactorTicket,
+          },
+          { status: 200, headers: NO_STORE_HEADERS },
+        );
+      }
+
       try {
         await sb.from("wz_pending_auth").delete().eq("email", email);
       } catch {}
@@ -303,7 +328,7 @@ export async function POST(req: Request) {
       // ✅ host-only => seta no login host e usa ticket + exchange no dashboard.
       if (isHostOnlyMode()) {
         const ticket = makeDashboardTicket({
-          userId: String(userRow.id),
+          userId: resolvedUserId,
           email,
           fullName: resolvedFullName,
         });
@@ -318,7 +343,7 @@ export async function POST(req: Request) {
         );
         setSessionCookie(
           res,
-          { userId: String(userRow.id), email, fullName: resolvedFullName },
+          { userId: resolvedUserId, email, fullName: resolvedFullName },
           req.headers,
         );
         await issueTrustedLogin(sb, email, res);
@@ -330,7 +355,7 @@ export async function POST(req: Request) {
       const res = NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
       setSessionCookie(
         res,
-        { userId: String(userRow.id), email, fullName: resolvedFullName },
+        { userId: resolvedUserId, email, fullName: resolvedFullName },
         req.headers,
       );
       await issueTrustedLogin(sb, email, res);

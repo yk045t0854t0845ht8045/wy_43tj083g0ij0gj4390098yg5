@@ -4,6 +4,7 @@ import { gen7, newSalt, sha } from "@/app/api/wz_AuthLogin/_codes";
 import { sendLoginCodeEmail } from "@/app/api/wz_AuthLogin/_email";
 import { readSessionFromRequest } from "@/app/api/wz_AuthLogin/_session";
 import { supabaseAdmin, supabaseAnon } from "@/app/api/wz_AuthLogin/_supabase";
+import { normalizeTotpCode, resolveTwoFactorState, verifyTotpCode } from "@/app/api/_twoFactor";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -687,6 +688,40 @@ export async function PUT(req: NextRequest) {
         { ok: false, error: verifyCode.error },
         { status: verifyCode.status, headers: NO_STORE_HEADERS },
       );
+    }
+
+    const twoFactorState = await resolveTwoFactorState({
+      sb: base.sb,
+      sessionUserId: base.sessionUserId,
+      wzUserId: String(base.userRow.id || ""),
+    });
+    if (twoFactorState.enabled && twoFactorState.secret) {
+      const twoFactorCode = normalizeTotpCode(body?.twoFactorCode ?? body?.totpCode, 6);
+      if (twoFactorCode.length !== 6) {
+        return NextResponse.json(
+          {
+            ok: false,
+            requiresTwoFactor: true,
+            error: "Digite o codigo de 6 digitos do aplicativo autenticador.",
+          },
+          { status: 428, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const validTwoFactorCode = verifyTotpCode({
+        secret: twoFactorState.secret,
+        code: twoFactorCode,
+      });
+      if (!validTwoFactorCode) {
+        return NextResponse.json(
+          {
+            ok: false,
+            requiresTwoFactor: true,
+            error: "Codigo de 2 etapas invalido. Tente novamente.",
+          },
+          { status: 401, headers: NO_STORE_HEADERS },
+        );
+      }
     }
 
     const currentAuthUserId = await resolveCurrentAuthUserId({

@@ -479,6 +479,8 @@ function AccountContent({
   const [pendingEmail, setPendingEmail] = useState("");
   const [emailChangeTicket, setEmailChangeTicket] = useState("");
   const [emailCode, setEmailCode] = useState("");
+  const [emailTwoFactorCode, setEmailTwoFactorCode] = useState("");
+  const [emailForceTwoFactor, setEmailForceTwoFactor] = useState(false);
   const [emailChangeError, setEmailChangeError] = useState<string | null>(null);
   const [emailResendCooldown, setEmailResendCooldown] = useState(0);
   const [source, setSource] = useState("");
@@ -498,6 +500,8 @@ function AccountContent({
   const [pendingPhone, setPendingPhone] = useState("");
   const [phoneChangeTicket, setPhoneChangeTicket] = useState("");
   const [phoneCode, setPhoneCode] = useState("");
+  const [phoneTwoFactorCode, setPhoneTwoFactorCode] = useState("");
+  const [phoneForceTwoFactor, setPhoneForceTwoFactor] = useState(false);
   const [phoneChangeError, setPhoneChangeError] = useState<string | null>(null);
   const [phoneResendCooldown, setPhoneResendCooldown] = useState(0);
   const [sendingPhoneCode, setSendingPhoneCode] = useState(false);
@@ -510,6 +514,8 @@ function AccountContent({
   const [newPasswordInput, setNewPasswordInput] = useState("");
   const [confirmNewPasswordInput, setConfirmNewPasswordInput] = useState("");
   const [passwordCode, setPasswordCode] = useState("");
+  const [passwordTwoFactorCode, setPasswordTwoFactorCode] = useState("");
+  const [passwordForceTwoFactor, setPasswordForceTwoFactor] = useState(false);
   const [passwordChangeError, setPasswordChangeError] = useState<string | null>(null);
   const [passwordResendCooldown, setPasswordResendCooldown] = useState(0);
   const [sendingPasswordCode, setSendingPasswordCode] = useState(false);
@@ -783,11 +789,20 @@ function AccountContent({
     }
   };
 
+  const emailRequiresTwoFactor =
+    emailStep === "confirm-new-code" && (twoFactorEnabled || emailForceTwoFactor);
+  const phoneRequiresTwoFactor =
+    phoneStep === "confirm-new-code" && (twoFactorEnabled || phoneForceTwoFactor);
+  const passwordRequiresTwoFactor =
+    passwordStep === "confirm-code" && (twoFactorEnabled || passwordForceTwoFactor);
+
   const resetEmailChangeFlow = useCallback(
     () => {
       setEmailStep("confirm-current-intro");
       setPendingEmail("");
       setEmailCode("");
+      setEmailTwoFactorCode("");
+      setEmailForceTwoFactor(false);
       setEmailChangeTicket("");
       setEmailChangeError(null);
       setEmailResendCooldown(0);
@@ -884,6 +899,8 @@ function AccountContent({
       setEmailChangeTicket(payload.ticket);
       setPendingEmail(String(payload.nextEmail || nextEmail).trim().toLowerCase());
       setEmailCode("");
+      setEmailTwoFactorCode("");
+      setEmailForceTwoFactor(false);
       setEmailStep("confirm-new-code");
       setEmailResendCooldown(60);
     } catch (err) {
@@ -941,6 +958,11 @@ function AccountContent({
 
     const code = onlyDigits(String(nextValue || emailCode || "")).slice(0, 7);
     if (code.length !== 7) return;
+    const twoFactorCode = onlyDigits(String(emailTwoFactorCode || "")).slice(0, 6);
+    if (emailRequiresTwoFactor && twoFactorCode.length !== 6) {
+      setEmailChangeError("Digite o codigo de 6 digitos do aplicativo autenticador.");
+      return;
+    }
 
     try {
       setVerifyingEmailCode(true);
@@ -949,7 +971,11 @@ function AccountContent({
       const res = await fetch("/api/wz_users/change-email", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticket: emailChangeTicket, code }),
+        body: JSON.stringify({
+          ticket: emailChangeTicket,
+          code,
+          ...(emailRequiresTwoFactor ? { twoFactorCode } : {}),
+        }),
       });
 
       const payload = (await res.json().catch(() => ({}))) as {
@@ -958,10 +984,17 @@ function AccountContent({
         ticket?: string;
         email?: string;
         emailChangedAt?: string | null;
+        requiresTwoFactor?: boolean;
         error?: string;
       };
 
       if (!res.ok || !payload.ok) {
+        if (payload.requiresTwoFactor) {
+          setEmailForceTwoFactor(true);
+          if (twoFactorCode.length === 6) {
+            setEmailTwoFactorCode("");
+          }
+        }
         const fallback =
           res.status === 429
             ? "Voce atingiu o limite de 7 tentativas. Reenvie o codigo."
@@ -980,6 +1013,8 @@ function AccountContent({
         }
         setEmailChangeTicket(payload.ticket);
         setEmailCode("");
+        setEmailTwoFactorCode("");
+        setEmailForceTwoFactor(false);
         setEmailChangeError(null);
         setEmailStep("new-email-input");
         setEmailResendCooldown(0);
@@ -1015,6 +1050,8 @@ function AccountContent({
       setPhoneStep("confirm-current-intro");
       setPendingPhone("");
       setPhoneCode("");
+      setPhoneTwoFactorCode("");
+      setPhoneForceTwoFactor(false);
       setPhoneChangeTicket("");
       setPhoneChangeError(null);
       setPhoneResendCooldown(0);
@@ -1110,6 +1147,8 @@ function AccountContent({
       setPhoneChangeTicket(payload.ticket);
       setPendingPhone(nextPhoneE164);
       setPhoneCode("");
+      setPhoneTwoFactorCode("");
+      setPhoneForceTwoFactor(false);
       setPhoneStep("confirm-new-code");
       setPhoneResendCooldown(60);
     } catch (err) {
@@ -1167,6 +1206,11 @@ function AccountContent({
 
     const code = onlyDigits(String(nextValue || phoneCode || "")).slice(0, 7);
     if (code.length !== 7) return;
+    const twoFactorCode = onlyDigits(String(phoneTwoFactorCode || "")).slice(0, 6);
+    if (phoneRequiresTwoFactor && twoFactorCode.length !== 6) {
+      setPhoneChangeError("Digite o codigo de 6 digitos do aplicativo autenticador.");
+      return;
+    }
 
     try {
       setVerifyingPhoneCode(true);
@@ -1175,7 +1219,11 @@ function AccountContent({
       const res = await fetch("/api/wz_users/change-phone", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticket: phoneChangeTicket, code }),
+        body: JSON.stringify({
+          ticket: phoneChangeTicket,
+          code,
+          ...(phoneRequiresTwoFactor ? { twoFactorCode } : {}),
+        }),
       });
 
       const payload = (await res.json().catch(() => ({}))) as {
@@ -1184,10 +1232,17 @@ function AccountContent({
         ticket?: string;
         phone?: string;
         phoneChangedAt?: string | null;
+        requiresTwoFactor?: boolean;
         error?: string;
       };
 
       if (!res.ok || !payload.ok) {
+        if (payload.requiresTwoFactor) {
+          setPhoneForceTwoFactor(true);
+          if (twoFactorCode.length === 6) {
+            setPhoneTwoFactorCode("");
+          }
+        }
         const fallback =
           res.status === 429
             ? "Voce atingiu o limite de 7 tentativas. Reenvie o codigo."
@@ -1206,6 +1261,8 @@ function AccountContent({
         }
         setPhoneChangeTicket(payload.ticket);
         setPhoneCode("");
+        setPhoneTwoFactorCode("");
+        setPhoneForceTwoFactor(false);
         setPhoneChangeError(null);
         setPhoneStep("new-phone-input");
         setPhoneResendCooldown(0);
@@ -1241,6 +1298,8 @@ function AccountContent({
     setNewPasswordInput("");
     setConfirmNewPasswordInput("");
     setPasswordCode("");
+    setPasswordTwoFactorCode("");
+    setPasswordForceTwoFactor(false);
     setPasswordChangeError(null);
     setPasswordResendCooldown(0);
   }, []);
@@ -1307,6 +1366,8 @@ function AccountContent({
 
       setPasswordChangeTicket(payload.ticket);
       setPasswordCode("");
+      setPasswordTwoFactorCode("");
+      setPasswordForceTwoFactor(false);
       setPasswordStep("confirm-code");
       setPasswordResendCooldown(60);
     } catch (err) {
@@ -1364,6 +1425,11 @@ function AccountContent({
 
     const code = onlyDigits(String(nextValue || passwordCode || "")).slice(0, 7);
     if (code.length !== 7) return;
+    const twoFactorCode = onlyDigits(String(passwordTwoFactorCode || "")).slice(0, 6);
+    if (passwordRequiresTwoFactor && twoFactorCode.length !== 6) {
+      setPasswordChangeError("Digite o codigo de 6 digitos do aplicativo autenticador.");
+      return;
+    }
 
     try {
       setVerifyingPasswordCode(true);
@@ -1378,16 +1444,24 @@ function AccountContent({
           currentPassword: currentPasswordInput,
           newPassword: newPasswordInput,
           confirmNewPassword: confirmNewPasswordInput,
+          ...(passwordRequiresTwoFactor ? { twoFactorCode } : {}),
         }),
       });
 
       const payload = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         passwordChangedAt?: string | null;
+        requiresTwoFactor?: boolean;
         error?: string;
       };
 
       if (!res.ok || !payload.ok) {
+        if (payload.requiresTwoFactor) {
+          setPasswordForceTwoFactor(true);
+          if (twoFactorCode.length === 6) {
+            setPasswordTwoFactorCode("");
+          }
+        }
         const fallback =
           res.status === 429
             ? "Voce atingiu o limite de 7 tentativas. Reenvie o codigo."
@@ -2088,6 +2162,20 @@ function AccountContent({
                           : "Reenviar codigo"}
                       </button>
                     </div>
+                    {emailRequiresTwoFactor && (
+                      <>
+                        <p className="mt-4 text-[13px] leading-[1.45] text-black/62">
+                          Digite tambem o codigo de 6 digitos do aplicativo autenticador.
+                        </p>
+                        <CodeBoxes
+                          length={6}
+                          value={emailTwoFactorCode}
+                          onChange={setEmailTwoFactorCode}
+                          onComplete={verifyEmailChangeCode}
+                          disabled={verifyingEmailCode}
+                        />
+                      </>
+                    )}
                   </>
                 )}
 
@@ -2109,6 +2197,8 @@ function AccountContent({
                             : "new-email-input"
                         );
                         setEmailCode("");
+                        setEmailTwoFactorCode("");
+                        setEmailForceTwoFactor(false);
                         setEmailChangeError(null);
                         setEmailResendCooldown(0);
                       }}
@@ -2154,7 +2244,11 @@ function AccountContent({
                     <button
                       type="button"
                       onClick={() => verifyEmailChangeCode()}
-                      disabled={verifyingEmailCode || onlyDigits(emailCode).length !== 7}
+                      disabled={
+                        verifyingEmailCode ||
+                        onlyDigits(emailCode).length !== 7 ||
+                        (emailRequiresTwoFactor && onlyDigits(emailTwoFactorCode).length !== 6)
+                      }
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
                       {verifyingEmailCode ? "Validando..." : "Confirmar"}
@@ -2297,6 +2391,20 @@ function AccountContent({
                           : "Reenviar codigo"}
                       </button>
                     </div>
+                    {phoneRequiresTwoFactor && (
+                      <>
+                        <p className="mt-4 text-[13px] leading-[1.45] text-black/62">
+                          Digite tambem o codigo de 6 digitos do aplicativo autenticador.
+                        </p>
+                        <CodeBoxes
+                          length={6}
+                          value={phoneTwoFactorCode}
+                          onChange={setPhoneTwoFactorCode}
+                          onComplete={verifyPhoneChangeCode}
+                          disabled={verifyingPhoneCode}
+                        />
+                      </>
+                    )}
                   </>
                 )}
 
@@ -2318,6 +2426,8 @@ function AccountContent({
                             : "new-phone-input"
                         );
                         setPhoneCode("");
+                        setPhoneTwoFactorCode("");
+                        setPhoneForceTwoFactor(false);
                         setPhoneChangeError(null);
                         setPhoneResendCooldown(0);
                       }}
@@ -2363,7 +2473,11 @@ function AccountContent({
                     <button
                       type="button"
                       onClick={() => verifyPhoneChangeCode()}
-                      disabled={verifyingPhoneCode || onlyDigits(phoneCode).length !== 7}
+                      disabled={
+                        verifyingPhoneCode ||
+                        onlyDigits(phoneCode).length !== 7 ||
+                        (phoneRequiresTwoFactor && onlyDigits(phoneTwoFactorCode).length !== 6)
+                      }
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
                       {verifyingPhoneCode ? "Validando..." : "Confirmar"}
@@ -2487,6 +2601,20 @@ function AccountContent({
                           : "Reenviar codigo"}
                       </button>
                     </div>
+                    {passwordRequiresTwoFactor && (
+                      <>
+                        <p className="mt-4 text-[13px] leading-[1.45] text-black/62">
+                          Digite tambem o codigo de 6 digitos do aplicativo autenticador.
+                        </p>
+                        <CodeBoxes
+                          length={6}
+                          value={passwordTwoFactorCode}
+                          onChange={setPasswordTwoFactorCode}
+                          onComplete={verifyPasswordChangeCode}
+                          disabled={verifyingPasswordCode}
+                        />
+                      </>
+                    )}
                   </>
                 )}
 
@@ -2504,6 +2632,8 @@ function AccountContent({
                         if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
                         setPasswordStep("form");
                         setPasswordCode("");
+                        setPasswordTwoFactorCode("");
+                        setPasswordForceTwoFactor(false);
                         setPasswordChangeError(null);
                         setPasswordResendCooldown(0);
                       }}
@@ -2538,7 +2668,11 @@ function AccountContent({
                     <button
                       type="button"
                       onClick={() => verifyPasswordChangeCode()}
-                      disabled={verifyingPasswordCode || onlyDigits(passwordCode).length !== 7}
+                      disabled={
+                        verifyingPasswordCode ||
+                        onlyDigits(passwordCode).length !== 7 ||
+                        (passwordRequiresTwoFactor && onlyDigits(passwordTwoFactorCode).length !== 6)
+                      }
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
                       {verifyingPasswordCode ? "Validando..." : "Confirmar"}

@@ -160,7 +160,7 @@ type EmailCheckState =
   | { state: "new" }
   | { state: "error"; message: string };
 
-type Step = "collect" | "emailCode" | "emailSuccess" | "smsCode";
+type Step = "collect" | "emailCode" | "twoFactorCode" | "emailSuccess" | "smsCode";
 
 function CodeBoxes({
   length,
@@ -360,6 +360,8 @@ export default function LinkLoginPage() {
 
   // codes
   const [emailCode, setEmailCode] = useState("");
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [twoFactorTicket, setTwoFactorTicket] = useState("");
   const [smsCode, setSmsCode] = useState("");
 
   const [emailSuccessOpen, setEmailSuccessOpen] = useState(false);
@@ -368,6 +370,8 @@ export default function LinkLoginPage() {
   // ui states
   const [busy, setBusy] = useState(false);
   const [verifyingEmailCodeBusy, setVerifyingEmailCodeBusy] = useState(false); // ✅ novo (só validação do email code)
+  const [verifyingTwoFactorCodeBusy, setVerifyingTwoFactorCodeBusy] =
+    useState(false);
   const [verifyingSmsCodeBusy, setVerifyingSmsCodeBusy] = useState(false); // ✅ novo (só validação do sms code)
   const [msgError, setMsgError] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
@@ -559,6 +563,8 @@ export default function LinkLoginPage() {
     setCpf("");
 
     setEmailCode("");
+    setTwoFactorCode("");
+    setTwoFactorTicket("");
     setSmsCode("");
 
     // garante URL limpa
@@ -633,6 +639,8 @@ export default function LinkLoginPage() {
 
   const helperText = useMemo(() => {
     if (step === "emailCode") return "Insira o código enviado para seu e-mail.";
+    if (step === "twoFactorCode")
+      return "Insira o código de 6 dígitos do aplicativo autenticador.";
     if (step === "smsCode") return "Insira o código enviado por SMS.";
     if (check.state === "checking") return "Verificando seu e-mail…";
     if (check.state === "exists")
@@ -716,6 +724,8 @@ export default function LinkLoginPage() {
 
         setStep("emailCode");
         setEmailCode("");
+        setTwoFactorCode("");
+        setTwoFactorTicket("");
         setResendCooldown(35);
       } catch (err: any) {
         setMsgError(err?.message || "Erro inesperado.");
@@ -756,6 +766,14 @@ export default function LinkLoginPage() {
 
         const j = await res.json().catch(() => ({}));
         if (!res.ok || !j?.ok) {
+          if (j?.requiresTwoFactor && j?.twoFactorTicket) {
+            setTwoFactorTicket(String(j.twoFactorTicket || ""));
+            setTwoFactorCode("");
+            setStep("twoFactorCode");
+            setMsgError(String(j?.error || "Código de 2 etapas inválido. Tente novamente."));
+            return;
+          }
+
           const fallbackError =
             res.status === 429
               ? "Voce atingiu o limite de 7 tentativas. Reenvie o codigo."
@@ -766,6 +784,17 @@ export default function LinkLoginPage() {
           if (res.status === 429) {
             setResendCooldown(0);
           }
+          return;
+        }
+
+        if (j?.next === "two-factor") {
+          if (!j?.twoFactorTicket) {
+            throw new Error("Fluxo de autenticação em 2 etapas inválido.");
+          }
+          setTwoFactorTicket(String(j.twoFactorTicket || ""));
+          setTwoFactorCode("");
+          setStep("twoFactorCode");
+          setMsgError(null);
           return;
         }
 
@@ -816,6 +845,65 @@ export default function LinkLoginPage() {
       prefersReducedMotion,
       password,
       returnTo,
+    ],
+  );
+
+  const verifyTwoFactorCode = useCallback(
+    async (code?: string) => {
+      const c = onlyDigits(code ?? twoFactorCode).slice(0, 6);
+      if (c.length !== 6 || busy || verifyingTwoFactorCodeBusy) return;
+      if (!twoFactorTicket) return;
+
+      setVerifyingTwoFactorCodeBusy(true);
+      setBusy(true);
+      setMsgError(null);
+
+      try {
+        const res = await fetch("/api/wz_AuthLogin/verify-two-factor", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            twoFactorCode: c,
+            twoFactorTicket,
+            next: returnTo,
+          }),
+        });
+
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || !j?.ok) {
+          if (j?.twoFactorTicket) {
+            setTwoFactorTicket(String(j.twoFactorTicket || ""));
+          }
+          setMsgError(
+            String(j?.error || "Código de 2 etapas inválido. Tente novamente."),
+          );
+          setTwoFactorCode("");
+          return;
+        }
+
+        const nextUrl = String(j?.nextUrl || "/app");
+
+        if (/^https?:\/\//i.test(nextUrl)) {
+          window.location.assign(nextUrl);
+        } else {
+          router.push(nextUrl);
+        }
+      } catch (err: any) {
+        setMsgError(err?.message || "Erro inesperado. Tente novamente.");
+      } finally {
+        setBusy(false);
+        setVerifyingTwoFactorCodeBusy(false);
+      }
+    },
+    [
+      busy,
+      email,
+      returnTo,
+      router,
+      twoFactorCode,
+      twoFactorTicket,
+      verifyingTwoFactorCodeBusy,
     ],
   );
 
@@ -1295,6 +1383,8 @@ export default function LinkLoginPage() {
 
   const TitleIcon = useMemo(() => {
     if (step === "emailCode") return <Mail className="h-6 w-6 text-black/80" />;
+    if (step === "twoFactorCode")
+      return <Check className="h-6 w-6 text-black/80" />;
     if (step === "emailSuccess")
       return <Check className="h-6 w-6 text-black/80" />;
     if (step === "smsCode") return <Phone className="h-6 w-6 text-black/80" />;
@@ -1330,6 +1420,8 @@ export default function LinkLoginPage() {
                   ? "Bem Vindo de volta a Wyzer!"
                   : step === "emailCode"
                     ? "Confirme seu endereço de e-mail"
+                    : step === "twoFactorCode"
+                      ? "Confirme a autenticação de 2 etapas"
                     : step === "emailSuccess"
                       ? "Código validado com sucesso"
                       : "Confirme seu número por SMS"}
@@ -1343,6 +1435,8 @@ export default function LinkLoginPage() {
                       {maskEmail(email.trim())}
                     </span>
                   </>
+                ) : step === "twoFactorCode" ? (
+                  <>Digite o código de 6 dígitos do seu aplicativo autenticador.</>
                 ) : step === "emailSuccess" ? (
                   <>
                     Verificação concluída. Vamos confirmar seu número por SMS.
@@ -1671,6 +1765,67 @@ export default function LinkLoginPage() {
                     >
                       <Undo2 className="h-4 w-4" />
                       Trocar e-mail
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* STEP: TWO FACTOR CODE */}
+            <AnimatePresence mode="sync" initial={false}>
+              {step === "twoFactorCode" && (
+                <motion.div
+                  key="twoFactorCode"
+                  initial={{ opacity: 0, y: 14, filter: "blur(10px)" }}
+                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, y: 10, filter: "blur(10px)" }}
+                  transition={{
+                    duration: prefersReducedMotion ? 0 : DUR.md,
+                    ease: EASE,
+                  }}
+                  className="mt-10"
+                >
+                  <CodeBoxes
+                    length={6}
+                    value={twoFactorCode}
+                    onChange={setTwoFactorCode}
+                    onComplete={(v) => verifyTwoFactorCode(v)}
+                    disabled={busy || verifyingTwoFactorCodeBusy}
+                    loading={verifyingTwoFactorCodeBusy}
+                    reduced={!!prefersReducedMotion}
+                  />
+
+                  <AnimatePresence initial={false}>
+                    {!!msgError && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 8, filter: "blur(8px)" }}
+                        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                        exit={{ opacity: 0, y: 8, filter: "blur(8px)" }}
+                        transition={{
+                          duration: prefersReducedMotion ? 0 : 0.22,
+                          ease: EASE,
+                        }}
+                        className="mt-4 rounded-[16px] bg-black/5 ring-1 ring-black/10 px-4 py-3 text-[13px] text-black/70 text-center"
+                      >
+                        {msgError}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <div className="mt-6 flex items-center justify-center">
+                    <button
+                      type="button"
+                      onClick={resetAll}
+                      disabled={busy || verifyingTwoFactorCodeBusy}
+                      className={cx(
+                        "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
+                        busy || verifyingTwoFactorCodeBusy
+                          ? "text-black/35 cursor-not-allowed"
+                          : "text-black/55 hover:text-black/75",
+                      )}
+                    >
+                      <Undo2 className="h-4 w-4" />
+                      Reiniciar login
                     </button>
                   </div>
                 </motion.div>
