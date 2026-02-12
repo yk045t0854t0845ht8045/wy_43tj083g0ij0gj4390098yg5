@@ -70,9 +70,11 @@ type AccountActionTwoFactorContext =
   | "password"
   | "two-factor-disable"
   | "two-factor-enable"
-  | "passkey";
+  | "passkey"
+  | "passkey-disable";
 
 type PasskeyVerificationMethod = "none" | "email" | "two-factor";
+type PasskeyFlowMode = "activate" | "disable";
 type AccountActionAuthMethod = "choose" | "totp" | "passkey";
 type AccountActionAuthMethodsPayload = { totp?: boolean; passkey?: boolean };
 type AccountActionAuthResponsePayload = {
@@ -661,8 +663,10 @@ function AccountContent({
   const [loadingPasskeyStatus, setLoadingPasskeyStatus] = useState(false);
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
   const [passkeyCredentialCount, setPasskeyCredentialCount] = useState(0);
+  const [passkeyFlowMode, setPasskeyFlowMode] = useState<PasskeyFlowMode>("activate");
   const [passkeyVerificationMethod, setPasskeyVerificationMethod] =
     useState<PasskeyVerificationMethod>("none");
+  const [passkeyAwaitingDisableAuth, setPasskeyAwaitingDisableAuth] = useState(false);
   const [passkeyTicket, setPasskeyTicket] = useState("");
   const [passkeyEmailMask, setPasskeyEmailMask] = useState("");
   const [passkeyEmailCode, setPasskeyEmailCode] = useState("");
@@ -934,7 +938,9 @@ function AccountContent({
     (accountActionTwoFactorContext === "email" && verifyingEmailCode) ||
     (accountActionTwoFactorContext === "phone" && verifyingPhoneCode) ||
     (accountActionTwoFactorContext === "password" && verifyingPasswordCode) ||
-    (accountActionTwoFactorContext === "passkey" && verifyingPasskeyCode) ||
+    ((accountActionTwoFactorContext === "passkey" ||
+      accountActionTwoFactorContext === "passkey-disable") &&
+      verifyingPasskeyCode) ||
     ((accountActionTwoFactorContext === "two-factor-disable" ||
       accountActionTwoFactorContext === "two-factor-enable") &&
       verifyingTwoFactorStep) ||
@@ -992,6 +998,10 @@ function AccountContent({
     }
     if (context === "passkey") {
       setPasskeyError("Validacao em 2 etapas cancelada.");
+      return;
+    }
+    if (context === "passkey-disable") {
+      setPasskeyError("Confirmacao da desativacao do Windows Hello cancelada.");
     }
   }, [accountActionTwoFactorContext, resetAccountActionTwoFactorModal]);
 
@@ -1002,7 +1012,9 @@ function AccountContent({
       methods?: AccountActionAuthMethodsPayload | null
     ) => {
       const fallbackPasskeyAvailable =
-        context !== "two-factor-enable" && twoFactorEnabled && passkeyEnabled;
+        context === "passkey-disable"
+          ? passkeyEnabled
+          : context !== "two-factor-enable" && twoFactorEnabled && passkeyEnabled;
       const allowTotp =
         typeof methods?.totp === "boolean" ? methods.totp : true;
       const allowPasskey =
@@ -1807,6 +1819,10 @@ function AccountContent({
       await verifyPasskeyActivation(undefined, code);
       return;
     }
+    if (accountActionTwoFactorContext === "passkey-disable") {
+      await verifyPasskeyDisable(undefined, code);
+      return;
+    }
     await verifyPasswordChangeCode(undefined, code);
   };
 
@@ -2326,7 +2342,9 @@ function AccountContent({
   }, [loadPasskeyStatus]);
 
   const resetPasskeyFlow = useCallback(() => {
+    setPasskeyFlowMode("activate");
     setPasskeyVerificationMethod("none");
+    setPasskeyAwaitingDisableAuth(false);
     setPasskeyTicket("");
     setPasskeyEmailMask(maskSecureEmail(localEmail));
     setPasskeyEmailCode("");
@@ -2563,6 +2581,118 @@ function AccountContent({
     }
   };
 
+  const verifyPasskeyDisable = async (
+    nextValue?: string,
+    providedTwoFactorCode?: string,
+    providedPasskeyProof?: string
+  ) => {
+    if (!passkeyTicket) return;
+    if (startingPasskeyFlow || resendingPasskeyCode || verifyingPasskeyCode || registeringPasskey) {
+      return;
+    }
+
+    const emailCode = onlyDigits(String(nextValue || passkeyEmailCode || "")).slice(0, 7);
+    const twoFactorCode = onlyDigits(String(providedTwoFactorCode || "")).slice(0, 6);
+    const passkeyProof = String(providedPasskeyProof || "").trim();
+    const usingDynamicIsland = passkeyAwaitingDisableAuth && (twoFactorCode.length === 6 || !!passkeyProof);
+
+    if (!passkeyAwaitingDisableAuth && emailCode.length !== 7) return;
+    if (passkeyAwaitingDisableAuth && twoFactorCode.length !== 6 && !passkeyProof) return;
+
+    try {
+      setVerifyingPasskeyCode(true);
+      setPasskeyError(null);
+      if (passkeyAwaitingDisableAuth) {
+        clearAccountActionTwoFactorFeedback();
+      }
+
+      const res = await fetch("/api/wz_users/passkeys", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "disable-verify",
+          ticket: passkeyTicket,
+          ...(!passkeyAwaitingDisableAuth
+            ? { emailCode }
+            : {
+                ...(twoFactorCode.length === 6 ? { twoFactorCode } : {}),
+                ...(passkeyProof ? { passkeyProof } : {}),
+              }),
+        }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        next?: "verify-auth";
+        phase?: "disable-verify-auth";
+        ticket?: string;
+        disabled?: boolean;
+      } & AccountActionAuthResponsePayload;
+
+      if (!res.ok || !payload.ok) {
+        const fallback = passkeyAwaitingDisableAuth
+          ? "Nao foi possivel confirmar a desativacao do Windows Hello."
+          : "Codigo invalido. Tente novamente.";
+        const message = String(payload.error || fallback);
+
+        if (payload.requiresTwoFactor && passkeyAwaitingDisableAuth) {
+          openAccountActionTwoFactorModal("passkey-disable", message, payload.authMethods);
+          return;
+        }
+
+        if (usingDynamicIsland) {
+          setAccountActionTwoFactorFeedback(message);
+          setAccountActionTwoFactorCode("");
+        } else {
+          setPasskeyError(message);
+          if (!passkeyAwaitingDisableAuth) {
+            setPasskeyEmailCode("");
+            if (res.status === 429) {
+              setPasskeyResendCooldown(0);
+            }
+          }
+        }
+        return;
+      }
+
+      if (!passkeyAwaitingDisableAuth) {
+        if (!payload.ticket) {
+          throw new Error("Resposta invalida do servidor.");
+        }
+        setPasskeyTicket(String(payload.ticket));
+        setPasskeyAwaitingDisableAuth(true);
+        setPasskeyEmailCode("");
+        setPasskeyResendCooldown(0);
+        openAccountActionTwoFactorModal(
+          "passkey-disable",
+          null,
+          payload.authMethods,
+        );
+        return;
+      }
+
+      if (usingDynamicIsland) {
+        resetAccountActionTwoFactorModal();
+      }
+      setPasskeyEnabled(false);
+      setPasskeyCredentialCount(0);
+      setPasskeyModalOpen(false);
+      resetPasskeyFlow();
+      void loadPasskeyStatus();
+    } catch (err) {
+      console.error("[config-account] verify passkey disable failed:", err);
+      const message =
+        err instanceof Error ? err.message : "Erro ao desativar o Windows Hello.";
+      if (usingDynamicIsland) {
+        setAccountActionTwoFactorFeedback(message);
+      } else {
+        setPasskeyError(message);
+      }
+    } finally {
+      setVerifyingPasskeyCode(false);
+    }
+  };
+
   const verifyAccountActionWithWindowsHello = useCallback(async () => {
     if (!accountActionTwoFactorContext || !accountActionAllowPasskey) return;
     if (accountActionTwoFactorBusy || accountActionTwoFactorUiLoading) return;
@@ -2719,6 +2849,10 @@ function AccountContent({
         await verifyPasskeyActivation(undefined, undefined, passkeyProof);
         return;
       }
+      if (accountActionTwoFactorContext === "passkey-disable") {
+        await verifyPasskeyDisable(undefined, undefined, passkeyProof);
+        return;
+      }
       await verifyPasswordChangeCode(undefined, undefined, passkeyProof);
     } catch (error) {
       const domErr = error as DOMException;
@@ -2749,6 +2883,7 @@ function AccountContent({
     clearAccountActionTwoFactorFeedback,
     setAccountActionTwoFactorFeedback,
     verifyEmailChangeCode,
+    verifyPasskeyDisable,
     verifyPasskeyActivation,
     verifyPasswordChangeCode,
     verifyPhoneChangeCode,
@@ -2821,6 +2956,8 @@ function AccountContent({
 
     try {
       setStartingPasskeyFlow(true);
+      setPasskeyFlowMode("activate");
+      setPasskeyAwaitingDisableAuth(false);
       setPasskeyError(null);
 
       const res = await fetch("/api/wz_users/passkeys", {
@@ -2850,7 +2987,7 @@ function AccountContent({
         setPasskeyResendCooldown(0);
         openAccountActionTwoFactorModal(
           "passkey",
-          String(payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador."),
+          null,
           { totp: true, passkey: passkeyEnabled },
         );
         return;
@@ -2868,10 +3005,55 @@ function AccountContent({
     }
   };
 
+  const startPasskeyDisableFlow = async () => {
+    if (isPasskeyBusy) return;
+
+    try {
+      setStartingPasskeyFlow(true);
+      setPasskeyFlowMode("disable");
+      setPasskeyVerificationMethod("email");
+      setPasskeyAwaitingDisableAuth(false);
+      setPasskeyError(null);
+
+      const res = await fetch("/api/wz_users/passkeys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "disable-start" }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        ticket?: string;
+        emailMask?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok || !payload.ticket) {
+        throw new Error(payload.error || "Nao foi possivel iniciar a desativacao do Windows Hello.");
+      }
+
+      setPasskeyTicket(String(payload.ticket));
+      setPasskeyEmailMask(String(payload.emailMask || maskSecureEmail(localEmail)));
+      setPasskeyEmailCode("");
+      setPasskeyResendCooldown(60);
+    } catch (err) {
+      console.error("[config-account] start passkey disable failed:", err);
+      setPasskeyError(
+        err instanceof Error ? err.message : "Erro ao iniciar desativacao do Windows Hello."
+      );
+    } finally {
+      setStartingPasskeyFlow(false);
+    }
+  };
+
   const openPasskeyModal = async () => {
     if (isPasskeyBusy) return;
     resetPasskeyFlow();
     setPasskeyModalOpen(true);
+    if (passkeyEnabled) {
+      await startPasskeyDisableFlow();
+      return;
+    }
     await startPasskeyActivationFlow();
   };
 
@@ -2888,7 +3070,10 @@ function AccountContent({
       const res = await fetch("/api/wz_users/passkeys", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticket: passkeyTicket }),
+        body: JSON.stringify({
+          ticket: passkeyTicket,
+          ...(passkeyFlowMode === "disable" ? { mode: "disable-resend" } : {}),
+        }),
       });
 
       const payload = (await res.json().catch(() => ({}))) as {
@@ -2917,13 +3102,23 @@ function AccountContent({
     }
   };
 
-  const reopenPasskeyTwoFactorIsland = () => {
-    if (passkeyVerificationMethod !== "two-factor" || !passkeyTicket || isPasskeyBusy) return;
-    openAccountActionTwoFactorModal(
-      "passkey",
-      "Digite o codigo de 6 digitos do aplicativo autenticador.",
-      { totp: true, passkey: passkeyEnabled },
-    );
+  const reopenPasskeyAuthIsland = () => {
+    if (!passkeyTicket || isPasskeyBusy) return;
+    if (passkeyFlowMode === "activate" && passkeyVerificationMethod === "two-factor") {
+      openAccountActionTwoFactorModal(
+        "passkey",
+        null,
+        { totp: true, passkey: passkeyEnabled },
+      );
+      return;
+    }
+    if (passkeyFlowMode === "disable" && passkeyAwaitingDisableAuth) {
+      openAccountActionTwoFactorModal(
+        "passkey-disable",
+        null,
+        { totp: twoFactorEnabled, passkey: true },
+      );
+    }
   };
 
   const initial = nickname.trim().charAt(0).toUpperCase() || "U";
@@ -2951,7 +3146,7 @@ function AccountContent({
       ? "Inativa"
       : "Carregando...";
   const passkeyActionLabel = passkeyEnabled
-    ? "Windows Hello ativo"
+    ? "Desativar Windows Hello"
     : "Ativar Windows Hello";
   const usingTwoFactorEnableIsland =
     twoFactorStep === "enable-verify-app" &&
@@ -2970,6 +3165,8 @@ function AccountContent({
       ? "Desativar autenticacao de 2 etapas"
       : accountActionTwoFactorContext === "two-factor-enable"
         ? "Ativar autenticacao de 2 etapas"
+      : accountActionTwoFactorContext === "passkey-disable"
+        ? "Desativar Windows Hello"
       : accountActionTwoFactorContext === "passkey"
         ? "Ativar Windows Hello"
       : "Autenticacao de 2 etapas";
@@ -2982,6 +3179,8 @@ function AccountContent({
       ? "Digite o codigo de 6 digitos do aplicativo autenticador para iniciar a desativacao."
       : accountActionTwoFactorContext === "two-factor-enable"
         ? "Digite o codigo de 6 digitos gerado no aplicativo para ativar."
+      : accountActionTwoFactorContext === "passkey-disable"
+        ? "Confirme com codigo de 2 etapas ou Windows Hello para desativar."
       : accountActionTwoFactorContext === "passkey"
         ? "Confirme com o codigo de 6 digitos para continuar com o Windows Hello."
       : "Abra seu aplicativo autenticador para continuar.";
@@ -3773,7 +3972,9 @@ function AccountContent({
               exit={{ opacity: 0, y: 8, scale: 0.985 }}
             >
               <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6">
-                <h3 className="text-[18px] font-semibold text-black/80">Ativar Windows Hello</h3>
+                <h3 className="text-[18px] font-semibold text-black/80">
+                  {passkeyFlowMode === "disable" ? "Desativar Windows Hello" : "Ativar Windows Hello"}
+                </h3>
                 <button
                   type="button"
                   onClick={closePasskeyModal}
@@ -3786,31 +3987,42 @@ function AccountContent({
 
               <div className="px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
                 <p className="text-[14px] leading-[1.45] text-black/62">
-                  Vamos ativar o Windows Hello para login rapido com PIN ou biometria do seu PC.
+                  {passkeyFlowMode === "disable"
+                    ? "Vamos desativar o Windows Hello desta conta com validacao de seguranca."
+                    : "Vamos ativar o Windows Hello para login rapido com PIN ou biometria do seu PC."}
                 </p>
 
                 {passkeyVerificationMethod === "none" && (
                   <div className="mt-4 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/70">
                     {startingPasskeyFlow
                       ? "Preparando validacao de seguranca..."
-                      : "Inicie o fluxo para validar sua identidade antes de ativar o Windows Hello."}
+                      : passkeyFlowMode === "disable"
+                        ? "Inicie o fluxo para validar sua identidade antes de desativar o Windows Hello."
+                        : "Inicie o fluxo para validar sua identidade antes de ativar o Windows Hello."}
                   </div>
                 )}
 
-                {passkeyVerificationMethod === "email" && (
+                {passkeyVerificationMethod === "email" &&
+                  !(passkeyFlowMode === "disable" && passkeyAwaitingDisableAuth) && (
                   <>
                     <p className="mt-4 text-[14px] leading-[1.45] text-black/62">
                       Digite o codigo de 7 digitos enviado para{" "}
                       <span className="break-all font-semibold text-black/78">
                         {passkeyEmailMask || maskSecureEmail(localEmail)}
                       </span>
-                      .
+                      {passkeyFlowMode === "disable"
+                        ? " para continuar a desativacao do Windows Hello."
+                        : "."}
                     </p>
                     <CodeBoxes
                       length={7}
                       value={passkeyEmailCode}
                       onChange={setPasskeyEmailCode}
                       onComplete={(value) => {
+                        if (passkeyFlowMode === "disable") {
+                          void verifyPasskeyDisable(value);
+                          return;
+                        }
                         void verifyPasskeyActivation(value);
                       }}
                       disabled={verifyingPasskeyCode || registeringPasskey}
@@ -3832,7 +4044,7 @@ function AccountContent({
                   </>
                 )}
 
-                {passkeyVerificationMethod === "two-factor" && (
+                {passkeyFlowMode === "activate" && passkeyVerificationMethod === "two-factor" && (
                   <>
                     <p className="mt-4 text-[14px] leading-[1.45] text-black/62">
                       Sua conta tem autenticacao em 2 etapas ativa. Confirme com o codigo do
@@ -3844,7 +4056,19 @@ function AccountContent({
                   </>
                 )}
 
-                {registeringPasskey && (
+                {passkeyFlowMode === "disable" && passkeyAwaitingDisableAuth && (
+                  <>
+                    <p className="mt-4 text-[14px] leading-[1.45] text-black/62">
+                      Codigo de e-mail confirmado. Agora conclua a desativacao usando Windows Hello
+                      ou codigo de 2 etapas (se estiver ativo).
+                    </p>
+                    <div className="mt-3 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/70">
+                      A confirmacao final acontece na ilha dinamica de seguranca.
+                    </div>
+                  </>
+                )}
+
+                {passkeyFlowMode === "activate" && registeringPasskey && (
                   <div className="mt-4 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/70">
                     Abrindo o Windows Hello. Confirme no prompt do sistema com seu PIN ou
                     biometria.
@@ -3870,18 +4094,28 @@ function AccountContent({
                   {passkeyVerificationMethod === "none" && (
                     <button
                       type="button"
-                      onClick={() => void startPasskeyActivationFlow()}
+                      onClick={() => {
+                        if (passkeyFlowMode === "disable") {
+                          void startPasskeyDisableFlow();
+                          return;
+                        }
+                        void startPasskeyActivationFlow();
+                      }}
                       disabled={isPasskeyBusy}
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      {startingPasskeyFlow ? "Iniciando..." : "Iniciar validacao"}
+                      {startingPasskeyFlow
+                        ? "Iniciando..."
+                        : passkeyFlowMode === "disable"
+                          ? "Iniciar desativacao"
+                          : "Iniciar validacao"}
                     </button>
                   )}
 
-                  {passkeyVerificationMethod === "two-factor" && (
+                  {passkeyFlowMode === "activate" && passkeyVerificationMethod === "two-factor" && (
                     <button
                       type="button"
-                      onClick={reopenPasskeyTwoFactorIsland}
+                      onClick={reopenPasskeyAuthIsland}
                       disabled={isPasskeyBusy}
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
@@ -3889,14 +4123,35 @@ function AccountContent({
                     </button>
                   )}
 
-                  {passkeyVerificationMethod === "email" && (
+                  {passkeyFlowMode === "disable" && passkeyAwaitingDisableAuth && (
                     <button
                       type="button"
-                      onClick={() => void verifyPasskeyActivation()}
+                      onClick={reopenPasskeyAuthIsland}
+                      disabled={isPasskeyBusy}
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {verifyingPasskeyCode ? "Validando..." : "Confirmar desativacao"}
+                    </button>
+                  )}
+
+                  {passkeyVerificationMethod === "email" && !passkeyAwaitingDisableAuth && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (passkeyFlowMode === "disable") {
+                          void verifyPasskeyDisable();
+                          return;
+                        }
+                        void verifyPasskeyActivation();
+                      }}
                       disabled={isPasskeyBusy || onlyDigits(passkeyEmailCode).length !== 7}
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      {verifyingPasskeyCode || registeringPasskey ? "Validando..." : "Confirmar e ativar"}
+                      {verifyingPasskeyCode || registeringPasskey
+                        ? "Validando..."
+                        : passkeyFlowMode === "disable"
+                          ? "Validar e continuar"
+                          : "Confirmar e ativar"}
                     </button>
                   )}
                 </div>

@@ -23,7 +23,12 @@ const NO_STORE_HEADERS = {
 const PASSKEY_TICKET_TYP = "wz-passkey";
 const PASSKEY_RP_NAME = "Wyzer";
 
-type PasskeyTicketPhase = "verify-email" | "verify-two-factor" | "register";
+type PasskeyTicketPhase =
+  | "verify-email"
+  | "verify-two-factor"
+  | "register"
+  | "disable-verify-email"
+  | "disable-verify-auth";
 
 type PasskeyTicketPayload = {
   typ: "wz-passkey";
@@ -185,7 +190,7 @@ function readPasskeyTicket(params: {
     return { ok: false as const, error: "Sessao expirada. Reabra o fluxo e tente novamente." };
   }
   if (!params.allowedPhases.includes(parsed.phase)) {
-    return { ok: false as const, error: "Etapa invalida para ativacao da chave de acesso." };
+    return { ok: false as const, error: "Etapa invalida para chave de acesso." };
   }
   if (String(parsed.uid) !== String(params.sessionUserId)) {
     return { ok: false as const, error: "Sessao invalida para este usuario." };
@@ -379,6 +384,38 @@ async function listPasskeysForUser(params: { sb: ReturnType<typeof supabaseAdmin
   throw error;
 }
 
+async function deletePasskeysForUser(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+}) {
+  const cleanUserId = String(params.userId || "").trim();
+  if (!cleanUserId) {
+    return { ok: true as const, deletedCount: 0 };
+  }
+
+  const { data, error } = await params.sb
+    .from("wz_auth_passkeys")
+    .delete()
+    .eq("user_id", cleanUserId)
+    .select("credential_id");
+
+  if (!error) {
+    return {
+      ok: true as const,
+      deletedCount: Array.isArray(data) ? data.length : 0,
+    };
+  }
+
+  if (isSchemaMissing(error)) {
+    return {
+      ok: false as const,
+      error: "Schema de passkeys ausente. Execute sql/wz_auth_passkeys_create.sql.",
+    };
+  }
+
+  throw error;
+}
+
 async function savePasskey(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   userId: string;
@@ -543,31 +580,206 @@ async function handleStart(ctx: SessionContext) {
   );
 }
 
+async function handleDisableStart(ctx: SessionContext) {
+  const passkeysRes = await listPasskeysForUser({ sb: ctx.sb, userId: ctx.sessionUserId });
+  if (!passkeysRes.schemaReady) {
+    return errorResponse("Schema de passkeys ausente. Execute sql/wz_auth_passkeys_create.sql.", 500);
+  }
+  if (!passkeysRes.rows.length) {
+    return errorResponse("Windows Hello nao esta ativo nesta conta.", 409);
+  }
+
+  const code = await createEmailChallenge(ctx.sb, ctx.sessionEmail);
+  await sendLoginCodeEmail(ctx.sessionEmail, code, { heading: "Desativando Windows Hello" });
+
+  const ticket = createPasskeyTicket({
+    userId: ctx.sessionUserId,
+    email: ctx.sessionEmail,
+    phase: "disable-verify-email",
+  });
+
+  return NextResponse.json(
+    {
+      ok: true,
+      mode: "disable",
+      phase: "disable-verify-email",
+      ticket,
+      emailMask: maskSecureEmail(ctx.sessionEmail),
+    },
+    { status: 200, headers: NO_STORE_HEADERS },
+  );
+}
+
 async function handleResend(req: NextRequest, ctx: SessionContext) {
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const ticketRes = readPasskeyTicket({
     ticket: String(body.ticket || ""),
     sessionUserId: ctx.sessionUserId,
     sessionEmail: ctx.sessionEmail,
-    allowedPhases: ["verify-email"],
+    allowedPhases: ["verify-email", "disable-verify-email"],
   });
   if (!ticketRes.ok) return errorResponse(ticketRes.error, 400);
 
+  const isDisableFlow = ticketRes.payload.phase === "disable-verify-email";
   const code = await createEmailChallenge(ctx.sb, ctx.sessionEmail);
-  await sendLoginCodeEmail(ctx.sessionEmail, code, { heading: "Ativando Windows Hello" });
+  await sendLoginCodeEmail(ctx.sessionEmail, code, {
+    heading: isDisableFlow ? "Desativando Windows Hello" : "Ativando Windows Hello",
+  });
 
   const refreshedTicket = createPasskeyTicket({
     userId: ctx.sessionUserId,
     email: ctx.sessionEmail,
-    phase: "verify-email",
+    phase: isDisableFlow ? "disable-verify-email" : "verify-email",
   });
   return NextResponse.json(
     {
       ok: true,
       ticket: refreshedTicket,
       verification: "email",
+      ...(isDisableFlow ? { mode: "disable", phase: "disable-verify-email" } : {}),
       emailMask: maskSecureEmail(ctx.sessionEmail),
     },
+    { status: 200, headers: NO_STORE_HEADERS },
+  );
+}
+
+async function handleDisableVerify(ctx: SessionContext, body: Record<string, unknown>) {
+  const ticketRes = readPasskeyTicket({
+    ticket: String(body.ticket || ""),
+    sessionUserId: ctx.sessionUserId,
+    sessionEmail: ctx.sessionEmail,
+    allowedPhases: ["disable-verify-email", "disable-verify-auth"],
+  });
+  if (!ticketRes.ok) return errorResponse(ticketRes.error, 400);
+
+  const passkeysRes = await listPasskeysForUser({ sb: ctx.sb, userId: ctx.sessionUserId });
+  if (!passkeysRes.schemaReady) {
+    return errorResponse("Schema de passkeys ausente. Execute sql/wz_auth_passkeys_create.sql.", 500);
+  }
+  if (!passkeysRes.rows.length) {
+    return errorResponse("Windows Hello ja esta desativado nesta conta.", 409);
+  }
+
+  if (ticketRes.payload.phase === "disable-verify-email") {
+    const emailCode = onlyDigits(String(body.emailCode || body.code || "")).slice(0, 7);
+    if (emailCode.length !== 7) {
+      return errorResponse("Digite o codigo de 7 digitos enviado para seu e-mail.", 400);
+    }
+
+    const verifyCode = await verifyEmailChallengeCode({
+      sb: ctx.sb,
+      email: ctx.sessionEmail,
+      code: emailCode,
+      consumeOnSuccess: false,
+    });
+    if (!verifyCode.ok) return errorResponse(verifyCode.error, verifyCode.status);
+
+    const { error: consumeError } = await ctx.sb
+      .from("wz_auth_challenges")
+      .update({ consumed: true })
+      .eq("id", verifyCode.challengeId);
+    if (consumeError) {
+      console.error("[passkeys-disable] consume challenge error:", consumeError);
+      return errorResponse("Nao foi possivel confirmar o codigo. Tente novamente.", 500);
+    }
+
+    const twoFactorState = await resolveTwoFactorState({
+      sb: ctx.sb,
+      sessionUserId: ctx.sessionUserId,
+      wzUserId: ctx.sessionUserId,
+    });
+    const hasTotp = Boolean(twoFactorState.enabled && twoFactorState.secret);
+
+    const verifyAuthTicket = createPasskeyTicket({
+      userId: ctx.sessionUserId,
+      email: ctx.sessionEmail,
+      phase: "disable-verify-auth",
+    });
+
+    return NextResponse.json(
+      {
+        ok: true,
+        mode: "disable",
+        next: "verify-auth",
+        phase: "disable-verify-auth",
+        ticket: verifyAuthTicket,
+        authMethods: { totp: hasTotp, passkey: true },
+        error: hasTotp
+          ? "Confirme a desativacao com codigo de 2 etapas ou Windows Hello."
+          : "Confirme a desativacao com Windows Hello.",
+      },
+      { status: 200, headers: NO_STORE_HEADERS },
+    );
+  }
+
+  const twoFactorState = await resolveTwoFactorState({
+    sb: ctx.sb,
+    sessionUserId: ctx.sessionUserId,
+    wzUserId: ctx.sessionUserId,
+  });
+  const hasTotp = Boolean(twoFactorState.enabled && twoFactorState.secret);
+  const authMethods = { totp: hasTotp, passkey: true };
+  const twoFactorCode = normalizeTotpCode(body.twoFactorCode ?? body.totpCode ?? body.code, 6);
+  const passkeyProofRaw = String(body.passkeyProof ?? body.authProof ?? "").trim();
+  const passkeyProofRes = passkeyProofRaw
+    ? readPasskeyAuthProof({
+        proof: passkeyProofRaw,
+        userId: ctx.sessionUserId,
+        email: ctx.sessionEmail,
+      })
+    : null;
+
+  const hasValidPasskeyProof = Boolean(passkeyProofRes?.ok);
+  const canUseTotpCode = hasTotp && twoFactorCode.length === 6;
+
+  if (!hasValidPasskeyProof && !canUseTotpCode) {
+    const fallbackMessage =
+      passkeyProofRaw && passkeyProofRes && !passkeyProofRes.ok
+        ? passkeyProofRes.error
+        : hasTotp
+          ? "Confirme com codigo de 2 etapas ou Windows Hello."
+          : "Confirme com Windows Hello para desativar.";
+    return NextResponse.json(
+      {
+        ok: false,
+        requiresTwoFactor: true,
+        requiresPasskey: true,
+        authMethods,
+        error: fallbackMessage,
+      },
+      { status: 428, headers: NO_STORE_HEADERS },
+    );
+  }
+
+  if (canUseTotpCode && twoFactorState.secret) {
+    const validTwoFactorCode = await verifyTwoFactorCodeWithRecovery({
+      sb: ctx.sb,
+      userId: ctx.sessionUserId,
+      secret: twoFactorState.secret,
+      code: twoFactorCode,
+    });
+    if (!validTwoFactorCode.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          requiresTwoFactor: true,
+          requiresPasskey: true,
+          authMethods,
+          error: "Codigo de 2 etapas invalido. Tente novamente.",
+        },
+        { status: 401, headers: NO_STORE_HEADERS },
+      );
+    }
+  }
+
+  const deleted = await deletePasskeysForUser({
+    sb: ctx.sb,
+    userId: ctx.sessionUserId,
+  });
+  if (!deleted.ok) return errorResponse(deleted.error, 500);
+
+  return NextResponse.json(
+    { ok: true, mode: "disable", disabled: true, credentialCount: 0 },
     { status: 200, headers: NO_STORE_HEADERS },
   );
 }
@@ -812,10 +1024,17 @@ export async function POST(req: NextRequest) {
   try {
     const base = await getSessionContext(req);
     if (!base.ok) return base.response;
+
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const mode = String(body.mode || "").trim().toLowerCase();
+    if (mode === "disable-start") {
+      return await handleDisableStart(base.ctx);
+    }
+
     return await handleStart(base.ctx);
   } catch (error) {
     console.error("[passkeys] start error:", error);
-    return errorResponse("Erro inesperado ao iniciar ativacao do Windows Hello.", 500);
+    return errorResponse("Erro inesperado ao iniciar fluxo do Windows Hello.", 500);
   }
 }
 
@@ -839,10 +1058,11 @@ export async function PUT(req: NextRequest) {
     const mode = String(body.mode || "").trim().toLowerCase();
     if (mode === "verify") return await handleVerify(req, base.ctx, body);
     if (mode === "finish") return await handleFinish(base.ctx, body);
+    if (mode === "disable-verify") return await handleDisableVerify(base.ctx, body);
 
     return errorResponse("Modo invalido para passkeys.", 400);
   } catch (error) {
     console.error("[passkeys] verify/finish error:", error);
-    return errorResponse("Erro inesperado ao confirmar ativacao da passkey.", 500);
+    return errorResponse("Erro inesperado ao confirmar fluxo do Windows Hello.", 500);
   }
 }
