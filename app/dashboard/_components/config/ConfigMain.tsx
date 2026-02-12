@@ -63,7 +63,7 @@ type ConfigMainProps = {
   onUserTwoFactorChange?: (enabled: boolean, changedAt?: string | null) => void;
 };
 
-type AccountActionTwoFactorContext = "email" | "phone" | "password";
+type AccountActionTwoFactorContext = "email" | "phone" | "password" | "two-factor-disable";
 
 // LINKS DOS ICONES (PNG) DA SIDEBAR DE CONFIGURACOES
 // Edite apenas estes caminhos/URLs para trocar os icones.
@@ -812,7 +812,8 @@ function AccountContent({
   const accountActionTwoFactorBusy =
     (accountActionTwoFactorContext === "email" && verifyingEmailCode) ||
     (accountActionTwoFactorContext === "phone" && verifyingPhoneCode) ||
-    (accountActionTwoFactorContext === "password" && verifyingPasswordCode);
+    (accountActionTwoFactorContext === "password" && verifyingPasswordCode) ||
+    (accountActionTwoFactorContext === "two-factor-disable" && verifyingTwoFactorStep);
   const accountActionTwoFactorInvalidError = useMemo(() => {
     const message = String(accountActionTwoFactorError || "").trim();
     if (!message) return null;
@@ -843,6 +844,16 @@ function AccountContent({
     setAccountActionTwoFactorShakeTick(0);
     setAccountActionTwoFactorUiLoading(false);
   }, []);
+
+  const closeAccountActionTwoFactorModal = useCallback(() => {
+    const context = accountActionTwoFactorContext;
+    resetAccountActionTwoFactorModal();
+    if (context === "two-factor-disable") {
+      setTwoFactorStep("disable-intro");
+      setTwoFactorAppCode("");
+      setTwoFactorError(null);
+    }
+  }, [accountActionTwoFactorContext, resetAccountActionTwoFactorModal]);
 
   const openAccountActionTwoFactorModal = useCallback(
     (context: AccountActionTwoFactorContext, errorMessage?: string | null) => {
@@ -1603,6 +1614,10 @@ function AccountContent({
       await verifyPhoneChangeCode(undefined, code);
       return;
     }
+    if (accountActionTwoFactorContext === "two-factor-disable") {
+      await verifyTwoFactorDisableAppCode(code);
+      return;
+    }
     await verifyPasswordChangeCode(undefined, code);
   };
 
@@ -1746,6 +1761,7 @@ function AccountContent({
       setTwoFactorAppCode("");
       setTwoFactorEmailCode("");
       setTwoFactorResendCooldown(0);
+      openAccountActionTwoFactorModal("two-factor-disable");
     } catch (err) {
       console.error("[config-account] start two-factor disable failed:", err);
       setTwoFactorError(err instanceof Error ? err.message : "Erro ao iniciar desativacao de 2 etapas.");
@@ -1779,6 +1795,7 @@ function AccountContent({
     if (isTwoFactorBusy) return;
     setTwoFactorModalOpen(false);
     resetTwoFactorFlow();
+    resetAccountActionTwoFactorModal();
   };
 
   const copyTwoFactorManualCode = async () => {
@@ -1950,10 +1967,15 @@ function AccountContent({
     if (twoFactorStep !== "disable-verify-app") return;
     const code = onlyDigits(String(nextValue || twoFactorAppCode || "")).slice(0, 6);
     if (code.length !== 6) return;
+    const usingDynamicIslandForDisable =
+      accountActionTwoFactorContext === "two-factor-disable" && accountActionTwoFactorModalOpen;
 
     try {
       setVerifyingTwoFactorStep(true);
       setTwoFactorError(null);
+      if (usingDynamicIslandForDisable) {
+        clearAccountActionTwoFactorFeedback();
+      }
 
       const res = await fetch("/api/wz_users/two-factor", {
         method: "PUT",
@@ -1980,13 +2002,19 @@ function AccountContent({
       setTwoFactorAppCode("");
       setTwoFactorEmailCode("");
       setTwoFactorResendCooldown(60);
+      if (usingDynamicIslandForDisable) {
+        resetAccountActionTwoFactorModal();
+      }
     } catch (err) {
       console.error("[config-account] verify two-factor disable app code failed:", err);
-      setTwoFactorError(
-        err instanceof Error
-          ? err.message
-          : "Erro ao validar codigo do aplicativo para desativar."
-      );
+      const message =
+        err instanceof Error ? err.message : "Erro ao validar codigo do aplicativo para desativar.";
+      if (usingDynamicIslandForDisable) {
+        setAccountActionTwoFactorFeedback(message);
+        setAccountActionTwoFactorCode("");
+      } else {
+        setTwoFactorError(message);
+      }
       setTwoFactorAppCode("");
     } finally {
       setVerifyingTwoFactorStep(false);
@@ -2012,6 +2040,14 @@ function AccountContent({
   const twoFactorActionLabel = twoFactorEnabled
     ? "Autenticacao de 2 etapas ativa"
     : "Adicionar um metodo de verificacao";
+  const accountActionTwoFactorTitle =
+    accountActionTwoFactorContext === "two-factor-disable"
+      ? "Desativar autenticacao de 2 etapas"
+      : "Autenticacao de 2 etapas";
+  const accountActionTwoFactorDescription =
+    accountActionTwoFactorContext === "two-factor-disable"
+      ? "Digite o codigo de 6 digitos do aplicativo autenticador para iniciar a desativacao."
+      : "Abra seu aplicativo autenticador para continuar.";
   const twoFactorButtonClass = cx(
     buttonShellClass,
     twoFactorEnabled
@@ -2808,15 +2844,15 @@ function AccountContent({
                       <div className="flex items-center justify-between">
                         <div>
                           <h3 className="text-[14px] font-semibold tracking-[0.02em] text-white/92 sm:text-[15px]">
-                            Autenticacao de 2 etapas
+                            {accountActionTwoFactorTitle}
                           </h3>
                           <p className="mt-0.5 text-[12px] text-white/58">
-                            Abra seu aplicativo autenticador para continuar.
+                            {accountActionTwoFactorDescription}
                           </p>
                         </div>
                         <button
                           type="button"
-                          onClick={resetAccountActionTwoFactorModal}
+                          onClick={closeAccountActionTwoFactorModal}
                           disabled={accountActionTwoFactorBusy}
                           className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                         >
