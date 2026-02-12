@@ -418,10 +418,10 @@ function CodeBoxes({
           }}
           className={cx(
             variant === "dark"
-              ? "h-11 w-8 rounded-[10px] border border-white/18 bg-white/[0.08] text-center text-[16px] font-semibold text-white/94 sm:h-12 sm:w-10 sm:rounded-[12px] sm:text-[18px]"
+              ? "h-11 w-8 rounded-[10px] border border-white/14 bg-black/[0.58] text-center text-[16px] font-semibold text-white/94 sm:h-12 sm:w-10 sm:rounded-[12px] sm:text-[18px]"
               : "h-11 w-8 rounded-[10px] border border-black/12 bg-[#ececef] text-center text-[16px] font-semibold text-black/85 sm:h-12 sm:w-10 sm:rounded-[12px] sm:text-[18px]",
             variant === "dark"
-              ? "focus:outline-none focus:ring-2 focus:ring-white/25"
+              ? "focus:outline-none focus:ring-2 focus:ring-white/18"
               : "focus:outline-none focus:ring-2 focus:ring-black/20",
             disabled ? "cursor-not-allowed opacity-70" : ""
           )}
@@ -837,7 +837,7 @@ function AccountContent({
     setAccountActionTwoFactorUiLoading(true);
     const timer = window.setTimeout(() => {
       setAccountActionTwoFactorUiLoading(false);
-    }, 2500);
+    }, 1500);
     return () => window.clearTimeout(timer);
   }, [accountActionTwoFactorContext, accountActionTwoFactorModalOpen]);
 
@@ -2742,7 +2742,7 @@ function AccountContent({
                 role="dialog"
                 aria-modal="true"
                 className={cx(
-                  "overflow-hidden border border-white/12 bg-black [background:linear-gradient(180deg,rgba(255,255,255,0.055)_0%,rgba(255,255,255,0.014)_26%,rgba(0,0,0,0.995)_100%)] shadow-[0_30px_98px_rgba(0,0,0,0.66)]",
+                  "overflow-hidden border border-white/12 bg-black [background:linear-gradient(180deg,rgba(255,255,255,0.018)_0%,rgba(255,255,255,0.006)_24%,rgba(0,0,0,0.998)_100%)] shadow-[0_30px_98px_rgba(0,0,0,0.66)]",
                   accountActionTwoFactorUiLoading
                     ? "h-11 w-11 rounded-full p-0"
                     : "w-[min(96vw,560px)] rounded-[30px] px-4 pb-5 pt-3 sm:w-[min(92vw,580px)] sm:px-5 sm:pb-6"
@@ -2773,9 +2773,14 @@ function AccountContent({
                     transition={{ duration: 0.22, ease: "easeOut" }}
                   >
                     <div className="flex items-center justify-between">
-                      <h3 className="text-[14px] font-semibold tracking-[0.02em] text-white/92 sm:text-[15px]">
-                        Autenticacao de 2 etapas
-                      </h3>
+                      <div>
+                        <h3 className="text-[14px] font-semibold tracking-[0.02em] text-white/92 sm:text-[15px]">
+                          Autenticacao de 2 etapas
+                        </h3>
+                        <p className="mt-0.5 text-[12px] text-white/58">
+                          Abra seu aplicativo autenticador para continuar.
+                        </p>
+                      </div>
                       <button
                         type="button"
                         onClick={resetAccountActionTwoFactorModal}
