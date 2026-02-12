@@ -2761,7 +2761,7 @@ function AccountContent({
           >
             <div className="absolute inset-0 bg-black/62 backdrop-blur-[11px]" />
 
-            <div className="relative z-[1] flex justify-center">
+            <div className="relative z-[1] flex flex-col items-center">
               <motion.section
                 layout
                 role="dialog"
@@ -2856,7 +2856,7 @@ function AccountContent({
                   )}
                 </div>
               </motion.section>
-              <div className="relative z-[1] mt-2 flex justify-center">
+              <div className="relative z-[1] mt-2 flex w-full justify-center">
                 <AnimatePresence initial={false}>
                   {accountActionTwoFactorInvalidError ? (
                     <motion.div
