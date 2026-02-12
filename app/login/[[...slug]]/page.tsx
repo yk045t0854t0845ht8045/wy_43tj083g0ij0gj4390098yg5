@@ -196,6 +196,7 @@ function CodeBoxes({
   const refs = useRef<Array<HTMLInputElement | null>>([]);
   const lastCompletedRef = useRef<string>("");
   const dark = variant === "dark";
+  const showLoadingOverlay = Boolean(loading) && !dark;
 
   const digits = useMemo(() => {
     const clean = onlyDigits(value).slice(0, length);
@@ -224,16 +225,25 @@ function CodeBoxes({
   const focus = (idx: number) => refs.current[idx]?.focus();
 
   return (
-    <div className="relative mt-6 flex items-center justify-center gap-3">
+    <div
+      className={cx(
+        "relative",
+        dark
+          ? "mt-5 flex w-full items-center justify-center gap-1 sm:gap-2"
+          : "mt-6 flex items-center justify-center gap-3"
+      )}
+    >
       {digits.map((d, i) => (
         <input
           key={i}
           ref={(el) => {
             refs.current[i] = el;
           }}
+          type="text"
           disabled={disabled}
           inputMode="numeric"
           autoComplete="one-time-code"
+          maxLength={1}
           value={d}
           onChange={(e) => {
             if (disabled) return; // ✅ trava também o handler
@@ -270,7 +280,7 @@ function CodeBoxes({
               ? "h-11 w-8 rounded-[10px] border border-white/14 bg-black/[0.58] text-center text-[16px] font-semibold text-white/94 sm:h-12 sm:w-10 sm:rounded-[12px] sm:text-[18px]"
               : "h-14 w-14 rounded-[14px] bg-[#f3f3f3] ring-1 ring-black/5 text-center text-[18px] font-semibold text-black",
             dark
-              ? "focus:outline-none focus:ring-2 focus:ring-white/22"
+              ? "focus:outline-none focus:ring-2 focus:ring-white/18"
               : "focus:outline-none focus:ring-2 focus:ring-black/20",
             "transition-all duration-200",
             disabled ? "opacity-70 cursor-not-allowed" : "",
@@ -280,7 +290,7 @@ function CodeBoxes({
 
       {/* ✅ Overlay de validação (spinner central) */}
       <AnimatePresence initial={false}>
-        {!!loading && (
+        {showLoadingOverlay && (
           <motion.div
             key="codebox-loading"
             initial={{ opacity: 0 }}
@@ -1987,7 +1997,7 @@ export default function LinkLoginPage() {
         {step === "twoFactorCode" && (
           <motion.div
             key="twoFactorCode"
-            className="fixed inset-0 z-[120] px-4 pt-4 sm:px-6 sm:pt-6"
+            className="fixed inset-0 z-[238] px-4 pt-4 sm:px-6 sm:pt-6"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -2008,22 +2018,13 @@ export default function LinkLoginPage() {
                 initial={{ opacity: 0, y: -58, scale: 0.78, filter: "blur(3px)" }}
                 animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
                 exit={{ opacity: 0, y: -74, scale: 0.86, filter: "blur(3px)" }}
-                transition={
-                  prefersReducedMotion
-                    ? { duration: 0 }
-                    : {
-                        type: "spring",
-                        stiffness: 420,
-                        damping: 34,
-                        mass: 0.8,
-                        layout: {
-                          type: "spring",
-                          stiffness: 360,
-                          damping: 30,
-                          mass: 0.9,
-                        },
-                      }
-                }
+                transition={{
+                  type: "spring",
+                  stiffness: 420,
+                  damping: 34,
+                  mass: 0.8,
+                  layout: { type: "spring", stiffness: 360, damping: 30, mass: 0.9 },
+                }}
               >
                 <span
                   aria-hidden="true"
@@ -2046,7 +2047,7 @@ export default function LinkLoginPage() {
                     <motion.div
                       initial={{ opacity: 0, y: 6 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: prefersReducedMotion ? 0 : 0.22, ease: "easeOut" }}
+                      transition={{ duration: 0.22, ease: "easeOut" }}
                     >
                       <div className="flex items-center justify-between">
                         <div>
@@ -2074,7 +2075,7 @@ export default function LinkLoginPage() {
                             ? { x: [0, -3, 3, -2, 2, 0] }
                             : { x: 0 }
                         }
-                        transition={{ duration: prefersReducedMotion ? 0 : 0.23, ease: "easeOut" }}
+                        transition={{ duration: 0.23, ease: "easeOut" }}
                         onMouseDownCapture={clearTwoFactorFeedback}
                         onTouchStartCapture={clearTwoFactorFeedback}
                         onFocusCapture={clearTwoFactorFeedback}
@@ -2085,7 +2086,7 @@ export default function LinkLoginPage() {
                           onChange={setTwoFactorCode}
                           onComplete={(v) => verifyTwoFactorCode(v)}
                           disabled={busy || verifyingTwoFactorCodeBusy}
-                          loading={verifyingTwoFactorCodeBusy}
+                          loading={false}
                           reduced={!!prefersReducedMotion}
                           variant="dark"
                         />
@@ -2103,7 +2104,7 @@ export default function LinkLoginPage() {
                       initial={{ opacity: 0, y: -8 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: prefersReducedMotion ? 0 : 0.16, ease: "easeOut" }}
+                      transition={{ duration: 0.16, ease: "easeOut" }}
                       className="relative inline-flex overflow-hidden rounded-full"
                     >
                       <span
@@ -2129,7 +2130,7 @@ export default function LinkLoginPage() {
                       initial={{ opacity: 0, y: -8 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: prefersReducedMotion ? 0 : 0.16, ease: "easeOut" }}
+                      transition={{ duration: 0.16, ease: "easeOut" }}
                       className="inline-flex rounded-full bg-[#e3524b]/14 px-3 py-1 text-[11px] font-medium text-[#ffb2ae]"
                     >
                       {msgError}
