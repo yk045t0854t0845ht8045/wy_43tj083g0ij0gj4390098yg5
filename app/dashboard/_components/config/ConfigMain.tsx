@@ -2785,11 +2785,11 @@ function AccountContent({
               >
                 <span
                   aria-hidden="true"
-                  className="twofactor-island-border pointer-events-none absolute -inset-px z-0 rounded-[inherit]"
+                  className="twofactor-island-border pointer-events-none absolute inset-0 rounded-[inherit]"
                   style={{
-                    padding: "1px",
+                    padding: "1.2px",
                     background:
-                      "conic-gradient(from var(--a), rgba(255,255,255,0) 0 78%, rgba(255,255,255,0.9) 86%, rgba(255,255,255,0.3) 94%, rgba(255,255,255,0) 100%)",
+                      "conic-gradient(from var(--a), rgba(255,255,255,0) 0 76%, rgba(255,255,255,0.86) 84%, rgba(255,255,255,0.22) 91%, rgba(255,255,255,0) 100%)",
                     WebkitMask:
                       "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
                     WebkitMaskComposite: "xor",
@@ -2852,26 +2852,41 @@ function AccountContent({
                           variant="dark"
                         />
                       </motion.div>
-                      <div className="mt-1 flex justify-center">
-                        <AnimatePresence initial={false}>
-                          {accountActionTwoFactorInvalidError ? (
-                            <motion.p
-                              key="account-action-twofactor-error"
-                              initial={{ opacity: 0, y: -8 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -8 }}
-                              transition={{ duration: 0.16, ease: "easeOut" }}
-                              className="inline-flex rounded-full border border-[#e3524b]/40 bg-[#e3524b]/14 px-3 py-1 text-[11px] font-medium text-[#ff8b86]"
-                            >
-                              Codigo de autenticacao invalido. Tente novamente.
-                            </motion.p>
-                          ) : null}
-                        </AnimatePresence>
-                      </div>
                     </motion.div>
                   )}
                 </div>
               </motion.section>
+              <div className="relative z-[1] mt-2 flex justify-center">
+                <AnimatePresence initial={false}>
+                  {accountActionTwoFactorInvalidError ? (
+                    <motion.div
+                      key="account-action-twofactor-error"
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.16, ease: "easeOut" }}
+                      className="relative inline-flex overflow-hidden rounded-full"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="twofactor-error-border pointer-events-none absolute inset-0 rounded-[inherit]"
+                        style={{
+                          padding: "1px",
+                          background:
+                            "conic-gradient(from var(--a), rgba(227,82,75,0) 0 74%, rgba(227,82,75,0.86) 84%, rgba(227,82,75,0.28) 92%, rgba(227,82,75,0) 100%)",
+                          WebkitMask:
+                            "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+                          WebkitMaskComposite: "xor",
+                          maskComposite: "exclude",
+                        }}
+                      />
+                      <span className="relative inline-flex rounded-full bg-[#e3524b]/14 px-3 py-1 text-[11px] font-medium text-[#ff8b86]">
+                        Codigo de autenticacao invalido. Tente novamente.
+                      </span>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
+              </div>
             </div>
           </motion.div>
         )}

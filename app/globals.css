@@ -360,8 +360,18 @@ button>span[aria-hidden="true"] {
   filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.14));
 }
 
+.twofactor-error-border {
+  animation: flowBorder 6s linear infinite;
+  will-change: transform;
+  filter: drop-shadow(0 0 6px rgba(227, 82, 75, 0.18));
+}
+
 @media (prefers-reduced-motion: reduce) {
   .twofactor-island-border {
+    animation: none;
+  }
+
+  .twofactor-error-border {
     animation: none;
   }
 }
