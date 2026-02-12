@@ -4378,7 +4378,7 @@ function AccountContent({
                       />
                       <span className="relative inline-flex items-center gap-2 rounded-full bg-black/28 px-3 py-1 text-[11px] font-medium text-white/88">
                         <span className="inline-flex h-3.5 w-3.5 animate-spin rounded-full border border-white/45 border-t-white" />
-                        Abrindo o Windows Hello...
+                        Autenticando Windows Hello, aguarde...
                       </span>
                     </motion.div>
                   ) : accountActionTwoFactorError ? (
