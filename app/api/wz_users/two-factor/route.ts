@@ -1102,6 +1102,89 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const mode = String(body?.mode || "enable-start").trim();
 
+    if (mode === "verify-app-code") {
+      if (!base.twoFactorEnabled || !base.twoFactorSecret) {
+        return NextResponse.json(
+          { ok: false, error: "A autenticacao em 2 etapas nao esta ativa." },
+          { status: 409, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const code = onlyDigits(String(body?.code || "")).slice(0, TOTP_DIGITS);
+      if (code.length !== TOTP_DIGITS) {
+        return NextResponse.json(
+          { ok: false, error: "Codigo do aplicativo invalido." },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const valid = verifyTotpCode({
+        secret: base.twoFactorSecret,
+        code,
+      });
+      if (!valid) {
+        return NextResponse.json(
+          { ok: false, error: "Codigo do aplicativo invalido. Tente novamente." },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      return NextResponse.json(
+        { ok: true, verified: true },
+        { status: 200, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    if (mode === "disable-start-after-app-code") {
+      if (!base.twoFactorEnabled || !base.twoFactorSecret) {
+        return NextResponse.json(
+          { ok: false, error: "A autenticacao em 2 etapas ja esta desativada." },
+          { status: 409, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const code = onlyDigits(String(body?.code || "")).slice(0, TOTP_DIGITS);
+      if (code.length !== TOTP_DIGITS) {
+        return NextResponse.json(
+          { ok: false, error: "Codigo do aplicativo invalido." },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const valid = verifyTotpCode({
+        secret: base.twoFactorSecret,
+        code,
+      });
+      if (!valid) {
+        return NextResponse.json(
+          { ok: false, error: "Codigo do aplicativo invalido. Tente novamente." },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const emailCode = await createEmailChallenge(base.sb, base.sessionEmail);
+      await sendLoginCodeEmail(base.sessionEmail, emailCode, {
+        heading: "Desativando autenticacao em 2 etapas",
+      });
+
+      const ticket = createTwoFactorTicket({
+        userId: base.sessionUserId,
+        currentEmail: base.sessionEmail,
+        phase: "disable-verify-email",
+      });
+
+      return NextResponse.json(
+        {
+          ok: true,
+          mode: "disable",
+          phase: "disable-verify-email",
+          ticket,
+          emailMask: maskEmail(base.sessionEmail),
+        },
+        { status: 200, headers: NO_STORE_HEADERS },
+      );
+    }
+
     if (mode === "disable-start") {
       if (!base.twoFactorEnabled || !base.twoFactorSecret) {
         return NextResponse.json(
