@@ -2002,7 +2002,7 @@ export default function LinkLoginPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
-            <div className="absolute inset-0 bg-black/62 backdrop-blur-[11px]" />
+            <div className="absolute inset-0 bg-black/72 backdrop-blur-[14px]" />
 
             <div className="relative z-[1] flex flex-col items-center">
               <motion.section
