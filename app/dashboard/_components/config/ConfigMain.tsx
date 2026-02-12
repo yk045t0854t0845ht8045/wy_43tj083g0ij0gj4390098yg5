@@ -336,12 +336,14 @@ function CodeBoxes({
   onChange,
   onComplete,
   disabled,
+  variant = "default",
 }: {
   length: number;
   value: string;
   onChange: (value: string) => void;
   onComplete?: (value: string) => void;
   disabled?: boolean;
+  variant?: "default" | "dark";
 }) {
   const refs = useRef<Array<HTMLInputElement | null>>([]);
   const lastCompletedRef = useRef<string>("");
@@ -415,8 +417,12 @@ function CodeBoxes({
             focusAt(Math.min(pasted.length, length - 1));
           }}
           className={cx(
-            "h-11 w-8 rounded-[10px] border border-black/12 bg-[#ececef] text-center text-[16px] font-semibold text-black/85 sm:h-12 sm:w-10 sm:rounded-[12px] sm:text-[18px]",
-            "focus:outline-none focus:ring-2 focus:ring-black/20",
+            variant === "dark"
+              ? "h-11 w-8 rounded-[10px] border border-white/18 bg-white/[0.08] text-center text-[16px] font-semibold text-white/94 sm:h-12 sm:w-10 sm:rounded-[12px] sm:text-[18px]"
+              : "h-11 w-8 rounded-[10px] border border-black/12 bg-[#ececef] text-center text-[16px] font-semibold text-black/85 sm:h-12 sm:w-10 sm:rounded-[12px] sm:text-[18px]",
+            variant === "dark"
+              ? "focus:outline-none focus:ring-2 focus:ring-white/25"
+              : "focus:outline-none focus:ring-2 focus:ring-black/20",
             disabled ? "cursor-not-allowed opacity-70" : ""
           )}
         />
@@ -527,6 +533,7 @@ function AccountContent({
   const [accountActionTwoFactorError, setAccountActionTwoFactorError] = useState<string | null>(
     null
   );
+  const [accountActionTwoFactorUiLoading, setAccountActionTwoFactorUiLoading] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(() =>
     Boolean(initialTwoFactorEnabled)
   );
@@ -805,18 +812,13 @@ function AccountContent({
     (accountActionTwoFactorContext === "email" && verifyingEmailCode) ||
     (accountActionTwoFactorContext === "phone" && verifyingPhoneCode) ||
     (accountActionTwoFactorContext === "password" && verifyingPasswordCode);
-  const accountActionTwoFactorTargetLabel = useMemo(() => {
-    if (accountActionTwoFactorContext === "email") return "alteracao de e-mail";
-    if (accountActionTwoFactorContext === "phone") return "alteracao de celular";
-    if (accountActionTwoFactorContext === "password") return "alteracao de senha";
-    return "esta acao";
-  }, [accountActionTwoFactorContext]);
 
   const resetAccountActionTwoFactorModal = useCallback(() => {
     setAccountActionTwoFactorModalOpen(false);
     setAccountActionTwoFactorContext(null);
     setAccountActionTwoFactorCode("");
     setAccountActionTwoFactorError(null);
+    setAccountActionTwoFactorUiLoading(false);
   }, []);
 
   const openAccountActionTwoFactorModal = useCallback(
@@ -828,6 +830,18 @@ function AccountContent({
     },
     []
   );
+
+  useEffect(() => {
+    if (!accountActionTwoFactorModalOpen) {
+      setAccountActionTwoFactorUiLoading(false);
+      return;
+    }
+    setAccountActionTwoFactorUiLoading(true);
+    const timer = window.setTimeout(() => {
+      setAccountActionTwoFactorUiLoading(false);
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [accountActionTwoFactorContext, accountActionTwoFactorModalOpen]);
 
   const resetEmailChangeFlow = useCallback(
     () => {
@@ -991,13 +1005,6 @@ function AccountContent({
     const code = onlyDigits(String(nextValue || emailCode || "")).slice(0, 7);
     if (code.length !== 7) return;
     const twoFactorCode = onlyDigits(String(providedTwoFactorCode || "")).slice(0, 6);
-    if (emailRequiresTwoFactor && twoFactorCode.length !== 6) {
-      setEmailForceTwoFactor(true);
-      setEmailCode(code);
-      setEmailChangeError(null);
-      openAccountActionTwoFactorModal("email");
-      return;
-    }
 
     try {
       setVerifyingEmailCode(true);
@@ -1009,7 +1016,7 @@ function AccountContent({
         body: JSON.stringify({
           ticket: emailChangeTicket,
           code,
-          ...(emailRequiresTwoFactor ? { twoFactorCode } : {}),
+          ...(twoFactorCode.length === 6 ? { twoFactorCode } : {}),
         }),
       });
 
@@ -1253,13 +1260,6 @@ function AccountContent({
     const code = onlyDigits(String(nextValue || phoneCode || "")).slice(0, 7);
     if (code.length !== 7) return;
     const twoFactorCode = onlyDigits(String(providedTwoFactorCode || "")).slice(0, 6);
-    if (phoneRequiresTwoFactor && twoFactorCode.length !== 6) {
-      setPhoneForceTwoFactor(true);
-      setPhoneCode(code);
-      setPhoneChangeError(null);
-      openAccountActionTwoFactorModal("phone");
-      return;
-    }
 
     try {
       setVerifyingPhoneCode(true);
@@ -1271,7 +1271,7 @@ function AccountContent({
         body: JSON.stringify({
           ticket: phoneChangeTicket,
           code,
-          ...(phoneRequiresTwoFactor ? { twoFactorCode } : {}),
+          ...(twoFactorCode.length === 6 ? { twoFactorCode } : {}),
         }),
       });
 
@@ -1491,13 +1491,6 @@ function AccountContent({
     const code = onlyDigits(String(nextValue || passwordCode || "")).slice(0, 7);
     if (code.length !== 7) return;
     const twoFactorCode = onlyDigits(String(providedTwoFactorCode || "")).slice(0, 6);
-    if (passwordRequiresTwoFactor && twoFactorCode.length !== 6) {
-      setPasswordForceTwoFactor(true);
-      setPasswordCode(code);
-      setPasswordChangeError(null);
-      openAccountActionTwoFactorModal("password");
-      return;
-    }
 
     try {
       setVerifyingPasswordCode(true);
@@ -1512,7 +1505,7 @@ function AccountContent({
           currentPassword: currentPasswordInput,
           newPassword: newPasswordInput,
           confirmNewPassword: confirmNewPasswordInput,
-          ...(passwordRequiresTwoFactor ? { twoFactorCode } : {}),
+          ...(twoFactorCode.length === 6 ? { twoFactorCode } : {}),
         }),
       });
 
@@ -2738,78 +2731,64 @@ function AccountContent({
 
         {accountActionTwoFactorModalOpen && (
           <motion.div
-            className="fixed inset-0 z-[228] flex items-center justify-center p-4 sm:p-6"
+            className="fixed inset-0 z-[238] px-4 pt-4 sm:px-6 sm:pt-6"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
-            <button
-              type="button"
-              className="absolute inset-0 bg-black/45 backdrop-blur-[4px]"
-              onClick={resetAccountActionTwoFactorModal}
-              disabled={accountActionTwoFactorBusy}
-            />
-            <motion.section
-              role="dialog"
-              aria-modal="true"
-              className="relative z-[1] w-[min(96vw,480px)] overflow-hidden rounded-2xl border border-black/15 bg-[#f3f3f4] shadow-[0_26px_70px_rgba(0,0,0,0.35)] sm:w-[min(92vw,480px)]"
-              initial={{ opacity: 0, y: 10, scale: 0.985 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 8, scale: 0.985 }}
-            >
-              <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6">
-                <h3 className="text-[18px] font-semibold text-black/80">Validar autenticador</h3>
-                <button
-                  type="button"
-                  onClick={resetAccountActionTwoFactorModal}
-                  disabled={accountActionTwoFactorBusy}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
+            <div className="absolute inset-0 bg-black/52 backdrop-blur-[8px]" />
 
-              <div className="px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
-                <p className="text-[14px] leading-[1.45] text-black/62">
-                  Digite o codigo de 6 digitos do aplicativo autenticador para concluir a{" "}
-                  {accountActionTwoFactorTargetLabel}.
-                </p>
-                <CodeBoxes
-                  length={6}
-                  value={accountActionTwoFactorCode}
-                  onChange={setAccountActionTwoFactorCode}
-                  onComplete={(value) => {
-                    void submitAccountActionTwoFactorCode(value);
-                  }}
-                  disabled={accountActionTwoFactorBusy}
-                />
-                {accountActionTwoFactorError && (
-                  <p className="mt-4 rounded-lg border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-2 text-[13px] font-medium text-[#b2433e]">
-                    {accountActionTwoFactorError}
-                  </p>
-                )}
-                <div className="mt-5 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={resetAccountActionTwoFactorModal}
-                    disabled={accountActionTwoFactorBusy}
-                    className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void submitAccountActionTwoFactorCode()}
-                    disabled={
-                      accountActionTwoFactorBusy || onlyDigits(accountActionTwoFactorCode).length !== 6
-                    }
-                    className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
-                  >
-                    {accountActionTwoFactorBusy ? "Validando..." : "Confirmar"}
-                  </button>
-                </div>
+            {accountActionTwoFactorUiLoading ? (
+              <motion.div
+                className="relative z-[1] flex h-full items-center justify-center"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/18 bg-black/70">
+                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                </span>
+              </motion.div>
+            ) : (
+              <div className="relative z-[1] flex justify-center">
+                <motion.section
+                  role="dialog"
+                  aria-modal="true"
+                  className={cx(
+                    "w-[min(96vw,540px)] rounded-[28px] border bg-[#070707] px-4 pb-5 pt-3 shadow-[0_24px_80px_rgba(0,0,0,0.55)] sm:w-[min(92vw,560px)] sm:px-5 sm:pb-6",
+                    accountActionTwoFactorError ? "border-[#e3524b]/55" : "border-white/12"
+                  )}
+                  initial={{ opacity: 0, y: -34, scale: 0.965 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -42, scale: 0.955 }}
+                >
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-[14px] font-semibold tracking-[0.02em] text-white/92 sm:text-[15px]">
+                      Autenticacao de 2 etapas
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={resetAccountActionTwoFactorModal}
+                      disabled={accountActionTwoFactorBusy}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <CodeBoxes
+                    length={6}
+                    value={accountActionTwoFactorCode}
+                    onChange={setAccountActionTwoFactorCode}
+                    onComplete={(value) => {
+                      void submitAccountActionTwoFactorCode(value);
+                    }}
+                    disabled={accountActionTwoFactorBusy || accountActionTwoFactorUiLoading}
+                    variant="dark"
+                  />
+                </motion.section>
               </div>
-            </motion.section>
+            )}
           </motion.div>
         )}
 

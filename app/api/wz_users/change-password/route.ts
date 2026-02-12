@@ -421,6 +421,7 @@ async function verifyEmailChallengeCode(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   email: string;
   code: string;
+  consumeOnSuccess?: boolean;
 }) {
   const { data: challenge, error: challengeErr } = await params.sb
     .from("wz_auth_challenges")
@@ -484,8 +485,10 @@ async function verifyEmailChallengeCode(params: {
     };
   }
 
-  await params.sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", challenge.id);
-  return { ok: true as const };
+  if (params.consumeOnSuccess !== false) {
+    await params.sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", challenge.id);
+  }
+  return { ok: true as const, challengeId: String(challenge.id) };
 }
 
 async function getSessionAndUser(req: NextRequest) {
@@ -682,6 +685,7 @@ export async function PUT(req: NextRequest) {
       sb: base.sb,
       email: base.sessionEmail,
       code,
+      consumeOnSuccess: false,
     });
     if (!verifyCode.ok) {
       return NextResponse.json(
@@ -722,6 +726,18 @@ export async function PUT(req: NextRequest) {
           { status: 401, headers: NO_STORE_HEADERS },
         );
       }
+    }
+
+    const { error: consumeChallengeError } = await base.sb
+      .from("wz_auth_challenges")
+      .update({ consumed: true })
+      .eq("id", verifyCode.challengeId);
+    if (consumeChallengeError) {
+      console.error("[change-password] consume challenge error:", consumeChallengeError);
+      return NextResponse.json(
+        { ok: false, error: "Nao foi possivel confirmar o codigo. Tente novamente." },
+        { status: 500, headers: NO_STORE_HEADERS },
+      );
     }
 
     const currentAuthUserId = await resolveCurrentAuthUserId({

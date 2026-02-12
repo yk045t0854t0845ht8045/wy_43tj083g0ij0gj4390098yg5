@@ -468,6 +468,7 @@ async function verifySmsChallengeCode(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   email: string;
   code: string;
+  consumeOnSuccess?: boolean;
 }) {
   const { data: challenge, error: challengeErr } = await params.sb
     .from("wz_auth_challenges")
@@ -531,8 +532,10 @@ async function verifySmsChallengeCode(params: {
     };
   }
 
-  await params.sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", challenge.id);
-  return { ok: true as const };
+  if (params.consumeOnSuccess !== false) {
+    await params.sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", challenge.id);
+  }
+  return { ok: true as const, challengeId: String(challenge.id) };
 }
 
 async function getSessionAndUser(req: NextRequest) {
@@ -806,6 +809,7 @@ export async function PUT(req: NextRequest) {
       sb: base.sb,
       email: base.sessionEmail,
       code,
+      consumeOnSuccess: ticketRes.payload.phase !== "verify-new",
     });
     if (!verifyCurrent.ok) {
       return NextResponse.json(
@@ -875,6 +879,18 @@ export async function PUT(req: NextRequest) {
           { status: 401, headers: NO_STORE_HEADERS },
         );
       }
+    }
+
+    const { error: consumeChallengeError } = await base.sb
+      .from("wz_auth_challenges")
+      .update({ consumed: true })
+      .eq("id", verifyCurrent.challengeId);
+    if (consumeChallengeError) {
+      console.error("[change-phone] consume challenge error:", consumeChallengeError);
+      return NextResponse.json(
+        { ok: false, error: "Nao foi possivel confirmar o codigo. Tente novamente." },
+        { status: 500, headers: NO_STORE_HEADERS },
+      );
     }
 
     const currentRowPhone = normalizeE164Phone(base.userRow.phone_e164);
