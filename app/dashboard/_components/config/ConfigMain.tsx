@@ -818,8 +818,13 @@ function AccountContent({
     resetEmailChangeFlow();
   };
 
-  const openEmailModal = () => {
+  const openEmailModal = async () => {
     if (sendingEmailCode || resendingEmailCode || verifyingEmailCode) return;
+    const allowed = await ensureTwoFactorGuardForSensitiveAction(
+      "Alterar e-mail",
+      "Digite o codigo de 6 digitos do autenticador para abrir este processo."
+    );
+    if (!allowed) return;
     resetEmailChangeFlow();
     setEmailModalOpen(true);
   };
@@ -1045,8 +1050,13 @@ function AccountContent({
     resetPhoneChangeFlow();
   };
 
-  const openPhoneModal = () => {
+  const openPhoneModal = async () => {
     if (sendingPhoneCode || resendingPhoneCode || verifyingPhoneCode) return;
+    const allowed = await ensureTwoFactorGuardForSensitiveAction(
+      "Alterar celular",
+      "Digite o codigo de 6 digitos do autenticador para abrir este processo."
+    );
+    if (!allowed) return;
     resetPhoneChangeFlow();
     setPhoneModalOpen(true);
   };
@@ -1268,8 +1278,13 @@ function AccountContent({
     resetPasswordChangeFlow();
   };
 
-  const openPasswordModal = () => {
+  const openPasswordModal = async () => {
     if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
+    const allowed = await ensureTwoFactorGuardForSensitiveAction(
+      "Alterar senha",
+      "Digite o codigo de 6 digitos do autenticador para abrir este processo."
+    );
+    if (!allowed) return;
     resetPasswordChangeFlow();
     setPasswordModalOpen(true);
   };
@@ -1539,10 +1554,6 @@ function AccountContent({
       description: string;
       action: TwoFactorDeactivationAction;
     }) => {
-      if (!twoFactorEnabled) {
-        return Promise.resolve(true);
-      }
-
       return new Promise<boolean>((resolve) => {
         if (deactivationGuardResolverRef.current) {
           deactivationGuardResolverRef.current(false);
@@ -1558,7 +1569,7 @@ function AccountContent({
         setDeactivationGuardOpen(true);
       });
     },
-    [twoFactorEnabled]
+    []
   );
 
   const verifyTwoFactorAppCodeForGuard = useCallback(async (code: string) => {
@@ -1583,6 +1594,18 @@ function AccountContent({
 
     return { ok: true } as TwoFactorDeactivationActionResult;
   }, []);
+
+  const ensureTwoFactorGuardForSensitiveAction = useCallback(
+    async (title: string, description: string) => {
+      if (!twoFactorEnabled) return true;
+      return openDeactivationGuard({
+        title,
+        description,
+        action: (code) => verifyTwoFactorAppCodeForGuard(code),
+      });
+    },
+    [openDeactivationGuard, twoFactorEnabled, verifyTwoFactorAppCodeForGuard]
+  );
 
   const runDeactivationGuardAction = useCallback(
     async (nextValue?: string) => {
@@ -1719,6 +1742,11 @@ function AccountContent({
   const handleSupportAccessToggle = async () => {
     if (!supportAccess) {
       setSupportAccess(true);
+      return;
+    }
+
+    if (!twoFactorEnabled) {
+      setSupportAccess(false);
       return;
     }
 
@@ -2053,9 +2081,9 @@ function AccountContent({
           <h4 className="text-[20px] font-semibold text-black/82">Seguranca da conta</h4>
           <div className="mt-4 border-t border-black/10" />
           <div className="space-y-6 pt-5">
-            <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">E-mail</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{emailChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedEmailValue}</p></div><button type="button" onClick={openEmailModal} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar E-mail</button></div>
-            <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Numero de celular</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{phoneChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedPhoneValue}</p></div><button type="button" onClick={openPhoneModal} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar celular</button></div>
-            <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Senha</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{passwordChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">Atualize sua senha com confirmacao por codigo enviado no e-mail.</p></div><button type="button" onClick={openPasswordModal} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar Senha</button></div>
+            <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">E-mail</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{emailChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedEmailValue}</p></div><button type="button" onClick={() => void openEmailModal()} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar E-mail</button></div>
+            <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Numero de celular</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{phoneChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedPhoneValue}</p></div><button type="button" onClick={() => void openPhoneModal()} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar celular</button></div>
+            <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Senha</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{passwordChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">Atualize sua senha com confirmacao por codigo enviado no e-mail.</p></div><button type="button" onClick={() => void openPasswordModal()} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar Senha</button></div>
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
