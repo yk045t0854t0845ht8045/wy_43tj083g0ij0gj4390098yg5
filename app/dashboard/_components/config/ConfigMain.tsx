@@ -2,6 +2,7 @@
 
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import {
+  Check,
   Copy,
   ChevronRight,
   Monitor,
@@ -509,7 +510,7 @@ function AccountContent({
   const [loadingTwoFactorStatus, setLoadingTwoFactorStatus] = useState(false);
   const [twoFactorModalOpen, setTwoFactorModalOpen] = useState(false);
   const [twoFactorStep, setTwoFactorStep] = useState<
-    "enable-verify-app" | "disable-verify-email" | "disable-verify-app"
+    "enable-verify-app" | "disable-intro" | "disable-verify-email" | "disable-verify-app"
   >("enable-verify-app");
   const [twoFactorEnableSubStep, setTwoFactorEnableSubStep] = useState<"setup" | "verify">("setup");
   const [twoFactorTicket, setTwoFactorTicket] = useState("");
@@ -1518,12 +1519,12 @@ function AccountContent({
         throw new Error(payload.error || "Nao foi possivel iniciar a desativacao de 2 etapas.");
       }
 
-      setTwoFactorStep("disable-verify-email");
+      setTwoFactorStep("disable-verify-app");
       setTwoFactorTicket(payload.ticket);
       setTwoFactorEmailMask(String(payload.emailMask || maskSecureEmail(localEmail)));
       setTwoFactorAppCode("");
       setTwoFactorEmailCode("");
-      setTwoFactorResendCooldown(60);
+      setTwoFactorResendCooldown(0);
     } catch (err) {
       console.error("[config-account] start two-factor disable failed:", err);
       setTwoFactorError(err instanceof Error ? err.message : "Erro ao iniciar desativacao de 2 etapas.");
@@ -1540,7 +1541,8 @@ function AccountContent({
     const status = await loadTwoFactorStatus();
     const shouldOpenDisableFlow = status ? status.enabled : twoFactorEnabled;
     if (shouldOpenDisableFlow) {
-      await startTwoFactorDisableFlow();
+      setTwoFactorStep("disable-intro");
+      setTwoFactorEmailMask(maskSecureEmail(localEmail));
       return;
     }
     await startTwoFactorEnableFlow();
@@ -1678,12 +1680,12 @@ function AccountContent({
 
       const payload = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
-        next?: "verify-authenticator";
-        ticket?: string;
+        enabled?: boolean;
+        twoFactorDisabledAt?: string | null;
         error?: string;
       };
 
-      if (!res.ok || !payload.ok || payload.next !== "verify-authenticator" || !payload.ticket) {
+      if (!res.ok || !payload.ok || payload.enabled !== false) {
         const fallback =
           res.status === 429
             ? "Voce atingiu o limite de tentativas. Reenvie o codigo."
@@ -1696,11 +1698,13 @@ function AccountContent({
         return;
       }
 
-      setTwoFactorStep("disable-verify-app");
-      setTwoFactorTicket(String(payload.ticket));
-      setTwoFactorEmailCode("");
-      setTwoFactorAppCode("");
-      setTwoFactorResendCooldown(0);
+      const nextDisabledAt =
+        normalizeIsoDatetime(payload.twoFactorDisabledAt) || new Date().toISOString();
+      setTwoFactorEnabled(false);
+      setTwoFactorEnabledAt(null);
+      setTwoFactorDisabledAt(nextDisabledAt);
+      setTwoFactorModalOpen(false);
+      resetTwoFactorFlow();
     } catch (err) {
       console.error("[config-account] verify two-factor disable email code failed:", err);
       setTwoFactorError(
@@ -1730,22 +1734,23 @@ function AccountContent({
 
       const payload = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
-        enabled?: boolean;
-        twoFactorDisabledAt?: string | null;
+        next?: "verify-email";
+        phase?: "disable-verify-email";
+        ticket?: string;
+        emailMask?: string;
         error?: string;
       };
 
-      if (!res.ok || !payload.ok || payload.enabled !== false) {
+      if (!res.ok || !payload.ok || payload.next !== "verify-email" || !payload.ticket) {
         throw new Error(payload.error || "Codigo do aplicativo invalido.");
       }
 
-      const nextDisabledAt =
-        normalizeIsoDatetime(payload.twoFactorDisabledAt) || new Date().toISOString();
-      setTwoFactorEnabled(false);
-      setTwoFactorEnabledAt(null);
-      setTwoFactorDisabledAt(nextDisabledAt);
-      setTwoFactorModalOpen(false);
-      resetTwoFactorFlow();
+      setTwoFactorStep("disable-verify-email");
+      setTwoFactorTicket(String(payload.ticket));
+      setTwoFactorEmailMask(String(payload.emailMask || maskSecureEmail(localEmail)));
+      setTwoFactorAppCode("");
+      setTwoFactorEmailCode("");
+      setTwoFactorResendCooldown(60);
     } catch (err) {
       console.error("[config-account] verify two-factor disable app code failed:", err);
       setTwoFactorError(
@@ -2545,69 +2550,73 @@ function AccountContent({
               <div className="px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
                 {twoFactorStep === "enable-verify-app" && (
                   <>
-                    <p className="text-[14px] leading-[1.45] text-black/62">
-                      Escaneie o QR code com Google Authenticator, Microsoft Authenticator ou app
-                      equivalente. Se preferir, use o codigo manual.
-                    </p>
-
-                    {twoFactorQrCodeDataUrl ? (
-                      <div className="mt-4 flex justify-center">
-                        <div className="rounded-2xl border border-black/10 bg-white p-3">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={twoFactorQrCodeDataUrl}
-                            alt="QR code para autenticacao em duas etapas"
-                            className="h-[220px] w-[220px] object-contain"
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="mt-4 rounded-xl border border-black/10 bg-white/80 px-3 py-3 text-[13px] text-black/62">
-                        Gerando QR code...
-                      </div>
-                    )}
-
-                    <div className="mt-4 flex justify-center">
-                      <div className="w-full max-w-[360px]">
-                        <p className="mb-2 text-center text-[13px] font-medium text-black/62">
-                          Codigo manual
-                        </p>
-                        <div className="relative">
-                          <input
-                            type="text"
-                            readOnly
-                            value={twoFactorManualCode || ""}
-                            placeholder="Aguardando codigo..."
-                            className="h-11 w-full rounded-xl border border-black/12 bg-white/92 px-3 pr-12 text-center text-[13px] font-semibold tracking-[0.08em] text-black/80 outline-none"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => void copyTwoFactorManualCode()}
-                            disabled={!twoFactorManualCode || isTwoFactorBusy}
-                            title="Copiar codigo manual"
-                            aria-label="Copiar codigo manual"
-                            className="absolute right-1.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-black/60 transition-colors hover:bg-black/[0.05] hover:text-black/82 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <Copy className="h-4 w-4" />
-                          </button>
-                        </div>
-                        {copyingTwoFactorCode !== "idle" && (
-                          <p className="mt-1 text-center text-[11px] text-black/55">
-                            {copyingTwoFactorCode === "copied" ? "Codigo copiado" : "Falhou ao copiar"}
-                          </p>
-                        )}
-                      </div>
-                    </div>
                     {twoFactorEnableSubStep === "setup" && (
+                      <>
+                        <p className="text-[14px] leading-[1.45] text-black/62">
+                          Escaneie o QR code com Google Authenticator, Microsoft Authenticator ou app
+                          equivalente. Se preferir, use o codigo manual.
+                        </p>
+
+                        {twoFactorQrCodeDataUrl ? (
+                          <div className="mt-4 flex justify-center">
+                            <div className="rounded-2xl border border-black/10 bg-white p-3">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={twoFactorQrCodeDataUrl}
+                                alt="QR code para autenticacao em duas etapas"
+                                className="h-[220px] w-[220px] object-contain"
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-4 rounded-xl border border-black/10 bg-white/80 px-3 py-3 text-[13px] text-black/62">
+                            Gerando QR code...
+                          </div>
+                        )}
+
+                        <div className="mt-4 flex justify-center">
+                          <div className="w-full max-w-[360px]">
+                            <p className="mb-2 text-center text-[13px] font-medium text-black/62">
+                              Codigo manual
+                            </p>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                readOnly
+                                value={twoFactorManualCode || ""}
+                                placeholder="Aguardando codigo..."
+                                className="h-11 w-full rounded-xl border border-black/12 bg-white/92 px-3 pr-12 text-center text-[13px] font-semibold tracking-[0.08em] text-black/80 outline-none"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void copyTwoFactorManualCode()}
+                                disabled={!twoFactorManualCode || isTwoFactorBusy}
+                                title="Copiar codigo manual"
+                                aria-label="Copiar codigo manual"
+                                className="absolute right-1.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-black/60 transition-colors hover:bg-black/[0.05] hover:text-black/82 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {copyingTwoFactorCode === "copied" ? (
+                                  <Check className="h-4 w-4 text-emerald-600" />
+                                ) : (
+                                  <Copy className="h-4 w-4" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <p className="mt-5 text-[14px] leading-[1.45] text-black/62">
+                          Depois de adicionar no aplicativo, clique em continuar para validar.
+                        </p>
+                      </>
+                    )}
+                    {twoFactorEnableSubStep === "verify" && (
                       <p className="mt-5 text-[14px] leading-[1.45] text-black/62">
-                        Depois de adicionar no aplicativo, clique em continuar para validar.
+                        Digite o codigo de 6 digitos gerado no aplicativo para ativar.
                       </p>
                     )}
                     {twoFactorEnableSubStep === "verify" && (
                       <>
-                        <p className="mt-5 text-[14px] leading-[1.45] text-black/62">
-                          Digite o codigo de 6 digitos gerado no aplicativo para ativar.
-                        </p>
                         <CodeBoxes
                           length={6}
                           value={twoFactorAppCode}
@@ -2620,10 +2629,32 @@ function AccountContent({
                   </>
                 )}
 
+                {twoFactorStep === "disable-intro" && (
+                  <>
+                    <p className="text-[14px] leading-[1.45] text-black/62">
+                      A autenticacao de 2 etapas esta ativa nesta conta.
+                    </p>
+                    <p className="mt-3 text-[14px] leading-[1.45] text-black/62">
+                      Para desativar, voce vai confirmar em duas etapas:
+                    </p>
+                    <ol className="mt-2 list-decimal pl-5 text-[14px] leading-[1.5] text-black/62">
+                      <li>Codigo de 6 digitos do aplicativo autenticador.</li>
+                      <li>Codigo de 7 digitos enviado para seu e-mail.</li>
+                    </ol>
+                    <p className="mt-3 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/72">
+                      E-mail para confirmacao:{" "}
+                      <span className="font-semibold text-black/86">
+                        {twoFactorEmailMask || maskSecureEmail(localEmail)}
+                      </span>
+                    </p>
+                  </>
+                )}
+
                 {twoFactorStep === "disable-verify-email" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      Para desativar, confirme primeiro o codigo enviado para seu e-mail.
+                      Codigo do aplicativo confirmado. Agora valide o codigo de 7 digitos enviado
+                      para seu e-mail para concluir a desativacao.
                     </p>
                     <p className="mt-3 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/72">
                       E-mail atual:{" "}
@@ -2658,8 +2689,8 @@ function AccountContent({
                 {twoFactorStep === "disable-verify-app" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      E-mail confirmado. Agora digite o codigo de 6 digitos do aplicativo para
-                      confirmar a desativacao.
+                      Digite o codigo de 6 digitos do aplicativo autenticador para iniciar a
+                      desativacao.
                     </p>
                     <CodeBoxes
                       length={6}
@@ -2689,7 +2720,7 @@ function AccountContent({
                     </button>
                   )}
 
-                  {twoFactorStep === "enable-verify-app" && (
+                  {twoFactorStep === "enable-verify-app" && twoFactorEnableSubStep === "setup" && (
                     <button
                       type="button"
                       onClick={() => void startTwoFactorEnableFlow()}
@@ -2733,14 +2764,25 @@ function AccountContent({
                     </button>
                   )}
 
+                  {twoFactorStep === "disable-intro" && (
+                    <button
+                      type="button"
+                      onClick={() => void startTwoFactorDisableFlow()}
+                      disabled={isTwoFactorBusy}
+                      className="rounded-xl bg-[#e3524b] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#d34942] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {startingTwoFactorFlow ? "Iniciando..." : "Confirmar desativacao"}
+                    </button>
+                  )}
+
                   {twoFactorStep === "disable-verify-email" && (
                     <button
                       type="button"
                       onClick={() => void verifyTwoFactorDisableEmailCode()}
                       disabled={isTwoFactorBusy || onlyDigits(twoFactorEmailCode).length !== 7}
-                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                      className="rounded-xl bg-[#e3524b] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#d34942] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      {verifyingTwoFactorStep ? "Validando..." : "Confirmar e-mail"}
+                      {verifyingTwoFactorStep ? "Validando..." : "Desativar 2 etapas"}
                     </button>
                   )}
 
@@ -2749,9 +2791,9 @@ function AccountContent({
                       type="button"
                       onClick={() => void verifyTwoFactorDisableAppCode()}
                       disabled={isTwoFactorBusy || onlyDigits(twoFactorAppCode).length !== 6}
-                      className="rounded-xl bg-[#e3524b] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#d34942] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      {verifyingTwoFactorStep ? "Validando..." : "Desativar 2 etapas"}
+                      {verifyingTwoFactorStep ? "Validando..." : "Confirmar codigo do app"}
                     </button>
                   )}
                 </div>

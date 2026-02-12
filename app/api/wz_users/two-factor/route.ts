@@ -758,22 +758,17 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const code = await createEmailChallenge(base.sb, base.sessionEmail);
-      await sendLoginCodeEmail(base.sessionEmail, code, {
-        heading: "Desativando autenticacao em 2 etapas",
-      });
-
       const ticket = createTwoFactorTicket({
         userId: String(base.userRow.id),
         currentEmail: base.sessionEmail,
-        phase: "disable-verify-email",
+        phase: "disable-verify-app",
       });
 
       return NextResponse.json(
         {
           ok: true,
           mode: "disable",
-          phase: "disable-verify-email",
+          phase: "disable-verify-app",
           ticket,
           emailMask: maskEmail(base.sessionEmail),
         },
@@ -946,6 +941,56 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    if (ticketRes.payload.phase === "disable-verify-app") {
+      if (!base.twoFactorEnabled || !base.twoFactorSecret) {
+        return NextResponse.json(
+          { ok: false, error: "A autenticacao em 2 etapas ja foi desativada." },
+          { status: 409, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const code = onlyDigits(String(body?.code || "")).slice(0, TOTP_DIGITS);
+      if (code.length !== TOTP_DIGITS) {
+        return NextResponse.json(
+          { ok: false, error: "Codigo do aplicativo invalido." },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const valid = verifyTotpCode({
+        secret: base.twoFactorSecret,
+        code,
+      });
+      if (!valid) {
+        return NextResponse.json(
+          { ok: false, error: "Codigo do aplicativo invalido. Tente novamente." },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const emailCode = await createEmailChallenge(base.sb, base.sessionEmail);
+      await sendLoginCodeEmail(base.sessionEmail, emailCode, {
+        heading: "Desativando autenticacao em 2 etapas",
+      });
+
+      const nextTicket = createTwoFactorTicket({
+        userId: String(base.userRow.id),
+        currentEmail: base.sessionEmail,
+        phase: "disable-verify-email",
+      });
+
+      return NextResponse.json(
+        {
+          ok: true,
+          next: "verify-email",
+          phase: "disable-verify-email",
+          ticket: nextTicket,
+          emailMask: maskEmail(base.sessionEmail),
+        },
+        { status: 200, headers: NO_STORE_HEADERS },
+      );
+    }
+
     if (ticketRes.payload.phase === "disable-verify-email") {
       if (!base.twoFactorEnabled || !base.twoFactorSecret) {
         return NextResponse.json(
@@ -971,45 +1016,6 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json(
           { ok: false, error: verifyEmail.error },
           { status: verifyEmail.status, headers: NO_STORE_HEADERS },
-        );
-      }
-
-      const nextTicket = createTwoFactorTicket({
-        userId: String(base.userRow.id),
-        currentEmail: base.sessionEmail,
-        phase: "disable-verify-app",
-      });
-
-      return NextResponse.json(
-        { ok: true, next: "verify-authenticator", phase: "disable-verify-app", ticket: nextTicket },
-        { status: 200, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    if (ticketRes.payload.phase === "disable-verify-app") {
-      if (!base.twoFactorEnabled || !base.twoFactorSecret) {
-        return NextResponse.json(
-          { ok: false, error: "A autenticacao em 2 etapas ja foi desativada." },
-          { status: 409, headers: NO_STORE_HEADERS },
-        );
-      }
-
-      const code = onlyDigits(String(body?.code || "")).slice(0, TOTP_DIGITS);
-      if (code.length !== TOTP_DIGITS) {
-        return NextResponse.json(
-          { ok: false, error: "Codigo do aplicativo invalido." },
-          { status: 400, headers: NO_STORE_HEADERS },
-        );
-      }
-
-      const valid = verifyTotpCode({
-        secret: base.twoFactorSecret,
-        code,
-      });
-      if (!valid) {
-        return NextResponse.json(
-          { ok: false, error: "Codigo do aplicativo invalido. Tente novamente." },
-          { status: 400, headers: NO_STORE_HEADERS },
         );
       }
 
