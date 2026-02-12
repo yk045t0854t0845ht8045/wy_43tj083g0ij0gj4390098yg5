@@ -63,7 +63,12 @@ type ConfigMainProps = {
   onUserTwoFactorChange?: (enabled: boolean, changedAt?: string | null) => void;
 };
 
-type AccountActionTwoFactorContext = "email" | "phone" | "password" | "two-factor-disable";
+type AccountActionTwoFactorContext =
+  | "email"
+  | "phone"
+  | "password"
+  | "two-factor-disable"
+  | "two-factor-enable";
 
 // LINKS DOS ICONES (PNG) DA SIDEBAR DE CONFIGURACOES
 // Edite apenas estes caminhos/URLs para trocar os icones.
@@ -813,7 +818,9 @@ function AccountContent({
     (accountActionTwoFactorContext === "email" && verifyingEmailCode) ||
     (accountActionTwoFactorContext === "phone" && verifyingPhoneCode) ||
     (accountActionTwoFactorContext === "password" && verifyingPasswordCode) ||
-    (accountActionTwoFactorContext === "two-factor-disable" && verifyingTwoFactorStep);
+    ((accountActionTwoFactorContext === "two-factor-disable" ||
+      accountActionTwoFactorContext === "two-factor-enable") &&
+      verifyingTwoFactorStep);
   const accountActionTwoFactorInvalidError = useMemo(() => {
     const message = String(accountActionTwoFactorError || "").trim();
     if (!message) return null;
@@ -850,6 +857,12 @@ function AccountContent({
     resetAccountActionTwoFactorModal();
     if (context === "two-factor-disable") {
       setTwoFactorStep("disable-intro");
+      setTwoFactorAppCode("");
+      setTwoFactorError(null);
+      return;
+    }
+    if (context === "two-factor-enable") {
+      setTwoFactorEnableSubStep("setup");
       setTwoFactorAppCode("");
       setTwoFactorError(null);
     }
@@ -1618,6 +1631,10 @@ function AccountContent({
       await verifyTwoFactorDisableAppCode(code);
       return;
     }
+    if (accountActionTwoFactorContext === "two-factor-enable") {
+      await verifyTwoFactorEnableCode(code);
+      return;
+    }
     await verifyPasswordChangeCode(undefined, code);
   };
 
@@ -1817,6 +1834,7 @@ function AccountContent({
     setTwoFactorError(null);
     setTwoFactorAppCode("");
     setTwoFactorEnableSubStep("verify");
+    openAccountActionTwoFactorModal("two-factor-enable");
   };
 
   const backToTwoFactorEnableSetup = () => {
@@ -1830,10 +1848,15 @@ function AccountContent({
     if (!twoFactorTicket || isTwoFactorBusy || twoFactorEnableSubStep !== "verify") return;
     const code = onlyDigits(String(nextValue || twoFactorAppCode || "")).slice(0, 6);
     if (code.length !== 6) return;
+    const usingDynamicIslandForEnable =
+      accountActionTwoFactorContext === "two-factor-enable" && accountActionTwoFactorModalOpen;
 
     try {
       setVerifyingTwoFactorStep(true);
       setTwoFactorError(null);
+      if (usingDynamicIslandForEnable) {
+        clearAccountActionTwoFactorFeedback();
+      }
 
       const res = await fetch("/api/wz_users/two-factor", {
         method: "PUT",
@@ -1858,13 +1881,21 @@ function AccountContent({
       setTwoFactorEnabledAt(nextEnabledAt);
       setTwoFactorDisabledAt(null);
       onUserTwoFactorChange?.(true, nextEnabledAt);
+      if (usingDynamicIslandForEnable) {
+        resetAccountActionTwoFactorModal();
+      }
       setTwoFactorModalOpen(false);
       resetTwoFactorFlow();
     } catch (err) {
       console.error("[config-account] verify two-factor enable failed:", err);
-      setTwoFactorError(
-        err instanceof Error ? err.message : "Erro ao validar codigo da autenticacao em 2 etapas."
-      );
+      const message =
+        err instanceof Error ? err.message : "Erro ao validar codigo da autenticacao em 2 etapas.";
+      if (usingDynamicIslandForEnable) {
+        setAccountActionTwoFactorFeedback(message);
+        setAccountActionTwoFactorCode("");
+      } else {
+        setTwoFactorError(message);
+      }
       setTwoFactorAppCode("");
     } finally {
       setVerifyingTwoFactorStep(false);
@@ -2040,13 +2071,22 @@ function AccountContent({
   const twoFactorActionLabel = twoFactorEnabled
     ? "Autenticacao de 2 etapas ativa"
     : "Adicionar um metodo de verificacao";
+  const usingTwoFactorEnableIsland =
+    twoFactorStep === "enable-verify-app" &&
+    twoFactorEnableSubStep === "verify" &&
+    accountActionTwoFactorContext === "two-factor-enable" &&
+    accountActionTwoFactorModalOpen;
   const accountActionTwoFactorTitle =
     accountActionTwoFactorContext === "two-factor-disable"
       ? "Desativar autenticacao de 2 etapas"
+      : accountActionTwoFactorContext === "two-factor-enable"
+        ? "Ativar autenticacao de 2 etapas"
       : "Autenticacao de 2 etapas";
   const accountActionTwoFactorDescription =
     accountActionTwoFactorContext === "two-factor-disable"
       ? "Digite o codigo de 6 digitos do aplicativo autenticador para iniciar a desativacao."
+      : accountActionTwoFactorContext === "two-factor-enable"
+        ? "Digite o codigo de 6 digitos gerado no aplicativo para ativar."
       : "Abra seu aplicativo autenticador para continuar.";
   const twoFactorButtonClass = cx(
     buttonShellClass,
@@ -3018,12 +3058,12 @@ function AccountContent({
                         </p>
                       </>
                     )}
-                    {twoFactorEnableSubStep === "verify" && (
+                    {twoFactorEnableSubStep === "verify" && !usingTwoFactorEnableIsland && (
                       <p className="mt-5 text-[14px] leading-[1.45] text-black/62">
                         Digite o codigo de 6 digitos gerado no aplicativo para ativar.
                       </p>
                     )}
-                    {twoFactorEnableSubStep === "verify" && (
+                    {twoFactorEnableSubStep === "verify" && !usingTwoFactorEnableIsland && (
                       <>
                         <CodeBoxes
                           length={6}
@@ -3150,7 +3190,9 @@ function AccountContent({
                     </button>
                   )}
 
-                  {twoFactorStep === "enable-verify-app" && twoFactorEnableSubStep === "verify" && (
+                  {twoFactorStep === "enable-verify-app" &&
+                    twoFactorEnableSubStep === "verify" &&
+                    !usingTwoFactorEnableIsland && (
                     <button
                       type="button"
                       onClick={backToTwoFactorEnableSetup}
@@ -3161,7 +3203,9 @@ function AccountContent({
                     </button>
                   )}
 
-                  {twoFactorStep === "enable-verify-app" && twoFactorEnableSubStep === "verify" && (
+                  {twoFactorStep === "enable-verify-app" &&
+                    twoFactorEnableSubStep === "verify" &&
+                    !usingTwoFactorEnableIsland && (
                     <button
                       type="button"
                       onClick={() => void verifyTwoFactorEnableCode()}
