@@ -1834,182 +1834,6 @@ export default function LinkLoginPage() {
               )}
             </AnimatePresence>
 
-            {/* STEP: TWO FACTOR CODE */}
-            <AnimatePresence mode="sync" initial={false}>
-              {step === "twoFactorCode" && (
-                <motion.div
-                  key="twoFactorCode"
-                  className="fixed inset-0 z-[120] px-4 pt-4 sm:px-6 sm:pt-6"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                >
-                  <div className="absolute inset-0 bg-black/62 backdrop-blur-[11px]" />
-
-                  <div className="relative z-[1] flex flex-col items-center">
-                    <motion.section
-                      layout
-                      role="dialog"
-                      aria-modal="true"
-                      className={cx(
-                        "relative overflow-hidden border border-white/12 [background:linear-gradient(180deg,#121212_0%,#090909_28%,#000000_100%)] shadow-[0_30px_98px_rgba(0,0,0,0.66)]",
-                        twoFactorIslandLoading
-                          ? "h-11 w-11 rounded-full p-0"
-                          : "w-[min(96vw,560px)] rounded-[30px] px-4 pb-5 pt-3 sm:w-[min(92vw,580px)] sm:px-5 sm:pb-6"
-                      )}
-                      initial={{ opacity: 0, y: -58, scale: 0.78, filter: "blur(3px)" }}
-                      animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
-                      exit={{ opacity: 0, y: -74, scale: 0.86, filter: "blur(3px)" }}
-                      transition={
-                        prefersReducedMotion
-                          ? { duration: 0 }
-                          : {
-                              type: "spring",
-                              stiffness: 420,
-                              damping: 34,
-                              mass: 0.8,
-                              layout: {
-                                type: "spring",
-                                stiffness: 360,
-                                damping: 30,
-                                mass: 0.9,
-                              },
-                            }
-                      }
-                    >
-                      <span
-                        aria-hidden="true"
-                        className="twofactor-island-border pointer-events-none absolute inset-0 rounded-[inherit]"
-                        style={{
-                          padding: "1.2px",
-                          background:
-                            "conic-gradient(from var(--a), rgba(255,255,255,0) 0 76%, rgba(255,255,255,0.86) 84%, rgba(255,255,255,0.22) 91%, rgba(255,255,255,0) 100%)",
-                          WebkitMask:
-                            "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
-                          WebkitMaskComposite: "xor",
-                          maskComposite: "exclude",
-                        }}
-                      />
-
-                      <div className="relative z-[1]">
-                        {twoFactorIslandLoading ? (
-                          <div className="h-full w-full" />
-                        ) : (
-                          <motion.div
-                            initial={{ opacity: 0, y: 6 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: prefersReducedMotion ? 0 : 0.22, ease: "easeOut" }}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <h3 className="text-[14px] font-semibold tracking-[0.02em] text-white/92 sm:text-[15px]">
-                                  Confirme a autenticacao de 2 etapas
-                                </h3>
-                                <p className="mt-0.5 text-[12px] text-white/58">
-                                  Abra seu aplicativo autenticador para continuar.
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={resetAll}
-                                disabled={busy || verifyingTwoFactorCodeBusy}
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                                aria-label="Cancelar autenticacao de 2 etapas"
-                              >
-                                <X className="h-4 w-4" />
-                              </button>
-                            </div>
-
-                            <motion.div
-                              animate={
-                                twoFactorShakeTick > 0
-                                  ? { x: [0, -3, 3, -2, 2, 0] }
-                                  : { x: 0 }
-                              }
-                              transition={{ duration: prefersReducedMotion ? 0 : 0.23, ease: "easeOut" }}
-                              onMouseDownCapture={clearTwoFactorFeedback}
-                              onTouchStartCapture={clearTwoFactorFeedback}
-                              onFocusCapture={clearTwoFactorFeedback}
-                            >
-                              <CodeBoxes
-                                length={6}
-                                value={twoFactorCode}
-                                onChange={setTwoFactorCode}
-                                onComplete={(v) => verifyTwoFactorCode(v)}
-                                disabled={busy || verifyingTwoFactorCodeBusy}
-                                loading={verifyingTwoFactorCodeBusy}
-                                reduced={!!prefersReducedMotion}
-                                variant="dark"
-                              />
-                            </motion.div>
-                          </motion.div>
-                        )}
-                      </div>
-                    </motion.section>
-
-                    <div className="relative z-[1] mt-2 flex w-full justify-center">
-                      <AnimatePresence initial={false}>
-                        {twoFactorInvalidError ? (
-                          <motion.div
-                            key="login-twofactor-error"
-                            initial={{ opacity: 0, y: -8 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -8 }}
-                            transition={{ duration: prefersReducedMotion ? 0 : 0.16, ease: "easeOut" }}
-                            className="relative inline-flex overflow-hidden rounded-full"
-                          >
-                            <span
-                              aria-hidden="true"
-                              className="twofactor-error-border pointer-events-none absolute inset-0 rounded-[inherit]"
-                              style={{
-                                padding: "1px",
-                                background:
-                                  "conic-gradient(from var(--a), rgba(227,82,75,0) 0 74%, rgba(227,82,75,0.86) 84%, rgba(227,82,75,0.28) 92%, rgba(227,82,75,0) 100%)",
-                                WebkitMask:
-                                  "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
-                                WebkitMaskComposite: "xor",
-                                maskComposite: "exclude",
-                              }}
-                            />
-                            <span className="relative inline-flex rounded-full bg-[#e3524b]/14 px-3 py-1 text-[11px] font-medium text-[#ff8b86]">
-                              {twoFactorInvalidError}
-                            </span>
-                          </motion.div>
-                        ) : msgError ? (
-                          <motion.div
-                            key="login-twofactor-generic-error"
-                            initial={{ opacity: 0, y: -8 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -8 }}
-                            transition={{ duration: prefersReducedMotion ? 0 : 0.16, ease: "easeOut" }}
-                            className="inline-flex rounded-full bg-[#e3524b]/14 px-3 py-1 text-[11px] font-medium text-[#ffb2ae]"
-                          >
-                            {msgError}
-                          </motion.div>
-                        ) : null}
-                      </AnimatePresence>
-                    </div>
-
-                    <div className="relative z-[1] mt-4 flex items-center justify-center">
-                      <button
-                        type="button"
-                        onClick={resetAll}
-                        disabled={busy || verifyingTwoFactorCodeBusy}
-                        className={cx(
-                          "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
-                          busy || verifyingTwoFactorCodeBusy
-                            ? "text-white/35 cursor-not-allowed"
-                            : "text-white/55 hover:text-white/78"
-                        )}
-                      >
-                        <Undo2 className="h-4 w-4" />
-                        Reiniciar login
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
             {/* STEP: EMAIL SUCCESS */}
             <AnimatePresence mode="sync" initial={false}>
               {step === "emailSuccess" && (
@@ -2157,6 +1981,183 @@ export default function LinkLoginPage() {
           </div>
         </motion.div>
       </div>
+
+      {/* STEP: TWO FACTOR CODE */}
+      <AnimatePresence mode="sync" initial={false}>
+        {step === "twoFactorCode" && (
+          <motion.div
+            key="twoFactorCode"
+            className="fixed inset-0 z-[120] px-4 pt-4 sm:px-6 sm:pt-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <div className="absolute inset-0 bg-black/62 backdrop-blur-[11px]" />
+
+            <div className="relative z-[1] flex flex-col items-center">
+              <motion.section
+                layout
+                role="dialog"
+                aria-modal="true"
+                className={cx(
+                  "relative overflow-hidden border border-white/12 [background:linear-gradient(180deg,#121212_0%,#090909_28%,#000000_100%)] shadow-[0_30px_98px_rgba(0,0,0,0.66)]",
+                  twoFactorIslandLoading
+                    ? "h-11 w-11 rounded-full p-0"
+                    : "w-[min(96vw,560px)] rounded-[30px] px-4 pb-5 pt-3 sm:w-[min(92vw,580px)] sm:px-5 sm:pb-6"
+                )}
+                initial={{ opacity: 0, y: -58, scale: 0.78, filter: "blur(3px)" }}
+                animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+                exit={{ opacity: 0, y: -74, scale: 0.86, filter: "blur(3px)" }}
+                transition={
+                  prefersReducedMotion
+                    ? { duration: 0 }
+                    : {
+                        type: "spring",
+                        stiffness: 420,
+                        damping: 34,
+                        mass: 0.8,
+                        layout: {
+                          type: "spring",
+                          stiffness: 360,
+                          damping: 30,
+                          mass: 0.9,
+                        },
+                      }
+                }
+              >
+                <span
+                  aria-hidden="true"
+                  className="twofactor-island-border pointer-events-none absolute inset-0 rounded-[inherit]"
+                  style={{
+                    padding: "1.2px",
+                    background:
+                      "conic-gradient(from var(--a), rgba(255,255,255,0) 0 76%, rgba(255,255,255,0.86) 84%, rgba(255,255,255,0.22) 91%, rgba(255,255,255,0) 100%)",
+                    WebkitMask:
+                      "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+                    WebkitMaskComposite: "xor",
+                    maskComposite: "exclude",
+                  }}
+                />
+
+                <div className="relative z-[1]">
+                  {twoFactorIslandLoading ? (
+                    <div className="h-full w-full" />
+                  ) : (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: prefersReducedMotion ? 0 : 0.22, ease: "easeOut" }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-[14px] font-semibold tracking-[0.02em] text-white/92 sm:text-[15px]">
+                            Confirme a autenticacao de 2 etapas
+                          </h3>
+                          <p className="mt-0.5 text-[12px] text-white/58">
+                            Abra seu aplicativo autenticador para continuar.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={resetAll}
+                          disabled={busy || verifyingTwoFactorCodeBusy}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                          aria-label="Cancelar autenticacao de 2 etapas"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      <motion.div
+                        animate={
+                          twoFactorShakeTick > 0
+                            ? { x: [0, -3, 3, -2, 2, 0] }
+                            : { x: 0 }
+                        }
+                        transition={{ duration: prefersReducedMotion ? 0 : 0.23, ease: "easeOut" }}
+                        onMouseDownCapture={clearTwoFactorFeedback}
+                        onTouchStartCapture={clearTwoFactorFeedback}
+                        onFocusCapture={clearTwoFactorFeedback}
+                      >
+                        <CodeBoxes
+                          length={6}
+                          value={twoFactorCode}
+                          onChange={setTwoFactorCode}
+                          onComplete={(v) => verifyTwoFactorCode(v)}
+                          disabled={busy || verifyingTwoFactorCodeBusy}
+                          loading={verifyingTwoFactorCodeBusy}
+                          reduced={!!prefersReducedMotion}
+                          variant="dark"
+                        />
+                      </motion.div>
+                    </motion.div>
+                  )}
+                </div>
+              </motion.section>
+
+              <div className="relative z-[1] mt-2 flex w-full justify-center">
+                <AnimatePresence initial={false}>
+                  {twoFactorInvalidError ? (
+                    <motion.div
+                      key="login-twofactor-error"
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: prefersReducedMotion ? 0 : 0.16, ease: "easeOut" }}
+                      className="relative inline-flex overflow-hidden rounded-full"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="twofactor-error-border pointer-events-none absolute inset-0 rounded-[inherit]"
+                        style={{
+                          padding: "1px",
+                          background:
+                            "conic-gradient(from var(--a), rgba(227,82,75,0) 0 74%, rgba(227,82,75,0.86) 84%, rgba(227,82,75,0.28) 92%, rgba(227,82,75,0) 100%)",
+                          WebkitMask:
+                            "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+                          WebkitMaskComposite: "xor",
+                          maskComposite: "exclude",
+                        }}
+                      />
+                      <span className="relative inline-flex rounded-full bg-[#e3524b]/14 px-3 py-1 text-[11px] font-medium text-[#ff8b86]">
+                        {twoFactorInvalidError}
+                      </span>
+                    </motion.div>
+                  ) : msgError ? (
+                    <motion.div
+                      key="login-twofactor-generic-error"
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: prefersReducedMotion ? 0 : 0.16, ease: "easeOut" }}
+                      className="inline-flex rounded-full bg-[#e3524b]/14 px-3 py-1 text-[11px] font-medium text-[#ffb2ae]"
+                    >
+                      {msgError}
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
+              </div>
+
+              <div className="relative z-[1] mt-4 flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={resetAll}
+                  disabled={busy || verifyingTwoFactorCodeBusy}
+                  className={cx(
+                    "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
+                    busy || verifyingTwoFactorCodeBusy
+                      ? "text-white/35 cursor-not-allowed"
+                      : "text-white/55 hover:text-white/78"
+                  )}
+                >
+                  <Undo2 className="h-4 w-4" />
+                  Reiniciar login
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Bottom links (igual imagem) */}
       <motion.div
