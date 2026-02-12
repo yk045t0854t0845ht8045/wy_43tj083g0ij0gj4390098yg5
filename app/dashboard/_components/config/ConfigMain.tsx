@@ -530,7 +530,10 @@ function AccountContent({
   const [accountActionTwoFactorContext, setAccountActionTwoFactorContext] =
     useState<AccountActionTwoFactorContext | null>(null);
   const [accountActionTwoFactorCode, setAccountActionTwoFactorCode] = useState("");
-  const [, setAccountActionTwoFactorError] = useState<string | null>(null);
+  const [accountActionTwoFactorError, setAccountActionTwoFactorError] = useState<string | null>(
+    null
+  );
+  const [accountActionTwoFactorShakeTick, setAccountActionTwoFactorShakeTick] = useState(0);
   const [accountActionTwoFactorUiLoading, setAccountActionTwoFactorUiLoading] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(() =>
     Boolean(initialTwoFactorEnabled)
@@ -810,12 +813,34 @@ function AccountContent({
     (accountActionTwoFactorContext === "email" && verifyingEmailCode) ||
     (accountActionTwoFactorContext === "phone" && verifyingPhoneCode) ||
     (accountActionTwoFactorContext === "password" && verifyingPasswordCode);
+  const accountActionTwoFactorInvalidError = useMemo(() => {
+    const message = String(accountActionTwoFactorError || "").trim();
+    if (!message) return null;
+    return /(invalido|inv\u00e1lido)/i.test(message) ? message : null;
+  }, [accountActionTwoFactorError]);
+
+  const setAccountActionTwoFactorFeedback = useCallback((message?: string | null) => {
+    const nextMessage = String(message || "").trim();
+    if (!nextMessage) {
+      setAccountActionTwoFactorError(null);
+      return;
+    }
+    setAccountActionTwoFactorError(nextMessage);
+    if (/(invalido|inv\u00e1lido)/i.test(nextMessage)) {
+      setAccountActionTwoFactorShakeTick((value) => value + 1);
+    }
+  }, []);
+
+  const clearAccountActionTwoFactorFeedback = useCallback(() => {
+    setAccountActionTwoFactorError(null);
+  }, []);
 
   const resetAccountActionTwoFactorModal = useCallback(() => {
     setAccountActionTwoFactorModalOpen(false);
     setAccountActionTwoFactorContext(null);
     setAccountActionTwoFactorCode("");
     setAccountActionTwoFactorError(null);
+    setAccountActionTwoFactorShakeTick(0);
     setAccountActionTwoFactorUiLoading(false);
   }, []);
 
@@ -824,9 +849,9 @@ function AccountContent({
       setAccountActionTwoFactorContext(context);
       setAccountActionTwoFactorModalOpen(true);
       setAccountActionTwoFactorCode("");
-      setAccountActionTwoFactorError(errorMessage ? String(errorMessage) : null);
+      setAccountActionTwoFactorFeedback(errorMessage ? String(errorMessage) : null);
     },
-    []
+    [setAccountActionTwoFactorFeedback]
   );
 
   useEffect(() => {
@@ -1088,7 +1113,7 @@ function AccountContent({
       const message =
         err instanceof Error ? err.message : "Erro ao validar codigo de e-mail. Tente novamente.";
       if (twoFactorCode.length === 6) {
-        setAccountActionTwoFactorError(message);
+        setAccountActionTwoFactorFeedback(message);
       } else {
         setEmailChangeError(message);
       }
@@ -1343,7 +1368,7 @@ function AccountContent({
       const message =
         err instanceof Error ? err.message : "Erro ao validar codigo de celular. Tente novamente.";
       if (twoFactorCode.length === 6) {
-        setAccountActionTwoFactorError(message);
+        setAccountActionTwoFactorFeedback(message);
       } else {
         setPhoneChangeError(message);
       }
@@ -1554,7 +1579,7 @@ function AccountContent({
       console.error("[config-account] verify password change code failed:", err);
       const message = err instanceof Error ? err.message : "Erro ao validar codigo de senha.";
       if (twoFactorCode.length === 6) {
-        setAccountActionTwoFactorError(message);
+        setAccountActionTwoFactorFeedback(message);
       } else {
         setPasswordChangeError(message);
       }
@@ -1569,7 +1594,7 @@ function AccountContent({
     setAccountActionTwoFactorCode(code);
     if (code.length !== 6) return;
 
-    setAccountActionTwoFactorError(null);
+    clearAccountActionTwoFactorFeedback();
     if (accountActionTwoFactorContext === "email") {
       await verifyEmailChangeCode(undefined, code);
       return;
@@ -2760,62 +2785,92 @@ function AccountContent({
               >
                 <span
                   aria-hidden="true"
-                  className="twofactor-island-border pointer-events-none absolute inset-0 rounded-[inherit]"
+                  className="twofactor-island-border pointer-events-none absolute -inset-px z-0 rounded-[inherit]"
                   style={{
-                    padding: "1.2px",
+                    padding: "1px",
                     background:
-                      "conic-gradient(from var(--a), rgba(255,255,255,0) 0 76%, rgba(255,255,255,0.86) 84%, rgba(255,255,255,0.22) 91%, rgba(255,255,255,0) 100%)",
+                      "conic-gradient(from var(--a), rgba(255,255,255,0) 0 78%, rgba(255,255,255,0.9) 86%, rgba(255,255,255,0.3) 94%, rgba(255,255,255,0) 100%)",
                     WebkitMask:
                       "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
                     WebkitMaskComposite: "xor",
                     maskComposite: "exclude",
                   }}
                 />
-                {accountActionTwoFactorUiLoading ? (
-                  <div className="flex h-full w-full items-center justify-center">
-                    <motion.span
-                      className="h-2.5 w-2.5 rounded-full bg-white/94 shadow-[0_0_16px_rgba(255,255,255,0.44)]"
-                      animate={{ scale: [0.74, 1, 0.74], opacity: [0.45, 1, 0.45] }}
-                      transition={{ duration: 1.15, repeat: Infinity, ease: "easeInOut" }}
-                    />
-                  </div>
-                ) : (
-                  <motion.div
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.22, ease: "easeOut" }}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-[14px] font-semibold tracking-[0.02em] text-white/92 sm:text-[15px]">
-                          Autenticacao de 2 etapas
-                        </h3>
-                        <p className="mt-0.5 text-[12px] text-white/58">
-                          Abra seu aplicativo autenticador para continuar.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={resetAccountActionTwoFactorModal}
-                        disabled={accountActionTwoFactorBusy}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
+                <div className="relative z-[1]">
+                  {accountActionTwoFactorUiLoading ? (
+                    <div className="flex h-full w-full items-center justify-center">
+                      <motion.span
+                        className="h-2.5 w-2.5 rounded-full bg-white/94 shadow-[0_0_16px_rgba(255,255,255,0.44)]"
+                        animate={{ scale: [0.74, 1, 0.74], opacity: [0.45, 1, 0.45] }}
+                        transition={{ duration: 1.15, repeat: Infinity, ease: "easeInOut" }}
+                      />
                     </div>
+                  ) : (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.22, ease: "easeOut" }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-[14px] font-semibold tracking-[0.02em] text-white/92 sm:text-[15px]">
+                            Autenticacao de 2 etapas
+                          </h3>
+                          <p className="mt-0.5 text-[12px] text-white/58">
+                            Abra seu aplicativo autenticador para continuar.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={resetAccountActionTwoFactorModal}
+                          disabled={accountActionTwoFactorBusy}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
 
-                    <CodeBoxes
-                      length={6}
-                      value={accountActionTwoFactorCode}
-                      onChange={setAccountActionTwoFactorCode}
-                      onComplete={(value) => {
-                        void submitAccountActionTwoFactorCode(value);
-                      }}
-                      disabled={accountActionTwoFactorBusy}
-                      variant="dark"
-                    />
-                  </motion.div>
-                )}
+                      <motion.div
+                        animate={
+                          accountActionTwoFactorShakeTick > 0
+                            ? { x: [0, -3, 3, -2, 2, 0] }
+                            : { x: 0 }
+                        }
+                        transition={{ duration: 0.23, ease: "easeOut" }}
+                        onMouseDownCapture={clearAccountActionTwoFactorFeedback}
+                        onTouchStartCapture={clearAccountActionTwoFactorFeedback}
+                        onFocusCapture={clearAccountActionTwoFactorFeedback}
+                      >
+                        <CodeBoxes
+                          length={6}
+                          value={accountActionTwoFactorCode}
+                          onChange={setAccountActionTwoFactorCode}
+                          onComplete={(value) => {
+                            void submitAccountActionTwoFactorCode(value);
+                          }}
+                          disabled={accountActionTwoFactorBusy}
+                          variant="dark"
+                        />
+                      </motion.div>
+                      <div className="mt-1 flex justify-center">
+                        <AnimatePresence initial={false}>
+                          {accountActionTwoFactorInvalidError ? (
+                            <motion.p
+                              key="account-action-twofactor-error"
+                              initial={{ opacity: 0, y: -8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -8 }}
+                              transition={{ duration: 0.16, ease: "easeOut" }}
+                              className="inline-flex rounded-full border border-[#e3524b]/40 bg-[#e3524b]/14 px-3 py-1 text-[11px] font-medium text-[#ff8b86]"
+                            >
+                              Codigo de autenticacao invalido. Tente novamente.
+                            </motion.p>
+                          ) : null}
+                        </AnimatePresence>
+                      </div>
+                    </motion.div>
+                  )}
+                </div>
               </motion.section>
             </div>
           </motion.div>
