@@ -504,8 +504,8 @@ function AccountContent({
   const [resendingPasswordCode, setResendingPasswordCode] = useState(false);
   const [verifyingPasswordCode, setVerifyingPasswordCode] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
-  const [twoFactorEnabledAt, setTwoFactorEnabledAt] = useState<string | null>(null);
-  const [twoFactorDisabledAt, setTwoFactorDisabledAt] = useState<string | null>(null);
+  const [, setTwoFactorEnabledAt] = useState<string | null>(null);
+  const [, setTwoFactorDisabledAt] = useState<string | null>(null);
   const [twoFactorStatusLoaded, setTwoFactorStatusLoaded] = useState(false);
   const [loadingTwoFactorStatus, setLoadingTwoFactorStatus] = useState(false);
   const [twoFactorModalOpen, setTwoFactorModalOpen] = useState(false);
@@ -1416,9 +1416,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok) {
-        setTwoFactorEnabled(false);
-        setTwoFactorEnabledAt(null);
-        setTwoFactorDisabledAt(null);
+        // Mantem o estado local quando a consulta falha para evitar "desativar visualmente" sem confirmacao.
         return null as {
           enabled: boolean;
           twoFactorEnabledAt: string | null;
@@ -1538,8 +1536,14 @@ function AccountContent({
     resetTwoFactorFlow();
     setTwoFactorModalOpen(true);
 
+    const optimisticEnabled = twoFactorEnabled;
+    if (optimisticEnabled) {
+      setTwoFactorStep("disable-intro");
+      setTwoFactorEmailMask(maskSecureEmail(localEmail));
+    }
+
     const status = await loadTwoFactorStatus();
-    const shouldOpenDisableFlow = status ? status.enabled : twoFactorEnabled;
+    const shouldOpenDisableFlow = status ? status.enabled : optimisticEnabled;
     if (shouldOpenDisableFlow) {
       setTwoFactorStep("disable-intro");
       setTwoFactorEmailMask(maskSecureEmail(localEmail));
@@ -1770,25 +1774,24 @@ function AccountContent({
   const emailChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localEmailChangedAt, relativeNowMs)}`;
   const phoneChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localPhoneChangedAt, relativeNowMs)}`;
   const passwordChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localPasswordChangedAt, relativeNowMs)}`;
-  const buttonClass = cx(
-    "rounded-xl border border-black/10 bg-white/95 px-4 py-2 text-[13px] font-semibold text-black/80",
-    "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
-    "hover:border-black/15 hover:bg-black/[0.03] active:translate-y-[0.6px] active:scale-[0.992]"
-  );
+  const buttonShellClass =
+    "rounded-xl border px-4 py-2 text-[13px] font-semibold transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)] active:translate-y-[0.6px] active:scale-[0.992]";
+  const buttonNeutralClass =
+    "border-black/10 bg-white/95 text-black/80 hover:border-black/15 hover:bg-black/[0.03]";
+  const buttonClass = cx(buttonShellClass, buttonNeutralClass);
   const twoFactorStatusBadge = twoFactorEnabled
     ? "Ativa"
     : twoFactorStatusLoaded
       ? "Inativa"
       : "Carregando...";
-  const twoFactorChangedAt = twoFactorEnabled ? twoFactorEnabledAt : twoFactorDisabledAt;
-  const twoFactorChangedLabel = `Alterado ha: ${formatElapsedTimeLabel(twoFactorChangedAt, relativeNowMs)}`;
   const twoFactorActionLabel = twoFactorEnabled
     ? "Autenticacao de 2 etapas ativa"
     : "Adicionar um metodo de verificacao";
   const twoFactorButtonClass = cx(
-    buttonClass,
-    twoFactorEnabled &&
-      "border-lime-500 bg-lime-400 text-black hover:border-lime-600 hover:bg-lime-500",
+    buttonShellClass,
+    twoFactorEnabled
+      ? "border-lime-500 bg-lime-400 text-black hover:border-lime-600 hover:bg-lime-500"
+      : buttonNeutralClass,
     (loadingTwoFactorStatus || isTwoFactorBusy) && "cursor-wait opacity-70"
   );
 
@@ -1861,7 +1864,6 @@ function AccountContent({
                 <p className="mt-1 text-[15px] text-black/58">
                   Adicione mais uma camada de seguranca a sua conta durante o login.
                 </p>
-                <p className="mt-1 text-[12px] text-black/45">{twoFactorChangedLabel}</p>
               </div>
               <button
                 type="button"
@@ -1880,8 +1882,8 @@ function AccountContent({
           <h4 className="text-[20px] font-semibold text-black/82">Suporte</h4>
           <div className="mt-4 border-t border-black/10" />
           <div className="flex items-center justify-between gap-4 -mx-2 rounded-xl px-2 py-5">
-            <div className="min-w-0"><p className="text-[18px] font-semibold text-black/85">Acesso para suporte</p><p className="mt-1 text-[15px] leading-[1.45] text-black/58">Conceda ao suporte acesso temporario para ajudar a resolver problemas ou recuperar conteudo. Voce pode revogar a qualquer momento.</p></div>
-            <button type="button" role="switch" aria-checked={supportAccess} onClick={() => setSupportAccess((v) => !v)} className={cx("relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-all duration-220", supportAccess ? "bg-sky-500/85" : "bg-black/20")}>
+            <div className="min-w-0"><p className="text-[18px] font-semibold text-black/85">Acesso para suporte</p><p className="mt-1 text-[15px] leading-[1.45] text-black/58">Conceda ao suporte acesso temporario para ajudar a resolver problemas ou recuperar conteudo. Voce pode revogar a qualquer momento.</p><p className="mt-1 text-[12px] text-black/45">Nossa equipe nunca pedira senhas ou acessos. Caso aconteca, denuncie imediatamente.</p></div>
+            <button type="button" role="switch" aria-checked={supportAccess} onClick={() => setSupportAccess((v) => !v)} className={cx("relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-all duration-220", supportAccess ? "bg-lime-400/85" : "bg-black/20")}>
               <span className={cx("inline-block h-5 w-5 rounded-full bg-white transition-transform duration-220", supportAccess ? "translate-x-6" : "translate-x-1")} />
             </button>
           </div>
