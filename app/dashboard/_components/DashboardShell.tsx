@@ -15,6 +15,9 @@ type DashboardShellProps = {
   userEmailChangedAt?: string | null;
   userPhoneChangedAt?: string | null;
   userPasswordChangedAt?: string | null;
+  userTwoFactorEnabled?: boolean;
+  userTwoFactorEnabledAt?: string | null;
+  userTwoFactorDisabledAt?: string | null;
 };
 
 function normalizeIsoDatetime(value?: string | null) {
@@ -34,6 +37,9 @@ export default function DashboardShell({
   userEmailChangedAt = null,
   userPhoneChangedAt = null,
   userPasswordChangedAt = null,
+  userTwoFactorEnabled = false,
+  userTwoFactorEnabledAt = null,
+  userTwoFactorDisabledAt = null,
 }: DashboardShellProps) {
   const [configOpen, setConfigOpen] = useState(false);
   const [configSection, setConfigSection] = useState<ConfigSectionId>("my-account");
@@ -54,6 +60,15 @@ export default function DashboardShell({
   );
   const [profilePasswordChangedAt, setProfilePasswordChangedAt] = useState<string | null>(
     normalizeIsoDatetime(userPasswordChangedAt)
+  );
+  const [profileTwoFactorEnabled, setProfileTwoFactorEnabled] = useState<boolean>(
+    Boolean(userTwoFactorEnabled)
+  );
+  const [profileTwoFactorEnabledAt, setProfileTwoFactorEnabledAt] = useState<string | null>(
+    normalizeIsoDatetime(userTwoFactorEnabledAt)
+  );
+  const [profileTwoFactorDisabledAt, setProfileTwoFactorDisabledAt] = useState<string | null>(
+    normalizeIsoDatetime(userTwoFactorDisabledAt)
   );
 
   const normalizedInitialPhotoLink = useMemo(() => {
@@ -87,6 +102,18 @@ export default function DashboardShell({
     setProfilePasswordChangedAt(normalizeIsoDatetime(userPasswordChangedAt));
   }, [userPasswordChangedAt]);
 
+  useEffect(() => {
+    setProfileTwoFactorEnabled(Boolean(userTwoFactorEnabled));
+  }, [userTwoFactorEnabled]);
+
+  useEffect(() => {
+    setProfileTwoFactorEnabledAt(normalizeIsoDatetime(userTwoFactorEnabledAt));
+  }, [userTwoFactorEnabledAt]);
+
+  useEffect(() => {
+    setProfileTwoFactorDisabledAt(normalizeIsoDatetime(userTwoFactorDisabledAt));
+  }, [userTwoFactorDisabledAt]);
+
   const handleUserEmailChange = useCallback((nextEmail: string, changedAt?: string | null) => {
     const normalized = String(nextEmail || "").trim().toLowerCase();
     setProfileEmail(normalized || "conta@wyzer.com.br");
@@ -117,6 +144,28 @@ export default function DashboardShell({
       return;
     }
     setProfilePasswordChangedAt(new Date().toISOString());
+  }, []);
+
+  const handleUserTwoFactorChange = useCallback((enabled: boolean, changedAt?: string | null) => {
+    const nextEnabled = Boolean(enabled);
+    setProfileTwoFactorEnabled(nextEnabled);
+
+    if (nextEnabled) {
+      setProfileTwoFactorEnabledAt(
+        typeof changedAt !== "undefined"
+          ? normalizeIsoDatetime(changedAt)
+          : new Date().toISOString()
+      );
+      setProfileTwoFactorDisabledAt(null);
+      return;
+    }
+
+    setProfileTwoFactorDisabledAt(
+      typeof changedAt !== "undefined"
+        ? normalizeIsoDatetime(changedAt)
+        : new Date().toISOString()
+    );
+    setProfileTwoFactorEnabledAt(null);
   }, []);
 
   const handleOpenConfig = useCallback((section: ConfigSectionId = "my-account") => {
@@ -161,6 +210,10 @@ export default function DashboardShell({
         userPhoneChangedAt={profilePhoneChangedAt}
         userPasswordChangedAt={profilePasswordChangedAt}
         onUserPasswordChange={handleUserPasswordChange}
+        userTwoFactorEnabled={profileTwoFactorEnabled}
+        userTwoFactorEnabledAt={profileTwoFactorEnabledAt}
+        userTwoFactorDisabledAt={profileTwoFactorDisabledAt}
+        onUserTwoFactorChange={handleUserTwoFactorChange}
       />
     </div>
   );

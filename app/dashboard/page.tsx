@@ -16,6 +16,9 @@ type SidebarProfile = {
   emailChangedAt: string | null;
   phoneChangedAt: string | null;
   passwordChangedAt: string | null;
+  twoFactorEnabled: boolean;
+  twoFactorEnabledAt: string | null;
+  twoFactorDisabledAt: string | null;
 };
 
 type WzUserLookupMode = "eq" | "ilike";
@@ -33,6 +36,10 @@ type WzUserLookupRow = {
   email_changed_at?: string | null;
   phone_changed_at?: string | null;
   password_changed_at?: string | null;
+  two_factor_enabled?: boolean | string | number | null;
+  two_factor_secret?: string | null;
+  two_factor_enabled_at?: string | null;
+  two_factor_disabled_at?: string | null;
 };
 
 function buildLoginUrl(hostHeader: string | null) {
@@ -97,16 +104,41 @@ function sanitizeIsoDatetime(value?: string | null) {
   return new Date(parsed).toISOString();
 }
 
+function sanitizeBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const clean = value.trim().toLowerCase();
+    return clean === "true" || clean === "t" || clean === "1";
+  }
+  return false;
+}
+
+function resolveTwoFactorEnabled(
+  rawEnabled: unknown,
+  rawSecret?: string | null,
+) {
+  const enabled = sanitizeBoolean(rawEnabled);
+  const hasSecret = Boolean(String(rawSecret || "").trim());
+  return enabled && hasSecret;
+}
+
 async function queryWzUsersRows(
   sb: ReturnType<typeof supabaseAdmin>,
   params: WzUserLookupParams,
 ) {
   const columnsToTry = [
+    "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at,password_changed_at,two_factor_enabled,two_factor_secret,two_factor_enabled_at,two_factor_disabled_at",
+    "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at,password_changed_at,two_factor_enabled,two_factor_secret,two_factor_enabled_at",
+    "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at,password_changed_at,two_factor_enabled,two_factor_secret",
+    "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at,password_changed_at,two_factor_enabled",
     "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at,password_changed_at",
     "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at",
     "full_name,photo_link,phone_e164,email_changed_at,password_changed_at",
     "full_name,photo_link,phone_e164,phone_changed_at,password_changed_at",
     "full_name,photo_link,phone_e164,password_changed_at",
+    "full_name,photo_link,phone_e164,two_factor_enabled,two_factor_secret",
+    "full_name,photo_link,phone_e164,two_factor_enabled",
     "full_name,photo_link,phone_e164",
     "full_name,photo_link",
     "full_name,phone_e164",
@@ -129,6 +161,11 @@ async function queryWzUsersRows(
         email_changed_at: row.email_changed_at || null,
         phone_changed_at: row.phone_changed_at || null,
         password_changed_at: row.password_changed_at || null,
+        two_factor_enabled:
+          typeof row.two_factor_enabled === "undefined" ? null : row.two_factor_enabled,
+        two_factor_secret: row.two_factor_secret || null,
+        two_factor_enabled_at: row.two_factor_enabled_at || null,
+        two_factor_disabled_at: row.two_factor_disabled_at || null,
       }));
     }
   }
@@ -143,12 +180,18 @@ function pickProfileFromRows(
   fallbackEmailChangedAt: string | null,
   fallbackPhoneChangedAt: string | null,
   fallbackPasswordChangedAt: string | null,
+  fallbackTwoFactorEnabled: boolean,
+  fallbackTwoFactorEnabledAt: string | null,
+  fallbackTwoFactorDisabledAt: string | null,
 ) {
   let nextFallbackPhoto = fallbackPhotoLink;
   let nextFallbackPhone = fallbackPhoneE164;
   let nextFallbackEmailChangedAt = fallbackEmailChangedAt;
   let nextFallbackPhoneChangedAt = fallbackPhoneChangedAt;
   let nextFallbackPasswordChangedAt = fallbackPasswordChangedAt;
+  let nextFallbackTwoFactorEnabled = fallbackTwoFactorEnabled;
+  let nextFallbackTwoFactorEnabledAt = fallbackTwoFactorEnabledAt;
+  let nextFallbackTwoFactorDisabledAt = fallbackTwoFactorDisabledAt;
 
   for (const row of rows) {
     const rowPhoto = sanitizePhotoLink(row.photo_link);
@@ -156,6 +199,18 @@ function pickProfileFromRows(
     const rowEmailChangedAt = sanitizeIsoDatetime(row.email_changed_at);
     const rowPhoneChangedAt = sanitizeIsoDatetime(row.phone_changed_at);
     const rowPasswordChangedAt = sanitizeIsoDatetime(row.password_changed_at);
+    const rowTwoFactorEnabledAt = sanitizeIsoDatetime(row.two_factor_enabled_at);
+    const rowTwoFactorDisabledAt = sanitizeIsoDatetime(row.two_factor_disabled_at);
+    const hasTwoFactorInfo =
+      typeof row.two_factor_enabled !== "undefined" ||
+      typeof row.two_factor_secret !== "undefined" ||
+      typeof row.two_factor_enabled_at !== "undefined" ||
+      typeof row.two_factor_disabled_at !== "undefined";
+    const rowTwoFactorEnabled = resolveTwoFactorEnabled(
+      row.two_factor_enabled,
+      row.two_factor_secret,
+    );
+
     if (!nextFallbackPhoto && rowPhoto) nextFallbackPhoto = rowPhoto;
     if (!nextFallbackPhone && rowPhone) nextFallbackPhone = rowPhone;
     if (!nextFallbackEmailChangedAt && rowEmailChangedAt) {
@@ -167,10 +222,26 @@ function pickProfileFromRows(
     if (!nextFallbackPasswordChangedAt && rowPasswordChangedAt) {
       nextFallbackPasswordChangedAt = rowPasswordChangedAt;
     }
+    if (hasTwoFactorInfo) {
+      nextFallbackTwoFactorEnabled = rowTwoFactorEnabled;
+      if (rowTwoFactorEnabledAt) nextFallbackTwoFactorEnabledAt = rowTwoFactorEnabledAt;
+      if (rowTwoFactorDisabledAt) nextFallbackTwoFactorDisabledAt = rowTwoFactorDisabledAt;
+      if (rowTwoFactorEnabled) {
+        nextFallbackTwoFactorDisabledAt = null;
+      }
+    }
 
     const fullName = sanitizeFullName(row.full_name);
     const firstName = pickFirstName(row.full_name);
-    if (firstName || fullName || rowPhone || rowEmailChangedAt || rowPhoneChangedAt || rowPasswordChangedAt) {
+    if (
+      firstName ||
+      fullName ||
+      rowPhone ||
+      rowEmailChangedAt ||
+      rowPhoneChangedAt ||
+      rowPasswordChangedAt ||
+      hasTwoFactorInfo
+    ) {
       return {
         profile: {
           firstName: firstName || null,
@@ -180,12 +251,22 @@ function pickProfileFromRows(
           emailChangedAt: rowEmailChangedAt || nextFallbackEmailChangedAt,
           phoneChangedAt: rowPhoneChangedAt || nextFallbackPhoneChangedAt,
           passwordChangedAt: rowPasswordChangedAt || nextFallbackPasswordChangedAt,
+          twoFactorEnabled: hasTwoFactorInfo
+            ? rowTwoFactorEnabled
+            : nextFallbackTwoFactorEnabled,
+          twoFactorEnabledAt: rowTwoFactorEnabledAt || nextFallbackTwoFactorEnabledAt,
+          twoFactorDisabledAt:
+            (rowTwoFactorEnabled ? null : rowTwoFactorDisabledAt) ||
+            (nextFallbackTwoFactorEnabled ? null : nextFallbackTwoFactorDisabledAt),
         } as SidebarProfile,
         fallbackPhotoLink: nextFallbackPhoto,
         fallbackPhoneE164: nextFallbackPhone,
         fallbackEmailChangedAt: nextFallbackEmailChangedAt,
         fallbackPhoneChangedAt: nextFallbackPhoneChangedAt,
         fallbackPasswordChangedAt: nextFallbackPasswordChangedAt,
+        fallbackTwoFactorEnabled: nextFallbackTwoFactorEnabled,
+        fallbackTwoFactorEnabledAt: nextFallbackTwoFactorEnabledAt,
+        fallbackTwoFactorDisabledAt: nextFallbackTwoFactorDisabledAt,
       };
     }
   }
@@ -197,6 +278,9 @@ function pickProfileFromRows(
     fallbackEmailChangedAt: nextFallbackEmailChangedAt,
     fallbackPhoneChangedAt: nextFallbackPhoneChangedAt,
     fallbackPasswordChangedAt: nextFallbackPasswordChangedAt,
+    fallbackTwoFactorEnabled: nextFallbackTwoFactorEnabled,
+    fallbackTwoFactorEnabledAt: nextFallbackTwoFactorEnabledAt,
+    fallbackTwoFactorDisabledAt: nextFallbackTwoFactorDisabledAt,
   };
 }
 
@@ -218,6 +302,9 @@ async function getSidebarProfile(params: {
       emailChangedAt: null,
       phoneChangedAt: null,
       passwordChangedAt: null,
+      twoFactorEnabled: false,
+      twoFactorEnabledAt: null,
+      twoFactorDisabledAt: null,
     } as SidebarProfile;
   }
 
@@ -228,6 +315,9 @@ async function getSidebarProfile(params: {
     let fallbackEmailChangedAt: string | null = null;
     let fallbackPhoneChangedAt: string | null = null;
     let fallbackPasswordChangedAt: string | null = null;
+    let fallbackTwoFactorEnabled = false;
+    let fallbackTwoFactorEnabledAt: string | null = null;
+    let fallbackTwoFactorDisabledAt: string | null = null;
 
     if (email) {
       const rowsByEmail = await queryWzUsersRows(sb, {
@@ -242,12 +332,18 @@ async function getSidebarProfile(params: {
         fallbackEmailChangedAt,
         fallbackPhoneChangedAt,
         fallbackPasswordChangedAt,
+        fallbackTwoFactorEnabled,
+        fallbackTwoFactorEnabledAt,
+        fallbackTwoFactorDisabledAt,
       );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
       fallbackEmailChangedAt = result.fallbackEmailChangedAt;
       fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
       fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
+      fallbackTwoFactorEnabled = result.fallbackTwoFactorEnabled;
+      fallbackTwoFactorEnabledAt = result.fallbackTwoFactorEnabledAt;
+      fallbackTwoFactorDisabledAt = result.fallbackTwoFactorDisabledAt;
       if (result.profile) return result.profile;
     }
 
@@ -264,12 +360,18 @@ async function getSidebarProfile(params: {
         fallbackEmailChangedAt,
         fallbackPhoneChangedAt,
         fallbackPasswordChangedAt,
+        fallbackTwoFactorEnabled,
+        fallbackTwoFactorEnabledAt,
+        fallbackTwoFactorDisabledAt,
       );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
       fallbackEmailChangedAt = result.fallbackEmailChangedAt;
       fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
       fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
+      fallbackTwoFactorEnabled = result.fallbackTwoFactorEnabled;
+      fallbackTwoFactorEnabledAt = result.fallbackTwoFactorEnabledAt;
+      fallbackTwoFactorDisabledAt = result.fallbackTwoFactorDisabledAt;
       if (result.profile) return result.profile;
     }
 
@@ -286,12 +388,18 @@ async function getSidebarProfile(params: {
         fallbackEmailChangedAt,
         fallbackPhoneChangedAt,
         fallbackPasswordChangedAt,
+        fallbackTwoFactorEnabled,
+        fallbackTwoFactorEnabledAt,
+        fallbackTwoFactorDisabledAt,
       );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
       fallbackEmailChangedAt = result.fallbackEmailChangedAt;
       fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
       fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
+      fallbackTwoFactorEnabled = result.fallbackTwoFactorEnabled;
+      fallbackTwoFactorEnabledAt = result.fallbackTwoFactorEnabledAt;
+      fallbackTwoFactorDisabledAt = result.fallbackTwoFactorDisabledAt;
       if (result.profile) return result.profile;
     }
 
@@ -308,12 +416,18 @@ async function getSidebarProfile(params: {
         fallbackEmailChangedAt,
         fallbackPhoneChangedAt,
         fallbackPasswordChangedAt,
+        fallbackTwoFactorEnabled,
+        fallbackTwoFactorEnabledAt,
+        fallbackTwoFactorDisabledAt,
       );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
       fallbackEmailChangedAt = result.fallbackEmailChangedAt;
       fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
       fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
+      fallbackTwoFactorEnabled = result.fallbackTwoFactorEnabled;
+      fallbackTwoFactorEnabledAt = result.fallbackTwoFactorEnabledAt;
+      fallbackTwoFactorDisabledAt = result.fallbackTwoFactorDisabledAt;
       if (result.profile) return result.profile;
     }
 
@@ -325,6 +439,9 @@ async function getSidebarProfile(params: {
       emailChangedAt: fallbackEmailChangedAt,
       phoneChangedAt: fallbackPhoneChangedAt,
       passwordChangedAt: fallbackPasswordChangedAt,
+      twoFactorEnabled: fallbackTwoFactorEnabled,
+      twoFactorEnabledAt: fallbackTwoFactorEnabledAt,
+      twoFactorDisabledAt: fallbackTwoFactorDisabledAt,
     } as SidebarProfile;
   } catch (error) {
     console.error("[dashboard] failed to load wz_users profile:", error);
@@ -338,6 +455,9 @@ async function getSidebarProfile(params: {
     emailChangedAt: null,
     phoneChangedAt: null,
     passwordChangedAt: null,
+    twoFactorEnabled: false,
+    twoFactorEnabledAt: null,
+    twoFactorDisabledAt: null,
   } as SidebarProfile;
 }
 
@@ -360,6 +480,9 @@ export default async function DashboardHomePage() {
   let sidebarEmailChangedAt: string | null = null;
   let sidebarPhoneChangedAt: string | null = null;
   let sidebarPasswordChangedAt: string | null = null;
+  let sidebarTwoFactorEnabled = false;
+  let sidebarTwoFactorEnabledAt: string | null = null;
+  let sidebarTwoFactorDisabledAt: string | null = null;
 
   if (session) {
     const profile = await getSidebarProfile({
@@ -399,6 +522,13 @@ export default async function DashboardHomePage() {
     if (profile.passwordChangedAt) {
       sidebarPasswordChangedAt = profile.passwordChangedAt;
     }
+    sidebarTwoFactorEnabled = profile.twoFactorEnabled;
+    if (profile.twoFactorEnabledAt) {
+      sidebarTwoFactorEnabledAt = profile.twoFactorEnabledAt;
+    }
+    if (profile.twoFactorDisabledAt) {
+      sidebarTwoFactorDisabledAt = profile.twoFactorDisabledAt;
+    }
   }
 
   const loginUrl = buildLoginUrl(hostHeader);
@@ -421,6 +551,9 @@ export default async function DashboardHomePage() {
       userEmailChangedAt={sidebarEmailChangedAt}
       userPhoneChangedAt={sidebarPhoneChangedAt}
       userPasswordChangedAt={sidebarPasswordChangedAt}
+      userTwoFactorEnabled={sidebarTwoFactorEnabled}
+      userTwoFactorEnabledAt={sidebarTwoFactorEnabledAt}
+      userTwoFactorDisabledAt={sidebarTwoFactorDisabledAt}
     />
   );
 }

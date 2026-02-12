@@ -52,11 +52,15 @@ type ConfigMainProps = {
   userEmailChangedAt?: string | null;
   userPhoneChangedAt?: string | null;
   userPasswordChangedAt?: string | null;
+  userTwoFactorEnabled?: boolean;
+  userTwoFactorEnabledAt?: string | null;
+  userTwoFactorDisabledAt?: string | null;
   userPhotoLink?: string | null;
   onUserPhotoChange?: (photoLink: string | null) => void;
   onUserEmailChange?: (email: string, changedAt?: string | null) => void;
   onUserPhoneChange?: (phoneE164: string | null, changedAt?: string | null) => void;
   onUserPasswordChange?: (changedAt?: string | null) => void;
+  onUserTwoFactorChange?: (enabled: boolean, changedAt?: string | null) => void;
 };
 
 // LINKS DOS ICONES (PNG) DA SIDEBAR DE CONFIGURACOES
@@ -426,11 +430,15 @@ function AccountContent({
   emailChangedAt,
   phoneChangedAt,
   passwordChangedAt,
+  twoFactorEnabled: initialTwoFactorEnabled,
+  twoFactorEnabledAt: initialTwoFactorEnabledAt,
+  twoFactorDisabledAt: initialTwoFactorDisabledAt,
   userPhotoLink,
   onUserPhotoChange,
   onUserEmailChange,
   onUserPhoneChange,
   onUserPasswordChange,
+  onUserTwoFactorChange,
 }: {
   nickname: string;
   email: string;
@@ -438,11 +446,15 @@ function AccountContent({
   emailChangedAt?: string | null;
   phoneChangedAt?: string | null;
   passwordChangedAt?: string | null;
+  twoFactorEnabled?: boolean;
+  twoFactorEnabledAt?: string | null;
+  twoFactorDisabledAt?: string | null;
   userPhotoLink?: string | null;
   onUserPhotoChange?: (photoLink: string | null) => void;
   onUserEmailChange?: (email: string, changedAt?: string | null) => void;
   onUserPhoneChange?: (phoneE164: string | null, changedAt?: string | null) => void;
   onUserPasswordChange?: (changedAt?: string | null) => void;
+  onUserTwoFactorChange?: (enabled: boolean, changedAt?: string | null) => void;
 }) {
   const [supportAccess, setSupportAccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -503,9 +515,15 @@ function AccountContent({
   const [sendingPasswordCode, setSendingPasswordCode] = useState(false);
   const [resendingPasswordCode, setResendingPasswordCode] = useState(false);
   const [verifyingPasswordCode, setVerifyingPasswordCode] = useState(false);
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
-  const [, setTwoFactorEnabledAt] = useState<string | null>(null);
-  const [, setTwoFactorDisabledAt] = useState<string | null>(null);
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(() =>
+    Boolean(initialTwoFactorEnabled)
+  );
+  const [, setTwoFactorEnabledAt] = useState<string | null>(() =>
+    normalizeIsoDatetime(initialTwoFactorEnabledAt)
+  );
+  const [, setTwoFactorDisabledAt] = useState<string | null>(() =>
+    normalizeIsoDatetime(initialTwoFactorDisabledAt)
+  );
   const [twoFactorStatusLoaded, setTwoFactorStatusLoaded] = useState(false);
   const [loadingTwoFactorStatus, setLoadingTwoFactorStatus] = useState(false);
   const [twoFactorModalOpen, setTwoFactorModalOpen] = useState(false);
@@ -539,6 +557,17 @@ function AccountContent({
   useEffect(() => setLocalEmailChangedAt(normalizeIsoDatetime(emailChangedAt)), [emailChangedAt]);
   useEffect(() => setLocalPhoneChangedAt(normalizeIsoDatetime(phoneChangedAt)), [phoneChangedAt]);
   useEffect(() => setLocalPasswordChangedAt(normalizeIsoDatetime(passwordChangedAt)), [passwordChangedAt]);
+  useEffect(() => {
+    if (twoFactorModalOpen) return;
+    setTwoFactorEnabled(Boolean(initialTwoFactorEnabled));
+    setTwoFactorEnabledAt(normalizeIsoDatetime(initialTwoFactorEnabledAt));
+    setTwoFactorDisabledAt(normalizeIsoDatetime(initialTwoFactorDisabledAt));
+  }, [
+    initialTwoFactorDisabledAt,
+    initialTwoFactorEnabled,
+    initialTwoFactorEnabledAt,
+    twoFactorModalOpen,
+  ]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -1432,6 +1461,10 @@ function AccountContent({
       setTwoFactorEnabled(nextStatus.enabled);
       setTwoFactorEnabledAt(nextStatus.twoFactorEnabledAt);
       setTwoFactorDisabledAt(nextStatus.twoFactorDisabledAt);
+      onUserTwoFactorChange?.(
+        nextStatus.enabled,
+        nextStatus.enabled ? nextStatus.twoFactorEnabledAt : nextStatus.twoFactorDisabledAt
+      );
       return nextStatus;
     } catch (err) {
       console.error("[config-account] load two-factor status failed:", err);
@@ -1440,7 +1473,7 @@ function AccountContent({
       setLoadingTwoFactorStatus(false);
       setTwoFactorStatusLoaded(true);
     }
-  }, []);
+  }, [onUserTwoFactorChange]);
 
   useEffect(() => {
     void loadTwoFactorStatus();
@@ -1617,6 +1650,7 @@ function AccountContent({
       setTwoFactorEnabled(true);
       setTwoFactorEnabledAt(nextEnabledAt);
       setTwoFactorDisabledAt(null);
+      onUserTwoFactorChange?.(true, nextEnabledAt);
       setTwoFactorModalOpen(false);
       resetTwoFactorFlow();
     } catch (err) {
@@ -1707,6 +1741,7 @@ function AccountContent({
       setTwoFactorEnabled(false);
       setTwoFactorEnabledAt(null);
       setTwoFactorDisabledAt(nextDisabledAt);
+      onUserTwoFactorChange?.(false, nextDisabledAt);
       setTwoFactorModalOpen(false);
       resetTwoFactorFlow();
     } catch (err) {
@@ -2944,11 +2979,15 @@ export default function ConfigMain({
   userEmailChangedAt = null,
   userPhoneChangedAt = null,
   userPasswordChangedAt = null,
+  userTwoFactorEnabled = false,
+  userTwoFactorEnabledAt = null,
+  userTwoFactorDisabledAt = null,
   userPhotoLink = null,
   onUserPhotoChange,
   onUserEmailChange,
   onUserPhoneChange,
   onUserPasswordChange,
+  onUserTwoFactorChange,
 }: ConfigMainProps) {
   const prefersReducedMotion = useReducedMotion();
   const [searchTerm, setSearchTerm] = useState("");
@@ -2974,6 +3013,15 @@ export default function ConfigMain({
   const passwordChangedAt = useMemo(
     () => normalizeIsoDatetime(userPasswordChangedAt),
     [userPasswordChangedAt]
+  );
+  const twoFactorEnabled = useMemo(() => Boolean(userTwoFactorEnabled), [userTwoFactorEnabled]);
+  const twoFactorEnabledAt = useMemo(
+    () => normalizeIsoDatetime(userTwoFactorEnabledAt),
+    [userTwoFactorEnabledAt]
+  );
+  const twoFactorDisabledAt = useMemo(
+    () => normalizeIsoDatetime(userTwoFactorDisabledAt),
+    [userTwoFactorDisabledAt]
   );
 
   const normalizedSearch = useMemo(() => normalizeForSearch(searchTerm), [searchTerm]);
@@ -3028,7 +3076,7 @@ export default function ConfigMain({
               <div className="min-w-0 flex-1 bg-[#f3f3f4]">
                 <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6"><h2 className="text-[20px] font-semibold text-black/75">{activeTitle}</h2><button type="button" onClick={onClose} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80"><X className="h-5 w-5" /></button></div>
                 <div className="h-[calc(100%-64px)] overflow-y-auto px-4 pb-8 pt-6 sm:px-8 md:px-10">
-                  {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} emailChangedAt={emailChangedAt} phoneChangedAt={phoneChangedAt} passwordChangedAt={passwordChangedAt} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} onUserPasswordChange={onUserPasswordChange} />}
+                  {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} emailChangedAt={emailChangedAt} phoneChangedAt={phoneChangedAt} passwordChangedAt={passwordChangedAt} twoFactorEnabled={twoFactorEnabled} twoFactorEnabledAt={twoFactorEnabledAt} twoFactorDisabledAt={twoFactorDisabledAt} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} onUserPasswordChange={onUserPasswordChange} onUserTwoFactorChange={onUserTwoFactorChange} />}
                   {activeSection === "devices" && <DevicesContent />}
                   {activeSection !== "my-account" && activeSection !== "devices" && <PlaceholderSection title={activeTitle} />}
                 </div>
