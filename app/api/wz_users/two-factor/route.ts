@@ -150,7 +150,15 @@ function isMissingTableError(error: unknown, table: string) {
 }
 
 function isWzAuth2faSchemaError(error: unknown) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+
   return (
+    code === "42P10" ||
+    message.includes("no unique or exclusion constraint matching the on conflict specification") ||
     isMissingTableError(error, "wz_auth_2fa") ||
     isMissingColumnError(error, "user_id") ||
     isMissingColumnError(error, "enabled") ||

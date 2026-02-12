@@ -20,9 +20,73 @@ alter table if exists public.wz_auth_2fa
   add column if not exists created_at timestamptz not null default now(),
   add column if not exists updated_at timestamptz not null default now();
 
+-- Limpa dados invalidos/duplicados para permitir chave unica em user_id.
+delete from public.wz_auth_2fa
+where user_id is null
+   or btrim(user_id) = '';
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'wz_auth_2fa'
+      and column_name = 'updated_at'
+  ) then
+    with ranked as (
+      select
+        ctid,
+        row_number() over (
+          partition by user_id
+          order by updated_at desc nulls last, created_at desc nulls last, ctid desc
+        ) as rn
+      from public.wz_auth_2fa
+    )
+    delete from public.wz_auth_2fa t
+    using ranked r
+    where t.ctid = r.ctid
+      and r.rn > 1;
+  else
+    with ranked as (
+      select
+        ctid,
+        row_number() over (
+          partition by user_id
+          order by created_at desc nulls last, ctid desc
+        ) as rn
+      from public.wz_auth_2fa
+    )
+    delete from public.wz_auth_2fa t
+    using ranked r
+    where t.ctid = r.ctid
+      and r.rn > 1;
+  end if;
+end;
+$$;
+
+alter table if exists public.wz_auth_2fa
+  alter column user_id set not null;
+
 -- Garante chave de conflito para upsert (onConflict: user_id).
-create unique index if not exists wz_auth_2fa_user_id_uidx
-  on public.wz_auth_2fa (user_id);
+drop index if exists public.wz_auth_2fa_user_id_uidx;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint c
+    join pg_class t on t.oid = c.conrelid
+    join pg_namespace n on n.oid = t.relnamespace
+    where n.nspname = 'public'
+      and t.relname = 'wz_auth_2fa'
+      and c.conname = 'wz_auth_2fa_user_id_key'
+  ) then
+    alter table public.wz_auth_2fa
+      add constraint wz_auth_2fa_user_id_key unique (user_id);
+  end if;
+end;
+$$;
 
 create or replace function public.wz_auth_2fa_set_updated_at()
 returns trigger
