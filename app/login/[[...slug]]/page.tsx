@@ -1284,6 +1284,21 @@ export default function LinkLoginPage() {
     ],
   );
 
+  const backToTwoFactorMethodChoice = useCallback(() => {
+    const actionBusy = busy || verifyingTwoFactorCodeBusy || verifyingPasskeyLoginBusy;
+    if (actionBusy || !(twoFactorAllowsTotp && twoFactorAllowsPasskey)) return;
+    setTwoFactorMethod("choose");
+    setTwoFactorCode("");
+    setTwoFactorFeedback(null);
+  }, [
+    busy,
+    verifyingTwoFactorCodeBusy,
+    verifyingPasskeyLoginBusy,
+    twoFactorAllowsTotp,
+    twoFactorAllowsPasskey,
+    setTwoFactorFeedback,
+  ]);
+
   useEffect(() => {
     if (step !== "twoFactorCode") {
       passkeyAutoStartTicketRef.current = "";
@@ -2405,33 +2420,43 @@ export default function LinkLoginPage() {
                             {showPasskeyPanelInIsland
                               ? "Confirme com PIN ou biometria do dispositivo."
                               : twoFactorCanChooseMethod
-                                ? "Escolha entre codigo autenticador e Windows Hello."
+                                ? twoFactorMethod === "choose"
+                                  ? "Escolha entre codigo autenticador e Windows Hello."
+                                  : "Valide para continuar."
                                 : "Abra seu aplicativo autenticador para continuar."}
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={resetAll}
-                          disabled={twoFactorActionBusy}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                          aria-label="Cancelar autenticacao"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          {twoFactorCanChooseMethod && twoFactorMethod !== "choose" && (
+                            <button
+                              type="button"
+                              onClick={backToTwoFactorMethodChoice}
+                              disabled={twoFactorActionBusy}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                              aria-label="Voltar para opcoes de validacao"
+                            >
+                              <Undo2 className="h-4 w-4" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={resetAll}
+                            disabled={twoFactorActionBusy}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                            aria-label="Cancelar autenticacao"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
 
-                      {twoFactorCanChooseMethod && (
-                        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {twoFactorCanChooseMethod && twoFactorMethod === "choose" && (
+                        <div className="mt-4 flex w-full flex-col gap-2">
                           <button
                             type="button"
                             onClick={() => chooseTwoFactorMethod("totp")}
                             disabled={twoFactorActionBusy}
-                            className={cx(
-                              "rounded-full border px-3 py-2 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                              twoFactorMethod === "totp"
-                                ? "border-white/50 bg-white/[0.14] text-white"
-                                : "border-white/20 bg-white/[0.04] text-white/78 hover:bg-white/[0.1]"
-                            )}
+                            className="h-11 w-full rounded-full border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             Codigo de Autenticacao
                           </button>
@@ -2439,12 +2464,7 @@ export default function LinkLoginPage() {
                             type="button"
                             onClick={() => chooseTwoFactorMethod("passkey")}
                             disabled={twoFactorActionBusy}
-                            className={cx(
-                              "rounded-full border px-3 py-2 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                              twoFactorMethod === "passkey"
-                                ? "border-white/50 bg-white/[0.14] text-white"
-                                : "border-white/20 bg-white/[0.04] text-white/78 hover:bg-white/[0.1]"
-                            )}
+                            className="h-11 w-full rounded-full border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             Windows Hello
                           </button>
@@ -2476,30 +2496,6 @@ export default function LinkLoginPage() {
                         </motion.div>
                       )}
 
-                      {showPasskeyPanelInIsland && (
-                        <div className="mt-4 rounded-[16px] border border-white/12 bg-white/[0.03] px-4 py-4">
-                          {verifyingPasskeyLoginBusy ? (
-                            <div className="flex items-center gap-3 text-[13px] text-white/80">
-                              <SpinnerMini reduced={!!prefersReducedMotion} tone="light" />
-                              <span>Abrindo o Windows Hello. Confirme no prompt do sistema.</span>
-                            </div>
-                          ) : (
-                            <div className="space-y-3">
-                              <p className="text-[12px] text-white/68">
-                                Continue com o PIN ou biometria do dispositivo para validar seu login.
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => void verifyPasskeyLogin()}
-                                disabled={twoFactorActionBusy}
-                                className="inline-flex w-full items-center justify-center rounded-full border border-white/24 bg-white/[0.08] px-4 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-white/[0.14] disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                Continuar com Windows Hello
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
                     </motion.div>
                   )}
                 </div>
@@ -2531,6 +2527,33 @@ export default function LinkLoginPage() {
                       />
                       <span className="relative inline-flex rounded-full bg-[#e3524b]/14 px-3 py-1 text-[11px] font-medium text-[#ff8b86]">
                         {twoFactorInvalidError}
+                      </span>
+                    </motion.div>
+                  ) : verifyingPasskeyLoginBusy ? (
+                    <motion.div
+                      key="login-twofactor-passkey-loading"
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.16, ease: "easeOut" }}
+                      className="relative inline-flex overflow-hidden rounded-full"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="twofactor-island-border pointer-events-none absolute inset-0 rounded-[inherit]"
+                        style={{
+                          padding: "1px",
+                          background:
+                            "conic-gradient(from var(--a), rgba(255,255,255,0) 0 76%, rgba(255,255,255,0.9) 84%, rgba(255,255,255,0.24) 92%, rgba(255,255,255,0) 100%)",
+                          WebkitMask:
+                            "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+                          WebkitMaskComposite: "xor",
+                          maskComposite: "exclude",
+                        }}
+                      />
+                      <span className="relative inline-flex items-center gap-2 rounded-full bg-black/28 px-3 py-1 text-[11px] font-medium text-white/88">
+                        <SpinnerMini reduced={!!prefersReducedMotion} tone="light" />
+                        Abrindo o Windows Hello...
                       </span>
                     </motion.div>
                   ) : msgError ? (

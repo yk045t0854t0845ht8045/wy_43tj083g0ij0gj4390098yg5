@@ -13,6 +13,7 @@ import { sendSmsCode } from "@/app/api/wz_AuthLogin/_sms";
 import { readSessionFromRequest } from "@/app/api/wz_AuthLogin/_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import { normalizeTotpCode, resolveTwoFactorState, verifyTotpCode } from "@/app/api/_twoFactor";
+import { readPasskeyAuthProof } from "@/app/api/wz_users/_passkey_auth_proof";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -85,6 +86,42 @@ function parsePhoneInputToE164(value: unknown) {
 
   const converted = toE164BRMobile(digits);
   return converted || "";
+}
+
+function isPasskeySchemaMissing(error: unknown) {
+  const code = typeof (error as { code?: unknown } | null)?.code === "string"
+    ? String((error as { code?: string }).code)
+    : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  return (
+    code === "42P01" ||
+    code === "PGRST205" ||
+    message.includes("wz_auth_passkeys") ||
+    message.includes("credential_id")
+  );
+}
+
+async function hasWindowsHelloPasskey(
+  sb: ReturnType<typeof supabaseAdmin>,
+  userId: string,
+) {
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return false;
+
+  const { data, error } = await sb
+    .from("wz_auth_passkeys")
+    .select("credential_id")
+    .eq("user_id", cleanUserId)
+    .limit(1);
+
+  if (!error) {
+    return Array.isArray(data) && data.length > 0;
+  }
+
+  if (!isPasskeySchemaMissing(error)) {
+    console.error("[change-phone] passkey lookup error:", error);
+  }
+  return false;
 }
 
 function base64UrlEncode(input: Buffer | string) {
@@ -854,30 +891,48 @@ export async function PUT(req: NextRequest) {
     });
     if (twoFactorState.enabled && twoFactorState.secret) {
       const twoFactorCode = normalizeTotpCode(body?.twoFactorCode ?? body?.totpCode, 6);
-      if (twoFactorCode.length !== 6) {
+      const hasPasskey = await hasWindowsHelloPasskey(base.sb, String(base.userRow.id || ""));
+      const passkeyProofRaw = String(body?.passkeyProof ?? body?.authProof ?? "").trim();
+      const passkeyProofRes = passkeyProofRaw
+        ? readPasskeyAuthProof({
+            proof: passkeyProofRaw,
+            userId: base.sessionUserId,
+            email: base.sessionEmail,
+          })
+        : null;
+
+      if (twoFactorCode.length !== 6 && !passkeyProofRes?.ok) {
+        const fallbackMessage = passkeyProofRaw && passkeyProofRes && !passkeyProofRes.ok
+          ? passkeyProofRes.error
+          : "Digite o codigo de 6 digitos do aplicativo autenticador.";
         return NextResponse.json(
           {
             ok: false,
             requiresTwoFactor: true,
-            error: "Digite o codigo de 6 digitos do aplicativo autenticador.",
+            requiresPasskey: hasPasskey,
+            authMethods: { totp: true, passkey: hasPasskey },
+            error: fallbackMessage,
           },
           { status: 428, headers: NO_STORE_HEADERS },
         );
       }
-
-      const validTwoFactorCode = verifyTotpCode({
-        secret: twoFactorState.secret,
-        code: twoFactorCode,
-      });
-      if (!validTwoFactorCode) {
-        return NextResponse.json(
-          {
-            ok: false,
-            requiresTwoFactor: true,
-            error: "Codigo de 2 etapas invalido. Tente novamente.",
-          },
-          { status: 401, headers: NO_STORE_HEADERS },
-        );
+      if (twoFactorCode.length === 6) {
+        const validTwoFactorCode = verifyTotpCode({
+          secret: twoFactorState.secret,
+          code: twoFactorCode,
+        });
+        if (!validTwoFactorCode) {
+          return NextResponse.json(
+            {
+              ok: false,
+              requiresTwoFactor: true,
+              requiresPasskey: hasPasskey,
+              authMethods: { totp: true, passkey: hasPasskey },
+              error: "Codigo de 2 etapas invalido. Tente novamente.",
+            },
+            { status: 401, headers: NO_STORE_HEADERS },
+          );
+        }
       }
     }
 

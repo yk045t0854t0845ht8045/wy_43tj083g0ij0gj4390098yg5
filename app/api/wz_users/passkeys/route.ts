@@ -5,6 +5,7 @@ import { sendLoginCodeEmail } from "@/app/api/wz_AuthLogin/_email";
 import { readSessionFromRequest } from "@/app/api/wz_AuthLogin/_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import { normalizeTotpCode, resolveTwoFactorState, verifyTotpCode } from "@/app/api/_twoFactor";
+import { readPasskeyAuthProof } from "@/app/api/wz_users/_passkey_auth_proof";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -576,6 +577,12 @@ async function handleVerify(req: NextRequest, ctx: SessionContext, body: Record<
   });
   if (!ticketRes.ok) return errorResponse(ticketRes.error, 400);
 
+  const passkeysRes = await listPasskeysForUser({ sb: ctx.sb, userId: ctx.sessionUserId });
+  if (!passkeysRes.schemaReady) {
+    return errorResponse("Schema de passkeys ausente. Execute sql/wz_auth_passkeys_create.sql.", 500);
+  }
+  const hasPasskey = passkeysRes.rows.length > 0;
+
   if (ticketRes.payload.phase === "verify-email") {
     const emailCode = onlyDigits(String(body.emailCode || body.code || "")).slice(0, 7);
     if (emailCode.length !== 7) {
@@ -610,32 +617,44 @@ async function handleVerify(req: NextRequest, ctx: SessionContext, body: Record<
       body.twoFactorCode ?? body.totpCode ?? body.code,
       6,
     );
-    if (twoFactorCode.length !== 6) {
+    const passkeyProofRaw = String(body.passkeyProof ?? body.authProof ?? "").trim();
+    const passkeyProofRes = passkeyProofRaw
+      ? readPasskeyAuthProof({
+          proof: passkeyProofRaw,
+          userId: ctx.sessionUserId,
+          email: ctx.sessionEmail,
+        })
+      : null;
+    if (twoFactorCode.length !== 6 && !passkeyProofRes?.ok) {
+      const fallbackMessage = passkeyProofRaw && passkeyProofRes && !passkeyProofRes.ok
+        ? passkeyProofRes.error
+        : "Digite o codigo de 6 digitos do aplicativo autenticador.";
       return NextResponse.json(
         {
           ok: false,
           requiresTwoFactor: true,
-          error: "Digite o codigo de 6 digitos do aplicativo autenticador.",
+          requiresPasskey: hasPasskey,
+          authMethods: { totp: true, passkey: hasPasskey },
+          error: fallbackMessage,
         },
         { status: 428, headers: NO_STORE_HEADERS },
       );
     }
-    const validTwoFactorCode = verifyTotpCode({ secret: twoFactorState.secret, code: twoFactorCode });
-    if (!validTwoFactorCode) {
-      return NextResponse.json(
-        {
-          ok: false,
-          requiresTwoFactor: true,
-          error: "Codigo de 2 etapas invalido. Tente novamente.",
-        },
-        { status: 401, headers: NO_STORE_HEADERS },
-      );
+    if (twoFactorCode.length === 6) {
+      const validTwoFactorCode = verifyTotpCode({ secret: twoFactorState.secret, code: twoFactorCode });
+      if (!validTwoFactorCode) {
+        return NextResponse.json(
+          {
+            ok: false,
+            requiresTwoFactor: true,
+            requiresPasskey: hasPasskey,
+            authMethods: { totp: true, passkey: hasPasskey },
+            error: "Codigo de 2 etapas invalido. Tente novamente.",
+          },
+          { status: 401, headers: NO_STORE_HEADERS },
+        );
+      }
     }
-  }
-
-  const passkeysRes = await listPasskeysForUser({ sb: ctx.sb, userId: ctx.sessionUserId });
-  if (!passkeysRes.schemaReady) {
-    return errorResponse("Schema de passkeys ausente. Execute sql/wz_auth_passkeys_create.sql.", 500);
   }
 
   const expectedOrigin = resolveExpectedOrigin(req);

@@ -5,6 +5,7 @@ import { gen7, maskEmail, newSalt, onlyDigits, sha } from "@/app/api/wz_AuthLogi
 import { sendLoginCodeEmail } from "@/app/api/wz_AuthLogin/_email";
 import { readSessionFromRequest } from "@/app/api/wz_AuthLogin/_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
+import { readPasskeyAuthProof } from "@/app/api/wz_users/_passkey_auth_proof";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -93,6 +94,39 @@ function normalizeBase32Secret(value?: string | null) {
     .toUpperCase()
     .replace(/[^A-Z2-7]/g, "");
   return clean || null;
+}
+
+async function hasWindowsHelloPasskey(
+  sb: ReturnType<typeof supabaseAdmin>,
+  userId: string,
+) {
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return false;
+
+  const { data, error } = await sb
+    .from("wz_auth_passkeys")
+    .select("credential_id")
+    .eq("user_id", cleanUserId)
+    .limit(1);
+
+  if (!error) {
+    return Array.isArray(data) && data.length > 0;
+  }
+
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const schemaMissing =
+    code === "42P01" ||
+    code === "PGRST205" ||
+    message.includes("wz_auth_passkeys") ||
+    message.includes("credential_id");
+  if (!schemaMissing) {
+    console.error("[two-factor] passkey lookup error:", error);
+  }
+  return false;
 }
 
 function isMissingColumnError(error: unknown, column: string) {
@@ -1386,22 +1420,49 @@ export async function PUT(req: NextRequest) {
       }
 
       const code = onlyDigits(String(body?.code || "")).slice(0, TOTP_DIGITS);
-      if (code.length !== TOTP_DIGITS) {
+      const hasPasskey = await hasWindowsHelloPasskey(base.sb, base.sessionUserId);
+      const passkeyProofRaw = String(body?.passkeyProof ?? body?.authProof ?? "").trim();
+      const passkeyProofRes = passkeyProofRaw
+        ? readPasskeyAuthProof({
+            proof: passkeyProofRaw,
+            userId: base.sessionUserId,
+            email: base.sessionEmail,
+          })
+        : null;
+
+      if (code.length !== TOTP_DIGITS && !passkeyProofRes?.ok) {
+        const fallbackMessage = passkeyProofRaw && passkeyProofRes && !passkeyProofRes.ok
+          ? passkeyProofRes.error
+          : "Codigo do aplicativo invalido.";
         return NextResponse.json(
-          { ok: false, error: "Codigo do aplicativo invalido." },
-          { status: 400, headers: NO_STORE_HEADERS },
+          {
+            ok: false,
+            requiresTwoFactor: true,
+            requiresPasskey: hasPasskey,
+            authMethods: { totp: true, passkey: hasPasskey },
+            error: fallbackMessage,
+          },
+          { status: 428, headers: NO_STORE_HEADERS },
         );
       }
 
-      const valid = verifyTotpCode({
-        secret: base.twoFactorSecret,
-        code,
-      });
-      if (!valid) {
-        return NextResponse.json(
-          { ok: false, error: "Codigo do aplicativo invalido. Tente novamente." },
-          { status: 400, headers: NO_STORE_HEADERS },
-        );
+      if (code.length === TOTP_DIGITS) {
+        const valid = verifyTotpCode({
+          secret: base.twoFactorSecret,
+          code,
+        });
+        if (!valid) {
+          return NextResponse.json(
+            {
+              ok: false,
+              requiresTwoFactor: true,
+              requiresPasskey: hasPasskey,
+              authMethods: { totp: true, passkey: hasPasskey },
+              error: "Codigo do aplicativo invalido. Tente novamente.",
+            },
+            { status: 401, headers: NO_STORE_HEADERS },
+          );
+        }
       }
 
       const emailCode = await createEmailChallenge(base.sb, base.sessionEmail);

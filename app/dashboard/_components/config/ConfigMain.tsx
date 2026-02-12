@@ -8,6 +8,7 @@ import {
   Monitor,
   Search,
   Smartphone,
+  Undo2,
   X,
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -72,6 +73,14 @@ type AccountActionTwoFactorContext =
   | "passkey";
 
 type PasskeyVerificationMethod = "none" | "email" | "two-factor";
+type AccountActionAuthMethod = "choose" | "totp" | "passkey";
+type AccountActionAuthMethodsPayload = { totp?: boolean; passkey?: boolean };
+type AccountActionAuthResponsePayload = {
+  requiresTwoFactor?: boolean;
+  requiresPasskey?: boolean;
+  authMethods?: AccountActionAuthMethodsPayload;
+  error?: string;
+};
 
 type PasskeyCreateOptionsPayload = {
   challenge: string;
@@ -82,6 +91,18 @@ type PasskeyCreateOptionsPayload = {
   authenticatorSelection?: AuthenticatorSelectionCriteria;
   pubKeyCredParams: PublicKeyCredentialParameters[];
   excludeCredentials?: Array<{
+    type: "public-key";
+    id: string;
+    transports?: string[];
+  }>;
+};
+
+type PasskeyRequestOptionsPayload = {
+  challenge: string;
+  rpId: string;
+  timeout?: number;
+  userVerification?: "required" | "preferred" | "discouraged";
+  allowCredentials?: Array<{
     type: "public-key";
     id: string;
     transports?: string[];
@@ -278,6 +299,11 @@ function arrayBufferToBase64Url(buffer: ArrayBuffer) {
 function isPasskeySupportedInBrowser() {
   if (typeof window === "undefined") return false;
   return Boolean(window.PublicKeyCredential && navigator.credentials?.create);
+}
+
+function isPasskeyAssertionSupportedInBrowser() {
+  if (typeof window === "undefined") return false;
+  return Boolean(window.PublicKeyCredential && navigator.credentials?.get);
 }
 
 function normalizeIsoDatetime(value?: string | null) {
@@ -592,6 +618,11 @@ function AccountContent({
   );
   const [accountActionTwoFactorShakeTick, setAccountActionTwoFactorShakeTick] = useState(0);
   const [accountActionTwoFactorUiLoading, setAccountActionTwoFactorUiLoading] = useState(false);
+  const [accountActionAuthMethod, setAccountActionAuthMethod] =
+    useState<AccountActionAuthMethod>("totp");
+  const [accountActionAllowTotp, setAccountActionAllowTotp] = useState(true);
+  const [accountActionAllowPasskey, setAccountActionAllowPasskey] = useState(false);
+  const [verifyingAccountActionPasskey, setVerifyingAccountActionPasskey] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(() =>
     Boolean(initialTwoFactorEnabled)
   );
@@ -643,6 +674,7 @@ function AccountContent({
   const pointerIdRef = useRef<number | null>(null);
   const pointerStartRef = useRef({ x: 0, y: 0 });
   const offsetStartRef = useRef({ x: 0, y: 0 });
+  const accountActionPasskeyAutoStartRef = useRef("");
 
   useEffect(() => setLocalPhoto(normalizePhotoLink(userPhotoLink)), [userPhotoLink]);
   useEffect(() => setLocalEmail(String(email || "").trim().toLowerCase()), [email]);
@@ -902,7 +934,8 @@ function AccountContent({
     (accountActionTwoFactorContext === "passkey" && verifyingPasskeyCode) ||
     ((accountActionTwoFactorContext === "two-factor-disable" ||
       accountActionTwoFactorContext === "two-factor-enable") &&
-      verifyingTwoFactorStep);
+      verifyingTwoFactorStep) ||
+    verifyingAccountActionPasskey;
   const accountActionTwoFactorInvalidError = useMemo(() => {
     const message = String(accountActionTwoFactorError || "").trim();
     if (!message) return null;
@@ -926,12 +959,17 @@ function AccountContent({
   }, []);
 
   const resetAccountActionTwoFactorModal = useCallback(() => {
+    accountActionPasskeyAutoStartRef.current = "";
     setAccountActionTwoFactorModalOpen(false);
     setAccountActionTwoFactorContext(null);
     setAccountActionTwoFactorCode("");
     setAccountActionTwoFactorError(null);
     setAccountActionTwoFactorShakeTick(0);
     setAccountActionTwoFactorUiLoading(false);
+    setAccountActionAuthMethod("totp");
+    setAccountActionAllowTotp(true);
+    setAccountActionAllowPasskey(false);
+    setVerifyingAccountActionPasskey(false);
   }, []);
 
   const closeAccountActionTwoFactorModal = useCallback(() => {
@@ -955,13 +993,33 @@ function AccountContent({
   }, [accountActionTwoFactorContext, resetAccountActionTwoFactorModal]);
 
   const openAccountActionTwoFactorModal = useCallback(
-    (context: AccountActionTwoFactorContext, errorMessage?: string | null) => {
+    (
+      context: AccountActionTwoFactorContext,
+      errorMessage?: string | null,
+      methods?: AccountActionAuthMethodsPayload | null
+    ) => {
+      const fallbackPasskeyAvailable =
+        context !== "two-factor-enable" && twoFactorEnabled && passkeyEnabled;
+      const allowTotp =
+        typeof methods?.totp === "boolean" ? methods.totp : true;
+      const allowPasskey =
+        typeof methods?.passkey === "boolean"
+          ? methods.passkey
+          : fallbackPasskeyAvailable;
+      const defaultMethod: AccountActionAuthMethod =
+        allowTotp && allowPasskey ? "choose" : allowPasskey ? "passkey" : "totp";
+
+      accountActionPasskeyAutoStartRef.current = "";
       setAccountActionTwoFactorContext(context);
       setAccountActionTwoFactorModalOpen(true);
       setAccountActionTwoFactorCode("");
+      setAccountActionAllowTotp(allowTotp);
+      setAccountActionAllowPasskey(allowPasskey);
+      setAccountActionAuthMethod(defaultMethod);
+      setVerifyingAccountActionPasskey(false);
       setAccountActionTwoFactorFeedback(errorMessage ? String(errorMessage) : null);
     },
-    [setAccountActionTwoFactorFeedback]
+    [passkeyEnabled, setAccountActionTwoFactorFeedback, twoFactorEnabled]
   );
 
   useEffect(() => {
@@ -1128,7 +1186,11 @@ function AccountContent({
     }
   };
 
-  const verifyEmailChangeCode = async (nextValue?: string, providedTwoFactorCode?: string) => {
+  const verifyEmailChangeCode = async (
+    nextValue?: string,
+    providedTwoFactorCode?: string,
+    providedPasskeyProof?: string
+  ) => {
     if (!emailChangeTicket) {
       setEmailChangeError("Sessao de alteracao invalida. Reabra o modal.");
       return;
@@ -1138,6 +1200,8 @@ function AccountContent({
     const code = onlyDigits(String(nextValue || emailCode || "")).slice(0, 7);
     if (code.length !== 7) return;
     const twoFactorCode = onlyDigits(String(providedTwoFactorCode || "")).slice(0, 6);
+    const passkeyProof = String(providedPasskeyProof || "").trim();
+    const usedAccountActionAuth = twoFactorCode.length === 6 || Boolean(passkeyProof);
 
     try {
       setVerifyingEmailCode(true);
@@ -1150,6 +1214,7 @@ function AccountContent({
           ticket: emailChangeTicket,
           code,
           ...(twoFactorCode.length === 6 ? { twoFactorCode } : {}),
+          ...(passkeyProof ? { passkeyProof } : {}),
         }),
       });
 
@@ -1159,9 +1224,7 @@ function AccountContent({
         ticket?: string;
         email?: string;
         emailChangedAt?: string | null;
-        requiresTwoFactor?: boolean;
-        error?: string;
-      };
+      } & AccountActionAuthResponsePayload;
 
       if (!res.ok || !payload.ok) {
         if (payload.requiresTwoFactor) {
@@ -1170,7 +1233,8 @@ function AccountContent({
           setEmailChangeError(null);
           openAccountActionTwoFactorModal(
             "email",
-            String(payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador.")
+            String(payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador."),
+            payload.authMethods,
           );
           return;
         }
@@ -1183,13 +1247,13 @@ function AccountContent({
         if (res.status === 429) {
           setEmailResendCooldown(0);
         }
-        if (twoFactorCode.length === 6) {
+        if (usedAccountActionAuth) {
           resetAccountActionTwoFactorModal();
         }
         return;
       }
 
-      if (twoFactorCode.length === 6) {
+      if (usedAccountActionAuth) {
         resetAccountActionTwoFactorModal();
       }
 
@@ -1222,7 +1286,7 @@ function AccountContent({
       console.error("[config-account] verify email change code failed:", err);
       const message =
         err instanceof Error ? err.message : "Erro ao validar codigo de e-mail. Tente novamente.";
-      if (twoFactorCode.length === 6) {
+      if (usedAccountActionAuth) {
         setAccountActionTwoFactorFeedback(message);
       } else {
         setEmailChangeError(message);
@@ -1383,7 +1447,11 @@ function AccountContent({
     }
   };
 
-  const verifyPhoneChangeCode = async (nextValue?: string, providedTwoFactorCode?: string) => {
+  const verifyPhoneChangeCode = async (
+    nextValue?: string,
+    providedTwoFactorCode?: string,
+    providedPasskeyProof?: string
+  ) => {
     if (!phoneChangeTicket) {
       setPhoneChangeError("Sessao de alteracao invalida. Reabra o modal.");
       return;
@@ -1393,6 +1461,8 @@ function AccountContent({
     const code = onlyDigits(String(nextValue || phoneCode || "")).slice(0, 7);
     if (code.length !== 7) return;
     const twoFactorCode = onlyDigits(String(providedTwoFactorCode || "")).slice(0, 6);
+    const passkeyProof = String(providedPasskeyProof || "").trim();
+    const usedAccountActionAuth = twoFactorCode.length === 6 || Boolean(passkeyProof);
 
     try {
       setVerifyingPhoneCode(true);
@@ -1405,6 +1475,7 @@ function AccountContent({
           ticket: phoneChangeTicket,
           code,
           ...(twoFactorCode.length === 6 ? { twoFactorCode } : {}),
+          ...(passkeyProof ? { passkeyProof } : {}),
         }),
       });
 
@@ -1414,9 +1485,7 @@ function AccountContent({
         ticket?: string;
         phone?: string;
         phoneChangedAt?: string | null;
-        requiresTwoFactor?: boolean;
-        error?: string;
-      };
+      } & AccountActionAuthResponsePayload;
 
       if (!res.ok || !payload.ok) {
         if (payload.requiresTwoFactor) {
@@ -1425,7 +1494,8 @@ function AccountContent({
           setPhoneChangeError(null);
           openAccountActionTwoFactorModal(
             "phone",
-            String(payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador.")
+            String(payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador."),
+            payload.authMethods,
           );
           return;
         }
@@ -1438,13 +1508,13 @@ function AccountContent({
         if (res.status === 429) {
           setPhoneResendCooldown(0);
         }
-        if (twoFactorCode.length === 6) {
+        if (usedAccountActionAuth) {
           resetAccountActionTwoFactorModal();
         }
         return;
       }
 
-      if (twoFactorCode.length === 6) {
+      if (usedAccountActionAuth) {
         resetAccountActionTwoFactorModal();
       }
 
@@ -1477,7 +1547,7 @@ function AccountContent({
       console.error("[config-account] verify phone change code failed:", err);
       const message =
         err instanceof Error ? err.message : "Erro ao validar codigo de celular. Tente novamente.";
-      if (twoFactorCode.length === 6) {
+      if (usedAccountActionAuth) {
         setAccountActionTwoFactorFeedback(message);
       } else {
         setPhoneChangeError(message);
@@ -1613,7 +1683,8 @@ function AccountContent({
 
   const verifyPasswordChangeCode = async (
     nextValue?: string,
-    providedTwoFactorCode?: string
+    providedTwoFactorCode?: string,
+    providedPasskeyProof?: string
   ) => {
     if (!passwordChangeTicket) {
       setPasswordChangeError("Sessao de alteracao invalida. Reabra o modal.");
@@ -1624,6 +1695,8 @@ function AccountContent({
     const code = onlyDigits(String(nextValue || passwordCode || "")).slice(0, 7);
     if (code.length !== 7) return;
     const twoFactorCode = onlyDigits(String(providedTwoFactorCode || "")).slice(0, 6);
+    const passkeyProof = String(providedPasskeyProof || "").trim();
+    const usedAccountActionAuth = twoFactorCode.length === 6 || Boolean(passkeyProof);
 
     try {
       setVerifyingPasswordCode(true);
@@ -1639,15 +1712,14 @@ function AccountContent({
           newPassword: newPasswordInput,
           confirmNewPassword: confirmNewPasswordInput,
           ...(twoFactorCode.length === 6 ? { twoFactorCode } : {}),
+          ...(passkeyProof ? { passkeyProof } : {}),
         }),
       });
 
       const payload = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         passwordChangedAt?: string | null;
-        requiresTwoFactor?: boolean;
-        error?: string;
-      };
+      } & AccountActionAuthResponsePayload;
 
       if (!res.ok || !payload.ok) {
         if (payload.requiresTwoFactor) {
@@ -1656,7 +1728,8 @@ function AccountContent({
           setPasswordChangeError(null);
           openAccountActionTwoFactorModal(
             "password",
-            String(payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador.")
+            String(payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador."),
+            payload.authMethods,
           );
           return;
         }
@@ -1669,13 +1742,13 @@ function AccountContent({
         if (res.status === 429) {
           setPasswordResendCooldown(0);
         }
-        if (twoFactorCode.length === 6) {
+        if (usedAccountActionAuth) {
           resetAccountActionTwoFactorModal();
         }
         return;
       }
 
-      if (twoFactorCode.length === 6) {
+      if (usedAccountActionAuth) {
         resetAccountActionTwoFactorModal();
       }
 
@@ -1688,7 +1761,7 @@ function AccountContent({
     } catch (err) {
       console.error("[config-account] verify password change code failed:", err);
       const message = err instanceof Error ? err.message : "Erro ao validar codigo de senha.";
-      if (twoFactorCode.length === 6) {
+      if (usedAccountActionAuth) {
         setAccountActionTwoFactorFeedback(message);
       } else {
         setPasswordChangeError(message);
@@ -1700,6 +1773,12 @@ function AccountContent({
 
   const submitAccountActionTwoFactorCode = async (nextValue?: string) => {
     if (!accountActionTwoFactorContext) return;
+    if (accountActionAuthMethod === "choose") return;
+    if (accountActionAuthMethod === "passkey") {
+      await verifyAccountActionWithWindowsHello();
+      return;
+    }
+
     const code = onlyDigits(String(nextValue || accountActionTwoFactorCode || "")).slice(0, 6);
     setAccountActionTwoFactorCode(code);
     if (code.length !== 6) return;
@@ -1868,7 +1947,10 @@ function AccountContent({
       setTwoFactorAppCode("");
       setTwoFactorEmailCode("");
       setTwoFactorResendCooldown(0);
-      openAccountActionTwoFactorModal("two-factor-disable");
+      openAccountActionTwoFactorModal("two-factor-disable", null, {
+        totp: true,
+        passkey: passkeyEnabled,
+      });
     } catch (err) {
       console.error("[config-account] start two-factor disable failed:", err);
       setTwoFactorError(err instanceof Error ? err.message : "Erro ao iniciar desativacao de 2 etapas.");
@@ -2083,11 +2165,15 @@ function AccountContent({
     }
   };
 
-  const verifyTwoFactorDisableAppCode = async (nextValue?: string) => {
+  const verifyTwoFactorDisableAppCode = async (
+    nextValue?: string,
+    providedPasskeyProof?: string
+  ) => {
     if (!twoFactorTicket || isTwoFactorBusy) return;
     if (twoFactorStep !== "disable-verify-app") return;
     const code = onlyDigits(String(nextValue || twoFactorAppCode || "")).slice(0, 6);
-    if (code.length !== 6) return;
+    const passkeyProof = String(providedPasskeyProof || "").trim();
+    if (code.length !== 6 && !passkeyProof) return;
     const usingDynamicIslandForDisable =
       accountActionTwoFactorContext === "two-factor-disable" && accountActionTwoFactorModalOpen;
 
@@ -2101,7 +2187,11 @@ function AccountContent({
       const res = await fetch("/api/wz_users/two-factor", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticket: twoFactorTicket, code }),
+        body: JSON.stringify({
+          ticket: twoFactorTicket,
+          ...(code.length === 6 ? { code } : {}),
+          ...(passkeyProof ? { passkeyProof } : {}),
+        }),
       });
 
       const payload = (await res.json().catch(() => ({}))) as {
@@ -2110,8 +2200,16 @@ function AccountContent({
         phase?: "disable-verify-email";
         ticket?: string;
         emailMask?: string;
-        error?: string;
-      };
+      } & AccountActionAuthResponsePayload;
+
+      if ((!res.ok || !payload.ok) && payload.requiresTwoFactor && usingDynamicIslandForDisable) {
+        openAccountActionTwoFactorModal(
+          "two-factor-disable",
+          String(payload.error || "Codigo do aplicativo invalido."),
+          payload.authMethods,
+        );
+        return;
+      }
 
       if (!res.ok || !payload.ok || payload.next !== "verify-email" || !payload.ticket) {
         throw new Error(payload.error || "Codigo do aplicativo invalido.");
@@ -2311,7 +2409,8 @@ function AccountContent({
 
   const verifyPasskeyActivation = async (
     nextValue?: string,
-    providedTwoFactorCode?: string
+    providedTwoFactorCode?: string,
+    providedPasskeyProof?: string
   ) => {
     if (!passkeyTicket || passkeyVerificationMethod === "none") return;
     if (startingPasskeyFlow || resendingPasskeyCode || verifyingPasskeyCode || registeringPasskey) {
@@ -2320,8 +2419,11 @@ function AccountContent({
 
     const emailCode = onlyDigits(String(nextValue || passkeyEmailCode || "")).slice(0, 7);
     const twoFactorCode = onlyDigits(String(providedTwoFactorCode || "")).slice(0, 6);
+    const passkeyProof = String(providedPasskeyProof || "").trim();
     if (passkeyVerificationMethod === "email" && emailCode.length !== 7) return;
-    if (passkeyVerificationMethod === "two-factor" && twoFactorCode.length !== 6) return;
+    if (passkeyVerificationMethod === "two-factor" && twoFactorCode.length !== 6 && !passkeyProof) {
+      return;
+    }
 
     try {
       setVerifyingPasskeyCode(true);
@@ -2336,7 +2438,12 @@ function AccountContent({
         body: JSON.stringify({
           mode: "verify",
           ticket: passkeyTicket,
-          ...(passkeyVerificationMethod === "email" ? { emailCode } : { twoFactorCode }),
+          ...(passkeyVerificationMethod === "email"
+            ? { emailCode }
+            : {
+                ...(twoFactorCode.length === 6 ? { twoFactorCode } : {}),
+                ...(passkeyProof ? { passkeyProof } : {}),
+              }),
         }),
       });
 
@@ -2344,8 +2451,20 @@ function AccountContent({
         ok?: boolean;
         ticket?: string;
         options?: PasskeyCreateOptionsPayload;
-        error?: string;
-      };
+      } & AccountActionAuthResponsePayload;
+
+      if (
+        (!res.ok || !payload.ok) &&
+        payload.requiresTwoFactor &&
+        passkeyVerificationMethod === "two-factor"
+      ) {
+        openAccountActionTwoFactorModal(
+          "passkey",
+          String(payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador."),
+          payload.authMethods,
+        );
+        return;
+      }
 
       if (!res.ok || !payload.ok || !payload.ticket || !payload.options) {
         const fallback =
@@ -2386,6 +2505,259 @@ function AccountContent({
     }
   };
 
+  const verifyAccountActionWithWindowsHello = useCallback(async () => {
+    if (!accountActionTwoFactorContext || !accountActionAllowPasskey) return;
+    if (accountActionTwoFactorBusy || accountActionTwoFactorUiLoading) return;
+
+    if (!isPasskeyAssertionSupportedInBrowser()) {
+      setAccountActionTwoFactorFeedback(
+        "Seu navegador/dispositivo nao suporta Windows Hello neste ambiente.",
+      );
+      return;
+    }
+
+    setVerifyingAccountActionPasskey(true);
+    clearAccountActionTwoFactorFeedback();
+
+    try {
+      const startRes = await fetch("/api/wz_users/passkeys-auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "start" }),
+      });
+
+      const startPayload = (await startRes.json().catch(() => ({}))) as {
+        ok?: boolean;
+        ticket?: string;
+        options?: PasskeyRequestOptionsPayload;
+        error?: string;
+      };
+
+      if (!startRes.ok || !startPayload.ok) {
+        throw new Error(
+          String(startPayload.error || "Nao foi possivel iniciar a validacao do Windows Hello."),
+        );
+      }
+
+      const startOptions = (startPayload.options || null) as PasskeyRequestOptionsPayload | null;
+      const passkeyAuthTicket = String(startPayload.ticket || "").trim();
+      if (!passkeyAuthTicket || !startOptions?.challenge) {
+        throw new Error("Resposta invalida do servidor para iniciar o Windows Hello.");
+      }
+
+      const transportsAllowed = new Set([
+        "usb",
+        "nfc",
+        "ble",
+        "internal",
+        "hybrid",
+        "smart-card",
+      ]);
+
+      const allowCredentials: PublicKeyCredentialDescriptor[] = [];
+      if (Array.isArray(startOptions.allowCredentials)) {
+        for (const item of startOptions.allowCredentials) {
+          const id = base64UrlToUint8Array(item?.id || "");
+          if (!id.length) continue;
+
+          const transports = Array.isArray(item?.transports)
+            ? item.transports
+                .map((value) => String(value || "").trim().toLowerCase())
+                .filter(
+                  (value): value is AuthenticatorTransport => transportsAllowed.has(value),
+                )
+            : [];
+
+          allowCredentials.push({
+            type: "public-key",
+            id: id as BufferSource,
+            ...(transports.length ? { transports } : {}),
+          });
+        }
+      }
+
+      const userVerification = (() => {
+        const raw = String(startOptions.userVerification || "").trim().toLowerCase();
+        if (raw === "required" || raw === "preferred" || raw === "discouraged") {
+          return raw as UserVerificationRequirement;
+        }
+        return "required";
+      })();
+
+      const rpId = String(startOptions.rpId || "").trim();
+      const publicKey: PublicKeyCredentialRequestOptions = {
+        challenge: base64UrlToUint8Array(startOptions.challenge),
+        timeout: Math.max(15000, Number(startOptions.timeout || 60000)),
+        userVerification,
+        ...(rpId ? { rpId } : {}),
+        ...(allowCredentials.length ? { allowCredentials } : {}),
+      };
+
+      const assertion = (await navigator.credentials.get({
+        publicKey,
+      })) as PublicKeyCredential | null;
+
+      if (!assertion) {
+        throw new Error("Nao foi possivel validar com o Windows Hello.");
+      }
+
+      const response = assertion.response as AuthenticatorAssertionResponse | null;
+      if (!response?.clientDataJSON || !response?.authenticatorData || !response?.signature) {
+        throw new Error("Resposta invalida do dispositivo ao validar o Windows Hello.");
+      }
+
+      const finishRes = await fetch("/api/wz_users/passkeys-auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "finish",
+          ticket: passkeyAuthTicket,
+          credential: {
+            id: assertion.id,
+            rawId: arrayBufferToBase64Url(assertion.rawId),
+            type: assertion.type,
+            response: {
+              clientDataJSON: arrayBufferToBase64Url(response.clientDataJSON),
+              authenticatorData: arrayBufferToBase64Url(response.authenticatorData),
+              signature: arrayBufferToBase64Url(response.signature),
+              ...(response.userHandle
+                ? { userHandle: arrayBufferToBase64Url(response.userHandle) }
+                : {}),
+            },
+          },
+        }),
+      });
+
+      const finishPayload = (await finishRes.json().catch(() => ({}))) as {
+        ok?: boolean;
+        passkeyProof?: string;
+        error?: string;
+      };
+
+      if (!finishRes.ok || !finishPayload.ok || !finishPayload.passkeyProof) {
+        throw new Error(
+          String(finishPayload.error || "Nao foi possivel concluir a validacao com Windows Hello."),
+        );
+      }
+
+      const passkeyProof = String(finishPayload.passkeyProof || "").trim();
+      if (!passkeyProof) {
+        throw new Error("Resposta invalida ao validar Windows Hello.");
+      }
+
+      if (accountActionTwoFactorContext === "email") {
+        await verifyEmailChangeCode(undefined, undefined, passkeyProof);
+        return;
+      }
+      if (accountActionTwoFactorContext === "phone") {
+        await verifyPhoneChangeCode(undefined, undefined, passkeyProof);
+        return;
+      }
+      if (accountActionTwoFactorContext === "two-factor-disable") {
+        await verifyTwoFactorDisableAppCode(undefined, passkeyProof);
+        return;
+      }
+      if (accountActionTwoFactorContext === "passkey") {
+        await verifyPasskeyActivation(undefined, undefined, passkeyProof);
+        return;
+      }
+      await verifyPasswordChangeCode(undefined, undefined, passkeyProof);
+    } catch (error) {
+      const domErr = error as DOMException;
+      if (domErr?.name === "NotAllowedError") {
+        if (accountActionAllowTotp && accountActionAllowPasskey) {
+          setAccountActionAuthMethod("choose");
+          setAccountActionTwoFactorCode("");
+          clearAccountActionTwoFactorFeedback();
+          return;
+        }
+        setAccountActionTwoFactorFeedback("Solicitacao do Windows Hello cancelada.");
+        return;
+      }
+      setAccountActionTwoFactorFeedback(
+        error instanceof Error
+          ? error.message
+          : "Erro inesperado ao validar com Windows Hello.",
+      );
+    } finally {
+      setVerifyingAccountActionPasskey(false);
+    }
+  }, [
+    accountActionAllowPasskey,
+    accountActionAllowTotp,
+    accountActionTwoFactorBusy,
+    accountActionTwoFactorContext,
+    accountActionTwoFactorUiLoading,
+    clearAccountActionTwoFactorFeedback,
+    setAccountActionTwoFactorFeedback,
+    verifyEmailChangeCode,
+    verifyPasskeyActivation,
+    verifyPasswordChangeCode,
+    verifyPhoneChangeCode,
+    verifyTwoFactorDisableAppCode,
+  ]);
+
+  const chooseAccountActionAuthMethod = useCallback(
+    (method: Exclude<AccountActionAuthMethod, "choose">) => {
+      if (method === "totp") {
+        if (!accountActionAllowTotp) return;
+        setAccountActionAuthMethod("totp");
+        setAccountActionTwoFactorCode("");
+        clearAccountActionTwoFactorFeedback();
+        return;
+      }
+      if (!accountActionAllowPasskey) return;
+      setAccountActionAuthMethod("passkey");
+      setAccountActionTwoFactorCode("");
+      clearAccountActionTwoFactorFeedback();
+      void verifyAccountActionWithWindowsHello();
+    },
+    [
+      accountActionAllowPasskey,
+      accountActionAllowTotp,
+      clearAccountActionTwoFactorFeedback,
+      verifyAccountActionWithWindowsHello,
+    ],
+  );
+
+  const backToAccountActionAuthMethodChoice = useCallback(() => {
+    if (accountActionTwoFactorBusy) return;
+    if (!(accountActionAllowTotp && accountActionAllowPasskey)) return;
+    setAccountActionAuthMethod("choose");
+    setAccountActionTwoFactorCode("");
+    clearAccountActionTwoFactorFeedback();
+  }, [
+    accountActionAllowPasskey,
+    accountActionAllowTotp,
+    accountActionTwoFactorBusy,
+    clearAccountActionTwoFactorFeedback,
+  ]);
+
+  useEffect(() => {
+    if (!accountActionTwoFactorModalOpen) {
+      accountActionPasskeyAutoStartRef.current = "";
+      return;
+    }
+    if (accountActionTwoFactorUiLoading) return;
+    if (accountActionAllowTotp || !accountActionAllowPasskey) return;
+    if (accountActionAuthMethod !== "passkey") return;
+    if (accountActionTwoFactorBusy) return;
+
+    const autoStartKey = `${accountActionTwoFactorContext || "none"}:passkey-only`;
+    if (accountActionPasskeyAutoStartRef.current === autoStartKey) return;
+    accountActionPasskeyAutoStartRef.current = autoStartKey;
+    void verifyAccountActionWithWindowsHello();
+  }, [
+    accountActionAllowPasskey,
+    accountActionAllowTotp,
+    accountActionAuthMethod,
+    accountActionTwoFactorBusy,
+    accountActionTwoFactorContext,
+    accountActionTwoFactorModalOpen,
+    accountActionTwoFactorUiLoading,
+    verifyAccountActionWithWindowsHello,
+  ]);
+
   const startPasskeyActivationFlow = async () => {
     if (isPasskeyBusy) return;
 
@@ -2420,7 +2792,8 @@ function AccountContent({
         setPasskeyResendCooldown(0);
         openAccountActionTwoFactorModal(
           "passkey",
-          String(payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador.")
+          String(payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador."),
+          { totp: true, passkey: passkeyEnabled },
         );
         return;
       }
@@ -2490,7 +2863,8 @@ function AccountContent({
     if (passkeyVerificationMethod !== "two-factor" || !passkeyTicket || isPasskeyBusy) return;
     openAccountActionTwoFactorModal(
       "passkey",
-      "Digite o codigo de 6 digitos do aplicativo autenticador."
+      "Digite o codigo de 6 digitos do aplicativo autenticador.",
+      { totp: true, passkey: passkeyEnabled },
     );
   };
 
@@ -2526,8 +2900,15 @@ function AccountContent({
     twoFactorEnableSubStep === "verify" &&
     accountActionTwoFactorContext === "two-factor-enable" &&
     accountActionTwoFactorModalOpen;
+  const accountActionCanChooseMethod = accountActionAllowTotp && accountActionAllowPasskey;
+  const accountActionShowTotpInput =
+    accountActionAuthMethod === "totp" || (accountActionAllowTotp && !accountActionAllowPasskey);
+  const accountActionShowPasskeyFlow =
+    accountActionAuthMethod === "passkey" || (!accountActionAllowTotp && accountActionAllowPasskey);
   const accountActionTwoFactorTitle =
-    accountActionTwoFactorContext === "two-factor-disable"
+    accountActionCanChooseMethod && accountActionAuthMethod === "choose"
+      ? "Escolha a forma de validacao"
+      : accountActionTwoFactorContext === "two-factor-disable"
       ? "Desativar autenticacao de 2 etapas"
       : accountActionTwoFactorContext === "two-factor-enable"
         ? "Ativar autenticacao de 2 etapas"
@@ -2535,7 +2916,11 @@ function AccountContent({
         ? "Ativar Windows Hello"
       : "Autenticacao de 2 etapas";
   const accountActionTwoFactorDescription =
-    accountActionTwoFactorContext === "two-factor-disable"
+    accountActionCanChooseMethod && accountActionAuthMethod === "choose"
+      ? "Escolha entre codigo autenticador e Windows Hello."
+      : accountActionShowPasskeyFlow
+        ? "Confirme a validacao no prompt do Windows Hello."
+      : accountActionTwoFactorContext === "two-factor-disable"
       ? "Digite o codigo de 6 digitos do aplicativo autenticador para iniciar a desativacao."
       : accountActionTwoFactorContext === "two-factor-enable"
         ? "Digite o codigo de 6 digitos gerado no aplicativo para ativar."
@@ -3524,38 +3909,74 @@ function AccountContent({
                             {accountActionTwoFactorDescription}
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={closeAccountActionTwoFactorModal}
-                          disabled={accountActionTwoFactorBusy}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          {accountActionCanChooseMethod && accountActionAuthMethod !== "choose" && (
+                            <button
+                              type="button"
+                              onClick={backToAccountActionAuthMethodChoice}
+                              disabled={accountActionTwoFactorBusy}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                              aria-label="Voltar para opcoes de validacao"
+                            >
+                              <Undo2 className="h-4 w-4" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={closeAccountActionTwoFactorModal}
+                            disabled={accountActionTwoFactorBusy}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
 
-                      <motion.div
-                        animate={
-                          accountActionTwoFactorShakeTick > 0
-                            ? { x: [0, -3, 3, -2, 2, 0] }
-                            : { x: 0 }
-                        }
-                        transition={{ duration: 0.23, ease: "easeOut" }}
-                        onMouseDownCapture={clearAccountActionTwoFactorFeedback}
-                        onTouchStartCapture={clearAccountActionTwoFactorFeedback}
-                        onFocusCapture={clearAccountActionTwoFactorFeedback}
-                      >
-                        <CodeBoxes
-                          length={6}
-                          value={accountActionTwoFactorCode}
-                          onChange={setAccountActionTwoFactorCode}
-                          onComplete={(value) => {
-                            void submitAccountActionTwoFactorCode(value);
-                          }}
-                          disabled={accountActionTwoFactorBusy}
-                          variant="dark"
-                        />
-                      </motion.div>
+                      {accountActionCanChooseMethod && accountActionAuthMethod === "choose" && (
+                        <div className="mt-4 flex w-full flex-col gap-2">
+                          <button
+                            type="button"
+                            onClick={() => chooseAccountActionAuthMethod("totp")}
+                            disabled={accountActionTwoFactorBusy}
+                            className="h-11 w-full rounded-full border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Codigo de Autenticacao
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => chooseAccountActionAuthMethod("passkey")}
+                            disabled={accountActionTwoFactorBusy}
+                            className="h-11 w-full rounded-full border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Windows Hello
+                          </button>
+                        </div>
+                      )}
+
+                      {accountActionShowTotpInput && (
+                        <motion.div
+                          animate={
+                            accountActionTwoFactorShakeTick > 0
+                              ? { x: [0, -3, 3, -2, 2, 0] }
+                              : { x: 0 }
+                          }
+                          transition={{ duration: 0.23, ease: "easeOut" }}
+                          onMouseDownCapture={clearAccountActionTwoFactorFeedback}
+                          onTouchStartCapture={clearAccountActionTwoFactorFeedback}
+                          onFocusCapture={clearAccountActionTwoFactorFeedback}
+                        >
+                          <CodeBoxes
+                            length={6}
+                            value={accountActionTwoFactorCode}
+                            onChange={setAccountActionTwoFactorCode}
+                            onComplete={(value) => {
+                              void submitAccountActionTwoFactorCode(value);
+                            }}
+                            disabled={accountActionTwoFactorBusy}
+                            variant="dark"
+                          />
+                        </motion.div>
+                      )}
                     </motion.div>
                   )}
                 </div>
@@ -3587,6 +4008,44 @@ function AccountContent({
                       <span className="relative inline-flex rounded-full bg-[#e3524b]/14 px-3 py-1 text-[11px] font-medium text-[#ff8b86]">
                         Codigo de autenticacao invalido. Tente novamente.
                       </span>
+                    </motion.div>
+                  ) : verifyingAccountActionPasskey ? (
+                    <motion.div
+                      key="account-action-twofactor-passkey-loading"
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.16, ease: "easeOut" }}
+                      className="relative inline-flex overflow-hidden rounded-full"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="twofactor-island-border pointer-events-none absolute inset-0 rounded-[inherit]"
+                        style={{
+                          padding: "1px",
+                          background:
+                            "conic-gradient(from var(--a), rgba(255,255,255,0) 0 76%, rgba(255,255,255,0.9) 84%, rgba(255,255,255,0.24) 92%, rgba(255,255,255,0) 100%)",
+                          WebkitMask:
+                            "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+                          WebkitMaskComposite: "xor",
+                          maskComposite: "exclude",
+                        }}
+                      />
+                      <span className="relative inline-flex items-center gap-2 rounded-full bg-black/28 px-3 py-1 text-[11px] font-medium text-white/88">
+                        <span className="inline-flex h-3.5 w-3.5 animate-spin rounded-full border border-white/45 border-t-white" />
+                        Abrindo o Windows Hello...
+                      </span>
+                    </motion.div>
+                  ) : accountActionTwoFactorError ? (
+                    <motion.div
+                      key="account-action-twofactor-generic-error"
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.16, ease: "easeOut" }}
+                      className="inline-flex rounded-full bg-[#e3524b]/14 px-3 py-1 text-[11px] font-medium text-[#ffb2ae]"
+                    >
+                      {accountActionTwoFactorError}
                     </motion.div>
                   ) : null}
                 </AnimatePresence>
