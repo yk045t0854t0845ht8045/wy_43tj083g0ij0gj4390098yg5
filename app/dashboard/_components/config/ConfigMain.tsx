@@ -2798,13 +2798,7 @@ function AccountContent({
                 />
                 <div className="relative z-[1]">
                   {accountActionTwoFactorUiLoading ? (
-                    <div className="flex h-full w-full items-center justify-center">
-                      <motion.span
-                        className="h-2.5 w-2.5 rounded-full bg-white/94 shadow-[0_0_16px_rgba(255,255,255,0.44)]"
-                        animate={{ scale: [0.74, 1, 0.74], opacity: [0.45, 1, 0.45] }}
-                        transition={{ duration: 1.15, repeat: Infinity, ease: "easeInOut" }}
-                      />
-                    </div>
+                    <div className="h-full w-full" />
                   ) : (
                     <motion.div
                       initial={{ opacity: 0, y: 6 }}
