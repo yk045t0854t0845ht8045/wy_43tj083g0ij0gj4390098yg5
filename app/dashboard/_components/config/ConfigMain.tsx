@@ -530,9 +530,7 @@ function AccountContent({
   const [accountActionTwoFactorContext, setAccountActionTwoFactorContext] =
     useState<AccountActionTwoFactorContext | null>(null);
   const [accountActionTwoFactorCode, setAccountActionTwoFactorCode] = useState("");
-  const [accountActionTwoFactorError, setAccountActionTwoFactorError] = useState<string | null>(
-    null
-  );
+  const [, setAccountActionTwoFactorError] = useState<string | null>(null);
   const [accountActionTwoFactorUiLoading, setAccountActionTwoFactorUiLoading] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(() =>
     Boolean(initialTwoFactorEnabled)
@@ -2736,59 +2734,72 @@ function AccountContent({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
-            <div className="absolute inset-0 bg-black/52 backdrop-blur-[8px]" />
+            <div className="absolute inset-0 bg-black/62 backdrop-blur-[11px]" />
 
-            {accountActionTwoFactorUiLoading ? (
-              <motion.div
-                className="relative z-[1] flex h-full items-center justify-center"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
+            <div className="relative z-[1] flex justify-center">
+              <motion.section
+                layout
+                role="dialog"
+                aria-modal="true"
+                className={cx(
+                  "overflow-hidden border border-white/12 bg-black [background:linear-gradient(180deg,rgba(255,255,255,0.055)_0%,rgba(255,255,255,0.014)_26%,rgba(0,0,0,0.995)_100%)] shadow-[0_30px_98px_rgba(0,0,0,0.66)]",
+                  accountActionTwoFactorUiLoading
+                    ? "h-11 w-11 rounded-full p-0"
+                    : "w-[min(96vw,560px)] rounded-[30px] px-4 pb-5 pt-3 sm:w-[min(92vw,580px)] sm:px-5 sm:pb-6"
+                )}
+                initial={{ opacity: 0, y: -58, scale: 0.78, filter: "blur(3px)" }}
+                animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+                exit={{ opacity: 0, y: -74, scale: 0.86, filter: "blur(3px)" }}
+                transition={{
+                  type: "spring",
+                  stiffness: 420,
+                  damping: 34,
+                  mass: 0.8,
+                  layout: { type: "spring", stiffness: 360, damping: 30, mass: 0.9 },
+                }}
               >
-                <span className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/18 bg-black/70">
-                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                </span>
-              </motion.div>
-            ) : (
-              <div className="relative z-[1] flex justify-center">
-                <motion.section
-                  role="dialog"
-                  aria-modal="true"
-                  className={cx(
-                    "w-[min(96vw,540px)] rounded-[28px] border bg-[#070707] px-4 pb-5 pt-3 shadow-[0_24px_80px_rgba(0,0,0,0.55)] sm:w-[min(92vw,560px)] sm:px-5 sm:pb-6",
-                    accountActionTwoFactorError ? "border-[#e3524b]/55" : "border-white/12"
-                  )}
-                  initial={{ opacity: 0, y: -34, scale: 0.965 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -42, scale: 0.955 }}
-                >
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-[14px] font-semibold tracking-[0.02em] text-white/92 sm:text-[15px]">
-                      Autenticacao de 2 etapas
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={resetAccountActionTwoFactorModal}
-                      disabled={accountActionTwoFactorBusy}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                {accountActionTwoFactorUiLoading ? (
+                  <div className="flex h-full w-full items-center justify-center">
+                    <motion.span
+                      className="h-2.5 w-2.5 rounded-full bg-white/94 shadow-[0_0_16px_rgba(255,255,255,0.44)]"
+                      animate={{ scale: [0.74, 1, 0.74], opacity: [0.45, 1, 0.45] }}
+                      transition={{ duration: 1.15, repeat: Infinity, ease: "easeInOut" }}
+                    />
                   </div>
+                ) : (
+                  <motion.div
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.22, ease: "easeOut" }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-[14px] font-semibold tracking-[0.02em] text-white/92 sm:text-[15px]">
+                        Autenticacao de 2 etapas
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={resetAccountActionTwoFactorModal}
+                        disabled={accountActionTwoFactorBusy}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
 
-                  <CodeBoxes
-                    length={6}
-                    value={accountActionTwoFactorCode}
-                    onChange={setAccountActionTwoFactorCode}
-                    onComplete={(value) => {
-                      void submitAccountActionTwoFactorCode(value);
-                    }}
-                    disabled={accountActionTwoFactorBusy || accountActionTwoFactorUiLoading}
-                    variant="dark"
-                  />
-                </motion.section>
-              </div>
-            )}
+                    <CodeBoxes
+                      length={6}
+                      value={accountActionTwoFactorCode}
+                      onChange={setAccountActionTwoFactorCode}
+                      onComplete={(value) => {
+                        void submitAccountActionTwoFactorCode(value);
+                      }}
+                      disabled={accountActionTwoFactorBusy}
+                      variant="dark"
+                    />
+                  </motion.div>
+                )}
+              </motion.section>
+            </div>
           </motion.div>
         )}
 
