@@ -423,15 +423,6 @@ function CodeBoxes({
   );
 }
 
-type TwoFactorDeactivationActionResult = {
-  ok: boolean;
-  error?: string;
-};
-
-type TwoFactorDeactivationAction = (
-  code: string
-) => Promise<TwoFactorDeactivationActionResult>;
-
 function AccountContent({
   nickname,
   email,
@@ -554,14 +545,6 @@ function AccountContent({
   const [copyingTwoFactorCode, setCopyingTwoFactorCode] = useState<"idle" | "copied" | "failed">(
     "idle"
   );
-  const [deactivationGuardOpen, setDeactivationGuardOpen] = useState(false);
-  const [deactivationGuardTitle, setDeactivationGuardTitle] = useState("");
-  const [deactivationGuardDescription, setDeactivationGuardDescription] = useState("");
-  const [deactivationGuardCode, setDeactivationGuardCode] = useState("");
-  const [deactivationGuardError, setDeactivationGuardError] = useState<string | null>(null);
-  const [deactivationGuardBusy, setDeactivationGuardBusy] = useState(false);
-  const deactivationGuardActionRef = useRef<TwoFactorDeactivationAction | null>(null);
-  const deactivationGuardResolverRef = useRef<((allowed: boolean) => void) | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
@@ -818,13 +801,8 @@ function AccountContent({
     resetEmailChangeFlow();
   };
 
-  const openEmailModal = async () => {
+  const openEmailModal = () => {
     if (sendingEmailCode || resendingEmailCode || verifyingEmailCode) return;
-    const allowed = await ensureTwoFactorGuardForSensitiveAction(
-      "Alterar e-mail",
-      "Digite o codigo de 6 digitos do autenticador para abrir este processo."
-    );
-    if (!allowed) return;
     resetEmailChangeFlow();
     setEmailModalOpen(true);
   };
@@ -1050,13 +1028,8 @@ function AccountContent({
     resetPhoneChangeFlow();
   };
 
-  const openPhoneModal = async () => {
+  const openPhoneModal = () => {
     if (sendingPhoneCode || resendingPhoneCode || verifyingPhoneCode) return;
-    const allowed = await ensureTwoFactorGuardForSensitiveAction(
-      "Alterar celular",
-      "Digite o codigo de 6 digitos do autenticador para abrir este processo."
-    );
-    if (!allowed) return;
     resetPhoneChangeFlow();
     setPhoneModalOpen(true);
   };
@@ -1278,13 +1251,8 @@ function AccountContent({
     resetPasswordChangeFlow();
   };
 
-  const openPasswordModal = async () => {
+  const openPasswordModal = () => {
     if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
-    const allowed = await ensureTwoFactorGuardForSensitiveAction(
-      "Alterar senha",
-      "Digite o codigo de 6 digitos do autenticador para abrir este processo."
-    );
-    if (!allowed) return;
     resetPasswordChangeFlow();
     setPasswordModalOpen(true);
   };
@@ -1519,130 +1487,6 @@ function AccountContent({
     return () => window.clearTimeout(timer);
   }, [copyingTwoFactorCode]);
 
-  const finishDeactivationGuard = useCallback((allowed: boolean) => {
-    setDeactivationGuardOpen(false);
-    setDeactivationGuardTitle("");
-    setDeactivationGuardDescription("");
-    setDeactivationGuardCode("");
-    setDeactivationGuardError(null);
-    setDeactivationGuardBusy(false);
-    deactivationGuardActionRef.current = null;
-    if (deactivationGuardResolverRef.current) {
-      deactivationGuardResolverRef.current(allowed);
-      deactivationGuardResolverRef.current = null;
-    }
-  }, []);
-
-  const closeDeactivationGuard = useCallback(() => {
-    if (deactivationGuardBusy) return;
-    finishDeactivationGuard(false);
-  }, [deactivationGuardBusy, finishDeactivationGuard]);
-
-  useEffect(() => {
-    return () => {
-      if (deactivationGuardResolverRef.current) {
-        deactivationGuardResolverRef.current(false);
-        deactivationGuardResolverRef.current = null;
-      }
-      deactivationGuardActionRef.current = null;
-    };
-  }, []);
-
-  const openDeactivationGuard = useCallback(
-    (params: {
-      title: string;
-      description: string;
-      action: TwoFactorDeactivationAction;
-    }) => {
-      return new Promise<boolean>((resolve) => {
-        if (deactivationGuardResolverRef.current) {
-          deactivationGuardResolverRef.current(false);
-        }
-
-        deactivationGuardActionRef.current = params.action;
-        deactivationGuardResolverRef.current = resolve;
-        setDeactivationGuardTitle(params.title);
-        setDeactivationGuardDescription(params.description);
-        setDeactivationGuardCode("");
-        setDeactivationGuardError(null);
-        setDeactivationGuardBusy(false);
-        setDeactivationGuardOpen(true);
-      });
-    },
-    []
-  );
-
-  const verifyTwoFactorAppCodeForGuard = useCallback(async (code: string) => {
-    const res = await fetch("/api/wz_users/two-factor", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "verify-app-code", code }),
-    });
-
-    const payload = (await res.json().catch(() => ({}))) as {
-      ok?: boolean;
-      verified?: boolean;
-      error?: string;
-    };
-
-    if (!res.ok || !payload.ok || !payload.verified) {
-      return {
-        ok: false,
-        error: payload.error || "Codigo do aplicativo invalido.",
-      } as TwoFactorDeactivationActionResult;
-    }
-
-    return { ok: true } as TwoFactorDeactivationActionResult;
-  }, []);
-
-  const ensureTwoFactorGuardForSensitiveAction = useCallback(
-    async (title: string, description: string) => {
-      if (!twoFactorEnabled) return true;
-      return openDeactivationGuard({
-        title,
-        description,
-        action: (code) => verifyTwoFactorAppCodeForGuard(code),
-      });
-    },
-    [openDeactivationGuard, twoFactorEnabled, verifyTwoFactorAppCodeForGuard]
-  );
-
-  const runDeactivationGuardAction = useCallback(
-    async (nextValue?: string) => {
-      if (!deactivationGuardOpen || deactivationGuardBusy) return;
-      const code = onlyDigits(String(nextValue || deactivationGuardCode || "")).slice(0, 6);
-      if (code.length !== 6) return;
-
-      const action = deactivationGuardActionRef.current;
-      if (!action) {
-        setDeactivationGuardError("Processo de seguranca invalido. Tente novamente.");
-        setDeactivationGuardCode("");
-        return;
-      }
-
-      try {
-        setDeactivationGuardBusy(true);
-        setDeactivationGuardError(null);
-        const result = await action(code);
-        if (!result.ok) {
-          setDeactivationGuardError(result.error || "Codigo do aplicativo invalido.");
-          setDeactivationGuardCode("");
-          return;
-        }
-        finishDeactivationGuard(true);
-      } catch (err) {
-        console.error("[config-account] deactivation guard action failed:", err);
-        setDeactivationGuardError(
-          err instanceof Error ? err.message : "Nao foi possivel validar o codigo agora."
-        );
-        setDeactivationGuardCode("");
-      } finally {
-        setDeactivationGuardBusy(false);
-      }
-    },
-    [deactivationGuardBusy, deactivationGuardCode, deactivationGuardOpen, finishDeactivationGuard]
-  );
-
   const startTwoFactorEnableFlow = async () => {
     if (isTwoFactorBusy) return;
 
@@ -1683,12 +1527,8 @@ function AccountContent({
     }
   };
 
-  const startTwoFactorDisableFlow = async (
-    codeFromGuard: string
-  ): Promise<TwoFactorDeactivationActionResult> => {
-    if (isTwoFactorBusy) {
-      return { ok: false, error: "Aguarde a operacao atual terminar." };
-    }
+  const startTwoFactorDisableFlow = async () => {
+    if (isTwoFactorBusy) return;
 
     try {
       setStartingTwoFactorFlow(true);
@@ -1696,13 +1536,12 @@ function AccountContent({
       const res = await fetch("/api/wz_users/two-factor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "disable-start-after-app-code", code: codeFromGuard }),
+        body: JSON.stringify({ mode: "disable-start" }),
       });
 
       const payload = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         ticket?: string;
-        phase?: "disable-verify-email";
         emailMask?: string;
         error?: string;
       };
@@ -1711,53 +1550,18 @@ function AccountContent({
         throw new Error(payload.error || "Nao foi possivel iniciar a desativacao de 2 etapas.");
       }
 
-      setTwoFactorStep("disable-verify-email");
+      setTwoFactorStep("disable-verify-app");
       setTwoFactorTicket(payload.ticket);
       setTwoFactorEmailMask(String(payload.emailMask || maskSecureEmail(localEmail)));
       setTwoFactorAppCode("");
       setTwoFactorEmailCode("");
-      setTwoFactorResendCooldown(60);
-      return { ok: true };
+      setTwoFactorResendCooldown(0);
     } catch (err) {
       console.error("[config-account] start two-factor disable failed:", err);
-      const msg =
-        err instanceof Error ? err.message : "Erro ao iniciar desativacao de 2 etapas.";
-      setTwoFactorError(msg);
-      return { ok: false, error: msg };
+      setTwoFactorError(err instanceof Error ? err.message : "Erro ao iniciar desativacao de 2 etapas.");
     } finally {
       setStartingTwoFactorFlow(false);
     }
-  };
-
-  const handleStartTwoFactorDisableFlow = async () => {
-    if (isTwoFactorBusy) return;
-
-    await openDeactivationGuard({
-      title: "Confirmar desativacao",
-      description: "Digite o codigo de 6 digitos do autenticador para continuar.",
-      action: (code) => startTwoFactorDisableFlow(code),
-    });
-  };
-
-  const handleSupportAccessToggle = async () => {
-    if (!supportAccess) {
-      setSupportAccess(true);
-      return;
-    }
-
-    if (!twoFactorEnabled) {
-      setSupportAccess(false);
-      return;
-    }
-
-    const allowed = await openDeactivationGuard({
-      title: "Desativar acesso para suporte",
-      description: "Confirme com o codigo de 6 digitos do autenticador para desativar.",
-      action: (code) => verifyTwoFactorAppCodeForGuard(code),
-    });
-
-    if (!allowed) return;
-    setSupportAccess(false);
   };
 
   const openTwoFactorModal = async () => {
@@ -3000,7 +2804,7 @@ function AccountContent({
                   {twoFactorStep === "disable-intro" && (
                     <button
                       type="button"
-                      onClick={() => void handleStartTwoFactorDisableFlow()}
+                      onClick={() => void startTwoFactorDisableFlow()}
                       disabled={isTwoFactorBusy}
                       className="rounded-xl bg-[#e3524b] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#d34942] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
