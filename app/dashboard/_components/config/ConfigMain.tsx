@@ -63,6 +63,8 @@ type ConfigMainProps = {
   onUserTwoFactorChange?: (enabled: boolean, changedAt?: string | null) => void;
 };
 
+type AccountActionTwoFactorContext = "email" | "phone" | "password";
+
 // LINKS DOS ICONES (PNG) DA SIDEBAR DE CONFIGURACOES
 // Edite apenas estes caminhos/URLs para trocar os icones.
 const CONFIG_SIDEBAR_ICON_LINKS = {
@@ -479,7 +481,6 @@ function AccountContent({
   const [pendingEmail, setPendingEmail] = useState("");
   const [emailChangeTicket, setEmailChangeTicket] = useState("");
   const [emailCode, setEmailCode] = useState("");
-  const [emailTwoFactorCode, setEmailTwoFactorCode] = useState("");
   const [emailForceTwoFactor, setEmailForceTwoFactor] = useState(false);
   const [emailChangeError, setEmailChangeError] = useState<string | null>(null);
   const [emailResendCooldown, setEmailResendCooldown] = useState(0);
@@ -500,7 +501,6 @@ function AccountContent({
   const [pendingPhone, setPendingPhone] = useState("");
   const [phoneChangeTicket, setPhoneChangeTicket] = useState("");
   const [phoneCode, setPhoneCode] = useState("");
-  const [phoneTwoFactorCode, setPhoneTwoFactorCode] = useState("");
   const [phoneForceTwoFactor, setPhoneForceTwoFactor] = useState(false);
   const [phoneChangeError, setPhoneChangeError] = useState<string | null>(null);
   const [phoneResendCooldown, setPhoneResendCooldown] = useState(0);
@@ -514,13 +514,19 @@ function AccountContent({
   const [newPasswordInput, setNewPasswordInput] = useState("");
   const [confirmNewPasswordInput, setConfirmNewPasswordInput] = useState("");
   const [passwordCode, setPasswordCode] = useState("");
-  const [passwordTwoFactorCode, setPasswordTwoFactorCode] = useState("");
   const [passwordForceTwoFactor, setPasswordForceTwoFactor] = useState(false);
   const [passwordChangeError, setPasswordChangeError] = useState<string | null>(null);
   const [passwordResendCooldown, setPasswordResendCooldown] = useState(0);
   const [sendingPasswordCode, setSendingPasswordCode] = useState(false);
   const [resendingPasswordCode, setResendingPasswordCode] = useState(false);
   const [verifyingPasswordCode, setVerifyingPasswordCode] = useState(false);
+  const [accountActionTwoFactorModalOpen, setAccountActionTwoFactorModalOpen] = useState(false);
+  const [accountActionTwoFactorContext, setAccountActionTwoFactorContext] =
+    useState<AccountActionTwoFactorContext | null>(null);
+  const [accountActionTwoFactorCode, setAccountActionTwoFactorCode] = useState("");
+  const [accountActionTwoFactorError, setAccountActionTwoFactorError] = useState<string | null>(
+    null
+  );
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(() =>
     Boolean(initialTwoFactorEnabled)
   );
@@ -795,19 +801,46 @@ function AccountContent({
     phoneStep === "confirm-new-code" && (twoFactorEnabled || phoneForceTwoFactor);
   const passwordRequiresTwoFactor =
     passwordStep === "confirm-code" && (twoFactorEnabled || passwordForceTwoFactor);
+  const accountActionTwoFactorBusy =
+    (accountActionTwoFactorContext === "email" && verifyingEmailCode) ||
+    (accountActionTwoFactorContext === "phone" && verifyingPhoneCode) ||
+    (accountActionTwoFactorContext === "password" && verifyingPasswordCode);
+  const accountActionTwoFactorTargetLabel = useMemo(() => {
+    if (accountActionTwoFactorContext === "email") return "alteracao de e-mail";
+    if (accountActionTwoFactorContext === "phone") return "alteracao de celular";
+    if (accountActionTwoFactorContext === "password") return "alteracao de senha";
+    return "esta acao";
+  }, [accountActionTwoFactorContext]);
+
+  const resetAccountActionTwoFactorModal = useCallback(() => {
+    setAccountActionTwoFactorModalOpen(false);
+    setAccountActionTwoFactorContext(null);
+    setAccountActionTwoFactorCode("");
+    setAccountActionTwoFactorError(null);
+  }, []);
+
+  const openAccountActionTwoFactorModal = useCallback(
+    (context: AccountActionTwoFactorContext, errorMessage?: string | null) => {
+      setAccountActionTwoFactorContext(context);
+      setAccountActionTwoFactorModalOpen(true);
+      setAccountActionTwoFactorCode("");
+      setAccountActionTwoFactorError(errorMessage ? String(errorMessage) : null);
+    },
+    []
+  );
 
   const resetEmailChangeFlow = useCallback(
     () => {
       setEmailStep("confirm-current-intro");
       setPendingEmail("");
       setEmailCode("");
-      setEmailTwoFactorCode("");
       setEmailForceTwoFactor(false);
       setEmailChangeTicket("");
       setEmailChangeError(null);
       setEmailResendCooldown(0);
+      resetAccountActionTwoFactorModal();
     },
-    []
+    [resetAccountActionTwoFactorModal]
   );
 
   const closeEmailModal = () => {
@@ -899,7 +932,6 @@ function AccountContent({
       setEmailChangeTicket(payload.ticket);
       setPendingEmail(String(payload.nextEmail || nextEmail).trim().toLowerCase());
       setEmailCode("");
-      setEmailTwoFactorCode("");
       setEmailForceTwoFactor(false);
       setEmailStep("confirm-new-code");
       setEmailResendCooldown(60);
@@ -949,7 +981,7 @@ function AccountContent({
     }
   };
 
-  const verifyEmailChangeCode = async (nextValue?: string) => {
+  const verifyEmailChangeCode = async (nextValue?: string, providedTwoFactorCode?: string) => {
     if (!emailChangeTicket) {
       setEmailChangeError("Sessao de alteracao invalida. Reabra o modal.");
       return;
@@ -958,9 +990,12 @@ function AccountContent({
 
     const code = onlyDigits(String(nextValue || emailCode || "")).slice(0, 7);
     if (code.length !== 7) return;
-    const twoFactorCode = onlyDigits(String(emailTwoFactorCode || "")).slice(0, 6);
+    const twoFactorCode = onlyDigits(String(providedTwoFactorCode || "")).slice(0, 6);
     if (emailRequiresTwoFactor && twoFactorCode.length !== 6) {
-      setEmailChangeError("Digite o codigo de 6 digitos do aplicativo autenticador.");
+      setEmailForceTwoFactor(true);
+      setEmailCode(code);
+      setEmailChangeError(null);
+      openAccountActionTwoFactorModal("email");
       return;
     }
 
@@ -991,9 +1026,13 @@ function AccountContent({
       if (!res.ok || !payload.ok) {
         if (payload.requiresTwoFactor) {
           setEmailForceTwoFactor(true);
-          if (twoFactorCode.length === 6) {
-            setEmailTwoFactorCode("");
-          }
+          setEmailCode(code);
+          setEmailChangeError(null);
+          openAccountActionTwoFactorModal(
+            "email",
+            String(payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador.")
+          );
+          return;
         }
         const fallback =
           res.status === 429
@@ -1004,7 +1043,14 @@ function AccountContent({
         if (res.status === 429) {
           setEmailResendCooldown(0);
         }
+        if (twoFactorCode.length === 6) {
+          resetAccountActionTwoFactorModal();
+        }
         return;
+      }
+
+      if (twoFactorCode.length === 6) {
+        resetAccountActionTwoFactorModal();
       }
 
       if (payload.next === "set-new") {
@@ -1013,7 +1059,6 @@ function AccountContent({
         }
         setEmailChangeTicket(payload.ticket);
         setEmailCode("");
-        setEmailTwoFactorCode("");
         setEmailForceTwoFactor(false);
         setEmailChangeError(null);
         setEmailStep("new-email-input");
@@ -1035,11 +1080,13 @@ function AccountContent({
       resetEmailChangeFlow();
     } catch (err) {
       console.error("[config-account] verify email change code failed:", err);
-      setEmailChangeError(
-        err instanceof Error
-          ? err.message
-          : "Erro ao validar codigo de e-mail. Tente novamente."
-      );
+      const message =
+        err instanceof Error ? err.message : "Erro ao validar codigo de e-mail. Tente novamente.";
+      if (twoFactorCode.length === 6) {
+        setAccountActionTwoFactorError(message);
+      } else {
+        setEmailChangeError(message);
+      }
     } finally {
       setVerifyingEmailCode(false);
     }
@@ -1050,13 +1097,13 @@ function AccountContent({
       setPhoneStep("confirm-current-intro");
       setPendingPhone("");
       setPhoneCode("");
-      setPhoneTwoFactorCode("");
       setPhoneForceTwoFactor(false);
       setPhoneChangeTicket("");
       setPhoneChangeError(null);
       setPhoneResendCooldown(0);
+      resetAccountActionTwoFactorModal();
     },
-    []
+    [resetAccountActionTwoFactorModal]
   );
 
   const closePhoneModal = () => {
@@ -1147,7 +1194,6 @@ function AccountContent({
       setPhoneChangeTicket(payload.ticket);
       setPendingPhone(nextPhoneE164);
       setPhoneCode("");
-      setPhoneTwoFactorCode("");
       setPhoneForceTwoFactor(false);
       setPhoneStep("confirm-new-code");
       setPhoneResendCooldown(60);
@@ -1197,7 +1243,7 @@ function AccountContent({
     }
   };
 
-  const verifyPhoneChangeCode = async (nextValue?: string) => {
+  const verifyPhoneChangeCode = async (nextValue?: string, providedTwoFactorCode?: string) => {
     if (!phoneChangeTicket) {
       setPhoneChangeError("Sessao de alteracao invalida. Reabra o modal.");
       return;
@@ -1206,9 +1252,12 @@ function AccountContent({
 
     const code = onlyDigits(String(nextValue || phoneCode || "")).slice(0, 7);
     if (code.length !== 7) return;
-    const twoFactorCode = onlyDigits(String(phoneTwoFactorCode || "")).slice(0, 6);
+    const twoFactorCode = onlyDigits(String(providedTwoFactorCode || "")).slice(0, 6);
     if (phoneRequiresTwoFactor && twoFactorCode.length !== 6) {
-      setPhoneChangeError("Digite o codigo de 6 digitos do aplicativo autenticador.");
+      setPhoneForceTwoFactor(true);
+      setPhoneCode(code);
+      setPhoneChangeError(null);
+      openAccountActionTwoFactorModal("phone");
       return;
     }
 
@@ -1239,9 +1288,13 @@ function AccountContent({
       if (!res.ok || !payload.ok) {
         if (payload.requiresTwoFactor) {
           setPhoneForceTwoFactor(true);
-          if (twoFactorCode.length === 6) {
-            setPhoneTwoFactorCode("");
-          }
+          setPhoneCode(code);
+          setPhoneChangeError(null);
+          openAccountActionTwoFactorModal(
+            "phone",
+            String(payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador.")
+          );
+          return;
         }
         const fallback =
           res.status === 429
@@ -1252,7 +1305,14 @@ function AccountContent({
         if (res.status === 429) {
           setPhoneResendCooldown(0);
         }
+        if (twoFactorCode.length === 6) {
+          resetAccountActionTwoFactorModal();
+        }
         return;
+      }
+
+      if (twoFactorCode.length === 6) {
+        resetAccountActionTwoFactorModal();
       }
 
       if (payload.next === "set-new") {
@@ -1261,7 +1321,6 @@ function AccountContent({
         }
         setPhoneChangeTicket(payload.ticket);
         setPhoneCode("");
-        setPhoneTwoFactorCode("");
         setPhoneForceTwoFactor(false);
         setPhoneChangeError(null);
         setPhoneStep("new-phone-input");
@@ -1283,9 +1342,13 @@ function AccountContent({
       resetPhoneChangeFlow();
     } catch (err) {
       console.error("[config-account] verify phone change code failed:", err);
-      setPhoneChangeError(
-        err instanceof Error ? err.message : "Erro ao validar codigo de celular. Tente novamente."
-      );
+      const message =
+        err instanceof Error ? err.message : "Erro ao validar codigo de celular. Tente novamente.";
+      if (twoFactorCode.length === 6) {
+        setAccountActionTwoFactorError(message);
+      } else {
+        setPhoneChangeError(message);
+      }
     } finally {
       setVerifyingPhoneCode(false);
     }
@@ -1298,11 +1361,11 @@ function AccountContent({
     setNewPasswordInput("");
     setConfirmNewPasswordInput("");
     setPasswordCode("");
-    setPasswordTwoFactorCode("");
     setPasswordForceTwoFactor(false);
     setPasswordChangeError(null);
     setPasswordResendCooldown(0);
-  }, []);
+    resetAccountActionTwoFactorModal();
+  }, [resetAccountActionTwoFactorModal]);
 
   const closePasswordModal = () => {
     if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
@@ -1366,7 +1429,6 @@ function AccountContent({
 
       setPasswordChangeTicket(payload.ticket);
       setPasswordCode("");
-      setPasswordTwoFactorCode("");
       setPasswordForceTwoFactor(false);
       setPasswordStep("confirm-code");
       setPasswordResendCooldown(60);
@@ -1416,7 +1478,10 @@ function AccountContent({
     }
   };
 
-  const verifyPasswordChangeCode = async (nextValue?: string) => {
+  const verifyPasswordChangeCode = async (
+    nextValue?: string,
+    providedTwoFactorCode?: string
+  ) => {
     if (!passwordChangeTicket) {
       setPasswordChangeError("Sessao de alteracao invalida. Reabra o modal.");
       return;
@@ -1425,9 +1490,12 @@ function AccountContent({
 
     const code = onlyDigits(String(nextValue || passwordCode || "")).slice(0, 7);
     if (code.length !== 7) return;
-    const twoFactorCode = onlyDigits(String(passwordTwoFactorCode || "")).slice(0, 6);
+    const twoFactorCode = onlyDigits(String(providedTwoFactorCode || "")).slice(0, 6);
     if (passwordRequiresTwoFactor && twoFactorCode.length !== 6) {
-      setPasswordChangeError("Digite o codigo de 6 digitos do aplicativo autenticador.");
+      setPasswordForceTwoFactor(true);
+      setPasswordCode(code);
+      setPasswordChangeError(null);
+      openAccountActionTwoFactorModal("password");
       return;
     }
 
@@ -1458,9 +1526,13 @@ function AccountContent({
       if (!res.ok || !payload.ok) {
         if (payload.requiresTwoFactor) {
           setPasswordForceTwoFactor(true);
-          if (twoFactorCode.length === 6) {
-            setPasswordTwoFactorCode("");
-          }
+          setPasswordCode(code);
+          setPasswordChangeError(null);
+          openAccountActionTwoFactorModal(
+            "password",
+            String(payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador.")
+          );
+          return;
         }
         const fallback =
           res.status === 429
@@ -1471,7 +1543,14 @@ function AccountContent({
         if (res.status === 429) {
           setPasswordResendCooldown(0);
         }
+        if (twoFactorCode.length === 6) {
+          resetAccountActionTwoFactorModal();
+        }
         return;
+      }
+
+      if (twoFactorCode.length === 6) {
+        resetAccountActionTwoFactorModal();
       }
 
       const nextPasswordChangedAt =
@@ -1482,12 +1561,33 @@ function AccountContent({
       resetPasswordChangeFlow();
     } catch (err) {
       console.error("[config-account] verify password change code failed:", err);
-      setPasswordChangeError(
-        err instanceof Error ? err.message : "Erro ao validar codigo de senha."
-      );
+      const message = err instanceof Error ? err.message : "Erro ao validar codigo de senha.";
+      if (twoFactorCode.length === 6) {
+        setAccountActionTwoFactorError(message);
+      } else {
+        setPasswordChangeError(message);
+      }
     } finally {
       setVerifyingPasswordCode(false);
     }
+  };
+
+  const submitAccountActionTwoFactorCode = async (nextValue?: string) => {
+    if (!accountActionTwoFactorContext) return;
+    const code = onlyDigits(String(nextValue || accountActionTwoFactorCode || "")).slice(0, 6);
+    setAccountActionTwoFactorCode(code);
+    if (code.length !== 6) return;
+
+    setAccountActionTwoFactorError(null);
+    if (accountActionTwoFactorContext === "email") {
+      await verifyEmailChangeCode(undefined, code);
+      return;
+    }
+    if (accountActionTwoFactorContext === "phone") {
+      await verifyPhoneChangeCode(undefined, code);
+      return;
+    }
+    await verifyPasswordChangeCode(undefined, code);
   };
 
   const resetTwoFactorFlow = useCallback(() => {
@@ -2162,20 +2262,6 @@ function AccountContent({
                           : "Reenviar codigo"}
                       </button>
                     </div>
-                    {emailRequiresTwoFactor && (
-                      <>
-                        <p className="mt-4 text-[13px] leading-[1.45] text-black/62">
-                          Digite tambem o codigo de 6 digitos do aplicativo autenticador.
-                        </p>
-                        <CodeBoxes
-                          length={6}
-                          value={emailTwoFactorCode}
-                          onChange={setEmailTwoFactorCode}
-                          onComplete={verifyEmailChangeCode}
-                          disabled={verifyingEmailCode}
-                        />
-                      </>
-                    )}
                   </>
                 )}
 
@@ -2197,10 +2283,10 @@ function AccountContent({
                             : "new-email-input"
                         );
                         setEmailCode("");
-                        setEmailTwoFactorCode("");
                         setEmailForceTwoFactor(false);
                         setEmailChangeError(null);
                         setEmailResendCooldown(0);
+                        resetAccountActionTwoFactorModal();
                       }}
                       disabled={sendingEmailCode || resendingEmailCode || verifyingEmailCode}
                       className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
@@ -2245,9 +2331,7 @@ function AccountContent({
                       type="button"
                       onClick={() => verifyEmailChangeCode()}
                       disabled={
-                        verifyingEmailCode ||
-                        onlyDigits(emailCode).length !== 7 ||
-                        (emailRequiresTwoFactor && onlyDigits(emailTwoFactorCode).length !== 6)
+                        verifyingEmailCode || onlyDigits(emailCode).length !== 7
                       }
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
@@ -2391,20 +2475,6 @@ function AccountContent({
                           : "Reenviar codigo"}
                       </button>
                     </div>
-                    {phoneRequiresTwoFactor && (
-                      <>
-                        <p className="mt-4 text-[13px] leading-[1.45] text-black/62">
-                          Digite tambem o codigo de 6 digitos do aplicativo autenticador.
-                        </p>
-                        <CodeBoxes
-                          length={6}
-                          value={phoneTwoFactorCode}
-                          onChange={setPhoneTwoFactorCode}
-                          onComplete={verifyPhoneChangeCode}
-                          disabled={verifyingPhoneCode}
-                        />
-                      </>
-                    )}
                   </>
                 )}
 
@@ -2426,10 +2496,10 @@ function AccountContent({
                             : "new-phone-input"
                         );
                         setPhoneCode("");
-                        setPhoneTwoFactorCode("");
                         setPhoneForceTwoFactor(false);
                         setPhoneChangeError(null);
                         setPhoneResendCooldown(0);
+                        resetAccountActionTwoFactorModal();
                       }}
                       disabled={sendingPhoneCode || resendingPhoneCode || verifyingPhoneCode}
                       className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
@@ -2474,9 +2544,7 @@ function AccountContent({
                       type="button"
                       onClick={() => verifyPhoneChangeCode()}
                       disabled={
-                        verifyingPhoneCode ||
-                        onlyDigits(phoneCode).length !== 7 ||
-                        (phoneRequiresTwoFactor && onlyDigits(phoneTwoFactorCode).length !== 6)
+                        verifyingPhoneCode || onlyDigits(phoneCode).length !== 7
                       }
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
@@ -2601,20 +2669,6 @@ function AccountContent({
                           : "Reenviar codigo"}
                       </button>
                     </div>
-                    {passwordRequiresTwoFactor && (
-                      <>
-                        <p className="mt-4 text-[13px] leading-[1.45] text-black/62">
-                          Digite tambem o codigo de 6 digitos do aplicativo autenticador.
-                        </p>
-                        <CodeBoxes
-                          length={6}
-                          value={passwordTwoFactorCode}
-                          onChange={setPasswordTwoFactorCode}
-                          onComplete={verifyPasswordChangeCode}
-                          disabled={verifyingPasswordCode}
-                        />
-                      </>
-                    )}
                   </>
                 )}
 
@@ -2632,10 +2686,10 @@ function AccountContent({
                         if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
                         setPasswordStep("form");
                         setPasswordCode("");
-                        setPasswordTwoFactorCode("");
                         setPasswordForceTwoFactor(false);
                         setPasswordChangeError(null);
                         setPasswordResendCooldown(0);
+                        resetAccountActionTwoFactorModal();
                       }}
                       disabled={sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode}
                       className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
@@ -2669,15 +2723,90 @@ function AccountContent({
                       type="button"
                       onClick={() => verifyPasswordChangeCode()}
                       disabled={
-                        verifyingPasswordCode ||
-                        onlyDigits(passwordCode).length !== 7 ||
-                        (passwordRequiresTwoFactor && onlyDigits(passwordTwoFactorCode).length !== 6)
+                        verifyingPasswordCode || onlyDigits(passwordCode).length !== 7
                       }
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
                       {verifyingPasswordCode ? "Validando..." : "Confirmar"}
                     </button>
                   )}
+                </div>
+              </div>
+            </motion.section>
+          </motion.div>
+        )}
+
+        {accountActionTwoFactorModalOpen && (
+          <motion.div
+            className="fixed inset-0 z-[228] flex items-center justify-center p-4 sm:p-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/45 backdrop-blur-[4px]"
+              onClick={resetAccountActionTwoFactorModal}
+              disabled={accountActionTwoFactorBusy}
+            />
+            <motion.section
+              role="dialog"
+              aria-modal="true"
+              className="relative z-[1] w-[min(96vw,480px)] overflow-hidden rounded-2xl border border-black/15 bg-[#f3f3f4] shadow-[0_26px_70px_rgba(0,0,0,0.35)] sm:w-[min(92vw,480px)]"
+              initial={{ opacity: 0, y: 10, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.985 }}
+            >
+              <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6">
+                <h3 className="text-[18px] font-semibold text-black/80">Validar autenticador</h3>
+                <button
+                  type="button"
+                  onClick={resetAccountActionTwoFactorModal}
+                  disabled={accountActionTwoFactorBusy}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
+                <p className="text-[14px] leading-[1.45] text-black/62">
+                  Digite o codigo de 6 digitos do aplicativo autenticador para concluir a{" "}
+                  {accountActionTwoFactorTargetLabel}.
+                </p>
+                <CodeBoxes
+                  length={6}
+                  value={accountActionTwoFactorCode}
+                  onChange={setAccountActionTwoFactorCode}
+                  onComplete={(value) => {
+                    void submitAccountActionTwoFactorCode(value);
+                  }}
+                  disabled={accountActionTwoFactorBusy}
+                />
+                {accountActionTwoFactorError && (
+                  <p className="mt-4 rounded-lg border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-2 text-[13px] font-medium text-[#b2433e]">
+                    {accountActionTwoFactorError}
+                  </p>
+                )}
+                <div className="mt-5 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={resetAccountActionTwoFactorModal}
+                    disabled={accountActionTwoFactorBusy}
+                    className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void submitAccountActionTwoFactorCode()}
+                    disabled={
+                      accountActionTwoFactorBusy || onlyDigits(accountActionTwoFactorCode).length !== 6
+                    }
+                    className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {accountActionTwoFactorBusy ? "Validando..." : "Confirmar"}
+                  </button>
                 </div>
               </div>
             </motion.section>
