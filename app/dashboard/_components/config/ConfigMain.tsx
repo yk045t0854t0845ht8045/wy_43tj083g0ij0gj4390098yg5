@@ -2972,7 +2972,7 @@ function AccountContent({
                   {twoFactorStep === "disable-intro" && (
                     <button
                       type="button"
-                      onClick={() => void startTwoFactorDisableFlow()}
+                      onClick={() => void handleStartTwoFactorDisableFlow()}
                       disabled={isTwoFactorBusy}
                       className="rounded-xl bg-[#e3524b] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#d34942] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
