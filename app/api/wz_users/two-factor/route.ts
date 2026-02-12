@@ -18,6 +18,8 @@ const NO_STORE_HEADERS = {
 const TOTP_ISSUER = "Wyzer";
 const TOTP_DIGITS = 6;
 const TOTP_PERIOD_SECONDS = 30;
+const TWO_FACTOR_SCHEMA_HINT =
+  "Estrutura de banco para 2FA incompleta. Execute os SQLs de /sql e tente novamente.";
 
 type TwoFactorPhase = "enable-verify-app" | "disable-verify-email" | "disable-verify-app";
 
@@ -41,6 +43,22 @@ type WzUserRow = {
   two_factor_secret?: string | null;
   two_factor_enabled_at?: string | null;
   two_factor_disabled_at?: string | null;
+};
+
+type WzAuth2faRow = {
+  user_id?: string | null;
+  enabled?: boolean | string | number | null;
+  secret?: string | null;
+  enabled_at?: string | null;
+  disabled_at?: string | null;
+};
+
+type TwoFactorState = {
+  enabled: boolean;
+  secret: string | null;
+  enabledAt: string | null;
+  disabledAt: string | null;
+  source: "wz_auth_2fa" | "wz_users";
 };
 
 function normalizeEmail(value?: string | null) {
@@ -103,6 +121,63 @@ function isTwoFactorSchemaError(error: unknown) {
     isMissingColumnError(error, "two_factor_enabled_at") ||
     isMissingColumnError(error, "two_factor_disabled_at")
   );
+}
+
+function isMissingTableError(error: unknown, table: string) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  const hint = String((error as { hint?: unknown } | null)?.hint || "").toLowerCase();
+  const needle = String(table || "").trim().toLowerCase();
+
+  if (!needle) return false;
+  if (code === "42P01" || code === "PGRST205") return true;
+  return (
+    (message.includes(needle) || details.includes(needle) || hint.includes(needle)) &&
+    (message.includes("does not exist") ||
+      details.includes("does not exist") ||
+      hint.includes("does not exist") ||
+      message.includes("relation") ||
+      details.includes("relation") ||
+      hint.includes("relation") ||
+      message.includes("table") ||
+      details.includes("table") ||
+      hint.includes("table"))
+  );
+}
+
+function isWzAuth2faSchemaError(error: unknown) {
+  return (
+    isMissingTableError(error, "wz_auth_2fa") ||
+    isMissingColumnError(error, "user_id") ||
+    isMissingColumnError(error, "enabled") ||
+    isMissingColumnError(error, "secret") ||
+    isMissingColumnError(error, "enabled_at") ||
+    isMissingColumnError(error, "disabled_at")
+  );
+}
+
+function toTwoFactorState(params: {
+  rawEnabled: unknown;
+  rawSecret?: string | null;
+  rawEnabledAt?: string | null;
+  rawDisabledAt?: string | null;
+  source: TwoFactorState["source"];
+}) {
+  const secret = normalizeBase32Secret(params.rawSecret);
+  const enabled = normalizeBoolean(params.rawEnabled) && Boolean(secret);
+  const enabledAt = normalizeIsoDatetime(params.rawEnabledAt);
+  const disabledAt = enabled ? null : normalizeIsoDatetime(params.rawDisabledAt);
+  return {
+    enabled,
+    secret,
+    enabledAt,
+    disabledAt,
+    source: params.source,
+  } as TwoFactorState;
 }
 
 function base64UrlEncode(input: Buffer | string) {
@@ -319,17 +394,6 @@ async function findWzUserRow(params: {
   userId: string;
   email: string;
 }) {
-  if (params.email) {
-    const byEmail = await queryWzUsersRows({
-      sb: params.sb,
-      column: "email",
-      value: params.email,
-      mode: "ilike",
-    });
-    const best = pickBestRow(byEmail, params.email);
-    if (best?.id) return best;
-  }
-
   if (params.userId) {
     const byAuthUserId = await queryWzUsersRows({
       sb: params.sb,
@@ -359,7 +423,250 @@ async function findWzUserRow(params: {
     if (bestById?.id) return bestById;
   }
 
+  if (params.email) {
+    const byEmail = await queryWzUsersRows({
+      sb: params.sb,
+      column: "email",
+      value: params.email,
+      mode: "ilike",
+    });
+    const best = pickBestRow(byEmail, params.email);
+    if (best?.id) return best;
+  }
+
   return null;
+}
+
+function readTwoFactorStateFromLegacyRow(userRow: WzUserRow) {
+  return toTwoFactorState({
+    rawEnabled: userRow.two_factor_enabled,
+    rawSecret: userRow.two_factor_secret,
+    rawEnabledAt: userRow.two_factor_enabled_at,
+    rawDisabledAt: userRow.two_factor_disabled_at,
+    source: "wz_users",
+  });
+}
+
+async function readTwoFactorStateFromAuthTable(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  sessionUserId: string;
+}) {
+  const userId = String(params.sessionUserId || "").trim();
+  if (!userId) {
+    return {
+      schemaAvailable: false,
+      state: null as TwoFactorState | null,
+    };
+  }
+
+  const { data, error } = await params.sb
+    .from("wz_auth_2fa")
+    .select("user_id,enabled,secret,enabled_at,disabled_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!error) {
+    if (!data) {
+      return {
+        schemaAvailable: true,
+        state: null as TwoFactorState | null,
+      };
+    }
+
+    const row = data as unknown as WzAuth2faRow;
+    return {
+      schemaAvailable: true,
+      state: toTwoFactorState({
+        rawEnabled: row.enabled,
+        rawSecret: row.secret,
+        rawEnabledAt: row.enabled_at,
+        rawDisabledAt: row.disabled_at,
+        source: "wz_auth_2fa",
+      }),
+    };
+  }
+
+  if (isWzAuth2faSchemaError(error)) {
+    return {
+      schemaAvailable: false,
+      state: null as TwoFactorState | null,
+    };
+  }
+
+  console.error("[two-factor] read wz_auth_2fa error:", error);
+  throw new Error("Nao foi possivel carregar a configuracao da autenticacao de 2 etapas.");
+}
+
+async function persistTwoFactorStateOnAuthTable(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  sessionUserId: string;
+  enabled: boolean;
+  secret: string | null;
+  enabledAt: string | null;
+  disabledAt: string | null;
+}) {
+  const userId = String(params.sessionUserId || "").trim();
+  if (!userId) {
+    return {
+      ok: false as const,
+      schemaAvailable: true,
+      status: 400,
+      error: "Sessao de usuario invalida para salvar autenticacao de 2 etapas.",
+    };
+  }
+
+  const { error } = await params.sb.from("wz_auth_2fa").upsert(
+    {
+      user_id: userId,
+      enabled: params.enabled,
+      secret: params.secret,
+      enabled_at: params.enabledAt,
+      disabled_at: params.disabledAt,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" },
+  );
+
+  if (!error) {
+    return {
+      ok: true as const,
+      schemaAvailable: true,
+    };
+  }
+
+  if (isWzAuth2faSchemaError(error)) {
+    return {
+      ok: false as const,
+      schemaAvailable: false,
+      status: 500,
+      error: TWO_FACTOR_SCHEMA_HINT,
+    };
+  }
+
+  console.error("[two-factor] upsert wz_auth_2fa error:", error);
+  return {
+    ok: false as const,
+    schemaAvailable: true,
+    status: 500,
+    error: "Nao foi possivel salvar a autenticacao de 2 etapas.",
+  };
+}
+
+async function persistTwoFactorStateOnLegacyColumns(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  wzUserId: string;
+  enabled: boolean;
+  secret: string | null;
+  enabledAt: string | null;
+  disabledAt: string | null;
+}) {
+  const userId = String(params.wzUserId || "").trim();
+  if (!userId) {
+    return {
+      ok: false as const,
+      status: 404,
+      error: "Usuario nao encontrado para atualizar autenticacao de 2 etapas.",
+    };
+  }
+
+  const { error } = await params.sb
+    .from("wz_users")
+    .update({
+      two_factor_enabled: params.enabled,
+      two_factor_secret: params.secret,
+      two_factor_enabled_at: params.enabledAt,
+      two_factor_disabled_at: params.disabledAt,
+    })
+    .eq("id", userId);
+
+  if (!error) {
+    return { ok: true as const };
+  }
+
+  if (isTwoFactorSchemaError(error)) {
+    return {
+      ok: false as const,
+      status: 500,
+      error: TWO_FACTOR_SCHEMA_HINT,
+    };
+  }
+
+  console.error("[two-factor] legacy wz_users update error:", error);
+  return {
+    ok: false as const,
+    status: 500,
+    error: "Nao foi possivel atualizar autenticacao de 2 etapas no perfil.",
+  };
+}
+
+async function syncLegacyTwoFactorState(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  wzUserId?: string | null;
+  state: TwoFactorState;
+}) {
+  const wzUserId = String(params.wzUserId || "").trim();
+  if (!wzUserId) return;
+
+  const result = await persistTwoFactorStateOnLegacyColumns({
+    sb: params.sb,
+    wzUserId,
+    enabled: params.state.enabled,
+    secret: params.state.secret,
+    enabledAt: params.state.enabledAt,
+    disabledAt: params.state.disabledAt,
+  });
+
+  if (!result.ok && result.error !== TWO_FACTOR_SCHEMA_HINT) {
+    console.error("[two-factor] legacy sync warning:", result.error);
+  }
+}
+
+async function resolveCurrentTwoFactorState(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  sessionUserId: string;
+  userRow: WzUserRow;
+}) {
+  const authStateResult = await readTwoFactorStateFromAuthTable({
+    sb: params.sb,
+    sessionUserId: params.sessionUserId,
+  });
+
+  if (authStateResult.schemaAvailable) {
+    if (authStateResult.state) {
+      await syncLegacyTwoFactorState({
+        sb: params.sb,
+        wzUserId: params.userRow.id,
+        state: authStateResult.state,
+      });
+      return authStateResult.state;
+    }
+
+    const legacyState = readTwoFactorStateFromLegacyRow(params.userRow);
+    if (legacyState.enabled && legacyState.secret) {
+      await persistTwoFactorStateOnAuthTable({
+        sb: params.sb,
+        sessionUserId: params.sessionUserId,
+        enabled: legacyState.enabled,
+        secret: legacyState.secret,
+        enabledAt: legacyState.enabledAt,
+        disabledAt: legacyState.disabledAt,
+      });
+      return {
+        ...legacyState,
+        source: "wz_auth_2fa",
+      } as TwoFactorState;
+    }
+
+    return {
+      enabled: false,
+      secret: null,
+      enabledAt: null,
+      disabledAt: legacyState.disabledAt,
+      source: "wz_auth_2fa",
+    } as TwoFactorState;
+  }
+
+  return readTwoFactorStateFromLegacyRow(params.userRow);
 }
 
 async function createEmailChallenge(sb: ReturnType<typeof supabaseAdmin>, email: string) {
@@ -630,9 +937,11 @@ async function getSessionAndUser(req: NextRequest) {
     };
   }
 
-  const twoFactorSecret = normalizeBase32Secret(userRow.two_factor_secret);
-  const twoFactorEnabled =
-    normalizeBoolean(userRow.two_factor_enabled) && Boolean(twoFactorSecret);
+  const currentState = await resolveCurrentTwoFactorState({
+    sb,
+    sessionUserId,
+    userRow,
+  });
 
   return {
     ok: true as const,
@@ -640,83 +949,118 @@ async function getSessionAndUser(req: NextRequest) {
     sessionUserId,
     sessionEmail,
     userRow,
-    twoFactorEnabled,
-    twoFactorSecret,
-    twoFactorEnabledAt: normalizeIsoDatetime(userRow.two_factor_enabled_at),
-    twoFactorDisabledAt: normalizeIsoDatetime(userRow.two_factor_disabled_at),
+    twoFactorEnabled: currentState.enabled,
+    twoFactorSecret: currentState.secret,
+    twoFactorEnabledAt: currentState.enabledAt,
+    twoFactorDisabledAt: currentState.disabledAt,
+    twoFactorSource: currentState.source,
   };
 }
 
 async function enableTwoFactor(params: {
   sb: ReturnType<typeof supabaseAdmin>;
-  userId: string;
+  sessionUserId: string;
+  wzUserId: string;
   secret: string;
 }) {
-  const enabledAt = new Date().toISOString();
-  const { error } = await params.sb
-    .from("wz_users")
-    .update({
-      two_factor_enabled: true,
-      two_factor_secret: params.secret,
-      two_factor_enabled_at: enabledAt,
-      two_factor_disabled_at: null,
-    })
-    .eq("id", params.userId);
-
-  if (!error) {
-    return { ok: true as const, enabledAt };
-  }
-
-  if (isTwoFactorSchemaError(error)) {
+  const normalizedSecret = normalizeBase32Secret(params.secret);
+  if (!normalizedSecret) {
     return {
       ok: false as const,
-      status: 500,
-      error:
-        "Estrutura de banco para 2FA incompleta. Execute o SQL de alteracao em /sql e tente novamente.",
+      status: 400,
+      error: "Segredo da autenticacao de 2 etapas invalido.",
     };
   }
 
-  console.error("[two-factor] enable update error:", error);
-  return {
-    ok: false as const,
-    status: 500,
-    error: "Nao foi possivel ativar a autenticacao de 2 etapas.",
-  };
+  const enabledAt = new Date().toISOString();
+  const authPersist = await persistTwoFactorStateOnAuthTable({
+    sb: params.sb,
+    sessionUserId: params.sessionUserId,
+    enabled: true,
+    secret: normalizedSecret,
+    enabledAt,
+    disabledAt: null,
+  });
+
+  if (authPersist.ok) {
+    await syncLegacyTwoFactorState({
+      sb: params.sb,
+      wzUserId: params.wzUserId,
+      state: {
+        enabled: true,
+        secret: normalizedSecret,
+        enabledAt,
+        disabledAt: null,
+        source: "wz_auth_2fa",
+      },
+    });
+    return { ok: true as const, enabledAt };
+  }
+
+  if (!authPersist.schemaAvailable) {
+    const legacyPersist = await persistTwoFactorStateOnLegacyColumns({
+      sb: params.sb,
+      wzUserId: params.wzUserId,
+      enabled: true,
+      secret: normalizedSecret,
+      enabledAt,
+      disabledAt: null,
+    });
+    if (legacyPersist.ok) {
+      return { ok: true as const, enabledAt };
+    }
+    return legacyPersist;
+  }
+
+  return authPersist;
 }
 
 async function disableTwoFactor(params: {
   sb: ReturnType<typeof supabaseAdmin>;
-  userId: string;
+  sessionUserId: string;
+  wzUserId: string;
 }) {
   const disabledAt = new Date().toISOString();
-  const { error } = await params.sb
-    .from("wz_users")
-    .update({
-      two_factor_enabled: false,
-      two_factor_secret: null,
-      two_factor_disabled_at: disabledAt,
-    })
-    .eq("id", params.userId);
+  const authPersist = await persistTwoFactorStateOnAuthTable({
+    sb: params.sb,
+    sessionUserId: params.sessionUserId,
+    enabled: false,
+    secret: null,
+    enabledAt: null,
+    disabledAt,
+  });
 
-  if (!error) {
+  if (authPersist.ok) {
+    await syncLegacyTwoFactorState({
+      sb: params.sb,
+      wzUserId: params.wzUserId,
+      state: {
+        enabled: false,
+        secret: null,
+        enabledAt: null,
+        disabledAt,
+        source: "wz_auth_2fa",
+      },
+    });
     return { ok: true as const, disabledAt };
   }
 
-  if (isTwoFactorSchemaError(error)) {
-    return {
-      ok: false as const,
-      status: 500,
-      error:
-        "Estrutura de banco para 2FA incompleta. Execute o SQL de alteracao em /sql e tente novamente.",
-    };
+  if (!authPersist.schemaAvailable) {
+    const legacyPersist = await persistTwoFactorStateOnLegacyColumns({
+      sb: params.sb,
+      wzUserId: params.wzUserId,
+      enabled: false,
+      secret: null,
+      enabledAt: null,
+      disabledAt,
+    });
+    if (legacyPersist.ok) {
+      return { ok: true as const, disabledAt };
+    }
+    return legacyPersist;
   }
 
-  console.error("[two-factor] disable update error:", error);
-  return {
-    ok: false as const,
-    status: 500,
-    error: "Nao foi possivel desativar a autenticacao de 2 etapas.",
-  };
+  return authPersist;
 }
 
 export async function GET(req: NextRequest) {
@@ -759,7 +1103,7 @@ export async function POST(req: NextRequest) {
       }
 
       const ticket = createTwoFactorTicket({
-        userId: String(base.userRow.id),
+        userId: base.sessionUserId,
         currentEmail: base.sessionEmail,
         phase: "disable-verify-app",
       });
@@ -792,7 +1136,7 @@ export async function POST(req: NextRequest) {
     });
 
     const ticket = createTwoFactorTicket({
-      userId: String(base.userRow.id),
+      userId: base.sessionUserId,
       currentEmail: base.sessionEmail,
       phase: "enable-verify-app",
       pendingSecret,
@@ -860,7 +1204,7 @@ export async function PATCH(req: NextRequest) {
     });
 
     const refreshedTicket = createTwoFactorTicket({
-      userId: String(base.userRow.id),
+      userId: base.sessionUserId,
       currentEmail: base.sessionEmail,
       phase: "disable-verify-email",
     });
@@ -925,7 +1269,8 @@ export async function PUT(req: NextRequest) {
 
       const enabled = await enableTwoFactor({
         sb: base.sb,
-        userId: String(base.userRow.id),
+        sessionUserId: base.sessionUserId,
+        wzUserId: String(base.userRow.id),
         secret: ticketRes.payload.pendingSecret || "",
       });
       if (!enabled.ok) {
@@ -974,7 +1319,7 @@ export async function PUT(req: NextRequest) {
       });
 
       const nextTicket = createTwoFactorTicket({
-        userId: String(base.userRow.id),
+        userId: base.sessionUserId,
         currentEmail: base.sessionEmail,
         phase: "disable-verify-email",
       });
@@ -1021,7 +1366,8 @@ export async function PUT(req: NextRequest) {
 
       const disabled = await disableTwoFactor({
         sb: base.sb,
-        userId: String(base.userRow.id),
+        sessionUserId: base.sessionUserId,
+        wzUserId: String(base.userRow.id),
       });
       if (!disabled.ok) {
         return NextResponse.json(

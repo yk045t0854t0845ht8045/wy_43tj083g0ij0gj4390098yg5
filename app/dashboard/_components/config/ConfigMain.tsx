@@ -1917,7 +1917,7 @@ function AccountContent({
           <h4 className="text-[20px] font-semibold text-black/82">Suporte</h4>
           <div className="mt-4 border-t border-black/10" />
           <div className="flex items-center justify-between gap-4 -mx-2 rounded-xl px-2 py-5">
-            <div className="min-w-0"><p className="text-[18px] font-semibold text-black/85">Acesso para suporte</p><p className="mt-1 text-[15px] leading-[1.45] text-black/58">Conceda ao suporte acesso temporario para ajudar a resolver problemas ou recuperar conteudo. Voce pode revogar a qualquer momento.</p><p className="mt-1 text-[12px] text-black/45">Nossa equipe nunca pedira senhas ou acessos. Caso aconteca, denuncie imediatamente.</p></div>
+            <div className="min-w-0"><p className="text-[18px] font-semibold text-black/85">Acesso para suporte</p><p className="mt-1 text-[15px] leading-[1.45] text-black/58">Conceda ao suporte acesso temporario para ajudar a resolver problemas ou recuperar conteudo. Voce pode revogar a qualquer momento.</p><p className="mt-1 text-[12px] text-black/45">Nossa equipe nunca pedira senhas ou acessos em nenhum canal de comunicação. Caso aconteca, reporte imediatamente em nossos canais seguros de comunicação.</p></div>
             <button type="button" role="switch" aria-checked={supportAccess} onClick={() => setSupportAccess((v) => !v)} className={cx("relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-all duration-220", supportAccess ? "bg-lime-400/85" : "bg-black/20")}>
               <span className={cx("inline-block h-5 w-5 rounded-full bg-white transition-transform duration-220", supportAccess ? "translate-x-6" : "translate-x-1")} />
             </button>

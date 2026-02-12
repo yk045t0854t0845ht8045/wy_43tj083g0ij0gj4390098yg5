@@ -42,6 +42,19 @@ type WzUserLookupRow = {
   two_factor_disabled_at?: string | null;
 };
 
+type WzAuth2faLookupRow = {
+  enabled?: boolean | string | number | null;
+  secret?: string | null;
+  enabled_at?: string | null;
+  disabled_at?: string | null;
+};
+
+type TwoFactorLookupState = {
+  enabled: boolean;
+  enabledAt: string | null;
+  disabledAt: string | null;
+};
+
 function buildLoginUrl(hostHeader: string | null) {
   const host = String(hostHeader || "").split(":")[0].toLowerCase();
 
@@ -123,6 +136,116 @@ function resolveTwoFactorEnabled(
   return enabled && hasSecret;
 }
 
+function isMissingColumnError(error: unknown, column: string) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  const hint = String((error as { hint?: unknown } | null)?.hint || "").toLowerCase();
+  const needle = String(column || "").trim().toLowerCase();
+
+  if (!needle) return false;
+  if (code === "42703" || code === "PGRST204") return true;
+  return (
+    (message.includes(needle) || details.includes(needle) || hint.includes(needle)) &&
+    (message.includes("column") || details.includes("column") || hint.includes("column"))
+  );
+}
+
+function isMissingTableError(error: unknown, table: string) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  const hint = String((error as { hint?: unknown } | null)?.hint || "").toLowerCase();
+  const needle = String(table || "").trim().toLowerCase();
+
+  if (!needle) return false;
+  if (code === "42P01" || code === "PGRST205") return true;
+  return (
+    (message.includes(needle) || details.includes(needle) || hint.includes(needle)) &&
+    (message.includes("does not exist") ||
+      details.includes("does not exist") ||
+      hint.includes("does not exist") ||
+      message.includes("relation") ||
+      details.includes("relation") ||
+      hint.includes("relation") ||
+      message.includes("table") ||
+      details.includes("table") ||
+      hint.includes("table"))
+  );
+}
+
+function isWzAuth2faSchemaError(error: unknown) {
+  return (
+    isMissingTableError(error, "wz_auth_2fa") ||
+    isMissingColumnError(error, "user_id") ||
+    isMissingColumnError(error, "enabled") ||
+    isMissingColumnError(error, "secret") ||
+    isMissingColumnError(error, "enabled_at") ||
+    isMissingColumnError(error, "disabled_at")
+  );
+}
+
+async function queryWzAuth2faState(
+  sb: ReturnType<typeof supabaseAdmin>,
+  userId: string,
+) {
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) {
+    return {
+      schemaAvailable: false,
+      state: null as TwoFactorLookupState | null,
+    };
+  }
+
+  const { data, error } = await sb
+    .from("wz_auth_2fa")
+    .select("enabled,secret,enabled_at,disabled_at")
+    .eq("user_id", cleanUserId)
+    .maybeSingle();
+
+  if (!error) {
+    if (!data) {
+      return {
+        schemaAvailable: true,
+        state: null as TwoFactorLookupState | null,
+      };
+    }
+
+    const row = data as unknown as WzAuth2faLookupRow;
+    const enabled = resolveTwoFactorEnabled(row.enabled, row.secret);
+    const enabledAt = sanitizeIsoDatetime(row.enabled_at);
+    const disabledAt = enabled ? null : sanitizeIsoDatetime(row.disabled_at);
+
+    return {
+      schemaAvailable: true,
+      state: {
+        enabled,
+        enabledAt,
+        disabledAt,
+      } as TwoFactorLookupState,
+    };
+  }
+
+  if (isWzAuth2faSchemaError(error)) {
+    return {
+      schemaAvailable: false,
+      state: null as TwoFactorLookupState | null,
+    };
+  }
+
+  console.error("[dashboard] failed to query wz_auth_2fa:", error);
+  return {
+    schemaAvailable: false,
+    state: null as TwoFactorLookupState | null,
+  };
+}
+
 async function queryWzUsersRows(
   sb: ReturnType<typeof supabaseAdmin>,
   params: WzUserLookupParams,
@@ -183,6 +306,7 @@ function pickProfileFromRows(
   fallbackTwoFactorEnabled: boolean,
   fallbackTwoFactorEnabledAt: string | null,
   fallbackTwoFactorDisabledAt: string | null,
+  allowLegacyTwoFactorColumns: boolean,
 ) {
   let nextFallbackPhoto = fallbackPhotoLink;
   let nextFallbackPhone = fallbackPhoneE164;
@@ -202,14 +326,14 @@ function pickProfileFromRows(
     const rowTwoFactorEnabledAt = sanitizeIsoDatetime(row.two_factor_enabled_at);
     const rowTwoFactorDisabledAt = sanitizeIsoDatetime(row.two_factor_disabled_at);
     const hasTwoFactorInfo =
-      typeof row.two_factor_enabled !== "undefined" ||
-      typeof row.two_factor_secret !== "undefined" ||
-      typeof row.two_factor_enabled_at !== "undefined" ||
-      typeof row.two_factor_disabled_at !== "undefined";
-    const rowTwoFactorEnabled = resolveTwoFactorEnabled(
-      row.two_factor_enabled,
-      row.two_factor_secret,
-    );
+      allowLegacyTwoFactorColumns &&
+      (typeof row.two_factor_enabled !== "undefined" ||
+        typeof row.two_factor_secret !== "undefined" ||
+        typeof row.two_factor_enabled_at !== "undefined" ||
+        typeof row.two_factor_disabled_at !== "undefined");
+    const rowTwoFactorEnabled = hasTwoFactorInfo
+      ? resolveTwoFactorEnabled(row.two_factor_enabled, row.two_factor_secret)
+      : nextFallbackTwoFactorEnabled;
 
     if (!nextFallbackPhoto && rowPhoto) nextFallbackPhoto = rowPhoto;
     if (!nextFallbackPhone && rowPhone) nextFallbackPhone = rowPhone;
@@ -318,33 +442,16 @@ async function getSidebarProfile(params: {
     let fallbackTwoFactorEnabled = false;
     let fallbackTwoFactorEnabledAt: string | null = null;
     let fallbackTwoFactorDisabledAt: string | null = null;
+    let allowLegacyTwoFactorColumns = true;
 
-    if (email) {
-      const rowsByEmail = await queryWzUsersRows(sb, {
-        column: "email",
-        value: email,
-        mode: "ilike",
-      });
-      const result = pickProfileFromRows(
-        rowsByEmail,
-        fallbackPhotoLink,
-        fallbackPhoneE164,
-        fallbackEmailChangedAt,
-        fallbackPhoneChangedAt,
-        fallbackPasswordChangedAt,
-        fallbackTwoFactorEnabled,
-        fallbackTwoFactorEnabledAt,
-        fallbackTwoFactorDisabledAt,
-      );
-      fallbackPhotoLink = result.fallbackPhotoLink;
-      fallbackPhoneE164 = result.fallbackPhoneE164;
-      fallbackEmailChangedAt = result.fallbackEmailChangedAt;
-      fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
-      fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
-      fallbackTwoFactorEnabled = result.fallbackTwoFactorEnabled;
-      fallbackTwoFactorEnabledAt = result.fallbackTwoFactorEnabledAt;
-      fallbackTwoFactorDisabledAt = result.fallbackTwoFactorDisabledAt;
-      if (result.profile) return result.profile;
+    if (userId) {
+      const auth2faState = await queryWzAuth2faState(sb, userId);
+      if (auth2faState.schemaAvailable) {
+        allowLegacyTwoFactorColumns = false;
+        fallbackTwoFactorEnabled = Boolean(auth2faState.state?.enabled);
+        fallbackTwoFactorEnabledAt = auth2faState.state?.enabledAt || null;
+        fallbackTwoFactorDisabledAt = auth2faState.state?.disabledAt || null;
+      }
     }
 
     if (userId) {
@@ -363,6 +470,7 @@ async function getSidebarProfile(params: {
         fallbackTwoFactorEnabled,
         fallbackTwoFactorEnabledAt,
         fallbackTwoFactorDisabledAt,
+        allowLegacyTwoFactorColumns,
       );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
@@ -391,6 +499,7 @@ async function getSidebarProfile(params: {
         fallbackTwoFactorEnabled,
         fallbackTwoFactorEnabledAt,
         fallbackTwoFactorDisabledAt,
+        allowLegacyTwoFactorColumns,
       );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
@@ -419,6 +528,36 @@ async function getSidebarProfile(params: {
         fallbackTwoFactorEnabled,
         fallbackTwoFactorEnabledAt,
         fallbackTwoFactorDisabledAt,
+        allowLegacyTwoFactorColumns,
+      );
+      fallbackPhotoLink = result.fallbackPhotoLink;
+      fallbackPhoneE164 = result.fallbackPhoneE164;
+      fallbackEmailChangedAt = result.fallbackEmailChangedAt;
+      fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
+      fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
+      fallbackTwoFactorEnabled = result.fallbackTwoFactorEnabled;
+      fallbackTwoFactorEnabledAt = result.fallbackTwoFactorEnabledAt;
+      fallbackTwoFactorDisabledAt = result.fallbackTwoFactorDisabledAt;
+      if (result.profile) return result.profile;
+    }
+
+    if (email) {
+      const rowsByEmail = await queryWzUsersRows(sb, {
+        column: "email",
+        value: email,
+        mode: "ilike",
+      });
+      const result = pickProfileFromRows(
+        rowsByEmail,
+        fallbackPhotoLink,
+        fallbackPhoneE164,
+        fallbackEmailChangedAt,
+        fallbackPhoneChangedAt,
+        fallbackPasswordChangedAt,
+        fallbackTwoFactorEnabled,
+        fallbackTwoFactorEnabledAt,
+        fallbackTwoFactorDisabledAt,
+        allowLegacyTwoFactorColumns,
       );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
