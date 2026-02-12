@@ -12,7 +12,11 @@ import {
 import { sendSmsCode } from "@/app/api/wz_AuthLogin/_sms";
 import { readSessionFromRequest } from "@/app/api/wz_AuthLogin/_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
-import { normalizeTotpCode, resolveTwoFactorState, verifyTotpCode } from "@/app/api/_twoFactor";
+import {
+  normalizeTotpCode,
+  resolveTwoFactorState,
+  verifyTwoFactorCodeWithRecovery,
+} from "@/app/api/_twoFactor";
 import { readPasskeyAuthProof } from "@/app/api/wz_users/_passkey_auth_proof";
 
 export const dynamic = "force-dynamic";
@@ -917,11 +921,13 @@ export async function PUT(req: NextRequest) {
         );
       }
       if (twoFactorCode.length === 6) {
-        const validTwoFactorCode = verifyTotpCode({
+        const validTwoFactorCode = await verifyTwoFactorCodeWithRecovery({
+          sb: base.sb,
+          userId: base.sessionUserId,
           secret: twoFactorState.secret,
           code: twoFactorCode,
         });
-        if (!validTwoFactorCode) {
+        if (!validTwoFactorCode.ok) {
           return NextResponse.json(
             {
               ok: false,

@@ -10,7 +10,7 @@ import {
   setTrustedLoginCookie,
 } from "../_trusted_login";
 import { readLoginTwoFactorTicket } from "../_login_two_factor_ticket";
-import { resolveTwoFactorState, verifyTotpCode } from "@/app/api/_twoFactor";
+import { resolveTwoFactorState, verifyTwoFactorCodeWithRecovery } from "@/app/api/_twoFactor";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -207,11 +207,13 @@ export async function POST(req: Request) {
       );
     }
 
-    const valid = verifyTotpCode({
+    const validation = await verifyTwoFactorCodeWithRecovery({
+      sb,
+      userId: payload.uid,
       secret: twoFactorState.secret,
       code,
     });
-    if (!valid) {
+    if (!validation.ok) {
       return NextResponse.json(
         {
           ok: false,

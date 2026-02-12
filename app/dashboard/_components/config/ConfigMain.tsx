@@ -650,6 +650,9 @@ function AccountContent({
   const [startingTwoFactorFlow, setStartingTwoFactorFlow] = useState(false);
   const [resendingTwoFactorCode, setResendingTwoFactorCode] = useState(false);
   const [verifyingTwoFactorStep, setVerifyingTwoFactorStep] = useState(false);
+  const [twoFactorRecoveryModalOpen, setTwoFactorRecoveryModalOpen] = useState(false);
+  const [twoFactorRecoveryCodes, setTwoFactorRecoveryCodes] = useState<string[]>([]);
+  const [twoFactorRecoveryDownloaded, setTwoFactorRecoveryDownloaded] = useState(false);
   const [copyingTwoFactorCode, setCopyingTwoFactorCode] = useState<"idle" | "copied" | "failed">(
     "idle"
   );
@@ -1821,6 +1824,45 @@ function AccountContent({
     setCopyingTwoFactorCode("idle");
   }, []);
 
+  const resetTwoFactorRecoveryModal = useCallback(() => {
+    setTwoFactorRecoveryModalOpen(false);
+    setTwoFactorRecoveryCodes([]);
+    setTwoFactorRecoveryDownloaded(false);
+  }, []);
+
+  const closeTwoFactorRecoveryModal = useCallback(() => {
+    resetTwoFactorRecoveryModal();
+  }, [resetTwoFactorRecoveryModal]);
+
+  const downloadTwoFactorRecoveryCodesTxt = useCallback(() => {
+    if (!twoFactorRecoveryCodes.length || typeof window === "undefined") return;
+
+    const createdAt = new Date().toISOString().replace("T", " ").slice(0, 16);
+    const text = [
+      "WYZER - CODIGOS DE RECUPERACAO (2 ETAPAS)",
+      `Gerado em: ${createdAt} UTC`,
+      "",
+      "Guarde este arquivo em local seguro.",
+      "Se voce perder acesso ao e-mail e ao dispositivo autenticador, pode ficar sem acesso a conta.",
+      "Estes codigos nao expiram, mas cada codigo pode ser usado apenas uma vez.",
+      "",
+      ...twoFactorRecoveryCodes.map((code, index) => `${index + 1}. ${code}`),
+      "",
+    ].join("\n");
+
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const datePart = new Date().toISOString().slice(0, 10);
+    link.href = href;
+    link.download = `wyzer-codigos-recuperacao-2fa-${datePart}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(href);
+    setTwoFactorRecoveryDownloaded(true);
+  }, [twoFactorRecoveryCodes]);
+
   const isTwoFactorBusy =
     startingTwoFactorFlow || resendingTwoFactorCode || verifyingTwoFactorStep;
 
@@ -1962,6 +2004,7 @@ function AccountContent({
   const openTwoFactorModal = async () => {
     if (isTwoFactorBusy) return;
     resetTwoFactorFlow();
+    resetTwoFactorRecoveryModal();
     setTwoFactorModalOpen(true);
 
     const optimisticEnabled = twoFactorEnabled;
@@ -1984,6 +2027,7 @@ function AccountContent({
     if (isTwoFactorBusy) return;
     setTwoFactorModalOpen(false);
     resetTwoFactorFlow();
+    resetTwoFactorRecoveryModal();
     resetAccountActionTwoFactorModal();
   };
 
@@ -2040,11 +2084,22 @@ function AccountContent({
         ok?: boolean;
         enabled?: boolean;
         twoFactorEnabledAt?: string | null;
+        recoveryCodes?: string[];
         error?: string;
       };
 
       if (!res.ok || !payload.ok || !payload.enabled) {
         throw new Error(payload.error || "Codigo do aplicativo invalido.");
+      }
+
+      const recoveryCodes = Array.isArray(payload.recoveryCodes)
+        ? payload.recoveryCodes
+            .map((item) => onlyDigits(String(item || "")).slice(0, 6))
+            .filter((item) => item.length === 6)
+            .slice(0, 20)
+        : [];
+      if (!recoveryCodes.length) {
+        throw new Error("Nao foi possivel gerar os codigos de recuperacao. Tente novamente.");
       }
 
       const nextEnabledAt =
@@ -2058,6 +2113,9 @@ function AccountContent({
       }
       setTwoFactorModalOpen(false);
       resetTwoFactorFlow();
+      setTwoFactorRecoveryCodes(recoveryCodes);
+      setTwoFactorRecoveryDownloaded(false);
+      setTwoFactorRecoveryModalOpen(true);
     } catch (err) {
       console.error("[config-account] verify two-factor enable failed:", err);
       const message =
@@ -4341,6 +4399,83 @@ function AccountContent({
                       {verifyingTwoFactorStep ? "Validando..." : "Confirmar codigo do app"}
                     </button>
                   )}
+                </div>
+              </div>
+            </motion.section>
+          </motion.div>
+        )}
+
+        {twoFactorRecoveryModalOpen && (
+          <motion.div
+            className="fixed inset-0 z-[229] flex items-center justify-center p-4 sm:p-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/45 backdrop-blur-[4px]"
+              onClick={closeTwoFactorRecoveryModal}
+            />
+            <motion.section
+              role="dialog"
+              aria-modal="true"
+              className="relative z-[1] w-[min(96vw,700px)] overflow-hidden rounded-2xl border border-black/15 bg-[#f3f3f4] shadow-[0_26px_70px_rgba(0,0,0,0.35)] sm:w-[min(92vw,700px)]"
+              initial={{ opacity: 0, y: 10, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.985 }}
+            >
+              <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6">
+                <h3 className="text-[18px] font-semibold text-black/80">Codigos de recuperacao</h3>
+                <button
+                  type="button"
+                  onClick={closeTwoFactorRecoveryModal}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
+                <p className="text-[14px] leading-[1.45] text-black/62">
+                  Sua autenticacao em 2 etapas foi ativada. Guarde estes codigos de recuperacao em
+                  local seguro.
+                </p>
+                <p className="mt-3 rounded-xl border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-3 text-[13px] font-medium text-[#b2433e]">
+                  Se voce perder acesso ao e-mail e ao dispositivo autenticador, pode ficar sem
+                  acesso a conta. Recomendamos baixar o arquivo .txt agora.
+                </p>
+                <p className="mt-3 text-[13px] leading-[1.45] text-black/58">
+                  Os codigos nao expiram, mas cada codigo funciona uma unica vez.
+                </p>
+
+                <div className="mt-4 grid grid-cols-3 gap-2">
+                  {twoFactorRecoveryCodes.map((code) => (
+                    <div
+                      key={code}
+                      className="rounded-xl border border-black/12 bg-white/92 px-3 py-2 text-center text-[14px] font-semibold tracking-[0.06em] text-black/78"
+                    >
+                      {code}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={closeTwoFactorRecoveryModal}
+                    className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70"
+                  >
+                    Ignorar por agora
+                  </button>
+                  <button
+                    type="button"
+                    onClick={downloadTwoFactorRecoveryCodesTxt}
+                    disabled={!twoFactorRecoveryCodes.length}
+                    className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {twoFactorRecoveryDownloaded ? "Baixado (.txt)" : "Baixar .txt"}
+                  </button>
                 </div>
               </div>
             </motion.section>

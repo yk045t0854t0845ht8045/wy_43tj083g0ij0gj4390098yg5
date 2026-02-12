@@ -4,7 +4,11 @@ import { gen7, newSalt, sha } from "@/app/api/wz_AuthLogin/_codes";
 import { sendLoginCodeEmail } from "@/app/api/wz_AuthLogin/_email";
 import { readSessionFromRequest } from "@/app/api/wz_AuthLogin/_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
-import { normalizeTotpCode, resolveTwoFactorState, verifyTotpCode } from "@/app/api/_twoFactor";
+import {
+  normalizeTotpCode,
+  resolveTwoFactorState,
+  verifyTwoFactorCodeWithRecovery,
+} from "@/app/api/_twoFactor";
 import { readPasskeyAuthProof } from "@/app/api/wz_users/_passkey_auth_proof";
 
 export const dynamic = "force-dynamic";
@@ -641,8 +645,13 @@ async function handleVerify(req: NextRequest, ctx: SessionContext, body: Record<
       );
     }
     if (twoFactorCode.length === 6) {
-      const validTwoFactorCode = verifyTotpCode({ secret: twoFactorState.secret, code: twoFactorCode });
-      if (!validTwoFactorCode) {
+      const validTwoFactorCode = await verifyTwoFactorCodeWithRecovery({
+        sb: ctx.sb,
+        userId: ctx.sessionUserId,
+        secret: twoFactorState.secret,
+        code: twoFactorCode,
+      });
+      if (!validTwoFactorCode.ok) {
         return NextResponse.json(
           {
             ok: false,

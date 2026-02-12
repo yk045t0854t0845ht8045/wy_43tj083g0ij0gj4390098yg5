@@ -1,10 +1,14 @@
 import crypto from "crypto";
-import { onlyDigits } from "@/app/api/wz_AuthLogin/_codes";
+import { newSalt, onlyDigits, sha } from "@/app/api/wz_AuthLogin/_codes";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const DEFAULT_TOTP_DIGITS = 6;
 const DEFAULT_TOTP_PERIOD_SECONDS = 30;
+const DEFAULT_RECOVERY_CODE_COUNT = 9;
+
+export const TWO_FACTOR_RECOVERY_SCHEMA_HINT =
+  "Schema de codigos de recuperacao ausente. Execute sql/wz_auth_2fa_recovery_codes_create.sql.";
 
 type WzAuth2faRow = {
   enabled?: boolean | string | number | null;
@@ -18,6 +22,12 @@ type WzUsersLegacy2faRow = {
   two_factor_secret?: string | null;
   two_factor_enabled_at?: string | null;
   two_factor_disabled_at?: string | null;
+};
+
+type WzAuth2faRecoveryRow = {
+  id?: string | number | null;
+  code_hash?: string | null;
+  salt?: string | null;
 };
 
 export type TwoFactorState = {
@@ -124,6 +134,16 @@ function isWzUsersLegacySchemaError(error: unknown) {
     isMissingColumnError(error, "two_factor_secret") ||
     isMissingColumnError(error, "two_factor_enabled_at") ||
     isMissingColumnError(error, "two_factor_disabled_at")
+  );
+}
+
+function isWzAuth2faRecoverySchemaError(error: unknown) {
+  return (
+    isMissingTableError(error, "wz_auth_2fa_recovery_codes") ||
+    isMissingColumnError(error, "user_id") ||
+    isMissingColumnError(error, "code_hash") ||
+    isMissingColumnError(error, "salt") ||
+    isMissingColumnError(error, "used_at")
   );
 }
 
@@ -372,4 +392,241 @@ export function verifyTotpCode(params: {
     }
   }
   return false;
+}
+
+function normalizeRecoveryCode(code: unknown, digits = DEFAULT_TOTP_DIGITS) {
+  return onlyDigits(String(code || "")).slice(0, digits);
+}
+
+export function generateTwoFactorRecoveryCodes(params?: {
+  count?: number;
+  digits?: number;
+}) {
+  const digits = Math.max(4, Math.min(12, Number(params?.digits ?? DEFAULT_TOTP_DIGITS)));
+  const count = Math.max(1, Math.min(20, Number(params?.count ?? DEFAULT_RECOVERY_CODE_COUNT)));
+  const max = 10 ** digits;
+  const codes = new Set<string>();
+
+  while (codes.size < count) {
+    const value = crypto.randomInt(0, max);
+    codes.add(String(value).padStart(digits, "0"));
+  }
+
+  return Array.from(codes.values());
+}
+
+export async function replaceTwoFactorRecoveryCodes(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+  codes: string[];
+}) {
+  const cleanUserId = String(params.userId || "").trim();
+  if (!cleanUserId) {
+    return {
+      ok: false as const,
+      status: 400,
+      error: "Usuario invalido para gerar codigos de recuperacao.",
+      schemaAvailable: true,
+    };
+  }
+
+  const normalizedCodes = Array.from(
+    new Set((params.codes || []).map((item) => normalizeRecoveryCode(item)).filter(Boolean)),
+  );
+
+  const { error: deleteError } = await params.sb
+    .from("wz_auth_2fa_recovery_codes")
+    .delete()
+    .eq("user_id", cleanUserId);
+
+  if (deleteError) {
+    if (isWzAuth2faRecoverySchemaError(deleteError)) {
+      return {
+        ok: false as const,
+        status: 500,
+        error: TWO_FACTOR_RECOVERY_SCHEMA_HINT,
+        schemaAvailable: false,
+      };
+    }
+    return {
+      ok: false as const,
+      status: 500,
+      error: "Nao foi possivel preparar os codigos de recuperacao.",
+      schemaAvailable: true,
+    };
+  }
+
+  if (!normalizedCodes.length) {
+    return { ok: true as const, schemaAvailable: true };
+  }
+
+  const nowIso = new Date().toISOString();
+  const rows = normalizedCodes.map((code) => {
+    const salt = newSalt();
+    return {
+      user_id: cleanUserId,
+      code_hash: sha(code, salt),
+      salt,
+      used_at: null,
+      created_at: nowIso,
+      updated_at: nowIso,
+    };
+  });
+
+  const { error: insertError } = await params.sb
+    .from("wz_auth_2fa_recovery_codes")
+    .insert(rows);
+
+  if (insertError) {
+    if (isWzAuth2faRecoverySchemaError(insertError)) {
+      return {
+        ok: false as const,
+        status: 500,
+        error: TWO_FACTOR_RECOVERY_SCHEMA_HINT,
+        schemaAvailable: false,
+      };
+    }
+    return {
+      ok: false as const,
+      status: 500,
+      error: "Nao foi possivel salvar os codigos de recuperacao.",
+      schemaAvailable: true,
+    };
+  }
+
+  return { ok: true as const, schemaAvailable: true };
+}
+
+export async function clearTwoFactorRecoveryCodes(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+}) {
+  const cleanUserId = String(params.userId || "").trim();
+  if (!cleanUserId) return { ok: true as const, schemaAvailable: true };
+
+  const { error } = await params.sb
+    .from("wz_auth_2fa_recovery_codes")
+    .delete()
+    .eq("user_id", cleanUserId);
+
+  if (!error) {
+    return { ok: true as const, schemaAvailable: true };
+  }
+
+  if (isWzAuth2faRecoverySchemaError(error)) {
+    return {
+      ok: false as const,
+      status: 500,
+      error: TWO_FACTOR_RECOVERY_SCHEMA_HINT,
+      schemaAvailable: false,
+    };
+  }
+
+  return {
+    ok: false as const,
+    status: 500,
+    error: "Nao foi possivel limpar os codigos de recuperacao.",
+    schemaAvailable: true,
+  };
+}
+
+async function consumeTwoFactorRecoveryCode(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+  code: string;
+}) {
+  const cleanUserId = String(params.userId || "").trim();
+  const normalizedCode = normalizeRecoveryCode(params.code);
+  if (!cleanUserId || normalizedCode.length !== DEFAULT_TOTP_DIGITS) {
+    return { ok: false as const, reason: "invalid" as const };
+  }
+
+  const { data, error } = await params.sb
+    .from("wz_auth_2fa_recovery_codes")
+    .select("id,code_hash,salt")
+    .eq("user_id", cleanUserId)
+    .is("used_at", null)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    if (isWzAuth2faRecoverySchemaError(error)) {
+      return {
+        ok: false as const,
+        reason: "schema" as const,
+        error: TWO_FACTOR_RECOVERY_SCHEMA_HINT,
+      };
+    }
+    return {
+      ok: false as const,
+      reason: "invalid" as const,
+    };
+  }
+
+  const rows = (data || []) as WzAuth2faRecoveryRow[];
+  const matched = rows.find((row) => {
+    const hash = String(row.code_hash || "");
+    const salt = String(row.salt || "");
+    if (!hash || !salt) return false;
+    return safeCodeEquals(hash, sha(normalizedCode, salt));
+  });
+
+  if (!matched?.id) {
+    return { ok: false as const, reason: "invalid" as const };
+  }
+
+  const nowIso = new Date().toISOString();
+  const { data: consumeData, error: consumeError } = await params.sb
+    .from("wz_auth_2fa_recovery_codes")
+    .update({ used_at: nowIso, updated_at: nowIso })
+    .eq("id", matched.id)
+    .is("used_at", null)
+    .select("id")
+    .maybeSingle();
+
+  if (consumeError) {
+    if (isWzAuth2faRecoverySchemaError(consumeError)) {
+      return {
+        ok: false as const,
+        reason: "schema" as const,
+        error: TWO_FACTOR_RECOVERY_SCHEMA_HINT,
+      };
+    }
+    return { ok: false as const, reason: "invalid" as const };
+  }
+
+  if (!consumeData) {
+    return { ok: false as const, reason: "invalid" as const };
+  }
+
+  return {
+    ok: true as const,
+    method: "recovery" as const,
+    remaining: Math.max(0, rows.length - 1),
+  };
+}
+
+export async function verifyTwoFactorCodeWithRecovery(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+  secret: string;
+  code: string;
+}) {
+  const normalizedCode = normalizeRecoveryCode(params.code);
+  if (normalizedCode.length !== DEFAULT_TOTP_DIGITS) {
+    return { ok: false as const, reason: "invalid" as const };
+  }
+
+  const totpValid = verifyTotpCode({
+    secret: params.secret,
+    code: normalizedCode,
+  });
+  if (totpValid) {
+    return { ok: true as const, method: "totp" as const };
+  }
+
+  return consumeTwoFactorRecoveryCode({
+    sb: params.sb,
+    userId: params.userId,
+    code: normalizedCode,
+  });
 }

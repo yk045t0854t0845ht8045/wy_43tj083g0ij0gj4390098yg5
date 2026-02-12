@@ -5,6 +5,12 @@ import { gen7, maskEmail, newSalt, onlyDigits, sha } from "@/app/api/wz_AuthLogi
 import { sendLoginCodeEmail } from "@/app/api/wz_AuthLogin/_email";
 import { readSessionFromRequest } from "@/app/api/wz_AuthLogin/_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
+import {
+  clearTwoFactorRecoveryCodes,
+  generateTwoFactorRecoveryCodes,
+  replaceTwoFactorRecoveryCodes,
+  verifyTwoFactorCodeWithRecovery,
+} from "@/app/api/_twoFactor";
 import { readPasskeyAuthProof } from "@/app/api/wz_users/_passkey_auth_proof";
 
 export const dynamic = "force-dynamic";
@@ -1152,11 +1158,13 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const valid = verifyTotpCode({
+      const valid = await verifyTwoFactorCodeWithRecovery({
+        sb: base.sb,
+        userId: base.sessionUserId,
         secret: base.twoFactorSecret,
         code,
       });
-      if (!valid) {
+      if (!valid.ok) {
         return NextResponse.json(
           { ok: false, error: "Codigo do aplicativo invalido. Tente novamente." },
           { status: 400, headers: NO_STORE_HEADERS },
@@ -1185,11 +1193,13 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const valid = verifyTotpCode({
+      const valid = await verifyTwoFactorCodeWithRecovery({
+        sb: base.sb,
+        userId: base.sessionUserId,
         secret: base.twoFactorSecret,
         code,
       });
-      if (!valid) {
+      if (!valid.ok) {
         return NextResponse.json(
           { ok: false, error: "Codigo do aplicativo invalido. Tente novamente." },
           { status: 400, headers: NO_STORE_HEADERS },
@@ -1392,6 +1402,22 @@ export async function PUT(req: NextRequest) {
         );
       }
 
+      const recoveryCodes = generateTwoFactorRecoveryCodes({
+        count: 9,
+        digits: TOTP_DIGITS,
+      });
+      const saveRecoveryCodes = await replaceTwoFactorRecoveryCodes({
+        sb: base.sb,
+        userId: base.sessionUserId,
+        codes: recoveryCodes,
+      });
+      if (!saveRecoveryCodes.ok) {
+        return NextResponse.json(
+          { ok: false, error: saveRecoveryCodes.error },
+          { status: saveRecoveryCodes.status, headers: NO_STORE_HEADERS },
+        );
+      }
+
       const enabled = await enableTwoFactor({
         sb: base.sb,
         sessionUserId: base.sessionUserId,
@@ -1399,6 +1425,10 @@ export async function PUT(req: NextRequest) {
         secret: ticketRes.payload.pendingSecret || "",
       });
       if (!enabled.ok) {
+        await clearTwoFactorRecoveryCodes({
+          sb: base.sb,
+          userId: base.sessionUserId,
+        });
         return NextResponse.json(
           { ok: false, error: enabled.error },
           { status: enabled.status, headers: NO_STORE_HEADERS },
@@ -1406,7 +1436,12 @@ export async function PUT(req: NextRequest) {
       }
 
       return NextResponse.json(
-        { ok: true, enabled: true, twoFactorEnabledAt: enabled.enabledAt },
+        {
+          ok: true,
+          enabled: true,
+          twoFactorEnabledAt: enabled.enabledAt,
+          recoveryCodes,
+        },
         { status: 200, headers: NO_STORE_HEADERS },
       );
     }
@@ -1447,11 +1482,13 @@ export async function PUT(req: NextRequest) {
       }
 
       if (code.length === TOTP_DIGITS) {
-        const valid = verifyTotpCode({
+        const valid = await verifyTwoFactorCodeWithRecovery({
+          sb: base.sb,
+          userId: base.sessionUserId,
           secret: base.twoFactorSecret,
           code,
         });
-        if (!valid) {
+        if (!valid.ok) {
           return NextResponse.json(
             {
               ok: false,
@@ -1526,6 +1563,14 @@ export async function PUT(req: NextRequest) {
           { ok: false, error: disabled.error },
           { status: disabled.status, headers: NO_STORE_HEADERS },
         );
+      }
+
+      const clearedRecoveryCodes = await clearTwoFactorRecoveryCodes({
+        sb: base.sb,
+        userId: base.sessionUserId,
+      });
+      if (!clearedRecoveryCodes.ok && clearedRecoveryCodes.schemaAvailable) {
+        console.error("[two-factor] clear recovery codes warning:", clearedRecoveryCodes.error);
       }
 
       return NextResponse.json(
