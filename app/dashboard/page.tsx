@@ -16,6 +16,7 @@ type SidebarProfile = {
   emailChangedAt: string | null;
   phoneChangedAt: string | null;
   passwordChangedAt: string | null;
+  supportAccess: boolean;
   twoFactorEnabled: boolean;
   twoFactorEnabledAt: string | null;
   twoFactorDisabledAt: string | null;
@@ -36,6 +37,7 @@ type WzUserLookupRow = {
   email_changed_at?: string | null;
   phone_changed_at?: string | null;
   password_changed_at?: string | null;
+  support_access?: boolean | string | number | null;
   two_factor_enabled?: boolean | string | number | null;
   two_factor_secret?: string | null;
   two_factor_enabled_at?: string | null;
@@ -145,6 +147,18 @@ function sanitizeBoolean(value: unknown) {
     return clean === "true" || clean === "t" || clean === "1";
   }
   return false;
+}
+
+function sanitizeSupportAccessValue(value: unknown) {
+  if (value === null || typeof value === "undefined") return null;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const clean = value.trim().toLowerCase();
+    if (!clean) return null;
+    return clean === "1" || clean === "true" || clean === "t";
+  }
+  return null;
 }
 
 function resolveTwoFactorEnabled(
@@ -271,6 +285,8 @@ async function queryWzUsersRows(
   params: WzUserLookupParams,
 ) {
   const columnsToTry = [
+    "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at,password_changed_at,support_access,two_factor_enabled,two_factor_secret,two_factor_enabled_at,two_factor_disabled_at",
+    "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at,password_changed_at,support_access",
     "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at,password_changed_at,two_factor_enabled,two_factor_secret,two_factor_enabled_at,two_factor_disabled_at",
     "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at,password_changed_at,two_factor_enabled,two_factor_secret,two_factor_enabled_at",
     "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at,password_changed_at,two_factor_enabled,two_factor_secret",
@@ -304,6 +320,8 @@ async function queryWzUsersRows(
         email_changed_at: row.email_changed_at || null,
         phone_changed_at: row.phone_changed_at || null,
         password_changed_at: row.password_changed_at || null,
+        support_access:
+          typeof row.support_access === "undefined" ? null : row.support_access,
         two_factor_enabled:
           typeof row.two_factor_enabled === "undefined" ? null : row.two_factor_enabled,
         two_factor_secret: row.two_factor_secret || null,
@@ -323,6 +341,7 @@ function pickProfileFromRows(
   fallbackEmailChangedAt: string | null,
   fallbackPhoneChangedAt: string | null,
   fallbackPasswordChangedAt: string | null,
+  fallbackSupportAccess: boolean,
   fallbackTwoFactorEnabled: boolean,
   fallbackTwoFactorEnabledAt: string | null,
   fallbackTwoFactorDisabledAt: string | null,
@@ -333,6 +352,7 @@ function pickProfileFromRows(
   let nextFallbackEmailChangedAt = fallbackEmailChangedAt;
   let nextFallbackPhoneChangedAt = fallbackPhoneChangedAt;
   let nextFallbackPasswordChangedAt = fallbackPasswordChangedAt;
+  let nextFallbackSupportAccess = fallbackSupportAccess;
   let nextFallbackTwoFactorEnabled = fallbackTwoFactorEnabled;
   let nextFallbackTwoFactorEnabledAt = fallbackTwoFactorEnabledAt;
   let nextFallbackTwoFactorDisabledAt = fallbackTwoFactorDisabledAt;
@@ -343,6 +363,7 @@ function pickProfileFromRows(
     const rowEmailChangedAt = sanitizeIsoDatetime(row.email_changed_at);
     const rowPhoneChangedAt = sanitizeIsoDatetime(row.phone_changed_at);
     const rowPasswordChangedAt = sanitizeIsoDatetime(row.password_changed_at);
+    const rowSupportAccess = sanitizeSupportAccessValue(row.support_access);
     const rowTwoFactorEnabledAt = sanitizeIsoDatetime(row.two_factor_enabled_at);
     const rowTwoFactorDisabledAt = sanitizeIsoDatetime(row.two_factor_disabled_at);
     const hasTwoFactorInfo =
@@ -366,6 +387,9 @@ function pickProfileFromRows(
     if (!nextFallbackPasswordChangedAt && rowPasswordChangedAt) {
       nextFallbackPasswordChangedAt = rowPasswordChangedAt;
     }
+    if (rowSupportAccess !== null) {
+      nextFallbackSupportAccess = rowSupportAccess;
+    }
     if (hasTwoFactorInfo) {
       nextFallbackTwoFactorEnabled = rowTwoFactorEnabled;
       if (rowTwoFactorEnabledAt) nextFallbackTwoFactorEnabledAt = rowTwoFactorEnabledAt;
@@ -384,6 +408,7 @@ function pickProfileFromRows(
       rowEmailChangedAt ||
       rowPhoneChangedAt ||
       rowPasswordChangedAt ||
+      rowSupportAccess !== null ||
       hasTwoFactorInfo
     ) {
       return {
@@ -395,6 +420,8 @@ function pickProfileFromRows(
           emailChangedAt: rowEmailChangedAt || nextFallbackEmailChangedAt,
           phoneChangedAt: rowPhoneChangedAt || nextFallbackPhoneChangedAt,
           passwordChangedAt: rowPasswordChangedAt || nextFallbackPasswordChangedAt,
+          supportAccess:
+            rowSupportAccess !== null ? rowSupportAccess : nextFallbackSupportAccess,
           twoFactorEnabled: hasTwoFactorInfo
             ? rowTwoFactorEnabled
             : nextFallbackTwoFactorEnabled,
@@ -408,6 +435,7 @@ function pickProfileFromRows(
         fallbackEmailChangedAt: nextFallbackEmailChangedAt,
         fallbackPhoneChangedAt: nextFallbackPhoneChangedAt,
         fallbackPasswordChangedAt: nextFallbackPasswordChangedAt,
+        fallbackSupportAccess: nextFallbackSupportAccess,
         fallbackTwoFactorEnabled: nextFallbackTwoFactorEnabled,
         fallbackTwoFactorEnabledAt: nextFallbackTwoFactorEnabledAt,
         fallbackTwoFactorDisabledAt: nextFallbackTwoFactorDisabledAt,
@@ -422,6 +450,7 @@ function pickProfileFromRows(
     fallbackEmailChangedAt: nextFallbackEmailChangedAt,
     fallbackPhoneChangedAt: nextFallbackPhoneChangedAt,
     fallbackPasswordChangedAt: nextFallbackPasswordChangedAt,
+    fallbackSupportAccess: nextFallbackSupportAccess,
     fallbackTwoFactorEnabled: nextFallbackTwoFactorEnabled,
     fallbackTwoFactorEnabledAt: nextFallbackTwoFactorEnabledAt,
     fallbackTwoFactorDisabledAt: nextFallbackTwoFactorDisabledAt,
@@ -446,6 +475,7 @@ async function getSidebarProfile(params: {
       emailChangedAt: null,
       phoneChangedAt: null,
       passwordChangedAt: null,
+      supportAccess: false,
       twoFactorEnabled: false,
       twoFactorEnabledAt: null,
       twoFactorDisabledAt: null,
@@ -459,6 +489,7 @@ async function getSidebarProfile(params: {
     let fallbackEmailChangedAt: string | null = null;
     let fallbackPhoneChangedAt: string | null = null;
     let fallbackPasswordChangedAt: string | null = null;
+    let fallbackSupportAccess = false;
     let fallbackTwoFactorEnabled = false;
     let fallbackTwoFactorEnabledAt: string | null = null;
     let fallbackTwoFactorDisabledAt: string | null = null;
@@ -487,6 +518,7 @@ async function getSidebarProfile(params: {
         fallbackEmailChangedAt,
         fallbackPhoneChangedAt,
         fallbackPasswordChangedAt,
+        fallbackSupportAccess,
         fallbackTwoFactorEnabled,
         fallbackTwoFactorEnabledAt,
         fallbackTwoFactorDisabledAt,
@@ -497,6 +529,7 @@ async function getSidebarProfile(params: {
       fallbackEmailChangedAt = result.fallbackEmailChangedAt;
       fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
       fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
+      fallbackSupportAccess = result.fallbackSupportAccess;
       fallbackTwoFactorEnabled = result.fallbackTwoFactorEnabled;
       fallbackTwoFactorEnabledAt = result.fallbackTwoFactorEnabledAt;
       fallbackTwoFactorDisabledAt = result.fallbackTwoFactorDisabledAt;
@@ -516,6 +549,7 @@ async function getSidebarProfile(params: {
         fallbackEmailChangedAt,
         fallbackPhoneChangedAt,
         fallbackPasswordChangedAt,
+        fallbackSupportAccess,
         fallbackTwoFactorEnabled,
         fallbackTwoFactorEnabledAt,
         fallbackTwoFactorDisabledAt,
@@ -526,6 +560,7 @@ async function getSidebarProfile(params: {
       fallbackEmailChangedAt = result.fallbackEmailChangedAt;
       fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
       fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
+      fallbackSupportAccess = result.fallbackSupportAccess;
       fallbackTwoFactorEnabled = result.fallbackTwoFactorEnabled;
       fallbackTwoFactorEnabledAt = result.fallbackTwoFactorEnabledAt;
       fallbackTwoFactorDisabledAt = result.fallbackTwoFactorDisabledAt;
@@ -545,6 +580,7 @@ async function getSidebarProfile(params: {
         fallbackEmailChangedAt,
         fallbackPhoneChangedAt,
         fallbackPasswordChangedAt,
+        fallbackSupportAccess,
         fallbackTwoFactorEnabled,
         fallbackTwoFactorEnabledAt,
         fallbackTwoFactorDisabledAt,
@@ -555,6 +591,7 @@ async function getSidebarProfile(params: {
       fallbackEmailChangedAt = result.fallbackEmailChangedAt;
       fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
       fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
+      fallbackSupportAccess = result.fallbackSupportAccess;
       fallbackTwoFactorEnabled = result.fallbackTwoFactorEnabled;
       fallbackTwoFactorEnabledAt = result.fallbackTwoFactorEnabledAt;
       fallbackTwoFactorDisabledAt = result.fallbackTwoFactorDisabledAt;
@@ -574,6 +611,7 @@ async function getSidebarProfile(params: {
         fallbackEmailChangedAt,
         fallbackPhoneChangedAt,
         fallbackPasswordChangedAt,
+        fallbackSupportAccess,
         fallbackTwoFactorEnabled,
         fallbackTwoFactorEnabledAt,
         fallbackTwoFactorDisabledAt,
@@ -584,6 +622,7 @@ async function getSidebarProfile(params: {
       fallbackEmailChangedAt = result.fallbackEmailChangedAt;
       fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
       fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
+      fallbackSupportAccess = result.fallbackSupportAccess;
       fallbackTwoFactorEnabled = result.fallbackTwoFactorEnabled;
       fallbackTwoFactorEnabledAt = result.fallbackTwoFactorEnabledAt;
       fallbackTwoFactorDisabledAt = result.fallbackTwoFactorDisabledAt;
@@ -598,6 +637,7 @@ async function getSidebarProfile(params: {
       emailChangedAt: fallbackEmailChangedAt,
       phoneChangedAt: fallbackPhoneChangedAt,
       passwordChangedAt: fallbackPasswordChangedAt,
+      supportAccess: fallbackSupportAccess,
       twoFactorEnabled: fallbackTwoFactorEnabled,
       twoFactorEnabledAt: fallbackTwoFactorEnabledAt,
       twoFactorDisabledAt: fallbackTwoFactorDisabledAt,
@@ -614,6 +654,7 @@ async function getSidebarProfile(params: {
     emailChangedAt: null,
     phoneChangedAt: null,
     passwordChangedAt: null,
+    supportAccess: false,
     twoFactorEnabled: false,
     twoFactorEnabledAt: null,
     twoFactorDisabledAt: null,
@@ -639,6 +680,7 @@ export default async function DashboardHomePage() {
   let sidebarEmailChangedAt: string | null = null;
   let sidebarPhoneChangedAt: string | null = null;
   let sidebarPasswordChangedAt: string | null = null;
+  let sidebarSupportAccess = false;
   let sidebarTwoFactorEnabled = false;
   let sidebarTwoFactorEnabledAt: string | null = null;
   let sidebarTwoFactorDisabledAt: string | null = null;
@@ -683,6 +725,7 @@ export default async function DashboardHomePage() {
     if (profile.passwordChangedAt) {
       sidebarPasswordChangedAt = profile.passwordChangedAt;
     }
+    sidebarSupportAccess = profile.supportAccess;
     sidebarTwoFactorEnabled = profile.twoFactorEnabled;
     if (profile.twoFactorEnabledAt) {
       sidebarTwoFactorEnabledAt = profile.twoFactorEnabledAt;
@@ -712,6 +755,7 @@ export default async function DashboardHomePage() {
       userEmailChangedAt={sidebarEmailChangedAt}
       userPhoneChangedAt={sidebarPhoneChangedAt}
       userPasswordChangedAt={sidebarPasswordChangedAt}
+      userSupportAccess={sidebarSupportAccess}
       userTwoFactorEnabled={sidebarTwoFactorEnabled}
       userTwoFactorEnabledAt={sidebarTwoFactorEnabledAt}
       userTwoFactorDisabledAt={sidebarTwoFactorDisabledAt}

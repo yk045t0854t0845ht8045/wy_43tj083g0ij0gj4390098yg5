@@ -15,6 +15,7 @@ type DashboardShellProps = {
   userEmailChangedAt?: string | null;
   userPhoneChangedAt?: string | null;
   userPasswordChangedAt?: string | null;
+  userSupportAccess?: boolean;
   userTwoFactorEnabled?: boolean;
   userTwoFactorEnabledAt?: string | null;
   userTwoFactorDisabledAt?: string | null;
@@ -38,6 +39,7 @@ export default function DashboardShell({
   userEmailChangedAt = null,
   userPhoneChangedAt = null,
   userPasswordChangedAt = null,
+  userSupportAccess = false,
   userTwoFactorEnabled = false,
   userTwoFactorEnabledAt = null,
   userTwoFactorDisabledAt = null,
@@ -62,6 +64,9 @@ export default function DashboardShell({
   );
   const [profilePasswordChangedAt, setProfilePasswordChangedAt] = useState<string | null>(
     normalizeIsoDatetime(userPasswordChangedAt)
+  );
+  const [profileSupportAccess, setProfileSupportAccess] = useState<boolean>(
+    Boolean(userSupportAccess)
   );
   const [profileTwoFactorEnabled, setProfileTwoFactorEnabled] = useState<boolean>(
     Boolean(userTwoFactorEnabled)
@@ -103,6 +108,10 @@ export default function DashboardShell({
   useEffect(() => {
     setProfilePasswordChangedAt(normalizeIsoDatetime(userPasswordChangedAt));
   }, [userPasswordChangedAt]);
+
+  useEffect(() => {
+    setProfileSupportAccess(Boolean(userSupportAccess));
+  }, [userSupportAccess]);
 
   useEffect(() => {
     setProfileTwoFactorEnabled(Boolean(userTwoFactorEnabled));
@@ -170,6 +179,10 @@ export default function DashboardShell({
     setProfileTwoFactorEnabledAt(null);
   }, []);
 
+  const handleUserSupportAccessChange = useCallback((enabled: boolean) => {
+    setProfileSupportAccess(Boolean(enabled));
+  }, []);
+
   const handleOpenConfig = useCallback((section: ConfigSectionId = "my-account") => {
     setConfigSection(section);
     setConfigOpen(true);
@@ -211,11 +224,13 @@ export default function DashboardShell({
         userEmailChangedAt={profileEmailChangedAt}
         userPhoneChangedAt={profilePhoneChangedAt}
         userPasswordChangedAt={profilePasswordChangedAt}
+        userSupportAccess={profileSupportAccess}
         onUserPasswordChange={handleUserPasswordChange}
         userTwoFactorEnabled={profileTwoFactorEnabled}
         userTwoFactorEnabledAt={profileTwoFactorEnabledAt}
         userTwoFactorDisabledAt={profileTwoFactorDisabledAt}
         userAccountCreatedAt={userAccountCreatedAt}
+        onUserSupportAccessChange={handleUserSupportAccessChange}
         onUserTwoFactorChange={handleUserTwoFactorChange}
       />
     </div>

@@ -53,6 +53,7 @@ type ConfigMainProps = {
   userEmailChangedAt?: string | null;
   userPhoneChangedAt?: string | null;
   userPasswordChangedAt?: string | null;
+  userSupportAccess?: boolean;
   userTwoFactorEnabled?: boolean;
   userTwoFactorEnabledAt?: string | null;
   userTwoFactorDisabledAt?: string | null;
@@ -62,6 +63,7 @@ type ConfigMainProps = {
   onUserEmailChange?: (email: string, changedAt?: string | null) => void;
   onUserPhoneChange?: (phoneE164: string | null, changedAt?: string | null) => void;
   onUserPasswordChange?: (changedAt?: string | null) => void;
+  onUserSupportAccessChange?: (enabled: boolean) => void;
   onUserTwoFactorChange?: (enabled: boolean, changedAt?: string | null) => void;
 };
 
@@ -525,6 +527,7 @@ function AccountContent({
   phoneChangedAt,
   passwordChangedAt,
   accountCreatedAt,
+  supportAccess: initialSupportAccess = false,
   twoFactorEnabled: initialTwoFactorEnabled,
   twoFactorEnabledAt: initialTwoFactorEnabledAt,
   twoFactorDisabledAt: initialTwoFactorDisabledAt,
@@ -533,6 +536,7 @@ function AccountContent({
   onUserEmailChange,
   onUserPhoneChange,
   onUserPasswordChange,
+  onUserSupportAccessChange,
   onUserTwoFactorChange,
 }: {
   nickname: string;
@@ -542,6 +546,7 @@ function AccountContent({
   phoneChangedAt?: string | null;
   passwordChangedAt?: string | null;
   accountCreatedAt?: string | null;
+  supportAccess?: boolean;
   twoFactorEnabled?: boolean;
   twoFactorEnabledAt?: string | null;
   twoFactorDisabledAt?: string | null;
@@ -550,9 +555,12 @@ function AccountContent({
   onUserEmailChange?: (email: string, changedAt?: string | null) => void;
   onUserPhoneChange?: (phoneE164: string | null, changedAt?: string | null) => void;
   onUserPasswordChange?: (changedAt?: string | null) => void;
+  onUserSupportAccessChange?: (enabled: boolean) => void;
   onUserTwoFactorChange?: (enabled: boolean, changedAt?: string | null) => void;
 }) {
-  const [supportAccess, setSupportAccess] = useState(false);
+  const [supportAccess, setSupportAccess] = useState(() => Boolean(initialSupportAccess));
+  const [savingSupportAccess, setSavingSupportAccess] = useState(false);
+  const [supportAccessError, setSupportAccessError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [localEmail, setLocalEmail] = useState(() => String(email || "").trim().toLowerCase());
   const [localPhoneE164, setLocalPhoneE164] = useState(() => normalizeE164Phone(phoneE164));
@@ -696,6 +704,7 @@ function AccountContent({
   useEffect(() => setLocalEmailChangedAt(normalizeIsoDatetime(emailChangedAt)), [emailChangedAt]);
   useEffect(() => setLocalPhoneChangedAt(normalizeIsoDatetime(phoneChangedAt)), [phoneChangedAt]);
   useEffect(() => setLocalPasswordChangedAt(normalizeIsoDatetime(passwordChangedAt)), [passwordChangedAt]);
+  useEffect(() => setSupportAccess(Boolean(initialSupportAccess)), [initialSupportAccess]);
   useEffect(() => {
     if (twoFactorModalOpen) return;
     setTwoFactorEnabled(Boolean(initialTwoFactorEnabled));
@@ -927,6 +936,43 @@ function AccountContent({
       setError(err instanceof Error ? err.message : "Erro ao remover foto de perfil.");
     } finally {
       setRemoving(false);
+    }
+  };
+
+  const toggleSupportAccess = async () => {
+    if (savingSupportAccess) return;
+    const nextValue = !supportAccess;
+
+    try {
+      setSavingSupportAccess(true);
+      setSupportAccessError(null);
+
+      const res = await fetch("/api/wz_users/support-access", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: nextValue }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        active?: boolean;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok) {
+        throw new Error(payload.error || "Nao foi possivel atualizar o acesso para suporte.");
+      }
+
+      const normalizedActive = Boolean(payload.active);
+      setSupportAccess(normalizedActive);
+      onUserSupportAccessChange?.(normalizedActive);
+    } catch (err) {
+      console.error("[config-account] toggle support access failed:", err);
+      setSupportAccessError(
+        err instanceof Error ? err.message : "Erro ao atualizar acesso para suporte."
+      );
+    } finally {
+      setSavingSupportAccess(false);
     }
   };
 
@@ -3339,10 +3385,15 @@ function AccountContent({
           <div className="mt-4 border-t border-black/10" />
           <div className="flex items-center justify-between gap-4 -mx-2 rounded-xl px-2 py-5">
             <div className="min-w-0"><p className="text-[18px] font-semibold text-black/85">Acesso para suporte</p><p className="mt-1 text-[15px] leading-[1.45] text-black/58">Conceda ao suporte acesso temporario para ajudar a resolver problemas ou recuperar conteudo. Voce pode revogar a qualquer momento.</p><p className="mt-1 text-[12px] text-black/45">Nossa equipe nunca pedira senhas ou acessos em nenhum canal de comunicação. Caso aconteca, reporte imediatamente em nossos canais seguros de comunicação.</p></div>
-            <button type="button" role="switch" aria-checked={supportAccess} onClick={() => setSupportAccess((v) => !v)} className={cx("relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-all duration-220", supportAccess ? "bg-lime-400/85" : "bg-black/20")}>
+            <button type="button" role="switch" aria-checked={supportAccess} onClick={() => void toggleSupportAccess()} disabled={savingSupportAccess} className={cx("relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-all duration-220 disabled:cursor-not-allowed disabled:opacity-70", supportAccess ? "bg-lime-400/85" : "bg-black/20")}>
               <span className={cx("inline-block h-5 w-5 rounded-full bg-white transition-transform duration-220", supportAccess ? "translate-x-6" : "translate-x-1")} />
             </button>
           </div>
+          {supportAccessError && (
+            <p className="-mt-2 mb-3 rounded-lg border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-2 text-[13px] font-medium text-[#b2433e]">
+              {supportAccessError}
+            </p>
+          )}
 
           <button type="button" className="group -mx-2 flex w-[calc(100%+16px)] items-center justify-between gap-4 rounded-xl px-2 py-5 text-left transition-[transform,background-color] duration-220 active:translate-y-[0.6px] active:scale-[0.998] cursor-pointer">
             <span className="min-w-0"><p className="text-[18px] font-semibold text-[#e3524b]">Excluir minha conta</p><p className="mt-1 text-[15px] text-black/58">Exclua permanentemente a conta e remova o acesso de todos os espacos de trabalho.</p></span>
@@ -4909,6 +4960,7 @@ export default function ConfigMain({
   userEmailChangedAt = null,
   userPhoneChangedAt = null,
   userPasswordChangedAt = null,
+  userSupportAccess = false,
   userTwoFactorEnabled = false,
   userTwoFactorEnabledAt = null,
   userTwoFactorDisabledAt = null,
@@ -4918,6 +4970,7 @@ export default function ConfigMain({
   onUserEmailChange,
   onUserPhoneChange,
   onUserPasswordChange,
+  onUserSupportAccessChange,
   onUserTwoFactorChange,
 }: ConfigMainProps) {
   const prefersReducedMotion = useReducedMotion();
@@ -4945,6 +4998,7 @@ export default function ConfigMain({
     () => normalizeIsoDatetime(userPasswordChangedAt),
     [userPasswordChangedAt]
   );
+  const supportAccess = useMemo(() => Boolean(userSupportAccess), [userSupportAccess]);
   const accountCreatedAt = useMemo(
     () => normalizeIsoDatetime(userAccountCreatedAt),
     [userAccountCreatedAt]
@@ -5011,7 +5065,7 @@ export default function ConfigMain({
               <div className="min-w-0 flex-1 bg-[#f3f3f4]">
                 <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6"><h2 className="text-[20px] font-semibold text-black/75">{activeTitle}</h2><button type="button" onClick={onClose} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80"><X className="h-5 w-5" /></button></div>
                 <div className="h-[calc(100%-64px)] overflow-y-auto px-4 pb-8 pt-6 sm:px-8 md:px-10">
-                  {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} emailChangedAt={emailChangedAt} phoneChangedAt={phoneChangedAt} passwordChangedAt={passwordChangedAt} accountCreatedAt={accountCreatedAt} twoFactorEnabled={twoFactorEnabled} twoFactorEnabledAt={twoFactorEnabledAt} twoFactorDisabledAt={twoFactorDisabledAt} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} onUserPasswordChange={onUserPasswordChange} onUserTwoFactorChange={onUserTwoFactorChange} />}
+                  {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} emailChangedAt={emailChangedAt} phoneChangedAt={phoneChangedAt} passwordChangedAt={passwordChangedAt} supportAccess={supportAccess} accountCreatedAt={accountCreatedAt} twoFactorEnabled={twoFactorEnabled} twoFactorEnabledAt={twoFactorEnabledAt} twoFactorDisabledAt={twoFactorDisabledAt} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} onUserPasswordChange={onUserPasswordChange} onUserSupportAccessChange={onUserSupportAccessChange} onUserTwoFactorChange={onUserTwoFactorChange} />}
                   {activeSection === "devices" && <DevicesContent />}
                   {activeSection !== "my-account" && activeSection !== "devices" && <PlaceholderSection title={activeTitle} />}
                 </div>
