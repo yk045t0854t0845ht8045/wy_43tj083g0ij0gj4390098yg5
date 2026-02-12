@@ -2,6 +2,7 @@
 
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import {
+  Copy,
   ChevronRight,
   Monitor,
   Search,
@@ -510,10 +511,10 @@ function AccountContent({
   const [twoFactorStep, setTwoFactorStep] = useState<
     "enable-verify-app" | "disable-verify-email" | "disable-verify-app"
   >("enable-verify-app");
+  const [twoFactorEnableSubStep, setTwoFactorEnableSubStep] = useState<"setup" | "verify">("setup");
   const [twoFactorTicket, setTwoFactorTicket] = useState("");
   const [twoFactorManualCode, setTwoFactorManualCode] = useState("");
   const [twoFactorQrCodeDataUrl, setTwoFactorQrCodeDataUrl] = useState("");
-  const [twoFactorOtpAuthUri, setTwoFactorOtpAuthUri] = useState("");
   const [twoFactorEmailMask, setTwoFactorEmailMask] = useState("");
   const [twoFactorAppCode, setTwoFactorAppCode] = useState("");
   const [twoFactorEmailCode, setTwoFactorEmailCode] = useState("");
@@ -1387,10 +1388,10 @@ function AccountContent({
 
   const resetTwoFactorFlow = useCallback(() => {
     setTwoFactorStep("enable-verify-app");
+    setTwoFactorEnableSubStep("setup");
     setTwoFactorTicket("");
     setTwoFactorManualCode("");
     setTwoFactorQrCodeDataUrl("");
-    setTwoFactorOtpAuthUri("");
     setTwoFactorEmailMask("");
     setTwoFactorAppCode("");
     setTwoFactorEmailCode("");
@@ -1471,7 +1472,6 @@ function AccountContent({
         ticket?: string;
         manualCode?: string;
         qrCodeDataUrl?: string;
-        otpAuthUri?: string;
         error?: string;
       };
 
@@ -1480,10 +1480,10 @@ function AccountContent({
       }
 
       setTwoFactorStep("enable-verify-app");
+      setTwoFactorEnableSubStep("setup");
       setTwoFactorTicket(payload.ticket);
       setTwoFactorManualCode(String(payload.manualCode || "").trim());
       setTwoFactorQrCodeDataUrl(String(payload.qrCodeDataUrl || ""));
-      setTwoFactorOtpAuthUri(String(payload.otpAuthUri || ""));
       setTwoFactorAppCode("");
       setTwoFactorEmailCode("");
       setTwoFactorResendCooldown(0);
@@ -1562,8 +1562,26 @@ function AccountContent({
     }
   };
 
+  const continueTwoFactorEnableFlow = () => {
+    if (isTwoFactorBusy) return;
+    if (!twoFactorTicket || !twoFactorManualCode || !twoFactorQrCodeDataUrl) {
+      setTwoFactorError("Nao foi possivel carregar a configuracao. Gere um novo QR code.");
+      return;
+    }
+    setTwoFactorError(null);
+    setTwoFactorAppCode("");
+    setTwoFactorEnableSubStep("verify");
+  };
+
+  const backToTwoFactorEnableSetup = () => {
+    if (isTwoFactorBusy) return;
+    setTwoFactorError(null);
+    setTwoFactorAppCode("");
+    setTwoFactorEnableSubStep("setup");
+  };
+
   const verifyTwoFactorEnableCode = async (nextValue?: string) => {
-    if (!twoFactorTicket || isTwoFactorBusy) return;
+    if (!twoFactorTicket || isTwoFactorBusy || twoFactorEnableSubStep !== "verify") return;
     const code = onlyDigits(String(nextValue || twoFactorAppCode || "")).slice(0, 6);
     if (code.length !== 6) return;
 
@@ -1765,7 +1783,7 @@ function AccountContent({
   const twoFactorButtonClass = cx(
     buttonClass,
     twoFactorEnabled &&
-      "border-[#1f9d55]/70 bg-[#1f9d55] text-white hover:border-[#188047] hover:bg-[#188047]",
+      "border-lime-500 bg-lime-400 text-black hover:border-lime-600 hover:bg-lime-500",
     (loadingTwoFactorStatus || isTwoFactorBusy) && "cursor-wait opacity-70"
   );
 
@@ -2549,39 +2567,56 @@ function AccountContent({
                       </div>
                     )}
 
-                    <p className="mt-4 text-[13px] font-medium text-black/62">Codigo manual</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <code className="rounded-lg border border-black/12 bg-white/92 px-3 py-2 text-[13px] font-semibold tracking-[0.08em] text-black/80">
-                        {twoFactorManualCode || "-"}
-                      </code>
-                      <button
-                        type="button"
-                        onClick={() => void copyTwoFactorManualCode()}
-                        disabled={!twoFactorManualCode || isTwoFactorBusy}
-                        className="rounded-lg border border-black/12 bg-white/90 px-3 py-2 text-[12px] font-semibold text-black/70 transition-colors hover:bg-black/[0.03] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {copyingTwoFactorCode === "copied"
-                          ? "Copiado"
-                          : copyingTwoFactorCode === "failed"
-                          ? "Falhou ao copiar"
-                          : "Copiar codigo"}
-                      </button>
+                    <div className="mt-4 flex justify-center">
+                      <div className="w-full max-w-[360px]">
+                        <p className="mb-2 text-center text-[13px] font-medium text-black/62">
+                          Codigo manual
+                        </p>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            readOnly
+                            value={twoFactorManualCode || ""}
+                            placeholder="Aguardando codigo..."
+                            className="h-11 w-full rounded-xl border border-black/12 bg-white/92 px-3 pr-12 text-center text-[13px] font-semibold tracking-[0.08em] text-black/80 outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void copyTwoFactorManualCode()}
+                            disabled={!twoFactorManualCode || isTwoFactorBusy}
+                            title="Copiar codigo manual"
+                            aria-label="Copiar codigo manual"
+                            className="absolute right-1.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-black/60 transition-colors hover:bg-black/[0.05] hover:text-black/82 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </button>
+                        </div>
+                        {copyingTwoFactorCode !== "idle" && (
+                          <p className="mt-1 text-center text-[11px] text-black/55">
+                            {copyingTwoFactorCode === "copied" ? "Codigo copiado" : "Falhou ao copiar"}
+                          </p>
+                        )}
+                      </div>
                     </div>
-
-                    {twoFactorOtpAuthUri && (
-                      <p className="mt-3 break-all text-[12px] text-black/52">{twoFactorOtpAuthUri}</p>
+                    {twoFactorEnableSubStep === "setup" && (
+                      <p className="mt-5 text-[14px] leading-[1.45] text-black/62">
+                        Depois de adicionar no aplicativo, clique em continuar para validar.
+                      </p>
                     )}
-
-                    <p className="mt-5 text-[14px] leading-[1.45] text-black/62">
-                      Digite o codigo de 6 digitos gerado no aplicativo para ativar.
-                    </p>
-                    <CodeBoxes
-                      length={6}
-                      value={twoFactorAppCode}
-                      onChange={setTwoFactorAppCode}
-                      onComplete={verifyTwoFactorEnableCode}
-                      disabled={isTwoFactorBusy}
-                    />
+                    {twoFactorEnableSubStep === "verify" && (
+                      <>
+                        <p className="mt-5 text-[14px] leading-[1.45] text-black/62">
+                          Digite o codigo de 6 digitos gerado no aplicativo para ativar.
+                        </p>
+                        <CodeBoxes
+                          length={6}
+                          value={twoFactorAppCode}
+                          onChange={setTwoFactorAppCode}
+                          onComplete={verifyTwoFactorEnableCode}
+                          disabled={isTwoFactorBusy}
+                        />
+                      </>
+                    )}
                   </>
                 )}
 
@@ -2643,14 +2678,16 @@ function AccountContent({
                 )}
 
                 <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={closeTwoFactorModal}
-                    disabled={isTwoFactorBusy}
-                    className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Cancelar
-                  </button>
+                  {twoFactorStep !== "enable-verify-app" && (
+                    <button
+                      type="button"
+                      onClick={closeTwoFactorModal}
+                      disabled={isTwoFactorBusy}
+                      className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Cancelar
+                    </button>
+                  )}
 
                   {twoFactorStep === "enable-verify-app" && (
                     <button
@@ -2663,7 +2700,29 @@ function AccountContent({
                     </button>
                   )}
 
-                  {twoFactorStep === "enable-verify-app" && (
+                  {twoFactorStep === "enable-verify-app" && twoFactorEnableSubStep === "setup" && (
+                    <button
+                      type="button"
+                      onClick={continueTwoFactorEnableFlow}
+                      disabled={isTwoFactorBusy || !twoFactorTicket || !twoFactorQrCodeDataUrl}
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      Continuar
+                    </button>
+                  )}
+
+                  {twoFactorStep === "enable-verify-app" && twoFactorEnableSubStep === "verify" && (
+                    <button
+                      type="button"
+                      onClick={backToTwoFactorEnableSetup}
+                      disabled={isTwoFactorBusy}
+                      className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Voltar
+                    </button>
+                  )}
+
+                  {twoFactorStep === "enable-verify-app" && twoFactorEnableSubStep === "verify" && (
                     <button
                       type="button"
                       onClick={() => void verifyTwoFactorEnableCode()}
