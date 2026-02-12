@@ -1030,6 +1030,15 @@ function AccountContent({
           : fallbackPasskeyAvailable;
       const defaultMethod: AccountActionAuthMethod =
         allowTotp && allowPasskey ? "choose" : allowPasskey ? "passkey" : "totp";
+      const preservingCurrentMethod =
+        accountActionTwoFactorModalOpen &&
+        accountActionTwoFactorContext === context &&
+        accountActionAuthMethod !== "choose" &&
+        (
+          (accountActionAuthMethod === "totp" && allowTotp) ||
+          (accountActionAuthMethod === "passkey" && allowPasskey)
+        );
+      const nextMethod = preservingCurrentMethod ? accountActionAuthMethod : defaultMethod;
 
       accountActionPasskeyAutoStartRef.current = "";
       setAccountActionTwoFactorContext(context);
@@ -1037,11 +1046,18 @@ function AccountContent({
       setAccountActionTwoFactorCode("");
       setAccountActionAllowTotp(allowTotp);
       setAccountActionAllowPasskey(allowPasskey);
-      setAccountActionAuthMethod(defaultMethod);
+      setAccountActionAuthMethod(nextMethod);
       setVerifyingAccountActionPasskey(false);
       setAccountActionTwoFactorFeedback(errorMessage ? String(errorMessage) : null);
     },
-    [passkeyEnabled, setAccountActionTwoFactorFeedback, twoFactorEnabled]
+    [
+      accountActionAuthMethod,
+      accountActionTwoFactorContext,
+      accountActionTwoFactorModalOpen,
+      passkeyEnabled,
+      setAccountActionTwoFactorFeedback,
+      twoFactorEnabled,
+    ]
   );
 
   useEffect(() => {
@@ -1253,9 +1269,12 @@ function AccountContent({
           setEmailForceTwoFactor(true);
           setEmailCode(code);
           setEmailChangeError(null);
+          const twoFactorMessage = String(
+            payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador.",
+          );
           openAccountActionTwoFactorModal(
             "email",
-            null,
+            usedAccountActionAuth ? twoFactorMessage : null,
             payload.authMethods,
           );
           return;
@@ -1514,9 +1533,12 @@ function AccountContent({
           setPhoneForceTwoFactor(true);
           setPhoneCode(code);
           setPhoneChangeError(null);
+          const twoFactorMessage = String(
+            payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador.",
+          );
           openAccountActionTwoFactorModal(
             "phone",
-            null,
+            usedAccountActionAuth ? twoFactorMessage : null,
             payload.authMethods,
           );
           return;
@@ -1748,9 +1770,12 @@ function AccountContent({
           setPasswordForceTwoFactor(true);
           setPasswordCode(code);
           setPasswordChangeError(null);
+          const twoFactorMessage = String(
+            payload.error || "Digite o codigo de 6 digitos do aplicativo autenticador.",
+          );
           openAccountActionTwoFactorModal(
             "password",
-            null,
+            usedAccountActionAuth ? twoFactorMessage : null,
             payload.authMethods,
           );
           return;
