@@ -178,6 +178,7 @@
     opacity: 0;
     transform: translateY(30px);
   }
+
   100% {
     opacity: 1;
     transform: translateY(0);
@@ -188,6 +189,7 @@
   0% {
     opacity: 0;
   }
+
   100% {
     opacity: 1;
   }
@@ -204,9 +206,11 @@
 .animation-delay-200 {
   animation-delay: 0.2s;
 }
+
 .animation-delay-300 {
   animation-delay: 0.3s;
 }
+
 .animation-delay-400 {
   animation-delay: 0.4s;
 }
@@ -278,8 +282,10 @@ select:-moz-autofill {
    Scrollbar global (Chrome/Edge/Safari)
 ============================================================ */
 :root {
-  --sb-track: #f3f3f3; /* igual seus inputs */
-  --sb-thumb: rgba(0, 0, 0, 0.22); /* cinza elegante */
+  --sb-track: #f3f3f3;
+  /* igual seus inputs */
+  --sb-thumb: rgba(0, 0, 0, 0.22);
+  /* cinza elegante */
   --sb-thumb-hover: rgba(0, 0, 0, 0.32);
   --sb-border: rgba(0, 0, 0, 0.1);
 }
@@ -300,7 +306,8 @@ select:-moz-autofill {
 *::-webkit-scrollbar-thumb {
   background: var(--sb-thumb);
   border-radius: 999px;
-  border: 3px solid var(--sb-track); /* dá aquele look “pílula” */
+  border: 3px solid var(--sb-track);
+  /* dá aquele look “pílula” */
 }
 
 /* Hover */
@@ -317,32 +324,34 @@ select:-moz-autofill {
    Scrollbar (Firefox)
 ============================================================ */
 * {
-  scrollbar-width: thin; /* thin | auto */
+  scrollbar-width: thin;
+  /* thin | auto */
   scrollbar-color: var(--sb-thumb) var(--sb-track);
 }
 
 
-      @property --a {
-        syntax: "<angle>";
-        inherits: false;
-        initial-value: 0deg;
-      }
+@property --a {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
 
-      @keyframes flowBorder {
-        from {
-          --a: 0deg;
-        }
-        to {
-          --a: 360deg;
-        }
-      }
+@keyframes flowBorder {
+  from {
+    --a: 0deg;
+  }
 
-      /* AQUI ESTÁ O SEGREDO:
+  to {
+    --a: 360deg;
+  }
+}
+
+/* AQUI ESTÁ O SEGREDO:
          animação linear, constante, nunca muda */
-      button > span[aria-hidden="true"] {
-        animation: flowBorder 6s linear infinite;
-        will-change: transform;
-      }
+button>span[aria-hidden="true"] {
+  animation: flowBorder 6s linear infinite;
+  will-change: transform;
+}
 
 /* Borda animada sutil da ilha dinamica (2FA) */
 .twofactor-island-border {
