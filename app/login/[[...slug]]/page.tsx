@@ -173,6 +173,53 @@ type EmailCheckState =
   | { state: "error"; message: string };
 
 type Step = "collect" | "emailCode" | "twoFactorCode" | "emailSuccess" | "smsCode";
+type LoginAuthMethod = "choose" | "totp" | "passkey";
+type LoginAuthMethodsPayload = { totp?: boolean; passkey?: boolean };
+type PasskeyLoginOptionsPayload = {
+  challenge: string;
+  rpId: string;
+  timeout?: number;
+  userVerification?: "required" | "preferred" | "discouraged";
+  allowCredentials?: Array<{
+    type: "public-key";
+    id: string;
+    transports?: string[];
+  }>;
+};
+
+function normalizeBase64Url(value: unknown) {
+  return String(value || "")
+    .trim()
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function base64UrlToUint8Array(value: string) {
+  const normalized = normalizeBase64Url(value);
+  if (!normalized || typeof window === "undefined") return new Uint8Array();
+  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+  const binary = window.atob(padded.replace(/-/g, "+").replace(/_/g, "/"));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function arrayBufferToBase64Url(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 1) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function isPasskeyLoginSupportedInBrowser() {
+  if (typeof window === "undefined") return false;
+  return Boolean(window.PublicKeyCredential && navigator.credentials?.get);
+}
 
 function CodeBoxes({
   length,
@@ -396,6 +443,10 @@ export default function LinkLoginPage() {
   const [emailCode, setEmailCode] = useState("");
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [twoFactorTicket, setTwoFactorTicket] = useState("");
+  const [, setPasskeyLoginTicket] = useState("");
+  const [twoFactorAllowsTotp, setTwoFactorAllowsTotp] = useState(true);
+  const [twoFactorAllowsPasskey, setTwoFactorAllowsPasskey] = useState(false);
+  const [twoFactorMethod, setTwoFactorMethod] = useState<LoginAuthMethod>("totp");
   const [smsCode, setSmsCode] = useState("");
 
   const [emailSuccessOpen, setEmailSuccessOpen] = useState(false);
@@ -406,6 +457,8 @@ export default function LinkLoginPage() {
   const [verifyingEmailCodeBusy, setVerifyingEmailCodeBusy] = useState(false); // ✅ novo (só validação do email code)
   const [verifyingTwoFactorCodeBusy, setVerifyingTwoFactorCodeBusy] =
     useState(false);
+  const [verifyingPasskeyLoginBusy, setVerifyingPasskeyLoginBusy] =
+    useState(false);
   const [verifyingSmsCodeBusy, setVerifyingSmsCodeBusy] = useState(false); // ✅ novo (só validação do sms code)
   const [twoFactorIslandLoading, setTwoFactorIslandLoading] = useState(false);
   const [twoFactorShakeTick, setTwoFactorShakeTick] = useState(0);
@@ -414,6 +467,7 @@ export default function LinkLoginPage() {
 
   const lastCheckedRef = useRef<string>("");
   const abortRef = useRef<AbortController | null>(null);
+  const passkeyAutoStartTicketRef = useRef<string>("");
 
   // prefill email from token -> lock + cleanup URL
   useEffect(() => {
@@ -585,6 +639,10 @@ export default function LinkLoginPage() {
   const resetAll = useCallback(() => {
     setStep("collect");
     setBusy(false);
+    setVerifyingEmailCodeBusy(false);
+    setVerifyingTwoFactorCodeBusy(false);
+    setVerifyingPasskeyLoginBusy(false);
+    setVerifyingSmsCodeBusy(false);
     setMsgError(null);
     setResendCooldown(0);
     setTwoFactorIslandLoading(false);
@@ -603,6 +661,11 @@ export default function LinkLoginPage() {
     setEmailCode("");
     setTwoFactorCode("");
     setTwoFactorTicket("");
+    setPasskeyLoginTicket("");
+    setTwoFactorAllowsTotp(true);
+    setTwoFactorAllowsPasskey(false);
+    setTwoFactorMethod("totp");
+    passkeyAutoStartTicketRef.current = "";
     setSmsCode("");
 
     // garante URL limpa
@@ -712,7 +775,15 @@ export default function LinkLoginPage() {
 
   const helperText = useMemo(() => {
     if (step === "emailCode") return "Insira o código enviado para seu e-mail.";
-    if (step === "twoFactorCode") return "Abra seu aplicativo autenticador para continuar.";
+    if (step === "twoFactorCode") {
+      if (twoFactorAllowsTotp && twoFactorAllowsPasskey) {
+        return "Escolha como deseja validar o login.";
+      }
+      if (twoFactorAllowsPasskey) {
+        return "Continue com Windows Hello para validar o login.";
+      }
+      return "Abra seu aplicativo autenticador para continuar.";
+    }
     if (step === "smsCode") return "Insira o código enviado por SMS.";
     if (check.state === "checking") return "Verificando seu e-mail…";
     if (check.state === "exists")
@@ -724,7 +795,7 @@ export default function LinkLoginPage() {
     if (check.state === "error")
       return "Não conseguimos validar agora. Tente novamente.";
     return "Faça login ou registre-se para começar.";
-  }, [check.state, step]);
+  }, [check.state, step, twoFactorAllowsTotp, twoFactorAllowsPasskey]);
 
   const canStart = useMemo(() => {
     const eok = isValidEmail(email.trim());
@@ -798,6 +869,11 @@ export default function LinkLoginPage() {
         setEmailCode("");
         setTwoFactorCode("");
         setTwoFactorTicket("");
+        setPasskeyLoginTicket("");
+        setTwoFactorAllowsTotp(true);
+        setTwoFactorAllowsPasskey(false);
+        setTwoFactorMethod("totp");
+        passkeyAutoStartTicketRef.current = "";
         setResendCooldown(35);
       } catch (err: any) {
         setMsgError(err?.message || "Erro inesperado.");
@@ -814,6 +890,43 @@ export default function LinkLoginPage() {
   const url =
     typeof window !== "undefined" ? new URL(window.location.href) : null;
   const returnTo = url?.searchParams.get("returnTo") || "";
+
+  const openSecondStepChallenge = useCallback(
+    (payload: Record<string, unknown>, message?: string | null) => {
+      const ticket = String(payload?.twoFactorTicket || payload?.ticket || "").trim();
+      if (!ticket) return false;
+
+      const methods = (payload?.authMethods || {}) as LoginAuthMethodsPayload;
+      const hasTotpRaw =
+        typeof methods?.totp === "boolean"
+          ? methods.totp
+          : Boolean(payload?.requiresTwoFactor);
+      const hasPasskeyRaw =
+        typeof methods?.passkey === "boolean"
+          ? methods.passkey
+          : Boolean(payload?.requiresPasskey);
+
+      const hasTotp = hasTotpRaw || !hasPasskeyRaw;
+      const hasPasskey = hasPasskeyRaw;
+      const defaultMethod: LoginAuthMethod =
+        hasTotp && hasPasskey ? "choose" : hasPasskey ? "passkey" : "totp";
+
+      setTwoFactorTicket(ticket);
+      setPasskeyLoginTicket("");
+      setTwoFactorCode("");
+      setTwoFactorAllowsTotp(hasTotp);
+      setTwoFactorAllowsPasskey(hasPasskey);
+      setTwoFactorMethod(defaultMethod);
+      setTwoFactorShakeTick(0);
+      passkeyAutoStartTicketRef.current = "";
+      setStep("twoFactorCode");
+
+      const finalMessage = String(message || "").trim();
+      setMsgError(finalMessage || null);
+      return true;
+    },
+    [],
+  );
 
   const verifyEmailCode = useCallback(
     async (code?: string) => {
@@ -836,13 +949,14 @@ export default function LinkLoginPage() {
           }),
         });
 
-        const j = await res.json().catch(() => ({}));
+        const j = (await res.json().catch(() => ({}))) as Record<string, unknown>;
         if (!res.ok || !j?.ok) {
-          if (j?.requiresTwoFactor && j?.twoFactorTicket) {
-            setTwoFactorTicket(String(j.twoFactorTicket || ""));
-            setTwoFactorCode("");
-            setStep("twoFactorCode");
-            setMsgError(String(j?.error || "Código de 2 etapas inválido. Tente novamente."));
+          if (
+            openSecondStepChallenge(
+              j,
+              String(j?.error || "Codigo da autenticacao adicional invalido. Tente novamente."),
+            )
+          ) {
             return;
           }
 
@@ -860,13 +974,9 @@ export default function LinkLoginPage() {
         }
 
         if (j?.next === "two-factor") {
-          if (!j?.twoFactorTicket) {
-            throw new Error("Fluxo de autenticação em 2 etapas inválido.");
+          if (!openSecondStepChallenge(j, null)) {
+            throw new Error("Fluxo de autenticacao em 2 etapas invalido.");
           }
-          setTwoFactorTicket(String(j.twoFactorTicket || ""));
-          setTwoFactorCode("");
-          setStep("twoFactorCode");
-          setMsgError(null);
           return;
         }
 
@@ -917,12 +1027,14 @@ export default function LinkLoginPage() {
       prefersReducedMotion,
       password,
       returnTo,
+      openSecondStepChallenge,
     ],
   );
 
   const verifyTwoFactorCode = useCallback(
     async (code?: string) => {
       const c = onlyDigits(code ?? twoFactorCode).slice(0, 6);
+      if (twoFactorMethod !== "totp" || !twoFactorAllowsTotp) return;
       if (c.length !== 6 || busy || verifyingTwoFactorCodeBusy) return;
       if (!twoFactorTicket) return;
 
@@ -974,11 +1086,224 @@ export default function LinkLoginPage() {
       returnTo,
       router,
       twoFactorCode,
+      twoFactorMethod,
+      twoFactorAllowsTotp,
       twoFactorTicket,
       verifyingTwoFactorCodeBusy,
       setTwoFactorFeedback,
     ],
   );
+
+  const verifyPasskeyLogin = useCallback(async () => {
+    if (!twoFactorAllowsPasskey || !twoFactorTicket) return;
+    if (busy || verifyingPasskeyLoginBusy) return;
+
+    if (!isPasskeyLoginSupportedInBrowser()) {
+      setTwoFactorFeedback(
+        "Seu navegador/dispositivo nao suporta Windows Hello com passkey neste ambiente.",
+      );
+      return;
+    }
+
+    setVerifyingPasskeyLoginBusy(true);
+    setBusy(true);
+    setTwoFactorFeedback(null);
+
+    try {
+      const startRes = await fetch("/api/wz_AuthLogin/verify-passkey", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "start",
+          email: email.trim().toLowerCase(),
+          twoFactorTicket,
+        }),
+      });
+
+      const startPayload = (await startRes.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!startRes.ok || !startPayload?.ok) {
+        if (startPayload?.twoFactorTicket) {
+          setTwoFactorTicket(String(startPayload.twoFactorTicket || ""));
+        }
+        throw new Error(
+          String(startPayload?.error || "Nao foi possivel iniciar a validacao do Windows Hello."),
+        );
+      }
+
+      const startOptions = (startPayload?.options || null) as PasskeyLoginOptionsPayload | null;
+      const nextPasskeyTicket = String(startPayload?.ticket || "").trim();
+
+      if (!nextPasskeyTicket || !startOptions?.challenge) {
+        throw new Error("Resposta invalida do servidor para iniciar o Windows Hello.");
+      }
+
+      setPasskeyLoginTicket(nextPasskeyTicket);
+
+      const transportsAllowed = new Set([
+        "usb",
+        "nfc",
+        "ble",
+        "internal",
+        "hybrid",
+        "smart-card",
+      ]);
+
+      const allowCredentials: PublicKeyCredentialDescriptor[] = [];
+      if (Array.isArray(startOptions.allowCredentials)) {
+        for (const item of startOptions.allowCredentials) {
+          const id = base64UrlToUint8Array(item?.id || "");
+          if (!id.length) continue;
+
+          const transports = Array.isArray(item?.transports)
+            ? item.transports
+                .map((value) => String(value || "").trim().toLowerCase())
+                .filter(
+                  (value): value is AuthenticatorTransport =>
+                    transportsAllowed.has(value),
+                )
+            : [];
+
+          allowCredentials.push({
+            type: "public-key",
+            id: id as BufferSource,
+            ...(transports.length ? { transports } : {}),
+          });
+        }
+      }
+
+      const userVerification = (() => {
+        const raw = String(startOptions.userVerification || "").trim().toLowerCase();
+        if (raw === "required" || raw === "preferred" || raw === "discouraged") {
+          return raw as UserVerificationRequirement;
+        }
+        return "required";
+      })();
+
+      const rpId = String(startOptions.rpId || "").trim();
+      const publicKey: PublicKeyCredentialRequestOptions = {
+        challenge: base64UrlToUint8Array(startOptions.challenge),
+        timeout: Math.max(15000, Number(startOptions.timeout || 60000)),
+        userVerification,
+        ...(rpId ? { rpId } : {}),
+        ...(allowCredentials.length ? { allowCredentials } : {}),
+      };
+
+      const assertion = (await navigator.credentials.get({
+        publicKey,
+      })) as PublicKeyCredential | null;
+
+      if (!assertion) {
+        throw new Error("Nao foi possivel validar com o Windows Hello.");
+      }
+
+      const response = assertion.response as AuthenticatorAssertionResponse | null;
+      if (!response?.clientDataJSON || !response?.authenticatorData || !response?.signature) {
+        throw new Error("Resposta invalida do dispositivo ao validar o Windows Hello.");
+      }
+
+      const finishRes = await fetch("/api/wz_AuthLogin/verify-passkey", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "finish",
+          email: email.trim().toLowerCase(),
+          ticket: nextPasskeyTicket,
+          next: returnTo,
+          credential: {
+            id: assertion.id,
+            rawId: arrayBufferToBase64Url(assertion.rawId),
+            type: assertion.type,
+            response: {
+              clientDataJSON: arrayBufferToBase64Url(response.clientDataJSON),
+              authenticatorData: arrayBufferToBase64Url(response.authenticatorData),
+              signature: arrayBufferToBase64Url(response.signature),
+              ...(response.userHandle
+                ? { userHandle: arrayBufferToBase64Url(response.userHandle) }
+                : {}),
+            },
+          },
+        }),
+      });
+
+      const finishPayload = (await finishRes.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!finishRes.ok || !finishPayload?.ok) {
+        throw new Error(
+          String(finishPayload?.error || "Nao foi possivel concluir a validacao com Windows Hello."),
+        );
+      }
+
+      const nextUrl = String(finishPayload?.nextUrl || "/app");
+      if (/^https?:\/\//i.test(nextUrl)) {
+        window.location.assign(nextUrl);
+      } else {
+        router.push(nextUrl);
+      }
+    } catch (error: unknown) {
+      if ((error as { name?: string } | null)?.name === "NotAllowedError") {
+        setTwoFactorFeedback("Solicitacao do Windows Hello cancelada.");
+      } else {
+        setTwoFactorFeedback(
+          error instanceof Error
+            ? error.message
+            : "Erro inesperado ao validar com Windows Hello.",
+        );
+      }
+    } finally {
+      setBusy(false);
+      setVerifyingPasskeyLoginBusy(false);
+    }
+  }, [
+    busy,
+    email,
+    returnTo,
+    router,
+    twoFactorAllowsPasskey,
+    twoFactorTicket,
+    verifyingPasskeyLoginBusy,
+    setTwoFactorFeedback,
+  ]);
+
+  const chooseTwoFactorMethod = useCallback(
+    (method: Exclude<LoginAuthMethod, "choose">) => {
+      if (method === "totp") {
+        if (!twoFactorAllowsTotp) return;
+        setTwoFactorMethod("totp");
+        setTwoFactorFeedback(null);
+        return;
+      }
+      if (!twoFactorAllowsPasskey) return;
+      setTwoFactorMethod("passkey");
+      setTwoFactorFeedback(null);
+      void verifyPasskeyLogin();
+    },
+    [
+      twoFactorAllowsPasskey,
+      twoFactorAllowsTotp,
+      verifyPasskeyLogin,
+      setTwoFactorFeedback,
+    ],
+  );
+
+  useEffect(() => {
+    if (step !== "twoFactorCode") {
+      passkeyAutoStartTicketRef.current = "";
+      return;
+    }
+    if (!twoFactorAllowsPasskey || twoFactorAllowsTotp) return;
+    if (!twoFactorTicket || twoFactorIslandLoading) return;
+    if (passkeyAutoStartTicketRef.current === twoFactorTicket) return;
+
+    passkeyAutoStartTicketRef.current = twoFactorTicket;
+    setTwoFactorMethod("passkey");
+    void verifyPasskeyLogin();
+  }, [
+    step,
+    twoFactorAllowsPasskey,
+    twoFactorAllowsTotp,
+    twoFactorTicket,
+    twoFactorIslandLoading,
+    verifyPasskeyLogin,
+  ]);
 
   const verifySmsCode = useCallback(
     async (code?: string) => {
@@ -1464,6 +1789,14 @@ export default function LinkLoginPage() {
     return <Mail className="h-6 w-6 text-black/80" />;
   }, [step]);
 
+  const twoFactorCanChooseMethod = twoFactorAllowsTotp && twoFactorAllowsPasskey;
+  const showTotpInputInIsland =
+    twoFactorMethod === "totp" || (twoFactorAllowsTotp && !twoFactorAllowsPasskey);
+  const showPasskeyPanelInIsland =
+    twoFactorMethod === "passkey" || (!twoFactorAllowsTotp && twoFactorAllowsPasskey);
+  const twoFactorActionBusy =
+    busy || verifyingTwoFactorCodeBusy || verifyingPasskeyLoginBusy;
+
   return (
     <div className="min-h-screen bg-white relative overflow-hidden">
       {/* Centro */}
@@ -1492,27 +1825,37 @@ export default function LinkLoginPage() {
                 {step === "collect"
                   ? "Bem Vindo de volta a Wyzer!"
                   : step === "emailCode"
-                    ? "Confirme seu endereço de e-mail"
+                    ? "Confirme seu endereco de e-mail"
                     : step === "twoFactorCode"
-                      ? "Confirme a autenticação de 2 etapas"
+                      ? twoFactorAllowsTotp && twoFactorAllowsPasskey
+                        ? "Escolha como validar o login"
+                        : twoFactorAllowsPasskey
+                          ? "Continue com Windows Hello"
+                          : "Confirme a autenticacao de 2 etapas"
                     : step === "emailSuccess"
-                      ? "Código validado com sucesso"
-                      : "Confirme seu número por SMS"}
+                      ? "Codigo validado com sucesso"
+                      : "Confirme seu numero por SMS"}
               </div>
 
               <div className="mt-2 text-black/55 text-[14px] sm:text-[15px] md:text-[16px]">
                 {step === "emailCode" ? (
                   <>
-                    Insira o código enviado para{" "}
+                    Insira o codigo enviado para{" "}
                     <span className="text-black/75">
                       {maskEmail(email.trim())}
                     </span>
                   </>
                 ) : step === "twoFactorCode" ? (
-                  <>Abra seu aplicativo autenticador para continuar.</>
+                  <>
+                    {twoFactorAllowsTotp && twoFactorAllowsPasskey
+                      ? "Escolha entre codigo autenticador ou Windows Hello."
+                      : twoFactorAllowsPasskey
+                        ? "Use o PIN ou biometria do dispositivo para continuar."
+                        : "Abra seu aplicativo autenticador para continuar."}
+                  </>
                 ) : step === "emailSuccess" ? (
                   <>
-                    Verificação concluída. Vamos confirmar seu número por SMS.
+                    Verificacao concluida. Vamos confirmar seu numero por SMS.
                   </>
                 ) : step === "smsCode" ? (
                   <>
@@ -2052,45 +2395,111 @@ export default function LinkLoginPage() {
                       <div className="flex items-center justify-between">
                         <div>
                           <h3 className="text-[14px] font-semibold tracking-[0.02em] text-white/92 sm:text-[15px]">
-                            Confirme a autenticacao de 2 etapas
+                            {showPasskeyPanelInIsland
+                              ? "Continue com Windows Hello"
+                              : twoFactorCanChooseMethod
+                                ? "Escolha a forma de validacao"
+                                : "Confirme a autenticacao de 2 etapas"}
                           </h3>
                           <p className="mt-0.5 text-[12px] text-white/58">
-                            Abra seu aplicativo autenticador para continuar.
+                            {showPasskeyPanelInIsland
+                              ? "Confirme com PIN ou biometria do dispositivo."
+                              : twoFactorCanChooseMethod
+                                ? "Escolha entre codigo autenticador e Windows Hello."
+                                : "Abra seu aplicativo autenticador para continuar."}
                           </p>
                         </div>
                         <button
                           type="button"
                           onClick={resetAll}
-                          disabled={busy || verifyingTwoFactorCodeBusy}
+                          disabled={twoFactorActionBusy}
                           className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                          aria-label="Cancelar autenticacao de 2 etapas"
+                          aria-label="Cancelar autenticacao"
                         >
                           <X className="h-4 w-4" />
                         </button>
                       </div>
 
-                      <motion.div
-                        animate={
-                          twoFactorShakeTick > 0
-                            ? { x: [0, -3, 3, -2, 2, 0] }
-                            : { x: 0 }
-                        }
-                        transition={{ duration: 0.23, ease: "easeOut" }}
-                        onMouseDownCapture={clearTwoFactorFeedback}
-                        onTouchStartCapture={clearTwoFactorFeedback}
-                        onFocusCapture={clearTwoFactorFeedback}
-                      >
-                        <CodeBoxes
-                          length={6}
-                          value={twoFactorCode}
-                          onChange={setTwoFactorCode}
-                          onComplete={(v) => verifyTwoFactorCode(v)}
-                          disabled={busy || verifyingTwoFactorCodeBusy}
-                          loading={false}
-                          reduced={!!prefersReducedMotion}
-                          variant="dark"
-                        />
-                      </motion.div>
+                      {twoFactorCanChooseMethod && (
+                        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <button
+                            type="button"
+                            onClick={() => chooseTwoFactorMethod("totp")}
+                            disabled={twoFactorActionBusy}
+                            className={cx(
+                              "rounded-full border px-3 py-2 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                              twoFactorMethod === "totp"
+                                ? "border-white/50 bg-white/[0.14] text-white"
+                                : "border-white/20 bg-white/[0.04] text-white/78 hover:bg-white/[0.1]"
+                            )}
+                          >
+                            Codigo de Autenticacao
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => chooseTwoFactorMethod("passkey")}
+                            disabled={twoFactorActionBusy}
+                            className={cx(
+                              "rounded-full border px-3 py-2 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                              twoFactorMethod === "passkey"
+                                ? "border-white/50 bg-white/[0.14] text-white"
+                                : "border-white/20 bg-white/[0.04] text-white/78 hover:bg-white/[0.1]"
+                            )}
+                          >
+                            Windows Hello
+                          </button>
+                        </div>
+                      )}
+
+                      {showTotpInputInIsland && (
+                        <motion.div
+                          animate={
+                            twoFactorShakeTick > 0
+                              ? { x: [0, -3, 3, -2, 2, 0] }
+                              : { x: 0 }
+                          }
+                          transition={{ duration: 0.23, ease: "easeOut" }}
+                          onMouseDownCapture={clearTwoFactorFeedback}
+                          onTouchStartCapture={clearTwoFactorFeedback}
+                          onFocusCapture={clearTwoFactorFeedback}
+                        >
+                          <CodeBoxes
+                            length={6}
+                            value={twoFactorCode}
+                            onChange={setTwoFactorCode}
+                            onComplete={(v) => verifyTwoFactorCode(v)}
+                            disabled={twoFactorActionBusy}
+                            loading={false}
+                            reduced={!!prefersReducedMotion}
+                            variant="dark"
+                          />
+                        </motion.div>
+                      )}
+
+                      {showPasskeyPanelInIsland && (
+                        <div className="mt-4 rounded-[16px] border border-white/12 bg-white/[0.03] px-4 py-4">
+                          {verifyingPasskeyLoginBusy ? (
+                            <div className="flex items-center gap-3 text-[13px] text-white/80">
+                              <SpinnerMini reduced={!!prefersReducedMotion} tone="light" />
+                              <span>Abrindo o Windows Hello. Confirme no prompt do sistema.</span>
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              <p className="text-[12px] text-white/68">
+                                Continue com o PIN ou biometria do dispositivo para validar seu login.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => void verifyPasskeyLogin()}
+                                disabled={twoFactorActionBusy}
+                                className="inline-flex w-full items-center justify-center rounded-full border border-white/24 bg-white/[0.08] px-4 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-white/[0.14] disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                Continuar com Windows Hello
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </motion.div>
                   )}
                 </div>

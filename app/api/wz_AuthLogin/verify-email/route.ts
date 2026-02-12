@@ -186,6 +186,37 @@ async function findAuthUserIdByEmail(sb: ReturnType<typeof supabaseAdmin>, email
   return null;
 }
 
+function isPasskeySchemaMissing(error: unknown) {
+  const code = typeof (error as { code?: unknown } | null)?.code === "string"
+    ? String((error as { code?: string }).code)
+    : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  return code === "42P01" || code === "PGRST205" || message.includes("wz_auth_passkeys");
+}
+
+async function hasWindowsHelloPasskey(
+  sb: ReturnType<typeof supabaseAdmin>,
+  userId: string,
+) {
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return false;
+
+  const { data, error } = await sb
+    .from("wz_auth_passkeys")
+    .select("credential_id")
+    .eq("user_id", cleanUserId)
+    .limit(1);
+
+  if (!error) {
+    return Array.isArray(data) && data.length > 0;
+  }
+
+  if (!isPasskeySchemaMissing(error)) {
+    console.error("[verify-email] passkey lookup error:", error);
+  }
+  return false;
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -302,7 +333,10 @@ export async function POST(req: Request) {
         sessionUserId: resolvedUserId,
         wzUserId: resolvedUserId,
       });
-      if (twoFactorState.enabled && twoFactorState.secret) {
+      const hasTotp = Boolean(twoFactorState.enabled && twoFactorState.secret);
+      const hasPasskey = await hasWindowsHelloPasskey(sb, resolvedUserId);
+
+      if (hasTotp || hasPasskey) {
         const twoFactorTicket = createLoginTwoFactorTicket({
           userId: resolvedUserId,
           email,
@@ -312,7 +346,13 @@ export async function POST(req: Request) {
           {
             ok: true,
             next: "two-factor",
-            requiresTwoFactor: true,
+            requiresTwoFactor: hasTotp,
+            requiresPasskey: hasPasskey,
+            authMethods: {
+              totp: hasTotp,
+              passkey: hasPasskey,
+            },
+            preferredAuthMethod: !hasTotp && hasPasskey ? "passkey" : "totp",
             twoFactorTicket,
           },
           { status: 200, headers: NO_STORE_HEADERS },
