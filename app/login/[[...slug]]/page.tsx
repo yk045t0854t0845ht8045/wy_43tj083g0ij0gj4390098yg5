@@ -457,7 +457,6 @@ function CodeBoxes({
 
 export default function LinkLoginPage() {
   const RETURN_TO_KEY = "wyzer_return_to_v1";
-  const AUTO_REDIRECT_GUARD_KEY = "wyzer_login_auto_redirect_guard_v1";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -621,41 +620,43 @@ export default function LinkLoginPage() {
       };
     }
 
-    try {
-      const last = Number(sessionStorage.getItem(AUTO_REDIRECT_GUARD_KEY) || "0");
-      if (Number.isFinite(last) && last > 0 && Date.now() - last < 8000) {
-        finishCheck();
-        return () => {
-          cancelled = true;
-        };
-      }
-    } catch {}
-
     (async () => {
       let redirected = false;
+      const maxAttempts = 3;
+
       try {
-        const response = await fetch("/api/wz_AuthLogin/me", {
-          method: "GET",
-          cache: "no-store",
-          credentials: "include",
-        });
-        if (!response.ok || cancelled) return;
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+          try {
+            const response = await fetch("/api/wz_AuthLogin/me", {
+              method: "GET",
+              cache: "no-store",
+              credentials: "include",
+            });
+            if (cancelled) return;
 
-        const payload = await response.json().catch(() => ({}));
-        if (!payload?.ok || cancelled) return;
+            if (response.ok) {
+              const payload = await response.json().catch(() => ({}));
+              if (payload?.ok && !cancelled) {
+                const returnToRaw = url.searchParams.get("returnTo") || "";
+                const safeReturnTo = resolveSafeReturnTo(returnToRaw, host);
+                const target = safeReturnTo || `${getDashboardOriginForLoginHost(host)}/`;
+                redirected = true;
+                window.location.replace(target);
+                return;
+              }
+            }
 
-        const returnToRaw = url.searchParams.get("returnTo") || "";
-        const safeReturnTo = resolveSafeReturnTo(returnToRaw, host);
-        const target = safeReturnTo || `${getDashboardOriginForLoginHost(host)}/`;
+            if (response.status === 401 || response.status === 403) {
+              break;
+            }
+          } catch {
+            // retry for transient network/browser races
+          }
 
-        try {
-          sessionStorage.setItem(AUTO_REDIRECT_GUARD_KEY, String(Date.now()));
-        } catch {}
-
-        redirected = true;
-        window.location.replace(target);
-      } catch {
-        // no-op
+          if (attempt < maxAttempts) {
+            await new Promise((resolve) => window.setTimeout(resolve, 120 * attempt));
+          }
+        }
       } finally {
         if (!redirected) finishCheck();
       }

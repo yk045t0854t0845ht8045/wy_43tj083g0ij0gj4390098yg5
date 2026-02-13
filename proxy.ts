@@ -52,6 +52,45 @@ function isSafeReturnTo(raw: string) {
   }
 }
 
+function getDashboardOriginForHost(host: string) {
+  if (host.endsWith(".localhost") || host === "localhost") {
+    return "http://dashboard.localhost:3000"
+  }
+  return "https://dashboard.wyzer.com.br"
+}
+
+function hasLoginSessionCookie(req: NextRequest) {
+  const hostToken = String(req.cookies.get("__Host-wz_session_v1")?.value || "").trim()
+  if (hostToken.includes(".")) return true
+
+  const legacyToken = String(req.cookies.get("wz_session_v1")?.value || "").trim()
+  if (legacyToken.includes(".")) return true
+
+  return false
+}
+
+function resolveLoginRedirectTarget(host: string, rawReturnTo: string | null) {
+  const dashboardOrigin = getDashboardOriginForHost(host)
+  const value = String(rawReturnTo || "").trim()
+  if (!value) return `${dashboardOrigin}/`
+  if (!isSafeReturnTo(value)) return `${dashboardOrigin}/`
+  if (value.startsWith("/")) return new URL(value, `${dashboardOrigin}/`).toString()
+  try {
+    const target = new URL(value)
+    const targetHost = target.hostname.toLowerCase()
+    const isLoginHost =
+      targetHost === "login.wyzer.com.br" ||
+      targetHost === "login.localhost" ||
+      targetHost.startsWith("login.") ||
+      (targetHost.startsWith("login-") && targetHost.endsWith(".vercel.app"))
+
+    if (isLoginHost) return `${dashboardOrigin}/`
+    return target.toString()
+  } catch {
+    return `${dashboardOrigin}/`
+  }
+}
+
 export default function proxy(req: NextRequest) {
   const hostHeader = (req.headers.get("host") || "").toLowerCase()
   const host = hostHeader.split(":")[0]
@@ -189,6 +228,12 @@ export default function proxy(req: NextRequest) {
       cleaned.searchParams.delete("returnTo")
       cleaned.searchParams.delete("r")
       return NextResponse.redirect(cleaned)
+    }
+
+    const forceLogin = req.nextUrl.searchParams.get("forceLogin") === "1"
+    if (!forceLogin && hasLoginSessionCookie(req)) {
+      const target = resolveLoginRedirectTarget(host, rt)
+      return NextResponse.redirect(target, 307)
     }
 
     if (url.pathname === "/login" || url.pathname.startsWith("/login/"))
