@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WyzerAIWidget } from "@/app/wyzerai/page";
 import LoadingBase from "./LoadingBase";
 import Sidebar from "./sidebar";
@@ -28,6 +28,23 @@ function normalizeIsoDatetime(value?: string | null) {
   const parsed = Date.parse(clean);
   if (!Number.isFinite(parsed)) return null;
   return new Date(parsed).toISOString();
+}
+
+const SESSION_DISCONNECT_EVENT_KEY = "wz:session:disconnected";
+
+function buildLoginRedirectUrlClient() {
+  if (typeof window === "undefined") return "/";
+
+  const host = String(window.location.hostname || "").toLowerCase();
+  const isLocalHost = host.endsWith(".localhost") || host === "localhost";
+  const loginOrigin = isLocalHost
+    ? "http://login.localhost:3000"
+    : "https://login.wyzer.com.br";
+
+  const url = new URL(`${loginOrigin}/`);
+  url.searchParams.set("returnTo", window.location.href);
+  url.searchParams.set("forceLogin", "1");
+  return url.toString();
 }
 
 export default function DashboardShell({
@@ -77,6 +94,9 @@ export default function DashboardShell({
   const [profileTwoFactorDisabledAt, setProfileTwoFactorDisabledAt] = useState<string | null>(
     normalizeIsoDatetime(userTwoFactorDisabledAt)
   );
+  const [sessionDisconnected, setSessionDisconnected] = useState(false);
+  const [disconnectCountdown, setDisconnectCountdown] = useState(5);
+  const redirectingRef = useRef(false);
 
   const normalizedInitialPhotoLink = useMemo(() => {
     const clean = String(userPhotoLink || "").trim();
@@ -183,6 +203,18 @@ export default function DashboardShell({
     setProfileSupportAccess(Boolean(enabled));
   }, []);
 
+  const triggerSessionDisconnected = useCallback((opts?: { broadcast?: boolean }) => {
+    setSessionDisconnected(true);
+    setDisconnectCountdown(5);
+
+    if (opts?.broadcast === false) return;
+    try {
+      window.localStorage.setItem(SESSION_DISCONNECT_EVENT_KEY, String(Date.now()));
+    } catch {
+      // noop
+    }
+  }, []);
+
   const handleOpenConfig = useCallback((section: ConfigSectionId = "my-account") => {
     setConfigSection(section);
     setConfigOpen(true);
@@ -191,6 +223,89 @@ export default function DashboardShell({
   const handleCloseConfig = useCallback(() => {
     setConfigOpen(false);
   }, []);
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== SESSION_DISCONNECT_EVENT_KEY) return;
+      if (!event.newValue) return;
+      triggerSessionDisconnected({ broadcast: false });
+    };
+
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [triggerSessionDisconnected]);
+
+  useEffect(() => {
+    if (sessionDisconnected) return;
+
+    let cancelled = false;
+    let inFlight = false;
+
+    const checkActiveSession = async () => {
+      if (cancelled || inFlight || sessionDisconnected) return;
+      inFlight = true;
+      try {
+        const response = await fetch("/api/wz_AuthLogin/me", {
+          method: "GET",
+          cache: "no-store",
+          credentials: "include",
+        });
+
+        if (response.status === 401 && !cancelled) {
+          triggerSessionDisconnected();
+        }
+      } catch {
+        // Ignora erro de rede temporario para nao derrubar sessao por falso positivo.
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void checkActiveSession();
+
+    const timer = window.setInterval(() => {
+      void checkActiveSession();
+    }, 5000);
+
+    const onFocus = () => {
+      void checkActiveSession();
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      void checkActiveSession();
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [sessionDisconnected, triggerSessionDisconnected]);
+
+  useEffect(() => {
+    if (!sessionDisconnected) {
+      redirectingRef.current = false;
+      return;
+    }
+
+    if (disconnectCountdown <= 0) {
+      if (redirectingRef.current) return;
+      redirectingRef.current = true;
+      window.location.replace(buildLoginRedirectUrlClient());
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setDisconnectCountdown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => window.clearTimeout(timer);
+  }, [disconnectCountdown, sessionDisconnected]);
 
   return (
     <div className="min-h-screen bg-white flex">
@@ -233,6 +348,20 @@ export default function DashboardShell({
         onUserSupportAccessChange={handleUserSupportAccessChange}
         onUserTwoFactorChange={handleUserTwoFactorChange}
       />
+
+      {sessionDisconnected && (
+        <div className="fixed inset-0 z-[350] flex items-center justify-center bg-black/70 px-6">
+          <div className="w-full max-w-[560px] rounded-2xl border border-white/15 bg-[#171717] p-7 text-white shadow-[0_30px_80px_rgba(0,0,0,0.45)]">
+            <h2 className="text-[28px] font-semibold leading-tight">Conta Desconectada</h2>
+            <p className="mt-3 text-[15px] leading-[1.45] text-white/78">
+              Recomendamos que feche Wyzer de todas as guias e fique por 5 segundos.
+            </p>
+            <p className="mt-5 text-[14px] font-medium text-white/65">
+              Redirecionando para o login em {disconnectCountdown}s...
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

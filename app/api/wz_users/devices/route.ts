@@ -70,6 +70,29 @@ function normalizeText(value?: string | null) {
   return clean || null;
 }
 
+function decodeUriComponentSafe(value: string) {
+  let out = String(value || "");
+  for (let i = 0; i < 2; i += 1) {
+    if (!/%[0-9a-f]{2}/i.test(out)) break;
+    try {
+      const decoded = decodeURIComponent(out);
+      if (!decoded || decoded === out) break;
+      out = decoded;
+    } catch {
+      break;
+    }
+  }
+  return out;
+}
+
+function normalizeLocationText(value?: string | null) {
+  const clean = normalizeText(value);
+  if (!clean) return null;
+  const spaced = clean.replace(/\+/g, " ");
+  const decoded = decodeUriComponentSafe(spaced).trim();
+  return decoded || clean;
+}
+
 function normalizeKind(value?: string | null) {
   const clean = String(value || "").trim().toLowerCase();
   if (
@@ -153,8 +176,8 @@ function buildDeviceLabel(device: DeviceRow | null) {
 
 function buildLocation(device: DeviceRow | null, session: SessionRow) {
   const location =
-    normalizeText(device?.last_location) ||
-    normalizeText(session.location) ||
+    normalizeLocationText(device?.last_location) ||
+    normalizeLocationText(session.location) ||
     null;
   const host = normalizeText(session.host);
   if (!location && !host) return null;

@@ -29,6 +29,26 @@ function normalizeWhitespace(value: string) {
     .trim();
 }
 
+function decodeUriComponentSafe(value: string) {
+  let out = String(value || "");
+  for (let i = 0; i < 2; i += 1) {
+    if (!/%[0-9a-f]{2}/i.test(out)) break;
+    try {
+      const decoded = decodeURIComponent(out);
+      if (!decoded || decoded === out) break;
+      out = decoded;
+    } catch {
+      break;
+    }
+  }
+  return out;
+}
+
+function normalizeLocationPart(value: string) {
+  const spaced = String(value || "").replace(/\+/g, " ");
+  return normalizeWhitespace(decodeUriComponentSafe(spaced));
+}
+
 function normalizeUserAgent(value: string) {
   const clean = normalizeWhitespace(value);
   if (!clean) return "";
@@ -74,11 +94,11 @@ function resolveClientIp(headers: HeaderLike) {
 }
 
 function resolveLocation(headers: HeaderLike) {
-  const city = normalizeWhitespace(headerGet(headers, "x-vercel-ip-city"));
-  const region = normalizeWhitespace(headerGet(headers, "x-vercel-ip-country-region"));
+  const city = normalizeLocationPart(headerGet(headers, "x-vercel-ip-city"));
+  const region = normalizeLocationPart(headerGet(headers, "x-vercel-ip-country-region"));
   const country =
-    normalizeWhitespace(headerGet(headers, "x-vercel-ip-country")) ||
-    normalizeWhitespace(headerGet(headers, "cf-ipcountry"));
+    normalizeLocationPart(headerGet(headers, "x-vercel-ip-country")) ||
+    normalizeLocationPart(headerGet(headers, "cf-ipcountry"));
 
   const parts = [city, region, country].filter(Boolean);
   if (parts.length) return parts.join(", ").slice(0, 240);

@@ -4959,18 +4959,25 @@ function formatDeviceSeenLabel(value?: string | null) {
 
 function DevicesContent() {
   const mountedRef = useRef(true);
+  const pollInFlightRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentDevice, setCurrentDevice] = useState<DeviceSessionRecord | null>(null);
   const [otherDevices, setOtherDevices] = useState<DeviceSessionRecord[]>([]);
   const [busySessionId, setBusySessionId] = useState<string | null>(null);
   const [busyAll, setBusyAll] = useState(false);
+  const [confirmingDevice, setConfirmingDevice] = useState<DeviceSessionRecord | null>(null);
 
   const loadDevices = useCallback(
-    async (signal?: AbortSignal) => {
+    async (opts?: { signal?: AbortSignal; silent?: boolean }) => {
+      const signal = opts?.signal;
       if (!mountedRef.current) return;
-      setLoading(true);
-      setError(null);
+      if (!opts?.silent) {
+        setLoading(true);
+      }
+      if (!opts?.silent) {
+        setError(null);
+      }
 
       try {
         const response = await fetch("/api/wz_users/devices", {
@@ -4994,15 +5001,17 @@ function DevicesContent() {
         setOtherDevices([...activeOthers, ...history]);
       } catch (fetchError) {
         if (signal?.aborted || !mountedRef.current) return;
-        setCurrentDevice(null);
-        setOtherDevices([]);
+        if (!opts?.silent) {
+          setCurrentDevice(null);
+          setOtherDevices([]);
+        }
         setError(
           fetchError instanceof Error
             ? fetchError.message
             : "Nao foi possivel carregar os dispositivos.",
         );
       } finally {
-        if (!signal?.aborted && mountedRef.current) {
+        if (!opts?.silent && !signal?.aborted && mountedRef.current) {
           setLoading(false);
         }
       }
@@ -5013,7 +5022,7 @@ function DevicesContent() {
   useEffect(() => {
     mountedRef.current = true;
     const controller = new AbortController();
-    void loadDevices(controller.signal);
+    void loadDevices({ signal: controller.signal });
     return () => {
       mountedRef.current = false;
       controller.abort();
@@ -5021,10 +5030,41 @@ function DevicesContent() {
   }, [loadDevices]);
 
   useEffect(() => {
+    let disposed = false;
+    const pollDevices = async () => {
+      if (disposed || pollInFlightRef.current) return;
+      if (document.visibilityState !== "visible") return;
+
+      pollInFlightRef.current = true;
+      try {
+        await loadDevices({ silent: true });
+      } finally {
+        pollInFlightRef.current = false;
+      }
+    };
+
+    const onFocus = () => {
+      void pollDevices();
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      void pollDevices();
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+
     const timer = window.setInterval(() => {
-      void loadDevices();
-    }, 30000);
-    return () => window.clearInterval(timer);
+      void pollDevices();
+    }, 5000);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [loadDevices]);
 
   const handleLogoutDevice = useCallback(async (sessionId: string) => {
@@ -5055,7 +5095,7 @@ function DevicesContent() {
         );
       }
 
-      setOtherDevices((prev) => prev.filter((device) => device.id !== id));
+      await loadDevices({ silent: true });
     } catch (deleteError) {
       setError(
         deleteError instanceof Error
@@ -5065,7 +5105,7 @@ function DevicesContent() {
     } finally {
       setBusySessionId((prev) => (prev === id ? null : prev));
     }
-  }, []);
+  }, [loadDevices]);
 
   const handleLogoutAll = useCallback(async () => {
     setBusyAll(true);
@@ -5092,7 +5132,7 @@ function DevicesContent() {
         );
       }
 
-      setOtherDevices([]);
+      await loadDevices({ silent: true });
     } catch (deleteError) {
       setError(
         deleteError instanceof Error
@@ -5102,7 +5142,26 @@ function DevicesContent() {
     } finally {
       setBusyAll(false);
     }
-  }, []);
+  }, [loadDevices]);
+
+  const requestLogoutDevice = useCallback((device: DeviceSessionRecord) => {
+    if (!device?.id) return;
+    if (Boolean(device.revokedAt)) return;
+    if (busyAll || busySessionId === device.id) return;
+    setConfirmingDevice(device);
+  }, [busyAll, busySessionId]);
+
+  const closeConfirmLogoutModal = useCallback(() => {
+    if (confirmingDevice && busySessionId === confirmingDevice.id) return;
+    setConfirmingDevice(null);
+  }, [busySessionId, confirmingDevice]);
+
+  const confirmLogoutDevice = useCallback(async () => {
+    const target = confirmingDevice;
+    if (!target?.id) return;
+    await handleLogoutDevice(target.id);
+    setConfirmingDevice(null);
+  }, [confirmingDevice, handleLogoutDevice]);
 
   const resolvedCurrentDevice = useMemo(() => {
     if (currentDevice) return currentDevice;
@@ -5169,7 +5228,7 @@ function DevicesContent() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => void handleLogoutDevice(device.id)}
+                  onClick={() => requestLogoutDevice(device)}
                   disabled={Boolean(device.revokedAt) || busyAll || busySessionId === device.id}
                   className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-black/45 transition-all duration-220 hover:bg-black/[0.05] hover:text-black/75 disabled:cursor-not-allowed disabled:opacity-60"
                 >
@@ -5191,6 +5250,66 @@ function DevicesContent() {
           {busyAll ? "Deslogando..." : "Deslogar de todos dispositivos"}
         </button>
       </div>
+
+      <AnimatePresence>
+        {confirmingDevice && (
+          <motion.div
+            className="fixed inset-0 z-[230] flex items-center justify-center px-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <button
+              type="button"
+              aria-label="Fechar confirmacao"
+              className="absolute inset-0 bg-black/55 backdrop-blur-[4px]"
+              onClick={closeConfirmLogoutModal}
+            />
+
+            <motion.section
+              role="dialog"
+              aria-modal="true"
+              aria-label="Confirmar desconexao de sessao"
+              initial={{ opacity: 0, y: 14, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.985 }}
+              transition={{ type: "spring", stiffness: 320, damping: 30, mass: 0.68 }}
+              className="relative z-[1] w-full max-w-[520px] rounded-2xl border border-black/12 bg-[#f3f3f4] p-6 shadow-[0_24px_64px_rgba(0,0,0,0.28)]"
+            >
+              <h3 className="text-[22px] font-semibold text-black/82">Desconectar sessao?</h3>
+              <p className="mt-3 text-[14px] leading-[1.45] text-black/62">
+                Esta acao vai deslogar este dispositivo em tempo real.
+              </p>
+
+              <div className="mt-4 rounded-xl border border-black/12 bg-white/80 px-4 py-3">
+                <p className="text-[14px] font-semibold text-black/78">{confirmingDevice.label}</p>
+                <p className="mt-1 text-[14px] text-black/58">
+                  {confirmingDevice.location || "Localizacao indisponivel"}
+                </p>
+              </div>
+
+              <div className="mt-6 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeConfirmLogoutModal}
+                  disabled={busySessionId === confirmingDevice.id}
+                  className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void confirmLogoutDevice()}
+                  disabled={busySessionId === confirmingDevice.id}
+                  className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {busySessionId === confirmingDevice.id ? "Deslogando..." : "Confirmar"}
+                </button>
+              </div>
+            </motion.section>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
