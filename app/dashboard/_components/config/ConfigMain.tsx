@@ -4690,13 +4690,11 @@ function AccountContent({
                 {twoFactorStep === "disable-verify-email" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      Digite o codigo de 7 digitos enviado para seu e-mail para continuar.
-                    </p>
-                    <p className="mt-3 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/72">
-                      E-mail atual:{" "}
-                      <span className="font-semibold text-black/86">
+                      Digite o codigo de 7 digitos enviado para{" "}
+                      <span className="break-all font-semibold text-black/78">
                         {twoFactorEmailMask || maskSecureEmail(localEmail)}
-                      </span>
+                      </span>{" "}
+                      para continuar a desativacao da autenticacao de 2 etapas.
                     </p>
                     <CodeBoxes
                       length={7}
