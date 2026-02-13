@@ -20,7 +20,23 @@ const ALLOW_SELF_SEND = ["1", "true", "yes", "on"].includes(
   String(process.env.SMS_GATEWAY_ALLOW_SELF_SEND || "").trim().toLowerCase(),
 );
 const SMS_SEND_TIMEOUT_MS = Number(process.env.SMS_GATEWAY_SEND_TIMEOUT_MS || 15000);
+const ACK_MODE = String(process.env.SMS_GATEWAY_ACK_MODE || "accepted").trim().toLowerCase();
 const MAX_BODY_BYTES = 128 * 1024;
+const MAX_RECENT_DISPATCHES = Number(process.env.SMS_GATEWAY_MAX_RECENT || 40);
+const recentDispatches = [];
+
+function normalizeAckMode(value) {
+  const clean = String(value || "").trim().toLowerCase();
+  if (clean === "wait") return "wait";
+  return "accepted";
+}
+
+function parseRequestedAckMode(value) {
+  const clean = String(value || "").trim().toLowerCase();
+  if (clean === "wait") return "wait";
+  if (clean === "accepted") return "accepted";
+  return null;
+}
 
 function json(res, status, payload) {
   const body = JSON.stringify(payload);
@@ -54,6 +70,12 @@ function isSamePhoneNumber(a, b) {
   return da === db;
 }
 
+function maskPhone(value) {
+  const digits = onlyDigits(value);
+  if (digits.length < 6) return String(value || "");
+  return `+${digits.slice(0, 2)}${"*".repeat(Math.max(0, digits.length - 4))}${digits.slice(-2)}`;
+}
+
 function verifySignature(rawBody, req) {
   if (!SIGNING_SECRET) return true;
 
@@ -67,8 +89,10 @@ function verifySignature(rawBody, req) {
       .createHmac("sha256", SIGNING_SECRET)
       .update(`${timestamp}.${rawBody}`, "utf8")
       .digest("hex");
-
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  const expectedBuf = Buffer.from(expected);
+  const providedBuf = Buffer.from(signature);
+  if (expectedBuf.length !== providedBuf.length) return false;
+  return crypto.timingSafeEqual(expectedBuf, providedBuf);
 }
 
 function sendSms(to, message) {
@@ -86,6 +110,45 @@ function sendSms(to, message) {
       },
     );
   });
+}
+
+function pushDispatch(entry) {
+  recentDispatches.unshift(entry);
+  if (recentDispatches.length > Math.max(5, MAX_RECENT_DISPATCHES)) {
+    recentDispatches.length = Math.max(5, MAX_RECENT_DISPATCHES);
+  }
+}
+
+async function dispatchSms(params) {
+  const startedAt = Date.now();
+  try {
+    const commandResult = await sendSms(params.to, params.message);
+    const record = {
+      id: params.id,
+      status: "sent",
+      to: maskPhone(params.to),
+      elapsedMs: Date.now() - startedAt,
+      mode: params.mode,
+      at: new Date().toISOString(),
+      stdout: commandResult?.stdout || "",
+      stderr: commandResult?.stderr || "",
+    };
+    pushDispatch(record);
+    return { ok: true, record };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unexpected_error";
+    const record = {
+      id: params.id,
+      status: "error",
+      to: maskPhone(params.to),
+      elapsedMs: Date.now() - startedAt,
+      mode: params.mode,
+      at: new Date().toISOString(),
+      error: message,
+    };
+    pushDispatch(record);
+    throw new Error(message);
+  }
 }
 
 function checkCommandAvailability(command) {
@@ -108,7 +171,9 @@ async function collectDiagnostics() {
     termuxSmsSendAvailable,
     termuxApiAvailable,
     selfSendAllowed: ALLOW_SELF_SEND,
+    ackMode: normalizeAckMode(ACK_MODE),
     sendTimeoutMs: Math.max(3000, SMS_SEND_TIMEOUT_MS),
+    recentDispatches: recentDispatches.slice(0, 20),
   };
 }
 
@@ -168,7 +233,7 @@ const server = http.createServer(async (req, res) => {
         path: "/send",
         headers: ["Authorization: Bearer <SMS_WEBHOOK_TOKEN>", "Content-Type: application/json"],
         body: {
-          to: "+5511999999999",
+          to: "+5511937250986",
           message: "Wyzer - Seu codigo de verificacao: 1234567",
           code: "1234567",
         },
@@ -207,6 +272,9 @@ const server = http.createServer(async (req, res) => {
       const payload = JSON.parse(rawBody || "{}");
       const to = normalizeE164(payload.to);
       const message = String(payload.message || "").replace(/\s+/g, " ").trim();
+      const requestedAckMode = parseRequestedAckMode(
+        String(req.headers["x-wyzer-prefer-ack"] || payload.dispatchMode || ""),
+      );
 
       if (!isLikelyE164(to)) {
         return json(res, 400, { ok: false, error: "invalid_to" });
@@ -222,11 +290,31 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      await sendSms(to, message);
+      const dispatchId = crypto.randomBytes(8).toString("hex");
+      const mode = requestedAckMode || normalizeAckMode(ACK_MODE);
+
+      if (mode === "accepted") {
+        dispatchSms({ id: dispatchId, to, message, mode }).catch((error) => {
+          const errMessage = error instanceof Error ? error.message : String(error || "unexpected_error");
+          console.error("[sms-gateway] async dispatch error", {
+            id: dispatchId,
+            to: maskPhone(to),
+            error: errMessage,
+          });
+        });
+
+        return json(res, 202, {
+          ok: true,
+          id: dispatchId,
+          status: "accepted",
+        });
+      }
+
+      await dispatchSms({ id: dispatchId, to, message, mode });
 
       return json(res, 200, {
         ok: true,
-        id: crypto.randomBytes(8).toString("hex"),
+        id: dispatchId,
         status: "queued",
       });
     } catch (error) {

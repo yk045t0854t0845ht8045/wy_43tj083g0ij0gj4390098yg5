@@ -16,6 +16,7 @@ type SendSmsOptions = {
   webhookMaxRetries?: number;
   webhookRetryBaseMs?: number;
   allowConsoleFallback?: boolean;
+  acceptUncertainDelivery?: boolean;
   providerOrder?: SmsProvider[];
 };
 
@@ -25,8 +26,19 @@ type ResolvedSendSmsOptions = {
   webhookMaxRetries: number;
   webhookRetryBaseMs: number;
   allowConsoleFallback: boolean;
+  acceptUncertainDelivery: boolean;
   providerOrder: SmsProvider[];
 };
+
+class SmsDeliveryUncertainError extends Error {
+  provider: SmsProvider;
+
+  constructor(provider: SmsProvider, message: string) {
+    super(message);
+    this.name = "SmsDeliveryUncertainError";
+    this.provider = provider;
+  }
+}
 
 function parseBool(raw: string | undefined, fallback: boolean) {
   const value = String(raw || "").trim().toLowerCase();
@@ -135,7 +147,11 @@ function getDefaultSmsTimeoutMs() {
 }
 
 function getAuthSmsTimeoutMs() {
-  return parseIntSafe(process.env.SMS_AUTH_TIMEOUT_MS, 6000, 1000, 30000);
+  return parseIntSafe(process.env.SMS_AUTH_TIMEOUT_MS, 18000, 1000, 30000);
+}
+
+function getAuthMinSmsTimeoutMs() {
+  return parseIntSafe(process.env.SMS_AUTH_MIN_TIMEOUT_MS, 18000, 5000, 30000);
 }
 
 function getDefaultWebhookMaxRetries() {
@@ -152,6 +168,10 @@ function getDefaultWebhookRetryBaseMs() {
 
 function getAuthWebhookRetryBaseMs() {
   return parseIntSafe(process.env.SMS_AUTH_WEBHOOK_RETRY_BASE_MS, 250, 50, 2500);
+}
+
+function shouldPreferAcceptedAck() {
+  return parseBool(process.env.SMS_WEBHOOK_PREFER_ACCEPTED_ACK, true);
 }
 
 function isSmsDebugEnabled() {
@@ -218,7 +238,7 @@ function resolveSendSmsOptions(options?: SendSmsOptions): ResolvedSendSmsOptions
   const context: SendSmsContext = options?.context || "default";
 
   const timeoutBase = context === "auth" ? getAuthSmsTimeoutMs() : getDefaultSmsTimeoutMs();
-  const timeoutMs = parseIntFromUnknown(options?.timeoutMs, timeoutBase, 1000, 60000);
+  let timeoutMs = parseIntFromUnknown(options?.timeoutMs, timeoutBase, 1000, 60000);
 
   const retryBase =
     context === "auth" ? getAuthWebhookMaxRetries() : getDefaultWebhookMaxRetries();
@@ -248,12 +268,24 @@ function resolveSendSmsOptions(options?: SendSmsOptions): ResolvedSendSmsOptions
     providerOrder = providerOrder.filter((provider) => provider !== "console");
   }
 
+  if (context === "auth" && providerOrder.some((provider) => provider === "webhook" || provider === "selfhost")) {
+    timeoutMs = Math.max(timeoutMs, getAuthMinSmsTimeoutMs());
+  }
+
+  const acceptUncertainDelivery =
+    typeof options?.acceptUncertainDelivery === "boolean"
+      ? options.acceptUncertainDelivery
+      : context === "auth"
+        ? parseBool(process.env.SMS_AUTH_ACCEPT_UNCERTAIN_DELIVERY, true)
+        : false;
+
   return {
     context,
     timeoutMs,
     webhookMaxRetries,
     webhookRetryBaseMs,
     allowConsoleFallback,
+    acceptUncertainDelivery,
     providerOrder,
   };
 }
@@ -419,6 +451,18 @@ function isRetryableStatus(status: number) {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
+function isAbortLikeError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const msg = String(error.message || "").toLowerCase();
+  const name = String((error as { name?: unknown }).name || "").toLowerCase();
+  return (
+    name.includes("abort") ||
+    msg.includes("aborted") ||
+    msg.includes("aborterror") ||
+    msg.includes("operation was aborted")
+  );
+}
+
 async function sendViaWebhook(params: {
   provider: "webhook" | "selfhost";
   to: string;
@@ -427,6 +471,7 @@ async function sendViaWebhook(params: {
   timeoutMs: number;
   maxRetries: number;
   retryBaseMs: number;
+  preferAcceptedAck?: boolean;
 }) {
   const cfg = resolveWebhookConfig({
     maxRetries: params.maxRetries,
@@ -457,6 +502,7 @@ async function sendViaWebhook(params: {
       message: params.message,
       channel: "auth",
       provider: "wyzer-sms",
+      dispatchMode: params.preferAcceptedAck ? "accepted" : "wait",
       timestamp: new Date().toISOString(),
       attempt: attempt + 1,
       maxAttempts: cfg.maxRetries + 1,
@@ -485,6 +531,7 @@ async function sendViaWebhook(params: {
             ...(cfg.token ? { Authorization: `Bearer ${cfg.token}` } : {}),
             "X-Wyzer-Timestamp": timestamp,
             "X-Wyzer-Idempotency-Key": idempotencyKey,
+            ...(params.preferAcceptedAck ? { "X-Wyzer-Prefer-Ack": "accepted" } : {}),
             ...(signature ? { "X-Wyzer-Signature": signature } : {}),
           },
           body,
@@ -499,6 +546,12 @@ async function sendViaWebhook(params: {
         const waitMs = cfg.retryBaseMs * Math.max(1, attempt + 1);
         await sleep(waitMs);
         continue;
+      }
+      if (isAbortLikeError(error)) {
+        throw new SmsDeliveryUncertainError(
+          params.provider,
+          "Requisicao ao gateway excedeu o tempo limite e foi abortada.",
+        );
       }
       throw new Error(lastError);
     }
@@ -605,6 +658,7 @@ export async function sendSmsCode(phoneE164: string, code: string, options?: Sen
   }
 
   const errors: string[] = [];
+  const uncertainErrors: string[] = [];
 
   for (const provider of providerOrder) {
     try {
@@ -625,6 +679,7 @@ export async function sendSmsCode(phoneE164: string, code: string, options?: Sen
           timeoutMs: sendOptions.timeoutMs,
           maxRetries: sendOptions.webhookMaxRetries,
           retryBaseMs: sendOptions.webhookRetryBaseMs,
+          preferAcceptedAck: shouldPreferAcceptedAck(),
         });
       } else if (provider === "console") {
         if (!sendOptions.allowConsoleFallback) {
@@ -653,9 +708,25 @@ export async function sendSmsCode(phoneE164: string, code: string, options?: Sen
 
       return true;
     } catch (error) {
+      if (error instanceof SmsDeliveryUncertainError) {
+        uncertainErrors.push(`${provider}: ${error.message}`);
+        continue;
+      }
+
       const msg = error instanceof Error ? error.message : "unknown_error";
       errors.push(`${provider}: ${msg}`);
     }
+  }
+
+  if (!errors.length && uncertainErrors.length > 0 && sendOptions.acceptUncertainDelivery) {
+    console.warn("[SMS] uncertain delivery accepted", {
+      to: maskPhone(to),
+      context: sendOptions.context,
+      providerOrder,
+      uncertainErrors,
+      gatewayNumber: normalizeOwnGatewayNumber(String(process.env.SMS_OWN_NUMBER || "")),
+    });
+    return true;
   }
 
   console.error("[SMS] all providers failed", {
@@ -664,10 +735,11 @@ export async function sendSmsCode(phoneE164: string, code: string, options?: Sen
     timeoutMs: sendOptions.timeoutMs,
     providerOrder,
     errors,
+    uncertainErrors,
     gatewayNumber: normalizeOwnGatewayNumber(String(process.env.SMS_OWN_NUMBER || "")),
   });
 
-  const joinedErrors = errors.join(" | ");
+  const joinedErrors = [...errors, ...uncertainErrors].join(" | ");
   if (joinedErrors.includes("Destino igual ao numero do gateway")) {
     throw new Error(
       "O telefone de destino e o mesmo numero do aparelho gateway. Troque o numero de destino ou permita autoenvio em SMS_BLOCK_SELF_SEND=0.",
@@ -675,7 +747,7 @@ export async function sendSmsCode(phoneE164: string, code: string, options?: Sen
   }
 
   if (shouldExposeProviderErrors()) {
-    throw new Error(`Falha ao enviar SMS. Detalhes: ${errors.join(" | ")}`);
+    throw new Error(`Falha ao enviar SMS. Detalhes: ${joinedErrors}`);
   }
 
   throw new Error("Falha ao enviar SMS no momento. Tente novamente em instantes.");
