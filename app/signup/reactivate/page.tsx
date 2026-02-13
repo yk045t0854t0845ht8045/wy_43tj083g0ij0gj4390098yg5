@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Undo2, X } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type AuthMethod = "choose" | "totp" | "passkey";
+type AuthMethod = "choose" | "totp" | "passkey" | "confirm";
 
 type StatusPayload = {
   ok?: boolean;
@@ -177,7 +177,7 @@ export default function ReactivatePage() {
   const [status, setStatus] = useState<StatusPayload | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [step, setStep] = useState<"verify-email" | "verify-auth">("verify-email");
+  const [step, setStep] = useState<"confirm-intent" | "verify-email" | "verify-auth">("confirm-intent");
   const [ticket, setTicket] = useState("");
   const [emailCode, setEmailCode] = useState("");
   const [totpCode, setTotpCode] = useState("");
@@ -193,14 +193,18 @@ export default function ReactivatePage() {
   const [resendingCode, setResendingCode] = useState(false);
   const [verifyingStep, setVerifyingStep] = useState(false);
   const [verifyingPasskey, setVerifyingPasskey] = useState(false);
+  const [restoringAccount, setRestoringAccount] = useState(false);
 
-  const passkeyAutoStartRef = useRef("");
-
-  const actionBusy = startingFlow || resendingCode || verifyingStep || verifyingPasskey;
+  const actionBusy = startingFlow || resendingCode || verifyingStep || verifyingPasskey || restoringAccount;
+  const statusState = String(status?.state || "").trim().toLowerCase();
+  const isAlreadyActive = statusState === "active";
   const canReactivate = Boolean(status?.canReactivate);
+  const requiresExplicitConfirm = !allowTotp && !allowPasskey;
   const canChooseMethod = allowTotp && allowPasskey;
-  const showTotpInput = authMethod === "totp" || (allowTotp && !allowPasskey);
-  const showPasskeyFlow = authMethod === "passkey" || (!allowTotp && allowPasskey);
+  const showTotpInput =
+    !requiresExplicitConfirm && (authMethod === "totp" || (allowTotp && !allowPasskey));
+  const showPasskeyFlow =
+    !requiresExplicitConfirm && (authMethod === "passkey" || (!allowTotp && allowPasskey));
 
   const deadlineLabel = useMemo(() => formatDeadline(status?.restoreDeadlineAt), [status?.restoreDeadlineAt]);
 
@@ -215,13 +219,12 @@ export default function ReactivatePage() {
         throw new Error(String(payload?.error || "Nao foi possivel carregar o status da conta."));
       }
       setStatus(payload);
-      if (String(payload.state || "").toLowerCase() === "active") router.replace("/");
     } catch (error) {
       setStatusError(error instanceof Error ? error.message : "Erro inesperado.");
     } finally {
       setLoadingStatus(false);
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     void refreshStatus();
@@ -236,7 +239,7 @@ export default function ReactivatePage() {
   }, [resendCooldown]);
 
   const resetFlowState = useCallback(() => {
-    setStep("verify-email");
+    setStep("confirm-intent");
     setTicket("");
     setEmailCode("");
     setTotpCode("");
@@ -246,18 +249,18 @@ export default function ReactivatePage() {
     setAllowTotp(true);
     setAllowPasskey(false);
     setAuthMethod("totp");
-    passkeyAutoStartRef.current = "";
+    setRestoringAccount(false);
   }, []);
 
   const applyAuthMethods = useCallback((methods?: { totp?: boolean; passkey?: boolean }) => {
-    const hasTotpRaw = typeof methods?.totp === "boolean" ? methods.totp : true;
-    const hasPasskeyRaw = typeof methods?.passkey === "boolean" ? methods.passkey : false;
-    const hasTotp = hasTotpRaw || !hasPasskeyRaw;
-    const hasPasskey = hasPasskeyRaw;
+    const hasTotp = Boolean(methods?.totp);
+    const hasPasskey = Boolean(methods?.passkey);
 
     setAllowTotp(hasTotp);
     setAllowPasskey(hasPasskey);
-    setAuthMethod(hasTotp && hasPasskey ? "choose" : hasPasskey ? "passkey" : "totp");
+    setAuthMethod(
+      hasTotp && hasPasskey ? "choose" : hasPasskey ? "passkey" : hasTotp ? "totp" : "confirm",
+    );
     setTotpCode("");
     setAuthError(null);
   }, []);
@@ -269,10 +272,24 @@ export default function ReactivatePage() {
   }, [actionBusy, resetFlowState]);
 
   const handleRestored = useCallback(async () => {
-    closeModal();
-    await refreshStatus();
+    setRestoringAccount(true);
+    setModalError(null);
+    setAuthError(null);
+    await refreshStatus().catch(() => undefined);
+    await new Promise((resolve) => window.setTimeout(resolve, 5000));
+    setRestoringAccount(false);
+    setModalOpen(false);
+    resetFlowState();
     router.replace("/");
-  }, [closeModal, refreshStatus, router]);
+  }, [refreshStatus, resetFlowState, router]);
+
+  const openConfirmModal = useCallback(() => {
+    if (actionBusy || !canReactivate) return;
+    setStatusError(null);
+    resetFlowState();
+    setStep("confirm-intent");
+    setModalOpen(true);
+  }, [actionBusy, canReactivate, resetFlowState]);
 
   const startFlow = useCallback(async () => {
     if (actionBusy || !canReactivate) return;
@@ -283,6 +300,7 @@ export default function ReactivatePage() {
       const res = await fetch("/api/wz_users/account-reactivate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmReactivate: true }),
       });
       const payload = (await res.json().catch(() => ({}))) as StatusPayload & { ticket?: string };
       if (!res.ok || !payload?.ok || !payload.ticket) {
@@ -295,7 +313,7 @@ export default function ReactivatePage() {
       setResendCooldown(60);
       setModalOpen(true);
     } catch (error) {
-      setStatusError(error instanceof Error ? error.message : "Erro inesperado ao iniciar reativacao.");
+      setModalError(error instanceof Error ? error.message : "Erro inesperado ao iniciar reativacao.");
     } finally {
       setStartingFlow(false);
     }
@@ -329,9 +347,10 @@ export default function ReactivatePage() {
     async (providedTotpCode?: string, providedPasskeyProof?: string) => {
       if (!ticket || actionBusy) return;
 
+      const explicitConfirmOnly = !allowTotp && !allowPasskey;
       const twoFactorCode = onlyDigits(String(providedTotpCode || totpCode || "")).slice(0, 6);
       const passkeyProof = String(providedPasskeyProof || "").trim();
-      if (twoFactorCode.length !== 6 && !passkeyProof) return;
+      if (!explicitConfirmOnly && twoFactorCode.length !== 6 && !passkeyProof) return;
 
       try {
         setVerifyingStep(true);
@@ -342,6 +361,7 @@ export default function ReactivatePage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ticket,
+            ...(explicitConfirmOnly ? { confirmReactivate: true } : {}),
             ...(twoFactorCode.length === 6 ? { twoFactorCode } : {}),
             ...(passkeyProof ? { passkeyProof } : {}),
           }),
@@ -366,7 +386,7 @@ export default function ReactivatePage() {
         setVerifyingStep(false);
       }
     },
-    [actionBusy, applyAuthMethods, handleRestored, ticket, totpCode],
+    [actionBusy, allowPasskey, allowTotp, applyAuthMethods, handleRestored, ticket, totpCode],
   );
 
   const verifyEmail = useCallback(
@@ -524,21 +544,6 @@ export default function ReactivatePage() {
     }
   }, [actionBusy, allowPasskey, canChooseMethod, ticket, verifyAuth]);
 
-  useEffect(() => {
-    if (!modalOpen || step !== "verify-auth") {
-      passkeyAutoStartRef.current = "";
-      return;
-    }
-    if (allowTotp || !allowPasskey) return;
-    if (authMethod !== "passkey") return;
-    if (actionBusy) return;
-
-    const key = `${ticket}:passkey-only`;
-    if (passkeyAutoStartRef.current === key) return;
-    passkeyAutoStartRef.current = key;
-    void verifyWithWindowsHello();
-  }, [actionBusy, allowPasskey, allowTotp, authMethod, modalOpen, step, ticket, verifyWithWindowsHello]);
-
   const loginUrl = useMemo(() => {
     if (typeof window === "undefined") return "https://login.wyzer.com.br/";
     const host = window.location.hostname.toLowerCase();
@@ -590,7 +595,20 @@ export default function ReactivatePage() {
               </div>
             )}
 
-            {!loadingStatus && !statusError && !canReactivate && (
+            {!loadingStatus && !statusError && isAlreadyActive && (
+              <div className="mt-4 rounded-2xl border border-black/12 bg-black/[0.05] px-4 py-3 text-left text-[13px] font-medium text-black/62">
+                <p className="text-black/72">Esta conta ja esta ativa.</p>
+                <button
+                  type="button"
+                  onClick={() => router.replace("/")}
+                  className="mt-3 rounded-xl bg-[#171717] px-4 py-2 text-[12px] font-semibold text-white transition-all duration-220 hover:bg-[#222222]"
+                >
+                  Ir para o dashboard
+                </button>
+              </div>
+            )}
+
+            {!loadingStatus && !statusError && !canReactivate && !isAlreadyActive && (
               <p className="mt-4 rounded-xl border border-black/12 bg-black/[0.05] px-3 py-2 text-[13px] font-medium text-black/62">
                 O prazo de reativacao terminou para esta conta.
               </p>
@@ -599,11 +617,11 @@ export default function ReactivatePage() {
             {!loadingStatus && !statusError && canReactivate && (
               <button
                 type="button"
-                onClick={() => void startFlow()}
+                onClick={openConfirmModal}
                 disabled={actionBusy}
                 className="mt-6 rounded-xl bg-[#171717] px-6 py-3 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-65"
               >
-                {startingFlow ? "Iniciando..." : "Reativar conta"}
+                Reativar conta
               </button>
             )}
           </div>
@@ -631,90 +649,167 @@ export default function ReactivatePage() {
               </div>
 
               <div className="px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
-                {step === "verify-email" && (
-                  <>
-                    <p className="text-[14px] leading-[1.45] text-black/62">
-                      Digite o codigo de 7 digitos enviado para <span className="font-semibold text-black/78">{String(status?.emailMask || "seu e-mail")}</span>.
+                {restoringAccount ? (
+                  <div className="rounded-2xl border border-black/12 bg-black/[0.04] px-4 py-5 text-center">
+                    <span className="mx-auto inline-flex items-center gap-2 rounded-full bg-black/80 px-3 py-1 text-[11px] font-medium text-white/92">
+                      <span className="inline-flex h-3.5 w-3.5 animate-spin rounded-full border border-white/45 border-t-white" />
+                      Reativando a conta, aguarde...
+                    </span>
+                    <p className="mt-3 text-[12px] text-black/56">
+                      Estamos finalizando a reativacao com seguranca.
                     </p>
-
-                    <CodeBoxes length={7} value={emailCode} onChange={setEmailCode} onComplete={(value) => { void verifyEmail(value); }} disabled={actionBusy} />
-
-                    <div className="mt-4 flex items-center justify-between">
-                      <button type="button" onClick={() => void resendEmailCode()} disabled={actionBusy || resendCooldown > 0} className="text-[12px] font-semibold text-black/56 hover:text-black/78 disabled:cursor-not-allowed disabled:opacity-58">
-                        {resendCooldown > 0 ? `Reenviar codigo (${resendCooldown}s)` : "Reenviar codigo"}
-                      </button>
-
-                      <button type="button" onClick={() => void verifyEmail()} disabled={actionBusy || onlyDigits(emailCode).length !== 7} className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70">
-                        {verifyingStep ? "Validando..." : "Validar e continuar"}
-                      </button>
-                    </div>
-                  </>
-                )}
-
-                {step === "verify-auth" && (
-                  <div>
-                    <section className="relative overflow-hidden rounded-[28px] border border-white/12 bg-[linear-gradient(180deg,#121212_0%,#090909_28%,#000000_100%)] px-4 pb-5 pt-3 shadow-[0_24px_66px_rgba(0,0,0,0.58)] sm:px-5 sm:pb-6">
-                      <div className="relative z-[1]">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h4 className="text-[14px] font-semibold tracking-[0.02em] text-white/92 sm:text-[15px]">
-                              {canChooseMethod && authMethod === "choose" ? "Escolha a forma de validacao" : "Confirmar reativacao"}
-                            </h4>
-                            <p className="mt-0.5 text-[12px] text-white/58">
-                              {canChooseMethod && authMethod === "choose"
-                                ? "Escolha entre codigo autenticador e Windows Hello."
-                                : showPasskeyFlow
-                                  ? "Confirme no prompt do Windows Hello."
-                                  : "Digite o codigo de 6 digitos do aplicativo autenticador."}
-                            </p>
-                          </div>
-
-                          <div className="flex items-center gap-1.5">
-                            {canChooseMethod && authMethod !== "choose" && (
-                              <button type="button" onClick={() => { if (actionBusy) return; setAuthMethod("choose"); setTotpCode(""); setAuthError(null); }} disabled={actionBusy} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60" aria-label="Voltar para opcoes de validacao">
-                                <Undo2 className="h-4 w-4" />
-                              </button>
-                            )}
-                            <button type="button" onClick={closeModal} disabled={actionBusy} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60">
-                              <X className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-
-                        {canChooseMethod && authMethod === "choose" && (
-                          <div className="mt-4 flex w-full flex-col gap-2">
-                            <button type="button" onClick={() => { if (actionBusy || !allowTotp) return; setAuthMethod("totp"); setTotpCode(""); setAuthError(null); }} disabled={actionBusy} className="h-11 w-full rounded-xl border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60">
-                              Codigo de Autenticacao
-                            </button>
-                            <button type="button" onClick={() => { if (actionBusy || !allowPasskey) return; setAuthMethod("passkey"); setTotpCode(""); setAuthError(null); void verifyWithWindowsHello(); }} disabled={actionBusy} className="h-11 w-full rounded-xl border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60">
-                              Windows Hello
-                            </button>
-                          </div>
-                        )}
-
-                        {showTotpInput && (
-                          <CodeBoxes length={6} value={totpCode} onChange={setTotpCode} onComplete={(value) => { void verifyAuth(value); }} disabled={actionBusy} variant="dark" />
-                        )}
-                      </div>
-                    </section>
-
-                    <div className="mt-2 flex justify-center">
-                      {verifyingPasskey ? (
-                        <span className="inline-flex items-center gap-2 rounded-full bg-black/28 px-3 py-1 text-[11px] font-medium text-white/88">
-                          <span className="inline-flex h-3.5 w-3.5 animate-spin rounded-full border border-white/45 border-t-white" />
-                          Autenticando Windows Hello, aguarde...
-                        </span>
-                      ) : authError ? (
-                        <span className="inline-flex rounded-full bg-[#e3524b]/14 px-3 py-1 text-[11px] font-medium text-[#ffb2ae]">
-                          {authError}
-                        </span>
-                      ) : null}
-                    </div>
                   </div>
-                )}
+                ) : (
+                  <>
+                    {step === "confirm-intent" && (
+                      <div className="rounded-2xl border border-black/10 bg-black/[0.03] px-4 py-4 text-left">
+                        <h4 className="text-[14px] font-semibold text-black/78">Confirmar reativacao da conta</h4>
+                        <p className="mt-2 text-[13px] leading-[1.5] text-black/62">
+                          Para reativar, voce vai confirmar em duas etapas:
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5 text-[13px] text-black/62">
+                          <li>Codigo de 7 digitos enviado para o e-mail da conta.</li>
+                          <li>Validacao final na ilha dinamica (autenticador, Windows Hello ou confirmacao final).</li>
+                        </ul>
+                        <p className="mt-2 text-[13px] text-black/62">
+                          E-mail para confirmacao: <span className="font-semibold text-black/78">{String(status?.emailMask || "seu e-mail")}</span>
+                        </p>
 
-                {modalError && (
-                  <p className="mt-4 rounded-xl border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-2 text-[13px] font-medium text-[#b2433e]">{modalError}</p>
+                        <div className="mt-4 flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={closeModal}
+                            disabled={actionBusy}
+                            className="rounded-xl border border-black/12 bg-white px-3 py-2 text-[12px] font-semibold text-black/65 transition-colors hover:bg-black/[0.03] disabled:cursor-not-allowed disabled:opacity-65"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void startFlow()}
+                            disabled={actionBusy}
+                            className="rounded-xl bg-[#171717] px-4 py-2 text-[12px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                          >
+                            {startingFlow ? "Iniciando..." : "Confirmar e continuar"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {step === "verify-email" && (
+                      <>
+                        <p className="text-[14px] leading-[1.45] text-black/62">
+                          Digite o codigo de 7 digitos enviado para <span className="font-semibold text-black/78">{String(status?.emailMask || "seu e-mail")}</span>.
+                        </p>
+
+                        <CodeBoxes length={7} value={emailCode} onChange={setEmailCode} onComplete={(value) => { void verifyEmail(value); }} disabled={actionBusy} />
+
+                        <div className="mt-4 flex items-center justify-between">
+                          <button type="button" onClick={() => void resendEmailCode()} disabled={actionBusy || resendCooldown > 0} className="text-[12px] font-semibold text-black/56 hover:text-black/78 disabled:cursor-not-allowed disabled:opacity-58">
+                            {resendCooldown > 0 ? `Reenviar codigo (${resendCooldown}s)` : "Reenviar codigo"}
+                          </button>
+
+                          <button type="button" onClick={() => void verifyEmail()} disabled={actionBusy || onlyDigits(emailCode).length !== 7} className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70">
+                            {verifyingStep ? "Validando..." : "Validar e continuar"}
+                          </button>
+                        </div>
+                      </>
+                    )}
+
+                    {step === "verify-auth" && (
+                      <div>
+                        <section className="relative overflow-hidden rounded-[28px] border border-white/12 bg-[linear-gradient(180deg,#121212_0%,#090909_28%,#000000_100%)] px-4 pb-5 pt-3 shadow-[0_24px_66px_rgba(0,0,0,0.58)] sm:px-5 sm:pb-6">
+                          <div className="relative z-[1]">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h4 className="text-[14px] font-semibold tracking-[0.02em] text-white/92 sm:text-[15px]">
+                                  {canChooseMethod && authMethod === "choose" ? "Escolha a forma de validacao" : "Confirmar reativacao"}
+                                </h4>
+                                <p className="mt-0.5 text-[12px] text-white/58">
+                                  {canChooseMethod && authMethod === "choose"
+                                    ? "Escolha entre codigo autenticador e Windows Hello."
+                                    : requiresExplicitConfirm
+                                      ? "Confirme a reativacao final para concluir o processo."
+                                      : showPasskeyFlow
+                                        ? "Confirme no prompt do Windows Hello."
+                                        : "Digite o codigo de 6 digitos do aplicativo autenticador."}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-1.5">
+                                {canChooseMethod && authMethod !== "choose" && (
+                                  <button type="button" onClick={() => { if (actionBusy) return; setAuthMethod("choose"); setTotpCode(""); setAuthError(null); }} disabled={actionBusy} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60" aria-label="Voltar para opcoes de validacao">
+                                    <Undo2 className="h-4 w-4" />
+                                  </button>
+                                )}
+                                <button type="button" onClick={closeModal} disabled={actionBusy} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60">
+                                  <X className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </div>
+
+                            {canChooseMethod && authMethod === "choose" && (
+                              <div className="mt-4 flex w-full flex-col gap-2">
+                                <button type="button" onClick={() => { if (actionBusy || !allowTotp) return; setAuthMethod("totp"); setTotpCode(""); setAuthError(null); }} disabled={actionBusy} className="h-11 w-full rounded-xl border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60">
+                                  Codigo de Autenticacao
+                                </button>
+                                <button type="button" onClick={() => { if (actionBusy || !allowPasskey) return; setAuthMethod("passkey"); setTotpCode(""); setAuthError(null); void verifyWithWindowsHello(); }} disabled={actionBusy} className="h-11 w-full rounded-xl border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60">
+                                  Windows Hello
+                                </button>
+                              </div>
+                            )}
+
+                            {showTotpInput && (
+                              <CodeBoxes length={6} value={totpCode} onChange={setTotpCode} onComplete={(value) => { void verifyAuth(value); }} disabled={actionBusy} variant="dark" />
+                            )}
+
+                            {showPasskeyFlow && !canChooseMethod && (
+                              <div className="mt-4">
+                                <button
+                                  type="button"
+                                  onClick={() => { if (actionBusy) return; void verifyWithWindowsHello(); }}
+                                  disabled={actionBusy}
+                                  className="h-11 w-full rounded-xl border border-white/24 bg-white/[0.08] px-4 text-[12px] font-semibold text-white/90 transition-colors hover:bg-white/[0.14] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {verifyingPasskey ? "Abrindo Windows Hello..." : "Continuar com Windows Hello"}
+                                </button>
+                              </div>
+                            )}
+
+                            {requiresExplicitConfirm && (
+                              <div className="mt-4">
+                                <button
+                                  type="button"
+                                  onClick={() => void verifyAuth()}
+                                  disabled={actionBusy}
+                                  className="h-11 w-full rounded-xl border border-white/24 bg-white/[0.08] px-4 text-[12px] font-semibold text-white/90 transition-colors hover:bg-white/[0.14] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {verifyingStep ? "Confirmando..." : "Confirmar reativacao"}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </section>
+
+                        <div className="mt-2 flex justify-center">
+                          {verifyingPasskey ? (
+                            <span className="inline-flex items-center gap-2 rounded-full bg-black/28 px-3 py-1 text-[11px] font-medium text-white/88">
+                              <span className="inline-flex h-3.5 w-3.5 animate-spin rounded-full border border-white/45 border-t-white" />
+                              Autenticando Windows Hello, aguarde...
+                            </span>
+                          ) : authError ? (
+                            <span className="inline-flex rounded-full bg-[#e3524b]/14 px-3 py-1 text-[11px] font-medium text-[#ffb2ae]">
+                              {authError}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    )}
+
+                    {modalError && (
+                      <p className="mt-4 rounded-xl border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-2 text-[13px] font-medium text-[#b2433e]">{modalError}</p>
+                    )}
+                  </>
                 )}
               </div>
             </motion.section>

@@ -55,6 +55,12 @@ function normalizeEmail(value?: string | null) {
   return String(value || "").trim().toLowerCase();
 }
 
+function isExplicitTrue(value: unknown) {
+  if (typeof value === "boolean") return value;
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
 function normalizeBase64Url(input: Buffer | string) {
   const buf = Buffer.isBuffer(input) ? input : Buffer.from(input, "utf8");
   return buf
@@ -421,6 +427,15 @@ export async function POST(req: NextRequest) {
     const blocked = lifecycleBlockedResponse(base.ctx);
     if (blocked) return blocked;
 
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const confirmReactivate = isExplicitTrue(body.confirmReactivate);
+    if (!confirmReactivate) {
+      return NextResponse.json(
+        { ok: false, error: "Confirme que deseja reativar a conta para iniciar o fluxo." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
+
     const code = await createEmailChallenge(base.ctx.sb, base.ctx.sessionEmail);
     await sendLoginCodeEmail(base.ctx.sessionEmail, code, { heading: "Reativando sua conta" });
 
@@ -557,21 +572,6 @@ export async function PUT(req: NextRequest) {
       }
 
       const methods = await resolveAuthMethods(base.ctx);
-      if (!methods.hasTotp && !methods.hasPasskey) {
-        const restored = await markAccountRestored({
-          sb: base.ctx.sb,
-          userId: base.ctx.lifecycle?.id || "",
-        });
-        return NextResponse.json(
-          {
-            ok: true,
-            restored: true,
-            state: ACCOUNT_STATE_ACTIVE,
-            restoredAt: restored.restoredAt,
-          },
-          { status: 200, headers: NO_STORE_HEADERS },
-        );
-      }
 
       const authTicket = createAccountReactivateTicket({
         userId: ticketRes.payload.uid,
@@ -593,57 +593,72 @@ export async function PUT(req: NextRequest) {
     }
 
     const methods = await resolveAuthMethods(base.ctx);
-    const twoFactorCode = normalizeTotpCode(body.twoFactorCode ?? body.totpCode ?? body.code, 6);
-    const passkeyProofRaw = String(body.passkeyProof ?? body.authProof ?? "").trim();
-    const passkeyProofRes = passkeyProofRaw
-      ? readPasskeyAuthProof({
-          proof: passkeyProofRaw,
-          userId: base.ctx.sessionUserId,
-          email: base.ctx.sessionEmail,
-        })
-      : null;
+    const hasAnyAuthMethod = methods.hasTotp || methods.hasPasskey;
+    const explicitConfirm = isExplicitTrue(body.confirmReactivate);
 
-    const hasValidPasskeyProof = Boolean(passkeyProofRes?.ok);
-    const canUseTotpCode = methods.hasTotp && twoFactorCode.length === 6;
+    if (hasAnyAuthMethod) {
+      const twoFactorCode = normalizeTotpCode(body.twoFactorCode ?? body.totpCode ?? body.code, 6);
+      const passkeyProofRaw = String(body.passkeyProof ?? body.authProof ?? "").trim();
+      const passkeyProofRes = passkeyProofRaw
+        ? readPasskeyAuthProof({
+            proof: passkeyProofRaw,
+            userId: base.ctx.sessionUserId,
+            email: base.ctx.sessionEmail,
+          })
+        : null;
 
-    if (!hasValidPasskeyProof && !canUseTotpCode) {
-      const fallbackMessage =
-        passkeyProofRaw && passkeyProofRes && !passkeyProofRes.ok
-          ? passkeyProofRes.error
-          : methods.hasTotp
-            ? "Confirme com codigo de 2 etapas ou Windows Hello."
-            : "Confirme com Windows Hello para continuar.";
-      return NextResponse.json(
-        {
-          ok: false,
-          requiresTwoFactor: true,
-          requiresPasskey: methods.hasPasskey,
-          authMethods: methods.authMethods,
-          error: fallbackMessage,
-        },
-        { status: 428, headers: NO_STORE_HEADERS },
-      );
-    }
+      const hasValidPasskeyProof = Boolean(passkeyProofRes?.ok);
+      const canUseTotpCode = methods.hasTotp && twoFactorCode.length === 6;
 
-    if (canUseTotpCode && methods.twoFactorState.secret) {
-      const validTwoFactorCode = await verifyTwoFactorCodeWithRecovery({
-        sb: base.ctx.sb,
-        userId: base.ctx.sessionUserId,
-        secret: methods.twoFactorState.secret,
-        code: twoFactorCode,
-      });
-      if (!validTwoFactorCode.ok) {
+      if (!hasValidPasskeyProof && !canUseTotpCode) {
+        const fallbackMessage =
+          passkeyProofRaw && passkeyProofRes && !passkeyProofRes.ok
+            ? passkeyProofRes.error
+            : methods.hasTotp
+              ? "Confirme com codigo de 2 etapas ou Windows Hello."
+              : "Confirme com Windows Hello para continuar.";
         return NextResponse.json(
           {
             ok: false,
             requiresTwoFactor: true,
             requiresPasskey: methods.hasPasskey,
             authMethods: methods.authMethods,
-            error: "Codigo de 2 etapas invalido. Tente novamente.",
+            error: fallbackMessage,
           },
-          { status: 401, headers: NO_STORE_HEADERS },
+          { status: 428, headers: NO_STORE_HEADERS },
         );
       }
+
+      if (canUseTotpCode && methods.twoFactorState.secret) {
+        const validTwoFactorCode = await verifyTwoFactorCodeWithRecovery({
+          sb: base.ctx.sb,
+          userId: base.ctx.sessionUserId,
+          secret: methods.twoFactorState.secret,
+          code: twoFactorCode,
+        });
+        if (!validTwoFactorCode.ok) {
+          return NextResponse.json(
+            {
+              ok: false,
+              requiresTwoFactor: true,
+              requiresPasskey: methods.hasPasskey,
+              authMethods: methods.authMethods,
+              error: "Codigo de 2 etapas invalido. Tente novamente.",
+            },
+            { status: 401, headers: NO_STORE_HEADERS },
+          );
+        }
+      }
+    } else if (!explicitConfirm) {
+      return NextResponse.json(
+        {
+          ok: false,
+          requiresConfirm: true,
+          authMethods: methods.authMethods,
+          error: "Confirme a reativacao para concluir.",
+        },
+        { status: 428, headers: NO_STORE_HEADERS },
+      );
     }
 
     const restored = await markAccountRestored({
