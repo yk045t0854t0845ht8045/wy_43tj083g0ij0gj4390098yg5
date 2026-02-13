@@ -97,10 +97,6 @@ function getDashboardOriginForLoginHost(host: string) {
   return "https://dashboard.wyzer.com.br";
 }
 
-function buildReactivateUrlForLoginHost(host: string) {
-  return new URL("/signup/reactivate", `${getDashboardOriginForLoginHost(host)}/`).toString();
-}
-
 function isAllowedReturnToAbsolute(url: URL) {
   const host = url.hostname.toLowerCase();
   const protoOk = url.protocol === "https:" || url.protocol === "http:";
@@ -164,6 +160,98 @@ function SpinnerMini({
         />
       </span>
     </motion.span>
+  );
+}
+
+function LoginSessionLoader({ reduced = false }: { reduced?: boolean }) {
+  return (
+    <div
+      aria-label="Loading..."
+      role="status"
+      className="inline-flex items-center gap-3 rounded-full bg-[#f3f3f3] px-5 py-3 ring-1 ring-black/6"
+    >
+      <svg
+        className={cx("h-6 w-6 stroke-black/55", reduced ? "" : "animate-spin")}
+        viewBox="0 0 256 256"
+        fill="none"
+      >
+        <line
+          x1="128"
+          y1="32"
+          x2="128"
+          y2="64"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="24"
+        />
+        <line
+          x1="195.9"
+          y1="60.1"
+          x2="173.3"
+          y2="82.7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="24"
+        />
+        <line
+          x1="224"
+          y1="128"
+          x2="192"
+          y2="128"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="24"
+        />
+        <line
+          x1="195.9"
+          y1="195.9"
+          x2="173.3"
+          y2="173.3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="24"
+        />
+        <line
+          x1="128"
+          y1="224"
+          x2="128"
+          y2="192"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="24"
+        />
+        <line
+          x1="60.1"
+          y1="195.9"
+          x2="82.7"
+          y2="173.3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="24"
+        />
+        <line
+          x1="32"
+          y1="128"
+          x2="64"
+          y2="128"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="24"
+        />
+        <line
+          x1="60.1"
+          y1="60.1"
+          x2="82.7"
+          y2="82.7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="24"
+        />
+      </svg>
+      <span className="text-[13px] font-semibold text-black/58">
+        Verificando sessao...
+      </span>
+    </div>
   );
 }
 
@@ -399,22 +487,6 @@ export default function LinkLoginPage() {
   const pathname = usePathname();
   const router = useRouter();
 
-  const redirectBlockedAccountIfNeeded = useCallback(
-    (payload?: Record<string, unknown> | null) => {
-      const rawState = String(payload?.accountState || payload?.state || "")
-        .trim()
-        .toLowerCase();
-      if (rawState !== "pending_deletion" && rawState !== "deactivated") {
-        return false;
-      }
-      if (typeof window === "undefined") return true;
-      const host = window.location.hostname.toLowerCase();
-      window.location.assign(buildReactivateUrlForLoginHost(host));
-      return true;
-    },
-    [],
-  );
-
   const EASE = useMemo(() => [0.2, 0.8, 0.2, 1] as const, []);
   const DUR = useMemo(
     () => ({
@@ -479,6 +551,7 @@ export default function LinkLoginPage() {
     useState(false);
   const [verifyingPasskeyLoginBusy, setVerifyingPasskeyLoginBusy] =
     useState(false);
+  const [checkingExistingSession, setCheckingExistingSession] = useState(true);
   const [verifyingSmsCodeBusy, setVerifyingSmsCodeBusy] = useState(false); // ✅ novo (só validação do sms code)
   const [twoFactorIslandLoading, setTwoFactorIslandLoading] = useState(false);
   const [twoFactorShakeTick, setTwoFactorShakeTick] = useState(0);
@@ -523,7 +596,17 @@ export default function LinkLoginPage() {
     if (typeof window === "undefined") return;
 
     const url = new URL(window.location.href);
-    if (url.searchParams.get("forceLogin") === "1") return;
+    let cancelled = false;
+    const finishCheck = () => {
+      if (!cancelled) setCheckingExistingSession(false);
+    };
+
+    if (url.searchParams.get("forceLogin") === "1") {
+      finishCheck();
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const host = window.location.hostname.toLowerCase();
     const isLoginHost =
@@ -531,16 +614,28 @@ export default function LinkLoginPage() {
       host === "login.localhost" ||
       host === "localhost";
     const isLinkHost = host.startsWith("link.");
-    if (!isLoginHost && !isLinkHost) return;
+    if (!isLoginHost && !isLinkHost) {
+      finishCheck();
+      return () => {
+        cancelled = true;
+      };
+    }
 
     try {
       const last = Number(sessionStorage.getItem(AUTO_REDIRECT_GUARD_KEY) || "0");
       if (Number.isFinite(last) && last > 0 && Date.now() - last < 8000) {
-        return;
+        finishCheck();
+        return () => {
+          cancelled = true;
+        };
       }
     } catch {}
 
-    let cancelled = false;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      controller.abort();
+    }, 6500);
+    let redirected = false;
 
     (async () => {
       try {
@@ -548,16 +643,12 @@ export default function LinkLoginPage() {
           method: "GET",
           cache: "no-store",
           credentials: "include",
+          signal: controller.signal,
         });
-        const payload = (await response.json().catch(() => ({}))) as Record<
-          string,
-          unknown
-        >;
-        if (cancelled) return;
-        if ((!response.ok || !payload?.ok) && redirectBlockedAccountIfNeeded(payload)) {
-          return;
-        }
-        if (!response.ok || !payload?.ok || cancelled) return;
+        if (!response.ok || cancelled) return;
+
+        const payload = await response.json().catch(() => ({}));
+        if (!payload?.ok || cancelled) return;
 
         const returnToRaw = url.searchParams.get("returnTo") || "";
         const safeReturnTo = resolveSafeReturnTo(returnToRaw, host);
@@ -567,16 +658,22 @@ export default function LinkLoginPage() {
           sessionStorage.setItem(AUTO_REDIRECT_GUARD_KEY, String(Date.now()));
         } catch {}
 
+        redirected = true;
         window.location.replace(target);
       } catch {
         // no-op
+      } finally {
+        window.clearTimeout(timeoutId);
+        if (!redirected) finishCheck();
       }
     })();
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timeoutId);
+      controller.abort();
     };
-  }, [AUTO_REDIRECT_GUARD_KEY, redirectBlockedAccountIfNeeded]);
+  }, []);
 
   // cooldown resend
   useEffect(() => {
@@ -873,11 +970,8 @@ export default function LinkLoginPage() {
           body: JSON.stringify(payload),
         });
 
-        const j = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-        if (!res.ok || !j?.ok) {
-          if (redirectBlockedAccountIfNeeded(j)) return;
-          throw new Error(String(j?.error || "Falha ao iniciar validacao."));
-        }
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j?.error || "Falha ao iniciar validacao.");
 
         if (j?.nextUrl) {
           const nextUrl = String(j.nextUrl);
@@ -909,18 +1003,7 @@ export default function LinkLoginPage() {
         setBusy(false);
       }
     },
-    [
-      canStart,
-      busy,
-      email,
-      check.state,
-      fullName,
-      phone,
-      cpf,
-      password,
-      router,
-      redirectBlockedAccountIfNeeded,
-    ],
+    [canStart, busy, email, check.state, fullName, phone, cpf, password, router],
   );
 
   const [phoneMaskFromServer, setPhoneMaskFromServer] = useState<string>("");
@@ -990,9 +1073,6 @@ export default function LinkLoginPage() {
 
         const j = (await res.json().catch(() => ({}))) as Record<string, unknown>;
         if (!res.ok || !j?.ok) {
-          if (redirectBlockedAccountIfNeeded(j)) {
-            return;
-          }
           if (
             openSecondStepChallenge(
               j,
@@ -1070,7 +1150,6 @@ export default function LinkLoginPage() {
       password,
       returnTo,
       openSecondStepChallenge,
-      redirectBlockedAccountIfNeeded,
     ],
   );
 
@@ -1099,9 +1178,6 @@ export default function LinkLoginPage() {
 
         const j = await res.json().catch(() => ({}));
         if (!res.ok || !j?.ok) {
-          if (redirectBlockedAccountIfNeeded(j as Record<string, unknown>)) {
-            return;
-          }
           if (j?.twoFactorTicket) {
             setTwoFactorTicket(String(j.twoFactorTicket || ""));
           }
@@ -1137,7 +1213,6 @@ export default function LinkLoginPage() {
       twoFactorTicket,
       verifyingTwoFactorCodeBusy,
       setTwoFactorFeedback,
-      redirectBlockedAccountIfNeeded,
     ],
   );
 
@@ -1169,9 +1244,6 @@ export default function LinkLoginPage() {
 
       const startPayload = (await startRes.json().catch(() => ({}))) as Record<string, unknown>;
       if (!startRes.ok || !startPayload?.ok) {
-        if (redirectBlockedAccountIfNeeded(startPayload)) {
-          return;
-        }
         if (startPayload?.twoFactorTicket) {
           setTwoFactorTicket(String(startPayload.twoFactorTicket || ""));
         }
@@ -1277,9 +1349,6 @@ export default function LinkLoginPage() {
 
       const finishPayload = (await finishRes.json().catch(() => ({}))) as Record<string, unknown>;
       if (!finishRes.ok || !finishPayload?.ok) {
-        if (redirectBlockedAccountIfNeeded(finishPayload)) {
-          return;
-        }
         throw new Error(
           String(finishPayload?.error || "Nao foi possivel concluir a validacao com Windows Hello."),
         );
@@ -1314,7 +1383,6 @@ export default function LinkLoginPage() {
     twoFactorTicket,
     verifyingPasskeyLoginBusy,
     setTwoFactorFeedback,
-    redirectBlockedAccountIfNeeded,
   ]);
 
   const chooseTwoFactorMethod = useCallback(
@@ -1397,9 +1465,6 @@ export default function LinkLoginPage() {
 
         const j = await res.json().catch(() => ({}));
         if (!res.ok || !j?.ok) {
-          if (redirectBlockedAccountIfNeeded(j as Record<string, unknown>)) {
-            return;
-          }
           const fallbackError =
             res.status === 429
               ? "Voce atingiu o limite de 7 tentativas. Reenvie o codigo."
@@ -1428,16 +1493,7 @@ export default function LinkLoginPage() {
         setVerifyingSmsCodeBusy(false); // ✅ destrava
       }
     },
-    [
-      email,
-      smsCode,
-      busy,
-      verifyingSmsCodeBusy,
-      router,
-      password,
-      returnTo,
-      redirectBlockedAccountIfNeeded,
-    ],
+    [email, smsCode, busy, verifyingSmsCodeBusy, router, password, returnTo],
   );
 
   const resend = useCallback(async () => {
@@ -1877,6 +1933,16 @@ export default function LinkLoginPage() {
     twoFactorMethod === "passkey" || (!twoFactorAllowsTotp && twoFactorAllowsPasskey);
   const twoFactorActionBusy =
     busy || verifyingTwoFactorCodeBusy || verifyingPasskeyLoginBusy;
+
+  if (checkingExistingSession) {
+    return (
+      <div className="min-h-screen bg-white relative overflow-hidden">
+        <div className="relative z-10 min-h-screen flex items-center justify-center px-4">
+          <LoginSessionLoader reduced={!!prefersReducedMotion} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white relative overflow-hidden">

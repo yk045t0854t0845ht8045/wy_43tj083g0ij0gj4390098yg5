@@ -9,12 +9,6 @@ import {
   setTrustedLoginCookie,
 } from "../_trusted_login";
 import { readLoginTwoFactorTicket } from "../_login_two_factor_ticket";
-import {
-  ACCOUNT_STATE_PENDING_DELETION,
-  ACCOUNT_STATE_DEACTIVATED,
-  resolveAccountLifecycleBySession,
-  syncAccountLifecycleIfNeeded,
-} from "@/app/api/wz_users/_account_lifecycle";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -558,39 +552,6 @@ async function handleStart(req: Request, body: Record<string, unknown>) {
   }
 
   const sb = supabaseAdmin();
-  const lifecycle = await resolveAccountLifecycleBySession({
-    sb,
-    sessionUserId: ticketRes.payload.uid,
-    sessionEmail: ticketRes.payload.email,
-  });
-  const syncedLifecycle = lifecycle
-    ? await syncAccountLifecycleIfNeeded({ sb, record: lifecycle })
-    : null;
-  if (syncedLifecycle?.state === ACCOUNT_STATE_PENDING_DELETION) {
-    return NextResponse.json(
-      {
-        ok: false,
-        accountState: syncedLifecycle.state,
-        restoreDeadlineAt: syncedLifecycle.restoreDeadlineAt,
-        error:
-          "Esta conta esta em exclusao temporaria. Reative no prazo para voltar a usar o painel.",
-      },
-      { status: 409, headers: NO_STORE_HEADERS },
-    );
-  }
-  if (syncedLifecycle?.state === ACCOUNT_STATE_DEACTIVATED) {
-    return NextResponse.json(
-      {
-        ok: false,
-        accountState: syncedLifecycle.state,
-        emailReuseAt: syncedLifecycle.emailReuseAt,
-        error:
-          "Esta conta foi desativada e nao pode mais acessar o painel. Crie uma nova conta quando o prazo de reutilizacao do e-mail for liberado.",
-      },
-      { status: 403, headers: NO_STORE_HEADERS },
-    );
-  }
-
   const passkeys = await listPasskeysForUser({ sb, userId: ticketRes.payload.uid });
   if (!passkeys.schemaReady) {
     return NextResponse.json(
@@ -671,40 +632,6 @@ async function handleFinish(req: Request, body: Record<string, unknown>) {
     );
   }
 
-  const sb = supabaseAdmin();
-  const lifecycle = await resolveAccountLifecycleBySession({
-    sb,
-    sessionUserId: ticketRes.payload.uid,
-    sessionEmail: ticketRes.payload.email,
-  });
-  const syncedLifecycle = lifecycle
-    ? await syncAccountLifecycleIfNeeded({ sb, record: lifecycle })
-    : null;
-  if (syncedLifecycle?.state === ACCOUNT_STATE_PENDING_DELETION) {
-    return NextResponse.json(
-      {
-        ok: false,
-        accountState: syncedLifecycle.state,
-        restoreDeadlineAt: syncedLifecycle.restoreDeadlineAt,
-        error:
-          "Esta conta esta em exclusao temporaria. Reative no prazo para voltar a usar o painel.",
-      },
-      { status: 409, headers: NO_STORE_HEADERS },
-    );
-  }
-  if (syncedLifecycle?.state === ACCOUNT_STATE_DEACTIVATED) {
-    return NextResponse.json(
-      {
-        ok: false,
-        accountState: syncedLifecycle.state,
-        emailReuseAt: syncedLifecycle.emailReuseAt,
-        error:
-          "Esta conta foi desativada e nao pode mais acessar o painel. Crie uma nova conta quando o prazo de reutilizacao do e-mail for liberado.",
-      },
-      { status: 403, headers: NO_STORE_HEADERS },
-    );
-  }
-
   const credential = (body.credential || null) as PasskeyAssertionCredentialInput | null;
   if (!credential) {
     return NextResponse.json(
@@ -778,6 +705,7 @@ async function handleFinish(req: Request, body: Record<string, unknown>) {
     );
   }
 
+  const sb = supabaseAdmin();
   const passkeys = await listPasskeysForUser({ sb, userId: ticketRes.payload.uid });
   if (!passkeys.schemaReady) {
     return NextResponse.json(

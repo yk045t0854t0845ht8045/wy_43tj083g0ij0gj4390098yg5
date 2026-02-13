@@ -9,14 +9,6 @@ import {
   setTrustedLoginCookie,
 } from "../_trusted_login";
 import crypto from "crypto";
-import {
-  ACCOUNT_STATE_ACTIVE,
-  ACCOUNT_STATE_DEACTIVATED,
-  ACCOUNT_STATE_PENDING_DELETION,
-  canReuseEmailForRegister,
-  resolveAccountLifecycleByEmail,
-  syncAccountLifecycleIfNeeded,
-} from "@/app/api/wz_users/_account_lifecycle";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -126,44 +118,6 @@ function sanitizeFullName(v?: string | null) {
   return clean.slice(0, 120);
 }
 
-function normalizeEmail(value?: string | null) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function isReusableDeactivatedIdentityRow(
-  row: {
-    email?: string | null;
-    account_state?: string | null;
-    account_original_email?: string | null;
-    account_email_reuse_at?: string | null;
-  },
-  expectedEmail: string,
-) {
-  const state = String(row.account_state || "").trim().toLowerCase();
-  if (state !== ACCOUNT_STATE_DEACTIVATED) return false;
-
-  const originalEmail = normalizeEmail(row.account_original_email || row.email);
-  if (!originalEmail || originalEmail !== expectedEmail) return false;
-
-  const reuseAtMs = Date.parse(String(row.account_email_reuse_at || ""));
-  if (!Number.isFinite(reuseAtMs)) return false;
-  return Date.now() >= reuseAtMs;
-}
-
-function buildLegacyArchivedEmail(email: string, userId: string) {
-  const normalizedEmail = normalizeEmail(email);
-  const normalizedUserId = String(userId || "").trim().toLowerCase();
-  const [localRaw, domainRaw] = normalizedEmail.split("@");
-  const local = String(localRaw || "").trim() || "user";
-  const domain = String(domainRaw || "").trim() || "archived.local";
-  const suffix = normalizedUserId.replace(/[^a-z0-9_-]/g, "") || "uid";
-  const stamp = Date.now().toString(36);
-  const maxLocalLen = 64;
-  const prefix = `${local.slice(0, Math.max(1, maxLocalLen - 1 - suffix.length - 1 - stamp.length))}`;
-  const archivedLocal = `${prefix}_${suffix}_${stamp}`.slice(0, maxLocalLen);
-  return `${archivedLocal}@${domain}`;
-}
-
 function makeDashboardTicket(params: {
   userId: string;
   email: string;
@@ -171,7 +125,7 @@ function makeDashboardTicket(params: {
   ttlMs?: number;
 }) {
   const secret = getTicketSecret();
-  if (!secret) throw new Error("SESSION_SECRET/WZ_AUTH_SECRET nao configurado.");
+  if (!secret) throw new Error("SESSION_SECRET/WZ_AUTH_SECRET não configurado.");
 
   const ttlMs = Number(params.ttlMs ?? 1000 * 60 * 5); // 5 min
   const safeFullName = sanitizeFullName(params.fullName);
@@ -231,58 +185,21 @@ export async function POST(req: Request) {
     const nextSafe = sanitizeNext(nextFromBody || "/");
 
     if (!isValidEmail(email)) {
-      return NextResponse.json({ ok: false, error: "E-mail invalido." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json({ ok: false, error: "E-mail inválido." }, { status: 400, headers: NO_STORE_HEADERS });
     }
     if (code.length !== 7) {
-      return NextResponse.json({ ok: false, error: "Codigo invalido." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json({ ok: false, error: "Código inválido." }, { status: 400, headers: NO_STORE_HEADERS });
     }
 
     const sb = supabaseAdmin();
-    const lifecycle = await resolveAccountLifecycleByEmail({ sb, email });
-    const syncedLifecycle = lifecycle
-      ? await syncAccountLifecycleIfNeeded({ sb, record: lifecycle })
-      : null;
-    const canReuseDeactivatedEmail =
-      syncedLifecycle?.state === ACCOUNT_STATE_DEACTIVATED
-        ? canReuseEmailForRegister(syncedLifecycle)
-        : false;
-
-    if (syncedLifecycle?.state === ACCOUNT_STATE_PENDING_DELETION) {
-      return NextResponse.json(
-        {
-          ok: false,
-          accountState: syncedLifecycle.state,
-          restoreDeadlineAt: syncedLifecycle.restoreDeadlineAt,
-          error:
-            "Esta conta esta em exclusao temporaria. Reative no prazo para voltar a usar o painel.",
-        },
-        { status: 409, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    if (
-      syncedLifecycle?.state === ACCOUNT_STATE_DEACTIVATED &&
-      !canReuseDeactivatedEmail
-    ) {
-      return NextResponse.json(
-        {
-          ok: false,
-          accountState: syncedLifecycle.state,
-          emailReuseAt: syncedLifecycle.emailReuseAt,
-          error:
-            "Esta conta foi desativada e ainda esta bloqueada para novo cadastro com este e-mail.",
-        },
-        { status: 409, headers: NO_STORE_HEADERS },
-      );
-    }
 
     const pend = await sb.from("wz_pending_auth").select("*").eq("email", email).maybeSingle();
     if (pend.error || !pend.data) {
-      return NextResponse.json({ ok: false, error: "Sessao invalida. Reinicie." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json({ ok: false, error: "Sessão inválida. Reinicie." }, { status: 400, headers: NO_STORE_HEADERS });
     }
 
     if (String(pend.data.flow || "") !== "register") {
-      return NextResponse.json({ ok: false, error: "Etapa invalida. Reinicie o cadastro." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json({ ok: false, error: "Etapa inválida. Reinicie o cadastro." }, { status: 400, headers: NO_STORE_HEADERS });
     }
 
     if (String(pend.data.stage || "") !== "sms") {
@@ -300,16 +217,16 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (chErr || !ch) {
-      return NextResponse.json({ ok: false, error: "Codigo expirado. Reenvie." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json({ ok: false, error: "Código expirado. Reenvie." }, { status: 400, headers: NO_STORE_HEADERS });
     }
 
     if (new Date(ch.expires_at).getTime() < Date.now()) {
       await sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", ch.id);
-      return NextResponse.json({ ok: false, error: "Codigo expirado. Reenvie." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json({ ok: false, error: "Código expirado. Reenvie." }, { status: 400, headers: NO_STORE_HEADERS });
     }
 
     if (Number(ch.attempts_left) <= 0) {
-      return NextResponse.json({ ok: false, error: "Muitas tentativas. Reenvie o codigo." }, { status: 429, headers: NO_STORE_HEADERS });
+      return NextResponse.json({ ok: false, error: "Muitas tentativas. Reenvie o código." }, { status: 429, headers: NO_STORE_HEADERS });
     }
 
     const hash = sha(code, ch.salt);
@@ -352,14 +269,14 @@ export async function POST(req: Request) {
     const cpf = String(pend.data.cpf || "");
     const phoneE164 = String(pend.data.phone_e164 || "");
 
-    // validacoes fortes antes de salvar
+    // ✅ validações fortes antes de salvar
     if (!isValidCPF(cpf)) {
-      return NextResponse.json({ ok: false, error: "CPF invalido. Tente novamente." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json({ ok: false, error: "CPF inválido. Tente novamente." }, { status: 400, headers: NO_STORE_HEADERS });
     }
 
     if (!phoneE164 || !isValidE164BRMobile(phoneE164)) {
       return NextResponse.json(
-        { ok: false, error: "Telefone invalido para SMS. Use um celular BR valido com DDD." },
+        { ok: false, error: "Telefone inválido para SMS. Use um celular BR válido com DDD." },
         { status: 400, headers: NO_STORE_HEADERS }
       );
     }
@@ -382,23 +299,15 @@ export async function POST(req: Request) {
 
     if (!authUserId) {
       return NextResponse.json(
-        { ok: false, error: "Nao foi possivel vincular autenticacao. Reinicie o cadastro e tente novamente." },
+        { ok: false, error: "Não foi possível vincular autenticação. Reinicie o cadastro e tente novamente." },
         { status: 500, headers: NO_STORE_HEADERS }
       );
     }
 
-    // bloqueia duplicados (cpf/phone) em relacao a OUTROS e-mails
+    // ✅ bloqueia duplicados (cpf/phone) em relação a OUTROS e-mails
     const [confCpf, confPhone] = await Promise.all([
-      sb
-        .from("wz_users")
-        .select("id,email,account_state,account_original_email,account_email_reuse_at")
-        .eq("cpf", cpf)
-        .limit(20),
-      sb
-        .from("wz_users")
-        .select("id,email,account_state,account_original_email,account_email_reuse_at")
-        .eq("phone_e164", phoneE164)
-        .limit(20),
+      sb.from("wz_users").select("id,email").eq("cpf", cpf).maybeSingle(),
+      sb.from("wz_users").select("id,email").eq("phone_e164", phoneE164).maybeSingle(),
     ]);
 
     if (confCpf.error || confPhone.error) {
@@ -406,155 +315,93 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Falha ao validar cadastro." }, { status: 500, headers: NO_STORE_HEADERS });
     }
 
-    const cpfRows = ((confCpf.data || []) as Array<{
-      email?: string | null;
-      account_state?: string | null;
-      account_original_email?: string | null;
-      account_email_reuse_at?: string | null;
-    }>).filter(Boolean);
-    const phoneRows = ((confPhone.data || []) as Array<{
-      email?: string | null;
-      account_state?: string | null;
-      account_original_email?: string | null;
-      account_email_reuse_at?: string | null;
-    }>).filter(Boolean);
-
-    const cpfHasBlockedDuplicate = cpfRows.some(
-      (row) => !isReusableDeactivatedIdentityRow(row, email),
-    );
-    if (cpfHasBlockedDuplicate) {
-      return NextResponse.json({ ok: false, error: "Este CPF ja possui uma conta." }, { status: 409, headers: NO_STORE_HEADERS });
+    if (confCpf.data?.id && String(confCpf.data.email || "").toLowerCase() !== email) {
+      return NextResponse.json({ ok: false, error: "Este CPF já possui uma conta." }, { status: 409, headers: NO_STORE_HEADERS });
     }
 
-    const phoneHasBlockedDuplicate = phoneRows.some(
-      (row) => !isReusableDeactivatedIdentityRow(row, email),
-    );
-    if (phoneHasBlockedDuplicate) {
-      return NextResponse.json({ ok: false, error: "Este numero ja possui uma conta." }, { status: 409, headers: NO_STORE_HEADERS });
+    if (confPhone.data?.id && String(confPhone.data.email || "").toLowerCase() !== email) {
+      return NextResponse.json({ ok: false, error: "Este número já possui uma conta." }, { status: 409, headers: NO_STORE_HEADERS });
     }
 
-    // Cadastro novo: nunca reaproveita a linha antiga.
-    // Se existir conta desativada reutilizavel com este e-mail, arquiva o e-mail dela e cria uma nova linha.
+    // upsert wz_users
     let userId: string | null = null;
 
-    const { data: existingRowsRaw, error: exErr } = await sb
+    const { data: existing, error: exErr } = await sb
       .from("wz_users")
-      .select("id,email,account_state,account_original_email,account_email_reuse_at")
+      .select("id")
       .eq("email", email)
-      .limit(20);
+      .maybeSingle();
 
     if (exErr) {
       console.error("[verify-sms] wz_users select error:", exErr);
       return NextResponse.json({ ok: false, error: "Falha ao validar cadastro." }, { status: 500, headers: NO_STORE_HEADERS });
     }
 
-    const existingRows = ((existingRowsRaw || []) as Array<{
-      id?: string | null;
-      email?: string | null;
-      account_state?: string | null;
-      account_original_email?: string | null;
-      account_email_reuse_at?: string | null;
-    }>).filter((row) => String(row?.id || "").trim().length > 0);
+    if (existing?.id) {
+      userId = String(existing.id);
 
-    const pendingRow = existingRows.find(
-      (row) =>
-        String(row.account_state || "").trim().toLowerCase() === ACCOUNT_STATE_PENDING_DELETION,
-    );
-
-    if (pendingRow?.id) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "Esta conta esta em exclusao temporaria. Reative no prazo para voltar a usar o painel.",
-        },
-        { status: 409, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    const blockedRow = existingRows.find((row) => {
-      const state = String(row.account_state || "").trim().toLowerCase();
-      if (state === ACCOUNT_STATE_DEACTIVATED) {
-        return !isReusableDeactivatedIdentityRow(row, email);
-      }
-      return true;
-    });
-
-    if (blockedRow?.id) {
-      return NextResponse.json(
-        { ok: false, error: "Este e-mail ja possui uma conta ativa." },
-        { status: 409, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    const rowsToArchive = existingRows.filter((row) =>
-      isReusableDeactivatedIdentityRow(row, email),
-    );
-
-    for (const row of rowsToArchive) {
-      const archivedEmail = buildLegacyArchivedEmail(email, String(row.id));
-      const { error: archiveErr } = await sb
+      const { error: upUserErr } = await sb
         .from("wz_users")
         .update({
-          email: archivedEmail,
-          account_original_email: email,
+          email_verified: true,
+          phone_verified: true,
+          auth_user_id: authUserId,
+          full_name: fullName || null,
+          cpf: cpf || null,
+          phone_e164: phoneE164 || null,
         })
-        .eq("id", String(row.id));
+        .eq("id", userId);
 
-      if (archiveErr) {
-        console.error("[verify-sms] archive deactivated row error:", archiveErr);
-        return NextResponse.json(
-          { ok: false, error: "Falha ao preparar novo cadastro para este e-mail." },
-          { status: 500, headers: NO_STORE_HEADERS },
-        );
+      if (upUserErr) {
+        console.error("[verify-sms] wz_users update error:", upUserErr);
+        return NextResponse.json({ ok: false, error: "Falha ao atualizar cadastro." }, { status: 500, headers: NO_STORE_HEADERS });
       }
-    }
+    } else {
+      const { data: createdRow, error: insErr } = await sb
+        .from("wz_users")
+        .insert({
+          email,
+          full_name: fullName || null,
+          cpf: cpf || null,
+          phone_e164: phoneE164 || null,
+          auth_user_id: authUserId,
+          email_verified: true,
+          phone_verified: true,
+          created_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
 
-    const { data: createdRow, error: insErr } = await sb
-      .from("wz_users")
-      .insert({
-        email,
-        account_original_email: email,
-        full_name: fullName || null,
-        cpf: cpf || null,
-        phone_e164: phoneE164 || null,
-        auth_user_id: authUserId,
-        email_verified: true,
-        phone_verified: true,
-        account_state: ACCOUNT_STATE_ACTIVE,
-        created_at: new Date().toISOString(),
-      })
-      .select("id")
-      .single();
+      if (insErr || !createdRow?.id) {
+        const errCode =
+          typeof (insErr as { code?: unknown } | null)?.code === "string"
+            ? String((insErr as { code?: string }).code)
+            : "";
+        const errMessage = String((insErr as { message?: unknown } | null)?.message || "")
+          .toLowerCase();
+        const isUniqueViolation =
+          errCode === "23505" ||
+          errMessage.includes("duplicate key");
 
-    if (insErr || !createdRow?.id) {
-      const errCode =
-        typeof (insErr as { code?: unknown } | null)?.code === "string"
-          ? String((insErr as { code?: string }).code)
-          : "";
-      const errMessage = String((insErr as { message?: unknown } | null)?.message || "")
-        .toLowerCase();
-      const isUniqueViolation =
-        errCode === "23505" ||
-        errMessage.includes("duplicate key");
+        if (isUniqueViolation) {
+          return NextResponse.json(
+            { ok: false, error: "E-mail, telefone ou CPF já possui cadastro." },
+            { status: 409, headers: NO_STORE_HEADERS }
+          );
+        }
 
-      if (isUniqueViolation) {
-        return NextResponse.json(
-          { ok: false, error: "E-mail, telefone ou CPF já possui cadastro." },
-          { status: 409, headers: NO_STORE_HEADERS }
-        );
+        console.error("[verify-sms] wz_users insert error:", insErr);
+        return NextResponse.json({ ok: false, error: "Falha ao salvar cadastro." }, { status: 500, headers: NO_STORE_HEADERS });
       }
 
-      console.error("[verify-sms] wz_users insert error:", insErr);
-      return NextResponse.json({ ok: false, error: "Falha ao salvar cadastro." }, { status: 500, headers: NO_STORE_HEADERS });
+      userId = String(createdRow.id);
     }
 
-    userId = String(createdRow.id);
     await sb.from("wz_pending_auth").delete().eq("email", email);
 
     const dashboard = getDashboardOrigin();
 
-    // host-only => seta no login host e usa ticket + exchange no dashboard
+    // ✅ host-only => seta no login host e usa ticket + exchange no dashboard
     if (isHostOnlyMode()) {
       const ticket = makeDashboardTicket({
         userId: String(userId),
@@ -579,7 +426,7 @@ export async function POST(req: Request) {
       return res;
     }
 
-    // legacy/domain-cookie mode
+    // ✅ legacy/domain-cookie mode
     const nextUrl = `${dashboard}${nextSafe.startsWith("/") ? nextSafe : "/"}`;
     const res = NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
     setSessionCookie(res, { userId: String(userId), email, fullName }, req.headers);
@@ -591,5 +438,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: message }, { status: 500, headers: NO_STORE_HEADERS });
   }
 }
-
 
