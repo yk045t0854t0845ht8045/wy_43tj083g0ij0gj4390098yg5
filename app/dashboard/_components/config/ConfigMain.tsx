@@ -1039,8 +1039,12 @@ function AccountContent({
     const context = accountActionTwoFactorContext;
     resetAccountActionTwoFactorModal();
     if (context === "two-factor-disable") {
-      setTwoFactorStep("disable-intro");
       setTwoFactorAppCode("");
+      if (twoFactorStep === "disable-verify-app") {
+        setTwoFactorError("Confirmacao final da desativacao cancelada.");
+        return;
+      }
+      setTwoFactorStep("disable-intro");
       setTwoFactorError(null);
       return;
     }
@@ -1057,7 +1061,7 @@ function AccountContent({
     if (context === "passkey-disable") {
       setPasskeyError("Confirmacao da desativacao do Windows Hello cancelada.");
     }
-  }, [accountActionTwoFactorContext, resetAccountActionTwoFactorModal]);
+  }, [accountActionTwoFactorContext, resetAccountActionTwoFactorModal, twoFactorStep]);
 
   const openAccountActionTwoFactorModal = useCallback(
     (
@@ -2069,6 +2073,7 @@ function AccountContent({
 
       const payload = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
+        phase?: "disable-verify-email";
         ticket?: string;
         emailMask?: string;
         error?: string;
@@ -2078,16 +2083,12 @@ function AccountContent({
         throw new Error(payload.error || "Nao foi possivel iniciar a desativacao de 2 etapas.");
       }
 
-      setTwoFactorStep("disable-verify-app");
+      setTwoFactorStep("disable-verify-email");
       setTwoFactorTicket(payload.ticket);
       setTwoFactorEmailMask(String(payload.emailMask || maskSecureEmail(localEmail)));
       setTwoFactorAppCode("");
       setTwoFactorEmailCode("");
-      setTwoFactorResendCooldown(0);
-      openAccountActionTwoFactorModal("two-factor-disable", null, {
-        totp: true,
-        passkey: passkeyEnabled,
-      });
+      setTwoFactorResendCooldown(60);
     } catch (err) {
       console.error("[config-account] start two-factor disable failed:", err);
       setTwoFactorError(err instanceof Error ? err.message : "Erro ao iniciar desativacao de 2 etapas.");
@@ -2281,12 +2282,20 @@ function AccountContent({
 
       const payload = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
-        enabled?: boolean;
-        twoFactorDisabledAt?: string | null;
+        next?: "verify-auth";
+        phase?: "disable-verify-app";
+        ticket?: string;
+        authMethods?: AccountActionAuthMethodsPayload;
         error?: string;
       };
 
-      if (!res.ok || !payload.ok || payload.enabled !== false) {
+      if (
+        !res.ok ||
+        !payload.ok ||
+        payload.next !== "verify-auth" ||
+        payload.phase !== "disable-verify-app" ||
+        !payload.ticket
+      ) {
         const fallback =
           res.status === 429
             ? "Voce atingiu o limite de tentativas. Reenvie o codigo."
@@ -2299,14 +2308,16 @@ function AccountContent({
         return;
       }
 
-      const nextDisabledAt =
-        normalizeIsoDatetime(payload.twoFactorDisabledAt) || new Date().toISOString();
-      setTwoFactorEnabled(false);
-      setTwoFactorEnabledAt(null);
-      setTwoFactorDisabledAt(nextDisabledAt);
-      onUserTwoFactorChange?.(false, nextDisabledAt);
-      setTwoFactorModalOpen(false);
-      resetTwoFactorFlow();
+      setTwoFactorStep("disable-verify-app");
+      setTwoFactorTicket(String(payload.ticket));
+      setTwoFactorAppCode("");
+      setTwoFactorEmailCode("");
+      setTwoFactorResendCooldown(0);
+      openAccountActionTwoFactorModal(
+        "two-factor-disable",
+        null,
+        payload.authMethods || { totp: true, passkey: passkeyEnabled },
+      );
     } catch (err) {
       console.error("[config-account] verify two-factor disable email code failed:", err);
       setTwoFactorError(
@@ -2349,10 +2360,8 @@ function AccountContent({
 
       const payload = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
-        next?: "verify-email";
-        phase?: "disable-verify-email";
-        ticket?: string;
-        emailMask?: string;
+        enabled?: boolean;
+        twoFactorDisabledAt?: string | null;
       } & AccountActionAuthResponsePayload;
 
       if ((!res.ok || !payload.ok) && payload.requiresTwoFactor && usingDynamicIslandForDisable) {
@@ -2364,19 +2373,21 @@ function AccountContent({
         return;
       }
 
-      if (!res.ok || !payload.ok || payload.next !== "verify-email" || !payload.ticket) {
+      if (!res.ok || !payload.ok || payload.enabled !== false) {
         throw new Error(payload.error || "Codigo do aplicativo invalido.");
       }
 
-      setTwoFactorStep("disable-verify-email");
-      setTwoFactorTicket(String(payload.ticket));
-      setTwoFactorEmailMask(String(payload.emailMask || maskSecureEmail(localEmail)));
-      setTwoFactorAppCode("");
-      setTwoFactorEmailCode("");
-      setTwoFactorResendCooldown(60);
+      const nextDisabledAt =
+        normalizeIsoDatetime(payload.twoFactorDisabledAt) || new Date().toISOString();
+      setTwoFactorEnabled(false);
+      setTwoFactorEnabledAt(null);
+      setTwoFactorDisabledAt(nextDisabledAt);
+      onUserTwoFactorChange?.(false, nextDisabledAt);
       if (usingDynamicIslandForDisable) {
         resetAccountActionTwoFactorModal();
       }
+      setTwoFactorModalOpen(false);
+      resetTwoFactorFlow();
     } catch (err) {
       console.error("[config-account] verify two-factor disable app code failed:", err);
       const message =
@@ -3270,7 +3281,7 @@ function AccountContent({
       : accountActionShowPasskeyFlow
         ? "Confirme a validacao no prompt do Windows Hello."
       : accountActionTwoFactorContext === "two-factor-disable"
-      ? "Digite o codigo de 6 digitos do aplicativo autenticador para iniciar a desativacao."
+      ? "Digite o codigo de 6 digitos do aplicativo autenticador para concluir a desativacao."
       : accountActionTwoFactorContext === "two-factor-enable"
         ? "Digite o codigo de 6 digitos gerado no aplicativo para ativar."
       : accountActionTwoFactorContext === "passkey-disable"
@@ -4423,7 +4434,7 @@ function AccountContent({
                             type="button"
                             onClick={() => chooseAccountActionAuthMethod("totp")}
                             disabled={accountActionTwoFactorBusy}
-                            className="h-11 w-full rounded-full border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
+                            className="h-11 w-full rounded-xl border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             Codigo de Autenticacao
                           </button>
@@ -4431,7 +4442,7 @@ function AccountContent({
                             type="button"
                             onClick={() => chooseAccountActionAuthMethod("passkey")}
                             disabled={accountActionTwoFactorBusy}
-                            className="h-11 w-full rounded-full border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
+                            className="h-11 w-full rounded-xl border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             Windows Hello
                           </button>
@@ -4664,8 +4675,8 @@ function AccountContent({
                       Para desativar, voce vai confirmar em duas etapas:
                     </p>
                     <ol className="mt-2 list-decimal pl-5 text-[14px] leading-[1.5] text-black/62">
-                      <li>Codigo de 6 digitos do aplicativo autenticador.</li>
                       <li>Codigo de 7 digitos enviado para seu e-mail.</li>
+                      <li>Confirmacao final com Windows Hello ou codigo de 2 etapas (se ativo).</li>
                     </ol>
                     <p className="mt-3 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/72">
                       E-mail para confirmacao:{" "}
@@ -4679,8 +4690,7 @@ function AccountContent({
                 {twoFactorStep === "disable-verify-email" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      Codigo do aplicativo confirmado. Agora valide o codigo de 7 digitos enviado
-                      para seu e-mail para concluir a desativacao.
+                      Digite o codigo de 7 digitos enviado para seu e-mail para continuar.
                     </p>
                     <p className="mt-3 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/72">
                       E-mail atual:{" "}
@@ -4715,8 +4725,8 @@ function AccountContent({
                 {twoFactorStep === "disable-verify-app" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      Digite o codigo de 6 digitos do aplicativo autenticador para iniciar a
-                      desativacao.
+                      Codigo de e-mail confirmado. Agora conclua a desativacao com Windows Hello
+                      ou codigo de 2 etapas na ilha dinamica de seguranca.
                     </p>
                     <CodeBoxes
                       length={6}
@@ -4810,9 +4820,9 @@ function AccountContent({
                       type="button"
                       onClick={() => void verifyTwoFactorDisableEmailCode()}
                       disabled={isTwoFactorBusy || onlyDigits(twoFactorEmailCode).length !== 7}
-                      className="rounded-xl bg-[#e3524b] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#d34942] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      {verifyingTwoFactorStep ? "Validando..." : "Desativar 2 etapas"}
+                      {verifyingTwoFactorStep ? "Validando..." : "Validar e continuar"}
                     </button>
                   )}
 
@@ -4823,7 +4833,7 @@ function AccountContent({
                       disabled={isTwoFactorBusy || onlyDigits(twoFactorAppCode).length !== 6}
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      {verifyingTwoFactorStep ? "Validando..." : "Confirmar codigo do app"}
+                      {verifyingTwoFactorStep ? "Validando..." : "Confirmar desativacao"}
                     </button>
                   )}
                 </div>

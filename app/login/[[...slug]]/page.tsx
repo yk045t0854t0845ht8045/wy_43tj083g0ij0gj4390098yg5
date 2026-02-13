@@ -2456,7 +2456,7 @@ export default function LinkLoginPage() {
                             type="button"
                             onClick={() => chooseTwoFactorMethod("totp")}
                             disabled={twoFactorActionBusy}
-                            className="h-11 w-full rounded-full border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
+                            className="h-11 w-full rounded-xl border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             Codigo de Autenticacao
                           </button>
@@ -2464,7 +2464,7 @@ export default function LinkLoginPage() {
                             type="button"
                             onClick={() => chooseTwoFactorMethod("passkey")}
                             disabled={twoFactorActionBusy}
-                            className="h-11 w-full rounded-full border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
+                            className="h-11 w-full rounded-xl border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             Windows Hello
                           </button>

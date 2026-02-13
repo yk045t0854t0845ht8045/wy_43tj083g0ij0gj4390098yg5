@@ -1237,17 +1237,22 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      const emailCode = await createEmailChallenge(base.sb, base.sessionEmail);
+      await sendLoginCodeEmail(base.sessionEmail, emailCode, {
+        heading: "Desativando autenticacao em 2 etapas",
+      });
+
       const ticket = createTwoFactorTicket({
         userId: base.sessionUserId,
         currentEmail: base.sessionEmail,
-        phase: "disable-verify-app",
+        phase: "disable-verify-email",
       });
 
       return NextResponse.json(
         {
           ok: true,
           mode: "disable",
-          phase: "disable-verify-app",
+          phase: "disable-verify-email",
           ticket,
           emailMask: maskEmail(base.sessionEmail),
         },
@@ -1502,24 +1507,31 @@ export async function PUT(req: NextRequest) {
         }
       }
 
-      const emailCode = await createEmailChallenge(base.sb, base.sessionEmail);
-      await sendLoginCodeEmail(base.sessionEmail, emailCode, {
-        heading: "Desativando autenticacao em 2 etapas",
+      const disabled = await disableTwoFactor({
+        sb: base.sb,
+        sessionUserId: base.sessionUserId,
+        wzUserId: String(base.userRow.id),
       });
+      if (!disabled.ok) {
+        return NextResponse.json(
+          { ok: false, error: disabled.error },
+          { status: disabled.status, headers: NO_STORE_HEADERS },
+        );
+      }
 
-      const nextTicket = createTwoFactorTicket({
+      const clearedRecoveryCodes = await clearTwoFactorRecoveryCodes({
+        sb: base.sb,
         userId: base.sessionUserId,
-        currentEmail: base.sessionEmail,
-        phase: "disable-verify-email",
       });
+      if (!clearedRecoveryCodes.ok && clearedRecoveryCodes.schemaAvailable) {
+        console.error("[two-factor] clear recovery codes warning:", clearedRecoveryCodes.error);
+      }
 
       return NextResponse.json(
         {
           ok: true,
-          next: "verify-email",
-          phase: "disable-verify-email",
-          ticket: nextTicket,
-          emailMask: maskEmail(base.sessionEmail),
+          enabled: false,
+          twoFactorDisabledAt: disabled.disabledAt,
         },
         { status: 200, headers: NO_STORE_HEADERS },
       );
@@ -1553,28 +1565,21 @@ export async function PUT(req: NextRequest) {
         );
       }
 
-      const disabled = await disableTwoFactor({
-        sb: base.sb,
-        sessionUserId: base.sessionUserId,
-        wzUserId: String(base.userRow.id),
-      });
-      if (!disabled.ok) {
-        return NextResponse.json(
-          { ok: false, error: disabled.error },
-          { status: disabled.status, headers: NO_STORE_HEADERS },
-        );
-      }
-
-      const clearedRecoveryCodes = await clearTwoFactorRecoveryCodes({
-        sb: base.sb,
+      const hasPasskey = await hasWindowsHelloPasskey(base.sb, base.sessionUserId);
+      const nextTicket = createTwoFactorTicket({
         userId: base.sessionUserId,
+        currentEmail: base.sessionEmail,
+        phase: "disable-verify-app",
       });
-      if (!clearedRecoveryCodes.ok && clearedRecoveryCodes.schemaAvailable) {
-        console.error("[two-factor] clear recovery codes warning:", clearedRecoveryCodes.error);
-      }
 
       return NextResponse.json(
-        { ok: true, enabled: false, twoFactorDisabledAt: disabled.disabledAt },
+        {
+          ok: true,
+          next: "verify-auth",
+          phase: "disable-verify-app",
+          ticket: nextTicket,
+          authMethods: { totp: true, passkey: hasPasskey },
+        },
         { status: 200, headers: NO_STORE_HEADERS },
       );
     }
