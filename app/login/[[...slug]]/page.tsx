@@ -631,19 +631,13 @@ export default function LinkLoginPage() {
       }
     } catch {}
 
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => {
-      controller.abort();
-    }, 6500);
-    let redirected = false;
-
     (async () => {
+      let redirected = false;
       try {
         const response = await fetch("/api/wz_AuthLogin/me", {
           method: "GET",
           cache: "no-store",
           credentials: "include",
-          signal: controller.signal,
         });
         if (!response.ok || cancelled) return;
 
@@ -663,15 +657,12 @@ export default function LinkLoginPage() {
       } catch {
         // no-op
       } finally {
-        window.clearTimeout(timeoutId);
         if (!redirected) finishCheck();
       }
     })();
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timeoutId);
-      controller.abort();
     };
   }, []);
 
