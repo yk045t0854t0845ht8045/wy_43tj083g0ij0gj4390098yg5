@@ -120,7 +120,7 @@ export async function GET(req: Request) {
         debug: parseBool(process.env.SMS_DEBUG, false),
         consoleFallback: parseBool(process.env.SMS_DEV_CONSOLE_FALLBACK, process.env.NODE_ENV !== "production"),
         authConsoleFallback: parseBool(process.env.SMS_AUTH_ALLOW_CONSOLE_FALLBACK, false),
-        blockSelfSend: parseBool(process.env.SMS_BLOCK_SELF_SEND, true),
+        blockSelfSend: parseBool(process.env.SMS_BLOCK_SELF_SEND, false),
         timeoutMs: parseIntSafe(process.env.SMS_TIMEOUT_MS, 15000, 1000, 60000),
         authTimeoutMs: parseIntSafe(process.env.SMS_AUTH_TIMEOUT_MS, 6000, 1000, 30000),
         webhookMaxRetries: parseIntSafe(process.env.SMS_WEBHOOK_MAX_RETRIES, 2, 0, 5),

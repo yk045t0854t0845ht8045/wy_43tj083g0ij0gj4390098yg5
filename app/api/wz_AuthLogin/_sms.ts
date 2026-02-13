@@ -437,11 +437,11 @@ async function sendViaWebhook(params: {
   }
 
   const ownGatewayNumber = normalizeOwnGatewayNumber(String(process.env.SMS_OWN_NUMBER || ""));
-  const blockSelfSend = parseBool(process.env.SMS_BLOCK_SELF_SEND, true);
+  const blockSelfSend = parseBool(process.env.SMS_BLOCK_SELF_SEND, false);
 
   if (blockSelfSend && ownGatewayNumber && samePhoneNumber(params.to, ownGatewayNumber)) {
     throw new Error(
-      "Destino de SMS igual ao numero do gateway. Para teste, use outro numero ou defina SMS_BLOCK_SELF_SEND=0.",
+      "Destino igual ao numero do gateway. Defina SMS_BLOCK_SELF_SEND=0 para permitir autoenvio.",
     );
   }
 
@@ -666,6 +666,13 @@ export async function sendSmsCode(phoneE164: string, code: string, options?: Sen
     errors,
     gatewayNumber: normalizeOwnGatewayNumber(String(process.env.SMS_OWN_NUMBER || "")),
   });
+
+  const joinedErrors = errors.join(" | ");
+  if (joinedErrors.includes("Destino igual ao numero do gateway")) {
+    throw new Error(
+      "O telefone de destino e o mesmo numero do aparelho gateway. Troque o numero de destino ou permita autoenvio em SMS_BLOCK_SELF_SEND=0.",
+    );
+  }
 
   if (shouldExposeProviderErrors()) {
     throw new Error(`Falha ao enviar SMS. Detalhes: ${errors.join(" | ")}`);
