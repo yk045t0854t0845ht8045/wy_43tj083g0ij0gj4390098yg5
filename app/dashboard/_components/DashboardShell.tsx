@@ -31,6 +31,15 @@ function normalizeIsoDatetime(value?: string | null) {
 }
 
 const SESSION_DISCONNECT_EVENT_KEY = "wz:session:disconnected";
+const SESSION_CHECK_TIMEOUT_MS = 4500;
+const SESSION_CHECK_MIN_GAP_MS = 1200;
+
+function isLikelyMobileClient() {
+  if (typeof navigator === "undefined") return false;
+  const ua = String(navigator.userAgent || "").toLowerCase();
+  if (/android|iphone|ipad|ipod|mobile/i.test(ua)) return true;
+  return Number(navigator.maxTouchPoints || 0) > 2;
+}
 
 function buildLoginRedirectUrlClient() {
   if (typeof window === "undefined") return "/";
@@ -240,24 +249,58 @@ export default function DashboardShell({
 
     let cancelled = false;
     let inFlight = false;
+    let inFlightStartedAt = 0;
+    let lastCheckStartedAt = 0;
+    const pollEveryMs = isLikelyMobileClient() ? 2500 : 5000;
 
     const checkActiveSession = async () => {
-      if (cancelled || inFlight || sessionDisconnected) return;
+      if (cancelled || sessionDisconnected) return;
+      const now = Date.now();
+      if (inFlight && now - inFlightStartedAt > SESSION_CHECK_TIMEOUT_MS * 3) {
+        inFlight = false;
+      }
+      if (inFlight) return;
+      if (now - lastCheckStartedAt < SESSION_CHECK_MIN_GAP_MS) return;
+
+      lastCheckStartedAt = now;
       inFlight = true;
+      inFlightStartedAt = now;
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => {
+        controller.abort();
+      }, SESSION_CHECK_TIMEOUT_MS);
+
       try {
         const response = await fetch("/api/wz_AuthLogin/me", {
           method: "GET",
           cache: "no-store",
           credentials: "include",
+          signal: controller.signal,
+          headers: {
+            "Cache-Control": "no-store",
+            Pragma: "no-cache",
+          },
         });
 
         if (response.status === 401 && !cancelled) {
+          triggerSessionDisconnected();
+          return;
+        }
+
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = (await response.json().catch(() => null)) as { ok?: boolean } | null;
+        if (payload && payload.ok === false && !cancelled) {
           triggerSessionDisconnected();
         }
       } catch {
         // Ignora erro de rede temporario para nao derrubar sessao por falso positivo.
       } finally {
+        window.clearTimeout(timeout);
         inFlight = false;
+        inFlightStartedAt = 0;
       }
     };
 
@@ -265,24 +308,41 @@ export default function DashboardShell({
 
     const timer = window.setInterval(() => {
       void checkActiveSession();
-    }, 5000);
+    }, pollEveryMs);
+
+    const triggerFastCheck = () => {
+      if (cancelled) return;
+      void checkActiveSession();
+    };
 
     const onFocus = () => {
-      void checkActiveSession();
+      triggerFastCheck();
     };
 
     const onVisibility = () => {
       if (document.visibilityState !== "visible") return;
-      void checkActiveSession();
+      triggerFastCheck();
+    };
+
+    const onPageShow = () => {
+      triggerFastCheck();
+    };
+
+    const onOnline = () => {
+      triggerFastCheck();
     };
 
     window.addEventListener("focus", onFocus);
+    window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("online", onOnline);
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       cancelled = true;
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [sessionDisconnected, triggerSessionDisconnected]);
