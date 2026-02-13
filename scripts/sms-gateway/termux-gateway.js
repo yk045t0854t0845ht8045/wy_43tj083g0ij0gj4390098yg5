@@ -23,7 +23,16 @@ const SMS_SEND_TIMEOUT_MS = Number(process.env.SMS_GATEWAY_SEND_TIMEOUT_MS || 15
 const ACK_MODE = String(process.env.SMS_GATEWAY_ACK_MODE || "accepted").trim().toLowerCase();
 const MAX_BODY_BYTES = 128 * 1024;
 const MAX_RECENT_DISPATCHES = Number(process.env.SMS_GATEWAY_MAX_RECENT || 40);
+const INTERNAL_API_KEY = String(process.env.SMS_INTERNAL_API_KEY || "").trim();
+const QUEUE_PULL_URL = String(process.env.SMS_QUEUE_PULL_URL || "").trim();
+const QUEUE_ACK_URL = String(process.env.SMS_QUEUE_ACK_URL || "").trim();
+const QUEUE_POLL_INTERVAL_MS = Number(process.env.SMS_QUEUE_POLL_INTERVAL_MS || 2500);
+const QUEUE_PULL_LIMIT = Number(process.env.SMS_QUEUE_PULL_LIMIT || 4);
+const WORKER_ID = String(process.env.SMS_QUEUE_WORKER_ID || "").trim() || `termux-${crypto.randomBytes(4).toString("hex")}`;
 const recentDispatches = [];
+let queuePollInFlight = false;
+let queueLastError = "";
+let queueLastSuccessAt = "";
 
 function normalizeAckMode(value) {
   const clean = String(value || "").trim().toLowerCase();
@@ -36,6 +45,37 @@ function parseRequestedAckMode(value) {
   if (clean === "wait") return "wait";
   if (clean === "accepted") return "accepted";
   return null;
+}
+
+function isQueueWorkerEnabled() {
+  return Boolean(INTERNAL_API_KEY && QUEUE_PULL_URL && QUEUE_ACK_URL);
+}
+
+function clampInt(value, fallback, min, max) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  const int = Math.floor(num);
+  if (int < min) return min;
+  if (int > max) return max;
+  return int;
+}
+
+async function fetchJsonWithTimeout(url, init, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1000, timeoutMs));
+  try {
+    const res = await fetch(url, { ...init, signal: controller.signal });
+    const text = await res.text().catch(() => "");
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { raw: text };
+    }
+    return { res, data };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function json(res, status, payload) {
@@ -173,8 +213,115 @@ async function collectDiagnostics() {
     selfSendAllowed: ALLOW_SELF_SEND,
     ackMode: normalizeAckMode(ACK_MODE),
     sendTimeoutMs: Math.max(3000, SMS_SEND_TIMEOUT_MS),
+    queueWorkerEnabled: isQueueWorkerEnabled(),
+    queuePollIntervalMs: clampInt(QUEUE_POLL_INTERVAL_MS, 2500, 1000, 60000),
+    queuePullLimit: clampInt(QUEUE_PULL_LIMIT, 4, 1, 20),
+    queueWorkerId: WORKER_ID,
+    queueLastError: queueLastError || null,
+    queueLastSuccessAt: queueLastSuccessAt || null,
     recentDispatches: recentDispatches.slice(0, 20),
   };
+}
+
+async function pullQueueJobs() {
+  const timeoutMs = Math.max(3000, SMS_SEND_TIMEOUT_MS + 3000);
+  const payload = {
+    workerId: WORKER_ID,
+    limit: clampInt(QUEUE_PULL_LIMIT, 4, 1, 20),
+  };
+
+  const { res, data } = await fetchJsonWithTimeout(
+    QUEUE_PULL_URL,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-sms-api-key": INTERNAL_API_KEY,
+      },
+      body: JSON.stringify(payload),
+    },
+    timeoutMs,
+  );
+
+  if (!res.ok || !data || data.ok !== true) {
+    const err = String((data && (data.error || data.message)) || `HTTP ${res.status}`);
+    throw new Error(`queue_pull_failed: ${err}`);
+  }
+
+  const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+  return jobs;
+}
+
+async function ackQueueJob(id, status, errorMessage) {
+  const timeoutMs = Math.max(3000, SMS_SEND_TIMEOUT_MS + 3000);
+  const payload = {
+    id,
+    status,
+    ...(errorMessage ? { error: String(errorMessage).slice(0, 4000) } : {}),
+  };
+
+  const { res, data } = await fetchJsonWithTimeout(
+    QUEUE_ACK_URL,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-sms-api-key": INTERNAL_API_KEY,
+      },
+      body: JSON.stringify(payload),
+    },
+    timeoutMs,
+  );
+
+  if (!res.ok || !data || data.ok !== true) {
+    const err = String((data && (data.error || data.message)) || `HTTP ${res.status}`);
+    throw new Error(`queue_ack_failed: ${err}`);
+  }
+}
+
+async function processQueueJob(job) {
+  const id = String(job?.id || "").trim();
+  const to = normalizeE164(String(job?.phoneE164 || ""));
+  const message = String(job?.message || "").replace(/\s+/g, " ").trim();
+
+  if (!id) return;
+  if (!isLikelyE164(to) || !message) {
+    await ackQueueJob(id, "failed", "invalid_queue_job_payload");
+    return;
+  }
+
+  try {
+    await dispatchSms({ id, to, message, mode: "queue-pull" });
+    await ackQueueJob(id, "sent");
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "queue_dispatch_failed";
+    try {
+      await ackQueueJob(id, "failed", msg);
+    } catch (ackError) {
+      const ackMsg = ackError instanceof Error ? ackError.message : String(ackError || "queue_ack_error");
+      console.error("[sms-gateway] queue ack failed", { id, error: ackMsg });
+    }
+  }
+}
+
+async function pollQueueOnce() {
+  if (!isQueueWorkerEnabled()) return;
+  if (queuePollInFlight) return;
+  queuePollInFlight = true;
+
+  try {
+    const jobs = await pullQueueJobs();
+    for (const job of jobs) {
+      await processQueueJob(job);
+    }
+    queueLastError = "";
+    queueLastSuccessAt = new Date().toISOString();
+  } catch (error) {
+    queueLastError = error instanceof Error ? error.message : String(error || "queue_poll_failed");
+    console.error("[sms-gateway] queue poll error", { error: queueLastError });
+  } finally {
+    queuePollInFlight = false;
+  }
 }
 
 const server = http.createServer(async (req, res) => {
@@ -186,6 +333,8 @@ const server = http.createServer(async (req, res) => {
         health: { method: "GET", path: "/health" },
         diag: { method: "GET", path: "/diag", auth: "Bearer token" },
         send: { method: "POST", path: "/send", auth: "Bearer token" },
+        queuePull: { method: "POST", path: "SMS_QUEUE_PULL_URL", auth: "x-sms-api-key" },
+        queueAck: { method: "POST", path: "SMS_QUEUE_ACK_URL", auth: "x-sms-api-key" },
       },
       now: new Date().toISOString(),
     });
@@ -326,4 +475,14 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`[sms-gateway] running on 0.0.0.0:${PORT}`);
+  if (isQueueWorkerEnabled()) {
+    const intervalMs = clampInt(QUEUE_POLL_INTERVAL_MS, 2500, 1000, 60000);
+    console.log(`[sms-gateway] queue worker enabled: ${WORKER_ID} (every ${intervalMs}ms)`);
+    void pollQueueOnce();
+    setInterval(() => {
+      void pollQueueOnce();
+    }, intervalMs);
+  } else {
+    console.log("[sms-gateway] queue worker disabled (configure SMS_QUEUE_PULL_URL/SMS_QUEUE_ACK_URL/SMS_INTERNAL_API_KEY)");
+  }
 });

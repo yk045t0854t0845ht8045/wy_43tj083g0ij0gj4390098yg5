@@ -24,6 +24,11 @@ export SMS_OWN_NUMBER="+5511937250986"
 export SMS_GATEWAY_SEND_TIMEOUT_MS=12000
 export SMS_GATEWAY_ALLOW_SELF_SEND=0
 export SMS_GATEWAY_ACK_MODE=accepted
+export SMS_INTERNAL_API_KEY="<same key used in backend .env>"
+export SMS_QUEUE_PULL_URL="https://login.wyzer.com.br/api/wz_AuthLogin/sms/queue/pull"
+export SMS_QUEUE_ACK_URL="https://login.wyzer.com.br/api/wz_AuthLogin/sms/queue/ack"
+export SMS_QUEUE_POLL_INTERVAL_MS=2500
+export SMS_QUEUE_PULL_LIMIT=4
 ```
 
 ## 3) Run gateway
@@ -81,7 +86,20 @@ SMS_DEV_CONSOLE_FALLBACK=0
 SMS_AUTH_ALLOW_CONSOLE_FALLBACK=0
 SMS_EXPOSE_PROVIDER_ERRORS=1
 SMS_BLOCK_SELF_SEND=0
+SMS_QUEUE_FALLBACK=1
+SMS_QUEUE_FALLBACK_NON_AUTH=0
+SMS_QUEUE_MAX_ATTEMPTS=8
+SMS_QUEUE_BACKOFF_BASE_MS=5000
+SMS_QUEUE_BACKOFF_MAX_MS=300000
 SMS_INTERNAL_API_KEY=<chave_forte_para_endpoints-internos>
+```
+
+## 5) SQL (required for queue fallback)
+
+Execute once in Supabase SQL editor:
+
+```sql
+-- file: sql/wz_auth_sms_outbox_create.sql
 ```
 
 ## Notes
@@ -90,5 +108,5 @@ SMS_INTERNAL_API_KEY=<chave_forte_para_endpoints-internos>
 - Grant SMS permission to Termux and Termux:API.
 - Validate local send directly in Termux: `termux-sms-send -n +55DDDNUMERO "teste"`.
 - Sending SMS to the same number as the gateway SIM can fail depending on carrier. By default this is blocked.
-- If your app backend is deployed in cloud, it cannot reach private LAN IP (`192.168.x.x`). Use VPN/tunnel/public endpoint.
-- If your backend runs in cloud, it must reach the phone URL (public tunnel or VPN).
+- If backend is in cloud and gateway is on LAN IP (`192.168.x.x`), direct webhook can fail with `fetch failed`.
+- Queue fallback solves this: backend enqueues SMS in Supabase and Termux pulls/sends/acks from cloud endpoints.

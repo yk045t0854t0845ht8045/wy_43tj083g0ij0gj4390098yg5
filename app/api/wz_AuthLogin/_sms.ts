@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { supabaseAdmin } from "./_supabase";
 
 type SmsProvider = "twilio" | "webhook" | "selfhost" | "console";
 
@@ -39,6 +40,14 @@ class SmsDeliveryUncertainError extends Error {
     this.provider = provider;
   }
 }
+
+type SmsQueueInsertPayload = {
+  to: string;
+  message: string;
+  context: SendSmsContext;
+  providerOrder: SmsProvider[];
+  errors: string[];
+};
 
 function parseBool(raw: string | undefined, fallback: boolean) {
   const value = String(raw || "").trim().toLowerCase();
@@ -172,6 +181,17 @@ function getAuthWebhookRetryBaseMs() {
 
 function shouldPreferAcceptedAck() {
   return parseBool(process.env.SMS_WEBHOOK_PREFER_ACCEPTED_ACK, true);
+}
+
+function isQueueFallbackEnabled(context: SendSmsContext) {
+  if (context !== "auth") {
+    return parseBool(process.env.SMS_QUEUE_FALLBACK_NON_AUTH, false);
+  }
+  return parseBool(process.env.SMS_QUEUE_FALLBACK, true);
+}
+
+function getQueueFallbackMaxAttempts() {
+  return parseIntSafe(process.env.SMS_QUEUE_MAX_ATTEMPTS, 8, 1, 20);
 }
 
 function isSmsDebugEnabled() {
@@ -463,6 +483,59 @@ function isAbortLikeError(error: unknown) {
   );
 }
 
+function shouldFallbackToQueue(errorMessages: string[]) {
+  if (!Array.isArray(errorMessages) || errorMessages.length === 0) return false;
+  const joined = errorMessages.join(" | ").toLowerCase();
+
+  return (
+    joined.includes("fetch failed") ||
+    joined.includes("network_error") ||
+    joined.includes("econnrefused") ||
+    joined.includes("ehostunreach") ||
+    joined.includes("enotfound") ||
+    joined.includes("etimedout") ||
+    joined.includes("timed out") ||
+    joined.includes("aborted") ||
+    joined.includes("socket") ||
+    joined.includes("connect") ||
+    joined.includes("webhook sms nao configurado")
+  );
+}
+
+async function enqueueSmsToOutbox(params: SmsQueueInsertPayload) {
+  const sb = supabaseAdmin();
+  const nowIso = new Date().toISOString();
+  const maxAttempts = getQueueFallbackMaxAttempts();
+
+  const { data, error } = await sb
+    .from("wz_auth_sms_outbox")
+    .insert({
+      phone_e164: params.to,
+      message: params.message,
+      context: params.context,
+      provider_hint: params.providerOrder.join(","),
+      status: "pending",
+      attempt_count: 0,
+      max_attempts: maxAttempts,
+      next_attempt_at: nowIso,
+      last_error: params.errors.join(" | ").slice(0, 4000),
+      meta: {
+        queuedBy: "api",
+        queuedAt: nowIso,
+      },
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    throw new Error(
+      `Fallback de fila indisponivel: ${String(error.message || "queue_insert_failed")}`,
+    );
+  }
+
+  return String(data?.id || "");
+}
+
 async function sendViaWebhook(params: {
   provider: "webhook" | "selfhost";
   to: string;
@@ -740,6 +813,44 @@ export async function sendSmsCode(phoneE164: string, code: string, options?: Sen
   });
 
   const joinedErrors = [...errors, ...uncertainErrors].join(" | ");
+
+  if (
+    isQueueFallbackEnabled(sendOptions.context) &&
+    shouldFallbackToQueue([...errors, ...uncertainErrors])
+  ) {
+    try {
+      const queueId = await enqueueSmsToOutbox({
+        to,
+        message,
+        context: sendOptions.context,
+        providerOrder,
+        errors: [...errors, ...uncertainErrors],
+      });
+
+      console.warn("[SMS] queued fallback accepted", {
+        queueId,
+        to: maskPhone(to),
+        context: sendOptions.context,
+      });
+      return true;
+    } catch (queueError) {
+      const queueErrorMessage =
+        queueError instanceof Error ? queueError.message : "queue_fallback_failed";
+      if (sendOptions.acceptUncertainDelivery) {
+        console.warn("[SMS] queue unavailable, accepted uncertain delivery", {
+          to: maskPhone(to),
+          context: sendOptions.context,
+          queueError: queueErrorMessage,
+        });
+        return true;
+      }
+      if (shouldExposeProviderErrors()) {
+        throw new Error(`Falha ao enviar SMS. Detalhes: ${joinedErrors} | queue: ${queueErrorMessage}`);
+      }
+      throw new Error("Falha ao enviar SMS no momento. Tente novamente em instantes.");
+    }
+  }
+
   if (joinedErrors.includes("Destino igual ao numero do gateway")) {
     throw new Error(
       "O telefone de destino e o mesmo numero do aparelho gateway. Troque o numero de destino ou permita autoenvio em SMS_BLOCK_SELF_SEND=0.",
