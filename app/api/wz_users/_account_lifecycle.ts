@@ -161,9 +161,13 @@ function mapRowToRecord(row: AccountLifecycleRow, schemaReady: boolean): Account
   if (!id || !email) return null;
   const originalEmail = normalizeEmail(row.account_original_email) || email;
 
-  const restoreDeadlineAt = normalizeIsoDatetime(row.account_restore_deadline_at);
+  const deleteRequestedAt = normalizeIsoDatetime(row.account_delete_requested_at);
+  let restoreDeadlineAt = normalizeIsoDatetime(row.account_restore_deadline_at);
   const deactivatedAt = normalizeIsoDatetime(row.account_deactivated_at);
   const state = parseAccountState(row.account_state, restoreDeadlineAt, deactivatedAt);
+  if (!restoreDeadlineAt && state === ACCOUNT_STATE_PENDING_DELETION && deleteRequestedAt) {
+    restoreDeadlineAt = plusDaysIso(deleteRequestedAt, ACCOUNT_RESTORE_WINDOW_DAYS) || deleteRequestedAt;
+  }
   const fallbackReuseAt =
     state === ACCOUNT_STATE_DEACTIVATED && deactivatedAt
       ? plusDaysIso(deactivatedAt, ACCOUNT_EMAIL_REUSE_WINDOW_DAYS)
@@ -179,7 +183,7 @@ function mapRowToRecord(row: AccountLifecycleRow, schemaReady: boolean): Account
     authUserId: normalizeOptionalText(row.auth_user_id),
     userId: normalizeOptionalText(row.user_id),
     state,
-    deleteRequestedAt: normalizeIsoDatetime(row.account_delete_requested_at),
+    deleteRequestedAt,
     restoreDeadlineAt,
     deactivatedAt,
     emailReuseAt: normalizeIsoDatetime(row.account_email_reuse_at) || fallbackReuseAt,
@@ -422,7 +426,13 @@ export async function resolveAccountLifecycleByEmail(params: {
 
 export function canReactivateWithinWindow(record: AccountLifecycleRecord, nowMs = Date.now()) {
   if (record.state !== ACCOUNT_STATE_PENDING_DELETION) return false;
-  const deadlineMs = Date.parse(String(record.restoreDeadlineAt || ""));
+  let deadlineMs = Date.parse(String(record.restoreDeadlineAt || ""));
+  if (!Number.isFinite(deadlineMs)) {
+    const requestedAtMs = Date.parse(String(record.deleteRequestedAt || ""));
+    if (Number.isFinite(requestedAtMs)) {
+      deadlineMs = requestedAtMs + ACCOUNT_RESTORE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    }
+  }
   if (!Number.isFinite(deadlineMs)) return false;
   return nowMs < deadlineMs;
 }
@@ -445,7 +455,18 @@ export async function syncAccountLifecycleIfNeeded(params: {
   const nowIso = new Date(nowMs).toISOString();
 
   if (params.record.state === ACCOUNT_STATE_PENDING_DELETION) {
-    const deadlineMs = Date.parse(String(params.record.restoreDeadlineAt || ""));
+    let inferredRestoreDeadlineAt = normalizeIsoDatetime(params.record.restoreDeadlineAt);
+    if (!inferredRestoreDeadlineAt && params.record.deleteRequestedAt) {
+      inferredRestoreDeadlineAt =
+        plusDaysIso(params.record.deleteRequestedAt, ACCOUNT_RESTORE_WINDOW_DAYS) ||
+        params.record.deleteRequestedAt;
+      await params.sb
+        .from("wz_users")
+        .update({ account_restore_deadline_at: inferredRestoreDeadlineAt })
+        .eq("id", params.record.id);
+    }
+
+    const deadlineMs = Date.parse(String(inferredRestoreDeadlineAt || ""));
     if (Number.isFinite(deadlineMs) && nowMs >= deadlineMs) {
       const deactivatedAt = new Date(deadlineMs).toISOString();
       const emailReuseAt = plusDaysIso(deactivatedAt, ACCOUNT_EMAIL_REUSE_WINDOW_DAYS);
@@ -469,9 +490,16 @@ export async function syncAccountLifecycleIfNeeded(params: {
         ...params.record,
         email: shouldArchiveEmail ? archivedEmail : params.record.email,
         originalEmail,
+        restoreDeadlineAt: inferredRestoreDeadlineAt || params.record.restoreDeadlineAt,
         state: ACCOUNT_STATE_DEACTIVATED,
         deactivatedAt,
         emailReuseAt,
+      } satisfies AccountLifecycleRecord;
+    }
+    if (inferredRestoreDeadlineAt && inferredRestoreDeadlineAt !== params.record.restoreDeadlineAt) {
+      return {
+        ...params.record,
+        restoreDeadlineAt: inferredRestoreDeadlineAt,
       } satisfies AccountLifecycleRecord;
     }
     return params.record;
