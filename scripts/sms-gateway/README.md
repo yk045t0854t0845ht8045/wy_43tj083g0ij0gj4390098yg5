@@ -29,6 +29,7 @@ export SMS_QUEUE_PULL_URL="https://login.wyzer.com.br/api/wz_AuthLogin/sms/queue
 export SMS_QUEUE_ACK_URL="https://login.wyzer.com.br/api/wz_AuthLogin/sms/queue/ack"
 export SMS_QUEUE_POLL_INTERVAL_MS=800
 export SMS_QUEUE_PULL_LIMIT=8
+export SMS_QUEUE_AUTH_ERROR_PAUSE_MS=30000
 ```
 
 ## 3) Run gateway
@@ -95,7 +96,9 @@ SMS_QUEUE_MAX_ATTEMPTS=8
 SMS_QUEUE_BACKOFF_BASE_MS=5000
 SMS_QUEUE_BACKOFF_MAX_MS=300000
 SMS_QUEUE_PROCESSING_TTL_MS=90000
+SMS_QUEUE_AUTH_CODE_TTL_MIN=12
 SMS_INTERNAL_API_KEY=<chave_forte_para_endpoints-internos>
+SMS_INTERNAL_API_KEYS=<chave_antiga_opcional_para_rotacao>
 ```
 
 ## 5) SQL (required for queue fallback)

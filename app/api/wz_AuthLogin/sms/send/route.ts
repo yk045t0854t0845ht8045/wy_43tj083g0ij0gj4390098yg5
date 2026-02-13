@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { sendSmsCode } from "../../_sms";
+import {
+  getAllowedSmsInternalApiKeys,
+  isSmsInternalApiKeyAuthorized,
+} from "../_auth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -10,17 +14,12 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 };
 
-function normalizeHeaderToken(value: string | null) {
-  return String(value || "").trim();
-}
-
 function parseDigits(value: unknown) {
   return String(value || "").replace(/\D+/g, "");
 }
 
 export async function POST(req: Request) {
-  const internalKey = String(process.env.SMS_INTERNAL_API_KEY || "").trim();
-  if (!internalKey) {
+  if (!getAllowedSmsInternalApiKeys().length) {
     return NextResponse.json(
       {
         ok: false,
@@ -30,8 +29,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const providedKey = normalizeHeaderToken(req.headers.get("x-sms-api-key"));
-  if (!providedKey || providedKey !== internalKey) {
+  if (!isSmsInternalApiKeyAuthorized(req)) {
     return NextResponse.json(
       { ok: false, error: "Nao autorizado." },
       { status: 401, headers: NO_STORE_HEADERS },

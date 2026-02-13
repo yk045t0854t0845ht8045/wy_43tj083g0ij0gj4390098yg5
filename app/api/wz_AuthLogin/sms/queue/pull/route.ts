@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
+import {
+  getAllowedSmsInternalApiKeys,
+  isSmsInternalApiKeyAuthorized,
+} from "../../_auth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -23,6 +27,10 @@ function queueProcessingTtlMs() {
   return clampInt(process.env.SMS_QUEUE_PROCESSING_TTL_MS, 90000, 10000, 3600000);
 }
 
+function authCodeTtlMinutes() {
+  return clampInt(process.env.SMS_QUEUE_AUTH_CODE_TTL_MIN, 12, 5, 120);
+}
+
 function normalizeWorkerId(raw: unknown) {
   const clean = String(raw || "").trim().slice(0, 120);
   if (!clean) return "sms-gateway";
@@ -30,11 +38,10 @@ function normalizeWorkerId(raw: unknown) {
 }
 
 function isAuthorized(req: Request) {
-  const expected = String(process.env.SMS_INTERNAL_API_KEY || "").trim();
-  if (!expected) return { ok: false as const, status: 503, error: "SMS_INTERNAL_API_KEY nao configurado." };
-
-  const provided = String(req.headers.get("x-sms-api-key") || "").trim();
-  if (!provided || provided !== expected) {
+  if (!getAllowedSmsInternalApiKeys().length) {
+    return { ok: false as const, status: 503, error: "SMS_INTERNAL_API_KEY nao configurado." };
+  }
+  if (!isSmsInternalApiKeyAuthorized(req)) {
     return { ok: false as const, status: 401, error: "Nao autorizado." };
   }
 
@@ -64,9 +71,23 @@ export async function POST(req: Request) {
 
     const nowIso = new Date().toISOString();
     const staleIso = new Date(Date.now() - queueProcessingTtlMs()).toISOString();
+    const authExpiryIso = new Date(
+      Date.now() - authCodeTtlMinutes() * 60 * 1000,
+    ).toISOString();
     const limit = clampInt(body?.limit, 5, 1, 20);
     const workerId = normalizeWorkerId(body?.workerId);
     const sb = supabaseAdmin();
+
+    await sb
+      .from("wz_auth_sms_outbox")
+      .update({
+        status: "failed",
+        updated_at: nowIso,
+        last_error: "expired_before_dispatch",
+      })
+      .eq("status", "pending")
+      .eq("context", "auth")
+      .lte("created_at", authExpiryIso);
 
     await sb
       .from("wz_auth_sms_outbox")

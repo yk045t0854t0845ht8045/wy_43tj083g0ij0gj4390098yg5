@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
+import {
+  getAllowedSmsInternalApiKeys,
+  isSmsInternalApiKeyAuthorized,
+} from "../../_auth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -33,11 +37,10 @@ function computeBackoffMs(attemptCount: number) {
 }
 
 function isAuthorized(req: Request) {
-  const expected = String(process.env.SMS_INTERNAL_API_KEY || "").trim();
-  if (!expected) return { ok: false as const, status: 503, error: "SMS_INTERNAL_API_KEY nao configurado." };
-
-  const provided = String(req.headers.get("x-sms-api-key") || "").trim();
-  if (!provided || provided !== expected) {
+  if (!getAllowedSmsInternalApiKeys().length) {
+    return { ok: false as const, status: 503, error: "SMS_INTERNAL_API_KEY nao configurado." };
+  }
+  if (!isSmsInternalApiKeyAuthorized(req)) {
     return { ok: false as const, status: 401, error: "Nao autorizado." };
   }
 

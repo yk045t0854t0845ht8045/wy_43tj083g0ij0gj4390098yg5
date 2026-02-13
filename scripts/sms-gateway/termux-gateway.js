@@ -28,11 +28,15 @@ const QUEUE_PULL_URL = String(process.env.SMS_QUEUE_PULL_URL || "").trim();
 const QUEUE_ACK_URL = String(process.env.SMS_QUEUE_ACK_URL || "").trim();
 const QUEUE_POLL_INTERVAL_MS = Number(process.env.SMS_QUEUE_POLL_INTERVAL_MS || 800);
 const QUEUE_PULL_LIMIT = Number(process.env.SMS_QUEUE_PULL_LIMIT || 8);
+const QUEUE_AUTH_ERROR_PAUSE_MS = Number(process.env.SMS_QUEUE_AUTH_ERROR_PAUSE_MS || 30000);
 const WORKER_ID = String(process.env.SMS_QUEUE_WORKER_ID || "").trim() || `termux-${crypto.randomBytes(4).toString("hex")}`;
 const recentDispatches = [];
 let queuePollInFlight = false;
 let queueLastError = "";
 let queueLastSuccessAt = "";
+let queuePauseUntil = 0;
+let queueErrorRepeatCount = 0;
+let queueLastLoggedError = "";
 
 function normalizeAckMode(value) {
   const clean = String(value || "").trim().toLowerCase();
@@ -51,6 +55,14 @@ function isQueueWorkerEnabled() {
   return Boolean(INTERNAL_API_KEY && QUEUE_PULL_URL && QUEUE_ACK_URL);
 }
 
+function getMissingQueueWorkerConfig() {
+  const missing = [];
+  if (!INTERNAL_API_KEY) missing.push("SMS_INTERNAL_API_KEY");
+  if (!QUEUE_PULL_URL) missing.push("SMS_QUEUE_PULL_URL");
+  if (!QUEUE_ACK_URL) missing.push("SMS_QUEUE_ACK_URL");
+  return missing;
+}
+
 function clampInt(value, fallback, min, max) {
   const num = Number(value);
   if (!Number.isFinite(num)) return fallback;
@@ -58,6 +70,11 @@ function clampInt(value, fallback, min, max) {
   if (int < min) return min;
   if (int > max) return max;
   return int;
+}
+
+function isQueueUnauthorizedError(message) {
+  const lower = String(message || "").toLowerCase();
+  return lower.includes("nao autorizado") || lower.includes("unauthorized") || lower.includes("http 401");
 }
 
 async function fetchJsonWithTimeout(url, init, timeoutMs) {
@@ -214,6 +231,7 @@ async function collectDiagnostics() {
     ackMode: normalizeAckMode(ACK_MODE),
     sendTimeoutMs: Math.max(3000, SMS_SEND_TIMEOUT_MS),
     queueWorkerEnabled: isQueueWorkerEnabled(),
+    queueWorkerMissingConfig: getMissingQueueWorkerConfig(),
     queuePollIntervalMs: clampInt(QUEUE_POLL_INTERVAL_MS, 800, 500, 60000),
     queuePullLimit: clampInt(QUEUE_PULL_LIMIT, 8, 1, 20),
     queueWorkerId: WORKER_ID,
@@ -307,6 +325,7 @@ async function processQueueJob(job) {
 async function pollQueueOnce() {
   if (!isQueueWorkerEnabled()) return;
   if (queuePollInFlight) return;
+  if (Date.now() < queuePauseUntil) return;
   queuePollInFlight = true;
 
   try {
@@ -318,7 +337,27 @@ async function pollQueueOnce() {
     queueLastSuccessAt = new Date().toISOString();
   } catch (error) {
     queueLastError = error instanceof Error ? error.message : String(error || "queue_poll_failed");
-    console.error("[sms-gateway] queue poll error", { error: queueLastError });
+    if (queueLastError === queueLastLoggedError) {
+      queueErrorRepeatCount += 1;
+    } else {
+      queueErrorRepeatCount = 1;
+      queueLastLoggedError = queueLastError;
+    }
+
+    if (isQueueUnauthorizedError(queueLastError)) {
+      const pauseMs = clampInt(QUEUE_AUTH_ERROR_PAUSE_MS, 30000, 5000, 600000);
+      queuePauseUntil = Date.now() + pauseMs;
+      if (queueErrorRepeatCount === 1 || queueErrorRepeatCount % 10 === 0) {
+        console.error(
+          "[sms-gateway] queue poll unauthorized. Verifique SMS_INTERNAL_API_KEY (Vercel x Termux).",
+          { error: queueLastError, pauseMs },
+        );
+      }
+    } else {
+      if (queueErrorRepeatCount === 1 || queueErrorRepeatCount % 10 === 0) {
+        console.error("[sms-gateway] queue poll error", { error: queueLastError });
+      }
+    }
   } finally {
     queuePollInFlight = false;
   }
@@ -483,6 +522,8 @@ server.listen(PORT, "0.0.0.0", () => {
       void pollQueueOnce();
     }, intervalMs);
   } else {
-    console.log("[sms-gateway] queue worker disabled (configure SMS_QUEUE_PULL_URL/SMS_QUEUE_ACK_URL/SMS_INTERNAL_API_KEY)");
+    console.log(
+      `[sms-gateway] queue worker disabled. Missing: ${getMissingQueueWorkerConfig().join(", ") || "unknown"}`,
+    );
   }
 });

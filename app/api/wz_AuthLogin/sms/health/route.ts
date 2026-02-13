@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  getAllowedSmsInternalApiKeys,
+  isSmsInternalApiKeyAuthorized,
+} from "../_auth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -127,14 +131,11 @@ function resolveWebhookConfigured() {
 }
 
 function requireInternalKey() {
-  const expected = String(process.env.SMS_INTERNAL_API_KEY || "").trim();
-  if (!expected) return false;
-  return true;
+  return getAllowedSmsInternalApiKeys().length > 0;
 }
 
 export async function GET(req: Request) {
-  const expectedKey = String(process.env.SMS_INTERNAL_API_KEY || "").trim();
-  if (!expectedKey) {
+  if (!requireInternalKey()) {
     return NextResponse.json(
       {
         ok: false,
@@ -144,8 +145,7 @@ export async function GET(req: Request) {
     );
   }
 
-  const providedKey = String(req.headers.get("x-sms-api-key") || "").trim();
-  if (!providedKey || providedKey !== expectedKey) {
+  if (!isSmsInternalApiKeyAuthorized(req)) {
     return NextResponse.json(
       { ok: false, error: "Nao autorizado." },
       { status: 401, headers: NO_STORE_HEADERS },
@@ -176,6 +176,7 @@ export async function GET(req: Request) {
         runtimeCloudHint: runtimeCloudHint(),
         queueMaxAttempts: parseIntSafe(process.env.SMS_QUEUE_MAX_ATTEMPTS, 8, 1, 20),
         queueProcessingTtlMs: parseIntSafe(process.env.SMS_QUEUE_PROCESSING_TTL_MS, 90000, 10000, 3600000),
+        queueAuthCodeTtlMin: parseIntSafe(process.env.SMS_QUEUE_AUTH_CODE_TTL_MIN, 12, 5, 120),
         blockSelfSend: parseBool(process.env.SMS_BLOCK_SELF_SEND, false),
         timeoutMs: parseIntSafe(process.env.SMS_TIMEOUT_MS, 15000, 1000, 60000),
         authTimeoutMs: parseIntSafe(process.env.SMS_AUTH_TIMEOUT_MS, 6000, 1000, 30000),
