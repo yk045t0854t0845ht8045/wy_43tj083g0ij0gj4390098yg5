@@ -108,8 +108,9 @@ export async function POST(req: Request) {
     await sendSmsCode(phoneE164, smsCode);
 
     return NextResponse.json({ ok: true, phoneMask: maskPhoneE164(phoneE164) }, { status: 200 });
-  } catch (e: any) {
-    console.error("[resend] error:", e);
-    return NextResponse.json({ ok: false, error: e?.message || "Erro inesperado." }, { status: 500 });
+  } catch (error: unknown) {
+    console.error("[register] error:", error);
+    const message = error instanceof Error ? error.message : "Erro inesperado.";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }
