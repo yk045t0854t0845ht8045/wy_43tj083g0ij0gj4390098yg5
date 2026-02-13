@@ -78,6 +78,19 @@ function parseIntFromUnknown(raw: unknown, fallback: number, min: number, max: n
   return int;
 }
 
+function getRuntimeCloudHint() {
+  const envHint = parseBool(process.env.SMS_RUNTIME_CLOUD_HINT, false);
+  if (envHint) return true;
+
+  return Boolean(
+    process.env.VERCEL ||
+      process.env.RENDER ||
+      process.env.RAILWAY_ENVIRONMENT ||
+      process.env.FLY_APP_NAME ||
+      process.env.AWS_REGION,
+  );
+}
+
 function normalizeE164(value: string) {
   return String(value || "")
     .trim()
@@ -131,6 +144,44 @@ function samePhoneNumber(a: string, b: string) {
   return da === db;
 }
 
+function getWebhookHostname() {
+  const rawUrl = String(process.env.SMS_WEBHOOK_URL || "").trim();
+  if (!rawUrl) return "";
+
+  try {
+    return new URL(rawUrl).hostname.trim().toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function isPrivateIpv4(host: string) {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!match) return false;
+
+  const octets = match.slice(1).map((part) => Number(part));
+  if (octets.some((value) => value < 0 || value > 255)) return false;
+
+  const [a, b] = octets;
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 169 && b === 254) return true;
+  return false;
+}
+
+function isPrivateHost(host: string) {
+  const value = String(host || "").trim().toLowerCase();
+  if (!value) return false;
+
+  if (value === "localhost" || value.endsWith(".localhost")) return true;
+  if (value.endsWith(".local")) return true;
+  if (value === "::1") return true;
+  if (value.startsWith("fc") || value.startsWith("fd")) return true;
+  return isPrivateIpv4(value);
+}
+
 function splitCsv(value: string) {
   return String(value || "")
     .split(",")
@@ -156,11 +207,11 @@ function getDefaultSmsTimeoutMs() {
 }
 
 function getAuthSmsTimeoutMs() {
-  return parseIntSafe(process.env.SMS_AUTH_TIMEOUT_MS, 18000, 1000, 30000);
+  return parseIntSafe(process.env.SMS_AUTH_TIMEOUT_MS, 6000, 1000, 30000);
 }
 
 function getAuthMinSmsTimeoutMs() {
-  return parseIntSafe(process.env.SMS_AUTH_MIN_TIMEOUT_MS, 18000, 5000, 30000);
+  return parseIntSafe(process.env.SMS_AUTH_MIN_TIMEOUT_MS, 3500, 1000, 30000);
 }
 
 function getDefaultWebhookMaxRetries() {
@@ -188,6 +239,30 @@ function isQueueFallbackEnabled(context: SendSmsContext) {
     return parseBool(process.env.SMS_QUEUE_FALLBACK_NON_AUTH, false);
   }
   return parseBool(process.env.SMS_QUEUE_FALLBACK, true);
+}
+
+function shouldQueueFirstForAuth(params: {
+  context: SendSmsContext;
+  providerOrder: SmsProvider[];
+}) {
+  if (params.context !== "auth") return false;
+  if (!isQueueFallbackEnabled(params.context)) return false;
+
+  const force = parseBool(process.env.SMS_QUEUE_FORCE_FIRST, false);
+  if (force) return true;
+
+  const allowAuto = parseBool(process.env.SMS_QUEUE_AUTO_FIRST_ON_PRIVATE_HOST, true);
+  if (!allowAuto) return false;
+
+  const hasWebhookProvider = params.providerOrder.some(
+    (provider) => provider === "selfhost" || provider === "webhook",
+  );
+  if (!hasWebhookProvider) return false;
+
+  const host = getWebhookHostname();
+  if (!host || !isPrivateHost(host)) return false;
+
+  return getRuntimeCloudHint();
 }
 
 function getQueueFallbackMaxAttempts() {
@@ -728,6 +803,41 @@ export async function sendSmsCode(phoneE164: string, code: string, options?: Sen
     throw new Error(
       "Nenhum provedor de SMS habilitado. Configure SMS_PROVIDER e/ou habilite fallback de console.",
     );
+  }
+
+  if (shouldQueueFirstForAuth({ context: sendOptions.context, providerOrder })) {
+    try {
+      const queueId = await enqueueSmsToOutbox({
+        to,
+        message,
+        context: sendOptions.context,
+        providerOrder,
+        errors: ["queue-first: private_host_on_cloud_runtime"],
+      });
+
+      console.warn("[SMS] queue-first accepted", {
+        queueId,
+        to: maskPhone(to),
+        context: sendOptions.context,
+        webhookHost: getWebhookHostname(),
+      });
+      return true;
+    } catch (queueError) {
+      const queueErrorMessage =
+        queueError instanceof Error ? queueError.message : "queue_first_failed";
+      if (sendOptions.acceptUncertainDelivery) {
+        console.warn("[SMS] queue-first unavailable, accepted uncertain delivery", {
+          to: maskPhone(to),
+          context: sendOptions.context,
+          queueError: queueErrorMessage,
+        });
+        return true;
+      }
+      if (shouldExposeProviderErrors()) {
+        throw new Error(`Falha ao enfileirar SMS antes do envio direto. Detalhes: ${queueErrorMessage}`);
+      }
+      throw new Error("Falha ao enviar SMS no momento. Tente novamente em instantes.");
+    }
   }
 
   const errors: string[] = [];

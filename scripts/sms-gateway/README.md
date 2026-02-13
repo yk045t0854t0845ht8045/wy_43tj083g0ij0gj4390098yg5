@@ -27,8 +27,8 @@ export SMS_GATEWAY_ACK_MODE=accepted
 export SMS_INTERNAL_API_KEY="<same key used in backend .env>"
 export SMS_QUEUE_PULL_URL="https://login.wyzer.com.br/api/wz_AuthLogin/sms/queue/pull"
 export SMS_QUEUE_ACK_URL="https://login.wyzer.com.br/api/wz_AuthLogin/sms/queue/ack"
-export SMS_QUEUE_POLL_INTERVAL_MS=2500
-export SMS_QUEUE_PULL_LIMIT=4
+export SMS_QUEUE_POLL_INTERVAL_MS=800
+export SMS_QUEUE_PULL_LIMIT=8
 ```
 
 ## 3) Run gateway
@@ -75,8 +75,8 @@ SMS_OWN_NUMBER=+5511937250986
 SMS_WEBHOOK_MAX_RETRIES=2
 SMS_WEBHOOK_RETRY_BASE_MS=350
 SMS_TIMEOUT_MS=12000
-SMS_AUTH_TIMEOUT_MS=18000
-SMS_AUTH_MIN_TIMEOUT_MS=18000
+SMS_AUTH_TIMEOUT_MS=6000
+SMS_AUTH_MIN_TIMEOUT_MS=3500
 SMS_AUTH_WEBHOOK_MAX_RETRIES=1
 SMS_AUTH_WEBHOOK_RETRY_BASE_MS=250
 SMS_WEBHOOK_PREFER_ACCEPTED_ACK=1
@@ -88,9 +88,13 @@ SMS_EXPOSE_PROVIDER_ERRORS=1
 SMS_BLOCK_SELF_SEND=0
 SMS_QUEUE_FALLBACK=1
 SMS_QUEUE_FALLBACK_NON_AUTH=0
+SMS_QUEUE_FORCE_FIRST=0
+SMS_QUEUE_AUTO_FIRST_ON_PRIVATE_HOST=1
+SMS_RUNTIME_CLOUD_HINT=1
 SMS_QUEUE_MAX_ATTEMPTS=8
 SMS_QUEUE_BACKOFF_BASE_MS=5000
 SMS_QUEUE_BACKOFF_MAX_MS=300000
+SMS_QUEUE_PROCESSING_TTL_MS=90000
 SMS_INTERNAL_API_KEY=<chave_forte_para_endpoints-internos>
 ```
 
@@ -110,3 +114,4 @@ Execute once in Supabase SQL editor:
 - Sending SMS to the same number as the gateway SIM can fail depending on carrier. By default this is blocked.
 - If backend is in cloud and gateway is on LAN IP (`192.168.x.x`), direct webhook can fail with `fetch failed`.
 - Queue fallback solves this: backend enqueues SMS in Supabase and Termux pulls/sends/acks from cloud endpoints.
+- Queue-first auto mode avoids waiting timeout in cloud+private-host setups and makes SMS step much faster.

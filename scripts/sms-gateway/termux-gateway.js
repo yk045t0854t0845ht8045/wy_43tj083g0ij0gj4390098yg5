@@ -26,8 +26,8 @@ const MAX_RECENT_DISPATCHES = Number(process.env.SMS_GATEWAY_MAX_RECENT || 40);
 const INTERNAL_API_KEY = String(process.env.SMS_INTERNAL_API_KEY || "").trim();
 const QUEUE_PULL_URL = String(process.env.SMS_QUEUE_PULL_URL || "").trim();
 const QUEUE_ACK_URL = String(process.env.SMS_QUEUE_ACK_URL || "").trim();
-const QUEUE_POLL_INTERVAL_MS = Number(process.env.SMS_QUEUE_POLL_INTERVAL_MS || 2500);
-const QUEUE_PULL_LIMIT = Number(process.env.SMS_QUEUE_PULL_LIMIT || 4);
+const QUEUE_POLL_INTERVAL_MS = Number(process.env.SMS_QUEUE_POLL_INTERVAL_MS || 800);
+const QUEUE_PULL_LIMIT = Number(process.env.SMS_QUEUE_PULL_LIMIT || 8);
 const WORKER_ID = String(process.env.SMS_QUEUE_WORKER_ID || "").trim() || `termux-${crypto.randomBytes(4).toString("hex")}`;
 const recentDispatches = [];
 let queuePollInFlight = false;
@@ -214,8 +214,8 @@ async function collectDiagnostics() {
     ackMode: normalizeAckMode(ACK_MODE),
     sendTimeoutMs: Math.max(3000, SMS_SEND_TIMEOUT_MS),
     queueWorkerEnabled: isQueueWorkerEnabled(),
-    queuePollIntervalMs: clampInt(QUEUE_POLL_INTERVAL_MS, 2500, 1000, 60000),
-    queuePullLimit: clampInt(QUEUE_PULL_LIMIT, 4, 1, 20),
+    queuePollIntervalMs: clampInt(QUEUE_POLL_INTERVAL_MS, 800, 500, 60000),
+    queuePullLimit: clampInt(QUEUE_PULL_LIMIT, 8, 1, 20),
     queueWorkerId: WORKER_ID,
     queueLastError: queueLastError || null,
     queueLastSuccessAt: queueLastSuccessAt || null,
@@ -227,7 +227,7 @@ async function pullQueueJobs() {
   const timeoutMs = Math.max(3000, SMS_SEND_TIMEOUT_MS + 3000);
   const payload = {
     workerId: WORKER_ID,
-    limit: clampInt(QUEUE_PULL_LIMIT, 4, 1, 20),
+    limit: clampInt(QUEUE_PULL_LIMIT, 8, 1, 20),
   };
 
   const { res, data } = await fetchJsonWithTimeout(
@@ -476,7 +476,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`[sms-gateway] running on 0.0.0.0:${PORT}`);
   if (isQueueWorkerEnabled()) {
-    const intervalMs = clampInt(QUEUE_POLL_INTERVAL_MS, 2500, 1000, 60000);
+    const intervalMs = clampInt(QUEUE_POLL_INTERVAL_MS, 800, 500, 60000);
     console.log(`[sms-gateway] queue worker enabled: ${WORKER_ID} (every ${intervalMs}ms)`);
     void pollQueueOnce();
     setInterval(() => {

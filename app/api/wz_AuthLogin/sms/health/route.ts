@@ -25,6 +25,17 @@ function parseIntSafe(raw: string | undefined, fallback: number, min: number, ma
   return int;
 }
 
+function runtimeCloudHint() {
+  return Boolean(
+    process.env.SMS_RUNTIME_CLOUD_HINT ||
+      process.env.VERCEL ||
+      process.env.RENDER ||
+      process.env.RAILWAY_ENVIRONMENT ||
+      process.env.FLY_APP_NAME ||
+      process.env.AWS_REGION,
+  );
+}
+
 function onlyDigits(value: string) {
   return String(value || "").replace(/\D+/g, "");
 }
@@ -42,6 +53,39 @@ function normalizeOwnGatewayNumber(raw: string) {
   if (digits.length === 11) return `+55${digits}`;
   if (digits.length >= 10 && digits.length <= 15) return `+${digits}`;
   return null;
+}
+
+function webhookHost() {
+  const url = String(process.env.SMS_WEBHOOK_URL || "").trim();
+  if (!url) return "";
+  try {
+    return new URL(url).hostname.trim().toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function isPrivateIpv4(host: string) {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!match) return false;
+  const octets = match.slice(1).map((part) => Number(part));
+  if (octets.some((value) => value < 0 || value > 255)) return false;
+  const [a, b] = octets;
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 169 && b === 254) return true;
+  return false;
+}
+
+function isPrivateHost(host: string) {
+  const value = String(host || "").trim().toLowerCase();
+  if (!value) return false;
+  if (value === "localhost" || value.endsWith(".localhost")) return true;
+  if (value.endsWith(".local")) return true;
+  if (value === "::1") return true;
+  return isPrivateIpv4(value);
 }
 
 function splitCsv(value: string) {
@@ -109,6 +153,7 @@ export async function GET(req: Request) {
   }
 
   const ownNumber = normalizeOwnGatewayNumber(String(process.env.SMS_OWN_NUMBER || ""));
+  const host = webhookHost();
 
   return NextResponse.json(
     {
@@ -116,6 +161,8 @@ export async function GET(req: Request) {
       sms: {
         providerOrder: resolveProviderOrder(),
         ownGatewayNumber: ownNumber,
+        webhookHost: host || null,
+        webhookHostIsPrivate: host ? isPrivateHost(host) : null,
         dryRun: parseBool(process.env.SMS_DRY_RUN, false),
         debug: parseBool(process.env.SMS_DEBUG, false),
         consoleFallback: parseBool(process.env.SMS_DEV_CONSOLE_FALLBACK, process.env.NODE_ENV !== "production"),
@@ -124,11 +171,15 @@ export async function GET(req: Request) {
         webhookPreferAcceptedAck: parseBool(process.env.SMS_WEBHOOK_PREFER_ACCEPTED_ACK, true),
         queueFallback: parseBool(process.env.SMS_QUEUE_FALLBACK, true),
         queueFallbackNonAuth: parseBool(process.env.SMS_QUEUE_FALLBACK_NON_AUTH, false),
+        queueForceFirst: parseBool(process.env.SMS_QUEUE_FORCE_FIRST, false),
+        queueAutoFirstOnPrivateHost: parseBool(process.env.SMS_QUEUE_AUTO_FIRST_ON_PRIVATE_HOST, true),
+        runtimeCloudHint: runtimeCloudHint(),
         queueMaxAttempts: parseIntSafe(process.env.SMS_QUEUE_MAX_ATTEMPTS, 8, 1, 20),
+        queueProcessingTtlMs: parseIntSafe(process.env.SMS_QUEUE_PROCESSING_TTL_MS, 90000, 10000, 3600000),
         blockSelfSend: parseBool(process.env.SMS_BLOCK_SELF_SEND, false),
         timeoutMs: parseIntSafe(process.env.SMS_TIMEOUT_MS, 15000, 1000, 60000),
-        authTimeoutMs: parseIntSafe(process.env.SMS_AUTH_TIMEOUT_MS, 18000, 1000, 30000),
-        authMinTimeoutMs: parseIntSafe(process.env.SMS_AUTH_MIN_TIMEOUT_MS, 18000, 5000, 30000),
+        authTimeoutMs: parseIntSafe(process.env.SMS_AUTH_TIMEOUT_MS, 6000, 1000, 30000),
+        authMinTimeoutMs: parseIntSafe(process.env.SMS_AUTH_MIN_TIMEOUT_MS, 3500, 1000, 30000),
         webhookMaxRetries: parseIntSafe(process.env.SMS_WEBHOOK_MAX_RETRIES, 2, 0, 5),
         authWebhookMaxRetries: parseIntSafe(process.env.SMS_AUTH_WEBHOOK_MAX_RETRIES, 1, 0, 5),
         webhookConfigured: resolveWebhookConfigured(),

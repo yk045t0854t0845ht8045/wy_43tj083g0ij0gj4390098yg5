@@ -19,6 +19,10 @@ function clampInt(raw: unknown, fallback: number, min: number, max: number) {
   return int;
 }
 
+function queueProcessingTtlMs() {
+  return clampInt(process.env.SMS_QUEUE_PROCESSING_TTL_MS, 90000, 10000, 3600000);
+}
+
 function normalizeWorkerId(raw: unknown) {
   const clean = String(raw || "").trim().slice(0, 120);
   if (!clean) return "sms-gateway";
@@ -59,9 +63,21 @@ export async function POST(req: Request) {
     };
 
     const nowIso = new Date().toISOString();
+    const staleIso = new Date(Date.now() - queueProcessingTtlMs()).toISOString();
     const limit = clampInt(body?.limit, 5, 1, 20);
     const workerId = normalizeWorkerId(body?.workerId);
     const sb = supabaseAdmin();
+
+    await sb
+      .from("wz_auth_sms_outbox")
+      .update({
+        status: "pending",
+        updated_at: nowIso,
+        claimed_at: null,
+        claimed_by: null,
+      })
+      .eq("status", "processing")
+      .lte("claimed_at", staleIso);
 
     const { data: candidates, error: listError } = await sb
       .from("wz_auth_sms_outbox")
