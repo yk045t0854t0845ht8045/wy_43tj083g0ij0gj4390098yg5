@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { clearSessionCookie } from "../_session";
+import { clearSessionCookie, readSessionFromRequest } from "../_session";
+import { supabaseAdmin } from "../_supabase";
+import { isSessionDevicesSchemaMissingError } from "../_session_devices";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -44,7 +46,33 @@ function applyNoStore(res: NextResponse) {
   res.headers.set("Expires", NO_STORE_HEADERS.Expires);
 }
 
+async function revokeCurrentSession(req: NextRequest) {
+  const session = readSessionFromRequest(req);
+  const userId = String(session?.userId || "").trim();
+  const sid = String(session?.sid || "").trim();
+  if (!userId || !sid) return;
+
+  const sb = supabaseAdmin();
+  const nowIso = new Date().toISOString();
+  const { error } = await sb
+    .from("wz_auth_sessions")
+    .update({
+      revoked_at: nowIso,
+      revoked_reason: "logout",
+      updated_at: nowIso,
+    })
+    .eq("user_id", userId)
+    .eq("sid", sid)
+    .is("revoked_at", null);
+
+  if (!error) return;
+  if (isSessionDevicesSchemaMissingError(error)) return;
+  console.error("[logout] revokeCurrentSession error:", error);
+}
+
 async function handleLogout(req: NextRequest) {
+  await revokeCurrentSession(req);
+
   const hostHeader = pickHostHeader(req);
   const currentHost = hostNameFromHeader(hostHeader);
   const loginOrigin = buildLoginOrigin(hostHeader);

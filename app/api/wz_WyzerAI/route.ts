@@ -2,7 +2,7 @@
 import { generateText, streamText } from "ai"
 import { createOpenAI } from "@ai-sdk/openai"
 import { headers } from "next/headers"
-import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session"
+import { readActiveSessionFromCookie } from "@/app/api/wz_AuthLogin/_active_session"
 import { supabaseAdmin } from "@/app/api/_supabaseAdmin"
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1105,7 +1105,11 @@ export async function POST(req: Request): Promise<Response> {
     const cookieHeader = h.get("cookie")
     const headerLike: { get(name: string): string | null } = { get: (n) => h.get(n) }
 
-    const session = readSessionFromCookieHeader(cookieHeader, headerLike)
+    const session = await readActiveSessionFromCookie({
+      cookieHeader,
+      headers: headerLike,
+      seedIfMissing: true,
+    })
     if (!session) {
       return new Response("", {
         status: 401,

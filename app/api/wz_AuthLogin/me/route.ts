@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { readSessionFromRequest } from "../_session";
+import { readActiveSessionFromRequest } from "../_active_session";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -11,7 +11,9 @@ const NO_STORE_HEADERS = {
 };
 
 export async function GET(req: NextRequest) {
-  const s = readSessionFromRequest(req);
+  const s = await readActiveSessionFromRequest(req, {
+    seedIfMissing: false,
+  });
 
   if (!s) {
     return NextResponse.json(

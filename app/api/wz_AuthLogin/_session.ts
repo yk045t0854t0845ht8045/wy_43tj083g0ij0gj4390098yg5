@@ -370,6 +370,7 @@ export function setSessionCookie(
     ...(names.domain ? { domain: names.domain } : {}),
   });
 
+  return payload;
 }
 
 export function clearSessionCookie(res: ResponseWithCookies) {

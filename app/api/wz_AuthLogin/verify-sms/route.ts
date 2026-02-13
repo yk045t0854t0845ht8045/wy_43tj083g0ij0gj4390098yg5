@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../_supabase";
 import { sha, onlyDigits, isValidCPF, isValidE164BRMobile } from "../_codes";
 import { setSessionCookie } from "../_session";
+import { registerIssuedSession } from "../_session_devices";
 import {
   createTrustedLoginToken,
   getTrustedLoginTtlSeconds,
@@ -411,7 +412,10 @@ export async function POST(req: Request) {
       const nextUrl =
         `${dashboard}/api/wz_AuthLogin/exchange` +
         `?ticket=${encodeURIComponent(ticket)}` +
-        `&next=${encodeURIComponent(nextSafe)}`;
+        `&next=${encodeURIComponent(nextSafe)}` +
+        `&lm=sms_code` +
+        `&lf=register` +
+        `&acs=1`;
 
       const res = NextResponse.json(
         { ok: true, nextUrl },
@@ -429,7 +433,21 @@ export async function POST(req: Request) {
     // ✅ legacy/domain-cookie mode
     const nextUrl = `${dashboard}${nextSafe.startsWith("/") ? nextSafe : "/"}`;
     const res = NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
-    setSessionCookie(res, { userId: String(userId), email, fullName }, req.headers);
+    const sessionPayload = setSessionCookie(
+      res,
+      { userId: String(userId), email, fullName },
+      req.headers,
+    );
+    await registerIssuedSession({
+      headers: req.headers,
+      userId: String(userId),
+      authUserId: authUserId || null,
+      email,
+      session: sessionPayload,
+      loginMethod: "sms_code",
+      loginFlow: "register",
+      isAccountCreationSession: true,
+    });
     await issueTrustedLogin(sb, email, res);
     return res;
   } catch (e: unknown) {

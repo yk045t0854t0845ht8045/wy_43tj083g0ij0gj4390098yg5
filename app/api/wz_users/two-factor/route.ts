@@ -3,7 +3,7 @@ import QRCode from "qrcode";
 import { NextResponse, type NextRequest } from "next/server";
 import { gen7, maskEmail, newSalt, onlyDigits, sha } from "@/app/api/wz_AuthLogin/_codes";
 import { sendLoginCodeEmail } from "@/app/api/wz_AuthLogin/_email";
-import { readSessionFromRequest } from "@/app/api/wz_AuthLogin/_session";
+import { readActiveSessionFromRequest } from "@/app/api/wz_AuthLogin/_active_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import {
   clearTwoFactorRecoveryCodes,
@@ -945,7 +945,7 @@ function buildOtpAuthUri(params: { secret: string; email: string }) {
 }
 
 async function getSessionAndUser(req: NextRequest) {
-  const session = readSessionFromRequest(req);
+  const session = await readActiveSessionFromRequest(req);
   if (!session) {
     return {
       ok: false as const,

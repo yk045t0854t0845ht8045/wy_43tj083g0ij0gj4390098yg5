@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { setSessionCookie } from "../_session";
+import { registerIssuedSession } from "../_session_devices";
 import { supabaseAdmin } from "../_supabase";
 import {
   createTrustedLoginToken,
@@ -487,7 +488,9 @@ async function finalizeLogin(params: {
     const nextUrl =
       `${dashboard}/api/wz_AuthLogin/exchange` +
       `?ticket=${encodeURIComponent(dashboardTicket)}` +
-      `&next=${encodeURIComponent(params.nextSafe)}`;
+      `&next=${encodeURIComponent(params.nextSafe)}` +
+      `&lm=passkey` +
+      `&lf=login`;
 
     const res = NextResponse.json(
       { ok: true, nextUrl },
@@ -513,7 +516,7 @@ async function finalizeLogin(params: {
     { status: 200, headers: NO_STORE_HEADERS },
   );
 
-  setSessionCookie(
+  const sessionPayload = setSessionCookie(
     res,
     {
       userId: params.userId,
@@ -522,6 +525,16 @@ async function finalizeLogin(params: {
     },
     params.req.headers,
   );
+  await registerIssuedSession({
+    headers: params.req.headers,
+    userId: params.userId,
+    authUserId: null,
+    email: params.email,
+    session: sessionPayload,
+    loginMethod: "passkey",
+    loginFlow: "login",
+    isAccountCreationSession: false,
+  });
   await issueTrustedLogin(params.sb, params.email, res);
   return res;
 }

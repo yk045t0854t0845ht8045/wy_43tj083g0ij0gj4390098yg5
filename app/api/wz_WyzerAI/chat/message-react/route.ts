@@ -1,7 +1,7 @@
 // app/api/wz_WyzerAI/chat/message-react/route.ts
 import { NextResponse } from "next/server"
 import { headers } from "next/headers"
-import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session"
+import { readActiveSessionFromCookie } from "@/app/api/wz_AuthLogin/_active_session"
 import { supabaseAdmin } from "@/app/api/_supabaseAdmin"
 
 export const dynamic = "force-dynamic"
@@ -42,7 +42,11 @@ export async function POST(req: Request) {
   const cookieHeader = h.get("cookie")
   const headerLike: { get(name: string): string | null } = { get: (n) => h.get(n) }
 
-  const session = readSessionFromCookieHeader(cookieHeader, headerLike)
+  const session = await readActiveSessionFromCookie({
+    cookieHeader,
+    headers: headerLike,
+    seedIfMissing: true,
+  })
   if (!session) return json({ error: "unauthorized" }, 401)
 
   const body = await req.json().catch(() => null)

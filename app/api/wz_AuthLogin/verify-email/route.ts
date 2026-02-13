@@ -10,6 +10,7 @@ import {
 } from "../_codes";
 import { sendSmsCode } from "../_sms";
 import { setSessionCookie } from "../_session";
+import { registerIssuedSession } from "../_session_devices";
 import {
   createTrustedLoginToken,
   getTrustedLoginTtlSeconds,
@@ -375,7 +376,9 @@ export async function POST(req: Request) {
         const nextUrl =
           `${dashboard}/api/wz_AuthLogin/exchange` +
           `?ticket=${encodeURIComponent(ticket)}` +
-          `&next=${encodeURIComponent(nextSafe)}`;
+          `&next=${encodeURIComponent(nextSafe)}` +
+          `&lm=email_code` +
+          `&lf=login`;
 
         const res = NextResponse.json(
           { ok: true, nextUrl },
@@ -393,11 +396,21 @@ export async function POST(req: Request) {
       // ✅ Legacy/domain-cookie mode: pode setar cookie direto e ir pro dashboard
       const nextUrl = `${dashboard}${nextSafe.startsWith("/") ? nextSafe : "/"}`;
       const res = NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
-      setSessionCookie(
+      const sessionPayload = setSessionCookie(
         res,
         { userId: resolvedUserId, email, fullName: resolvedFullName },
         req.headers,
       );
+      await registerIssuedSession({
+        headers: req.headers,
+        userId: resolvedUserId,
+        authUserId: signIn?.user?.id ? String(signIn.user.id) : null,
+        email,
+        session: sessionPayload,
+        loginMethod: "email_code",
+        loginFlow: "login",
+        isAccountCreationSession: false,
+      });
       await issueTrustedLogin(sb, email, res);
       return res;
     }

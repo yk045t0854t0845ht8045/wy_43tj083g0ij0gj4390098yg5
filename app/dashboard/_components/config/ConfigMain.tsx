@@ -4929,45 +4929,267 @@ function DeviceIconBadge({ mobile = false }: { mobile?: boolean }) {
   );
 }
 
+type DeviceSessionRecord = {
+  id: string;
+  label: string;
+  location: string | null;
+  lastSeenAt: string | null;
+  revokedAt?: string | null;
+  kind: "desktop" | "mobile" | "tablet" | "bot" | "unknown";
+};
+
+type DevicesApiResponse = {
+  ok?: boolean;
+  current?: DeviceSessionRecord | null;
+  others?: DeviceSessionRecord[];
+  history?: DeviceSessionRecord[];
+  error?: string;
+};
+
+function isMobileDeviceKind(kind?: string | null) {
+  const clean = String(kind || "").trim().toLowerCase();
+  return clean === "mobile" || clean === "tablet";
+}
+
+function formatDeviceSeenLabel(value?: string | null) {
+  const base = formatElapsedTimeLabel(value);
+  if (base === "agora") return "agora";
+  return `ha ${base}`;
+}
+
 function DevicesContent() {
-  const devices = [
-    ["ANDROID - DISCORD ANDROID", "Maua, Sao Paulo, Brazil", "ha 12 horas", "mobile"],
-    ["WINDOWS - CHROME", "Maua, Sao Paulo, Brazil", "ha 13 dias", "desktop"],
-    ["ANDROID - ANDROID CHROME", "Sao Paulo, Sao Paulo, Brazil", "ha 23 dias", "mobile"],
-    ["WINDOWS - DISCORD CLIENT", "Maua, Sao Paulo, Brazil", "ha um mes", "desktop"],
-    ["WINDOWS - CHROME", "Maua, Sao Paulo, Brazil", "ha um mes", "desktop"],
-  ] as const;
+  const mountedRef = useRef(true);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [currentDevice, setCurrentDevice] = useState<DeviceSessionRecord | null>(null);
+  const [otherDevices, setOtherDevices] = useState<DeviceSessionRecord[]>([]);
+  const [busySessionId, setBusySessionId] = useState<string | null>(null);
+  const [busyAll, setBusyAll] = useState(false);
+
+  const loadDevices = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!mountedRef.current) return;
+      setLoading(true);
+      setError(null);
+
+      try {
+        const response = await fetch("/api/wz_users/devices", {
+          method: "GET",
+          cache: "no-store",
+          credentials: "include",
+          signal,
+        });
+        const payload = (await response.json().catch(() => ({}))) as DevicesApiResponse;
+
+        if (!response.ok || !payload?.ok) {
+          throw new Error(
+            String(payload?.error || "Nao foi possivel carregar os dispositivos."),
+          );
+        }
+
+        if (!mountedRef.current) return;
+        const activeOthers = Array.isArray(payload.others) ? payload.others : [];
+        const history = Array.isArray(payload.history) ? payload.history : [];
+        setCurrentDevice(payload.current || null);
+        setOtherDevices([...activeOthers, ...history]);
+      } catch (fetchError) {
+        if (signal?.aborted || !mountedRef.current) return;
+        setCurrentDevice(null);
+        setOtherDevices([]);
+        setError(
+          fetchError instanceof Error
+            ? fetchError.message
+            : "Nao foi possivel carregar os dispositivos.",
+        );
+      } finally {
+        if (!signal?.aborted && mountedRef.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const controller = new AbortController();
+    void loadDevices(controller.signal);
+    return () => {
+      mountedRef.current = false;
+      controller.abort();
+    };
+  }, [loadDevices]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void loadDevices();
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [loadDevices]);
+
+  const handleLogoutDevice = useCallback(async (sessionId: string) => {
+    const id = String(sessionId || "").trim();
+    if (!id) return;
+
+    setBusySessionId(id);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/wz_users/devices", {
+        method: "DELETE",
+        cache: "no-store",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ sessionId: id }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(
+          String(payload?.error || "Nao foi possivel deslogar este dispositivo."),
+        );
+      }
+
+      setOtherDevices((prev) => prev.filter((device) => device.id !== id));
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Nao foi possivel deslogar este dispositivo.",
+      );
+    } finally {
+      setBusySessionId((prev) => (prev === id ? null : prev));
+    }
+  }, []);
+
+  const handleLogoutAll = useCallback(async () => {
+    setBusyAll(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/wz_users/devices", {
+        method: "DELETE",
+        cache: "no-store",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ allOthers: true }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(
+          String(payload?.error || "Nao foi possivel deslogar os dispositivos."),
+        );
+      }
+
+      setOtherDevices([]);
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Nao foi possivel deslogar os dispositivos.",
+      );
+    } finally {
+      setBusyAll(false);
+    }
+  }, []);
+
+  const resolvedCurrentDevice = useMemo(() => {
+    if (currentDevice) return currentDevice;
+
+    if (!loading && !error) {
+      return {
+        id: "current-fallback",
+        label: "DISPOSITIVO ATUAL",
+        location: "Localizacao indisponivel",
+        lastSeenAt: null,
+        kind: "desktop" as const,
+      };
+    }
+
+    return null;
+  }, [currentDevice, error, loading]);
 
   return (
     <div className="mx-auto w-full max-w-[980px] pb-10 text-black/80">
       <p className="text-[15px] leading-[1.45] text-black/58">Aqui estao todos os dispositivos conectados a sua conta. Voce pode sair de cada um individualmente ou de todos os outros ao mesmo tempo.</p>
       <p className="mt-3 text-[15px] leading-[1.45] text-black/58">Se voce nao reconhecer alguma sessao ativa, saia do dispositivo e altere sua senha imediatamente.</p>
+      {error && <p className="mt-4 text-[14px] font-medium text-[#c04b44]">{error}</p>}
 
       <section className="mt-10">
         <h3 className="text-[20px] font-semibold text-black/82">Dispositivo atual</h3>
         <div className="mt-4 border-t border-black/10" />
-        <div className="mt-4 flex items-center gap-4 -mx-2 rounded-xl px-2 py-2">
-          <DeviceIconBadge />
-          <div><p className="text-[15px] font-semibold text-black/78">WINDOWS - DISCORD CLIENT</p><p className="mt-1 text-[15px] text-black/58">Maua, Sao Paulo, Brazil</p></div>
-        </div>
+        {!resolvedCurrentDevice ? (
+          <div className="mt-4 rounded-xl border border-black/10 bg-white/70 px-4 py-4 text-[14px] text-black/55">
+            {loading ? "Carregando dispositivo atual..." : "Dispositivo atual indisponivel."}
+          </div>
+        ) : (
+          <div className="mt-4 flex items-center gap-4 -mx-2 rounded-xl px-2 py-2">
+            <DeviceIconBadge mobile={isMobileDeviceKind(resolvedCurrentDevice.kind)} />
+            <div>
+              <p className="text-[15px] font-semibold text-black/78">{resolvedCurrentDevice.label}</p>
+              <p className="mt-1 text-[15px] text-black/58">
+                {resolvedCurrentDevice.location || "Localizacao indisponivel"}
+                {resolvedCurrentDevice.lastSeenAt
+                  ? ` - ${formatDeviceSeenLabel(resolvedCurrentDevice.lastSeenAt)}`
+                  : ""}
+              </p>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="mt-10">
         <h3 className="text-[20px] font-semibold text-black/82">Outros dispositivos</h3>
         <div className="mt-4 border-t border-black/10" />
         <div className="mt-4 overflow-hidden rounded-xl border border-black/10 bg-white/70">
-          {devices.map(([title, location, seen, kind], idx) => (
-            <div key={title + seen} className={cx("flex items-center gap-4 px-4 py-5", idx > 0 && "border-t border-black/10")}>
-              <DeviceIconBadge mobile={kind === "mobile"} />
-              <div className="min-w-0 flex-1"><p className="text-[15px] font-semibold text-black/78">{title}</p><p className="mt-1 truncate text-[15px] text-black/58">{location} - {seen}</p></div>
-              <button type="button" className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-black/45 transition-all duration-220 hover:bg-black/[0.05] hover:text-black/75"><X className="h-5 w-5" /></button>
+          {!otherDevices.length ? (
+            <div className="px-4 py-5 text-[14px] text-black/55">
+              {loading ? "Carregando outros dispositivos..." : "Nenhum outro dispositivo conectado."}
             </div>
-          ))}
+          ) : (
+            otherDevices.map((device, idx) => (
+              <div key={device.id} className={cx("flex items-center gap-4 px-4 py-5", idx > 0 && "border-t border-black/10")}>
+                <DeviceIconBadge mobile={isMobileDeviceKind(device.kind)} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[15px] font-semibold text-black/78">{device.label}</p>
+                  <p className="mt-1 truncate text-[15px] text-black/58">
+                    {device.location || "Localizacao indisponivel"} - {formatDeviceSeenLabel(device.lastSeenAt)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleLogoutDevice(device.id)}
+                  disabled={Boolean(device.revokedAt) || busyAll || busySessionId === device.id}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-black/45 transition-all duration-220 hover:bg-black/[0.05] hover:text-black/75 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            ))
+          )}
         </div>
       </section>
 
       <div className="mt-8 flex justify-center">
-        <button type="button" className="rounded-full bg-[#171717] px-6 py-3 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992]">Deslogar de todos dispositivos</button>
+        <button
+          type="button"
+          onClick={() => void handleLogoutAll()}
+          disabled={busyAll || loading || !otherDevices.length}
+          className="rounded-full bg-[#171717] px-6 py-3 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {busyAll ? "Deslogando..." : "Deslogar de todos dispositivos"}
+        </button>
       </div>
     </div>
   );

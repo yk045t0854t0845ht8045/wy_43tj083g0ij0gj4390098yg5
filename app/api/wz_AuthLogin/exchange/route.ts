@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { setSessionCookie } from "../_session";
+import { registerIssuedSession } from "../_session_devices";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +36,6 @@ function base64UrlDecodeToString(input: string) {
 }
 
 function getTicketSecret() {
-  // ✅ usa o mesmo padrão que você já tinha, mas prioriza SESSION_SECRET
   return process.env.SESSION_SECRET || process.env.WZ_AUTH_SECRET || "";
 }
 
@@ -45,33 +45,22 @@ function signTicket(payloadB64: string, secret: string) {
   );
 }
 
-function isSafeNextPath(p: string) {
-  if (!p) return false;
-  if (!p.startsWith("/")) return false;
-  if (p.startsWith("//")) return false;
-  if (p.includes("\n") || p.includes("\r")) return false;
+function applyNoStore(res: NextResponse) {
+  res.headers.set("Cache-Control", NO_STORE_HEADERS["Cache-Control"]);
+  res.headers.set("Pragma", NO_STORE_HEADERS.Pragma);
+  res.headers.set("Expires", NO_STORE_HEADERS.Expires);
+}
+
+function isSafeNextPath(path: string) {
+  if (!path) return false;
+  if (!path.startsWith("/")) return false;
+  if (path.startsWith("//")) return false;
+  if (path.includes("\n") || path.includes("\r")) return false;
   return true;
 }
 
-function sanitizeFullName(v?: string | null) {
-  const clean = String(v || "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!clean) return undefined;
-  return clean.slice(0, 120);
-}
-
-export async function GET(req: Request) {
-  try {
-    const url = new URL(req.url);
-
-    const ticket = String(url.searchParams.get("ticket") || "");
-    const next = String(url.searchParams.get("next") || "").trim();
-
 function isAllowedReturnToAbsolute(u: URL) {
   const host = u.hostname.toLowerCase();
-
-  // ✅ permite apenas seus domínios (ajuste se precisar)
   const allowed =
     host === "wyzer.com.br" ||
     host === "www.wyzer.com.br" ||
@@ -86,10 +75,8 @@ function isAllowedReturnToAbsolute(u: URL) {
 function sanitizeNext(raw: string) {
   if (!raw) return "/";
 
-  // path relativo seguro
   if (isSafeNextPath(raw)) return raw;
 
-  // URL absoluta segura (returnTo)
   try {
     const u = new URL(raw);
     if (isAllowedReturnToAbsolute(u)) return u.toString();
@@ -98,84 +85,116 @@ function sanitizeNext(raw: string) {
   return "/";
 }
 
-const safeNext = sanitizeNext(next);
+function toRedirectTarget(next: string, origin: string) {
+  if (/^https?:\/\//i.test(next)) return next;
+  return new URL(next, origin).toString();
+}
 
-    // sem ticket -> só vai pro next (sem cookie)
+function sanitizeFullName(v?: string | null) {
+  const clean = String(v || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return undefined;
+  return clean.slice(0, 120);
+}
+
+function normalizeLoginMethod(value?: string | null) {
+  const clean = String(value || "").trim().toLowerCase();
+  if (
+    clean === "password" ||
+    clean === "email_code" ||
+    clean === "sms_code" ||
+    clean === "totp" ||
+    clean === "passkey" ||
+    clean === "trusted" ||
+    clean === "exchange" ||
+    clean === "sync"
+  ) {
+    return clean;
+  }
+  return "exchange";
+}
+
+function normalizeLoginFlow(value?: string | null) {
+  const clean = String(value || "").trim().toLowerCase();
+  if (clean === "login" || clean === "register") return clean;
+  return "unknown";
+}
+
+function parseBooleanFlag(value?: string | null) {
+  const clean = String(value || "").trim().toLowerCase();
+  if (!clean) return false;
+  return clean === "1" || clean === "true" || clean === "yes";
+}
+
+export async function GET(req: Request) {
+  try {
+    const url = new URL(req.url);
+
+    const ticket = String(url.searchParams.get("ticket") || "");
+    const safeNext = sanitizeNext(String(url.searchParams.get("next") || "").trim());
+    const loginMethod = normalizeLoginMethod(url.searchParams.get("lm"));
+    const loginFlow = normalizeLoginFlow(url.searchParams.get("lf"));
+    const isAccountCreationSession =
+      parseBooleanFlag(url.searchParams.get("acs")) || loginFlow === "register";
+
+    const redirectTarget = toRedirectTarget(safeNext, url.origin);
+
     if (!ticket || !ticket.includes(".")) {
-      const redirectTarget = /^https?:\/\//i.test(safeNext)
-  ? safeNext
-  : new URL(safeNext, url.origin).toString();
-
-const res = NextResponse.redirect(redirectTarget);
-      res.headers.set("Cache-Control", NO_STORE_HEADERS["Cache-Control"]);
-      res.headers.set("Pragma", NO_STORE_HEADERS["Pragma"]);
-      res.headers.set("Expires", NO_STORE_HEADERS["Expires"]);
+      const res = NextResponse.redirect(redirectTarget, 303);
+      applyNoStore(res);
       return res;
     }
 
     const secret = getTicketSecret();
     if (!secret) {
       return NextResponse.json(
-        { ok: false, error: "SESSION_SECRET/WZ_AUTH_SECRET não configurado." },
+        { ok: false, error: "SESSION_SECRET/WZ_AUTH_SECRET nao configurado." },
         { status: 500, headers: NO_STORE_HEADERS },
       );
     }
 
     const [payloadB64, sig] = ticket.split(".");
-    const expected = signTicket(payloadB64, secret);
-
-    if (sig !== expected) {
-      const redirectTarget = /^https?:\/\//i.test(safeNext)
-  ? safeNext
-  : new URL(safeNext, url.origin).toString();
-
-const res = NextResponse.redirect(redirectTarget);
-      res.headers.set("Cache-Control", NO_STORE_HEADERS["Cache-Control"]);
-      res.headers.set("Pragma", NO_STORE_HEADERS["Pragma"]);
-      res.headers.set("Expires", NO_STORE_HEADERS["Expires"]);
+    if (!payloadB64 || !sig || signTicket(payloadB64, secret) !== sig) {
+      const res = NextResponse.redirect(redirectTarget, 303);
+      applyNoStore(res);
       return res;
     }
 
     const raw = base64UrlDecodeToString(payloadB64);
     const payload = JSON.parse(raw || "{}") as ExchangeTicketPayload;
 
-    const exp = Number(payload?.exp || 0); // exp em ms
-    const userId = String(payload?.userId || "");
-    const email = String(payload?.email || "");
+    const exp = Number(payload?.exp || 0);
+    const userId = String(payload?.userId || "").trim();
+    const email = String(payload?.email || "").trim().toLowerCase();
     const fullName = sanitizeFullName(payload?.fullName);
 
     if (!userId || !email || !exp || exp < Date.now()) {
-      const redirectTarget = /^https?:\/\//i.test(safeNext)
-  ? safeNext
-  : new URL(safeNext, url.origin).toString();
-
-const res = NextResponse.redirect(redirectTarget);
-      res.headers.set("Cache-Control", NO_STORE_HEADERS["Cache-Control"]);
-      res.headers.set("Pragma", NO_STORE_HEADERS["Pragma"]);
-      res.headers.set("Expires", NO_STORE_HEADERS["Expires"]);
+      const res = NextResponse.redirect(redirectTarget, 303);
+      applyNoStore(res);
       return res;
     }
 
-    // ✅ aqui SIM seta cookie no host atual (dashboard.wyzer.com.br)
-    const redirectTarget = /^https?:\/\//i.test(safeNext)
-  ? safeNext
-  : new URL(safeNext, url.origin).toString();
+    const res = NextResponse.redirect(redirectTarget, 303);
+    const sessionPayload = setSessionCookie(res, { userId, email, fullName }, req.headers);
 
-const res = NextResponse.redirect(redirectTarget);
-    setSessionCookie(res, { userId, email, fullName }, req.headers);
+    await registerIssuedSession({
+      headers: req.headers,
+      userId,
+      email,
+      session: sessionPayload,
+      loginMethod,
+      loginFlow,
+      isAccountCreationSession,
+    });
 
-    res.headers.set("Cache-Control", NO_STORE_HEADERS["Cache-Control"]);
-    res.headers.set("Pragma", NO_STORE_HEADERS["Pragma"]);
-    res.headers.set("Expires", NO_STORE_HEADERS["Expires"]);
-
+    applyNoStore(res);
     return res;
-  } catch (e: unknown) {
-    console.error("[exchange] error:", e);
+  } catch (error) {
+    console.error("[exchange] error:", error);
     const url = new URL(req.url);
-    const res = NextResponse.redirect(new URL("/", url.origin));
-    res.headers.set("Cache-Control", NO_STORE_HEADERS["Cache-Control"]);
-    res.headers.set("Pragma", NO_STORE_HEADERS["Pragma"]);
-    res.headers.set("Expires", NO_STORE_HEADERS["Expires"]);
+    const res = NextResponse.redirect(new URL("/", url.origin), 303);
+    applyNoStore(res);
     return res;
   }
 }

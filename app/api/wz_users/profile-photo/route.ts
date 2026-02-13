@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { readSessionFromRequest } from "@/app/api/wz_AuthLogin/_session";
+import { readActiveSessionFromRequest } from "@/app/api/wz_AuthLogin/_active_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 
 export const dynamic = "force-dynamic";
@@ -189,7 +189,7 @@ function extractObjectPathFromPublicUrl(photoLink?: string | null) {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = readSessionFromRequest(req);
+    const session = await readActiveSessionFromRequest(req);
 
     if (!session) {
       return NextResponse.json(
@@ -323,7 +323,7 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const session = readSessionFromRequest(req);
+    const session = await readActiveSessionFromRequest(req);
 
     if (!session) {
       return NextResponse.json(

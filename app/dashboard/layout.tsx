@@ -1,4 +1,4 @@
-import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session";
+import { readActiveSessionFromCookie } from "@/app/api/wz_AuthLogin/_active_session";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -56,7 +56,11 @@ export default async function DashboardLayout({
 
   if (!shouldBypassAuth) {
     const cookieHeader = h.get("cookie");
-    const session = readSessionFromCookieHeader(cookieHeader, headerLike);
+    const session = await readActiveSessionFromCookie({
+      cookieHeader,
+      headers: headerLike,
+      seedIfMissing: true,
+    });
 
     if (!session) {
       redirect(buildLoginRedirectUrl(hostHeader));

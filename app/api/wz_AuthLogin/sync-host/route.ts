@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { readSessionFromRequest, setSessionCookie } from "../_session";
+import { setSessionCookie } from "../_session";
+import { readActiveSessionFromRequest } from "../_active_session";
+import { registerIssuedSession } from "../_session_devices";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -61,14 +63,16 @@ export async function GET(req: NextRequest) {
   res.headers.set("Pragma", NO_STORE_HEADERS.Pragma);
   res.headers.set("Expires", NO_STORE_HEADERS.Expires);
 
-  const session = readSessionFromRequest(req);
+  const session = await readActiveSessionFromRequest(req, {
+    seedIfMissing: false,
+  });
   if (!session) return res;
 
   const now = Math.floor(Date.now() / 1000);
   const remainingSec = Math.max(60, Number(session.exp) - now);
   const ttlDays = remainingSec / (24 * 60 * 60);
 
-  setSessionCookie(
+  const sessionPayload = setSessionCookie(
     res,
     {
       userId: String(session.userId),
@@ -78,6 +82,15 @@ export async function GET(req: NextRequest) {
     },
     req,
   );
+  await registerIssuedSession({
+    headers: req.headers,
+    userId: String(session.userId),
+    email: String(session.email),
+    session: sessionPayload,
+    loginMethod: "sync",
+    loginFlow: "unknown",
+    isAccountCreationSession: false,
+  });
 
   return res;
 }

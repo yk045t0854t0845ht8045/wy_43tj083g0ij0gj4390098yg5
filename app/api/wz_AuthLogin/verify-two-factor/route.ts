@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { onlyDigits } from "../_codes";
 import { setSessionCookie } from "../_session";
+import { registerIssuedSession } from "../_session_devices";
 import { supabaseAdmin } from "../_supabase";
 import {
   createTrustedLoginToken,
@@ -241,7 +242,9 @@ export async function POST(req: Request) {
       const nextUrl =
         `${dashboard}/api/wz_AuthLogin/exchange` +
         `?ticket=${encodeURIComponent(dashboardTicket)}` +
-        `&next=${encodeURIComponent(nextSafe)}`;
+        `&next=${encodeURIComponent(nextSafe)}` +
+        `&lm=totp` +
+        `&lf=login`;
 
       const res = NextResponse.json(
         { ok: true, nextUrl },
@@ -258,11 +261,21 @@ export async function POST(req: Request) {
 
     const nextUrl = `${dashboard}${nextSafe.startsWith("/") ? nextSafe : "/"}`;
     const res = NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
-    setSessionCookie(
+    const sessionPayload = setSessionCookie(
       res,
       { userId: String(payload.uid), email: payload.email, fullName: resolvedFullName },
       req.headers,
     );
+    await registerIssuedSession({
+      headers: req.headers,
+      userId: String(payload.uid),
+      authUserId: null,
+      email: payload.email,
+      session: sessionPayload,
+      loginMethod: "totp",
+      loginFlow: "login",
+      isAccountCreationSession: false,
+    });
     await issueTrustedLogin(sb, payload.email, res);
     return res;
   } catch (error) {

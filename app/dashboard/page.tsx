@@ -1,7 +1,7 @@
 // app/(dashboard)/page.tsx
 import { headers } from "next/headers";
 import Link from "next/link";
-import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session";
+import { readActiveSessionFromCookie } from "@/app/api/wz_AuthLogin/_active_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import DashboardShell from "./_components/DashboardShell";
 
@@ -671,7 +671,11 @@ export default async function DashboardHomePage() {
   const shouldBypassAuth = isLocalDevHost(hostHeader);
 
   const cookieHeader = h.get("cookie");
-  const session = readSessionFromCookieHeader(cookieHeader, headerLike);
+  const session = await readActiveSessionFromCookie({
+    cookieHeader,
+    headers: headerLike,
+    seedIfMissing: true,
+  });
   const sidebarEmail = session?.email || (shouldBypassAuth ? "local@localhost" : "");
   let sidebarNickname = shouldBypassAuth ? "Local User" : "Usuario";
   let accountFullName = shouldBypassAuth ? "Local User" : "Usuario";

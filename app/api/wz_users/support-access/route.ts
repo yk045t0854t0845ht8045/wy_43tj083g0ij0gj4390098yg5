@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { readSessionFromRequest } from "@/app/api/wz_AuthLogin/_session";
+import { readActiveSessionFromRequest } from "@/app/api/wz_AuthLogin/_active_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 
 export const dynamic = "force-dynamic";
@@ -153,7 +153,7 @@ async function findWzUserRow(params: {
 }
 
 async function getSessionAndUser(req: NextRequest) {
-  const session = readSessionFromRequest(req);
+  const session = await readActiveSessionFromRequest(req);
   if (!session) {
     return {
       ok: false as const,
@@ -260,4 +260,3 @@ export async function PUT(req: NextRequest) {
     );
   }
 }
-

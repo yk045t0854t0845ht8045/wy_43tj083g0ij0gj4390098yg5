@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
-import { readSessionFromRequest } from "@/app/api/wz_AuthLogin/_session";
+import { readActiveSessionFromRequest } from "@/app/api/wz_AuthLogin/_active_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import { createPasskeyAuthProof } from "@/app/api/wz_users/_passkey_auth_proof";
 
@@ -391,7 +391,7 @@ function parseSignCount(authenticatorData: string) {
 }
 
 async function getSessionContext(req: NextRequest) {
-  const session = readSessionFromRequest(req);
+  const session = await readActiveSessionFromRequest(req);
   if (!session) {
     return {
       ok: false as const,

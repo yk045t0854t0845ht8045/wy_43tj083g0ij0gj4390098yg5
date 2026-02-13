@@ -11,6 +11,7 @@ import {
 } from "../_codes";
 import { sendLoginCodeEmail } from "../_email";
 import { setSessionCookie } from "../_session";
+import { registerIssuedSession } from "../_session_devices";
 import {
   hashTrustedLoginToken,
   readTrustedLoginTokenFromCookieHeader,
@@ -269,7 +270,9 @@ export async function POST(req: Request) {
             const nextUrl =
               `${dashboard}/api/wz_AuthLogin/exchange` +
               `?ticket=${encodeURIComponent(ticket)}` +
-              `&next=${encodeURIComponent(nextSafe)}`;
+              `&next=${encodeURIComponent(nextSafe)}` +
+              `&lm=trusted` +
+              `&lf=login`;
 
             const res = NextResponse.json(
               { ok: true, nextUrl, trustedBypass: true },
@@ -285,7 +288,21 @@ export async function POST(req: Request) {
             { ok: true, nextUrl, trustedBypass: true },
             { status: 200, headers: NO_STORE_HEADERS },
           );
-          setSessionCookie(res, { userId, email, fullName: resolvedFullName }, req.headers);
+          const sessionPayload = setSessionCookie(
+            res,
+            { userId, email, fullName: resolvedFullName },
+            req.headers,
+          );
+          await registerIssuedSession({
+            headers: req.headers,
+            userId,
+            authUserId: fallbackAuthUserId || null,
+            email,
+            session: sessionPayload,
+            loginMethod: "trusted",
+            loginFlow: "login",
+            isAccountCreationSession: false,
+          });
           setTrustedLoginCookie(res, trustedToken);
           return res;
         }
