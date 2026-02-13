@@ -97,6 +97,10 @@ function getDashboardOriginForLoginHost(host: string) {
   return "https://dashboard.wyzer.com.br";
 }
 
+function buildReactivateUrlForLoginHost(host: string) {
+  return new URL("/signup/reactivate", `${getDashboardOriginForLoginHost(host)}/`).toString();
+}
+
 function isAllowedReturnToAbsolute(url: URL) {
   const host = url.hostname.toLowerCase();
   const protoOk = url.protocol === "https:" || url.protocol === "http:";
@@ -395,6 +399,22 @@ export default function LinkLoginPage() {
   const pathname = usePathname();
   const router = useRouter();
 
+  const redirectBlockedAccountIfNeeded = useCallback(
+    (payload?: Record<string, unknown> | null) => {
+      const rawState = String(payload?.accountState || payload?.state || "")
+        .trim()
+        .toLowerCase();
+      if (rawState !== "pending_deletion" && rawState !== "deactivated") {
+        return false;
+      }
+      if (typeof window === "undefined") return true;
+      const host = window.location.hostname.toLowerCase();
+      window.location.assign(buildReactivateUrlForLoginHost(host));
+      return true;
+    },
+    [],
+  );
+
   const EASE = useMemo(() => [0.2, 0.8, 0.2, 1] as const, []);
   const DUR = useMemo(
     () => ({
@@ -529,10 +549,15 @@ export default function LinkLoginPage() {
           cache: "no-store",
           credentials: "include",
         });
-        if (!response.ok || cancelled) return;
-
-        const payload = await response.json().catch(() => ({}));
-        if (!payload?.ok || cancelled) return;
+        const payload = (await response.json().catch(() => ({}))) as Record<
+          string,
+          unknown
+        >;
+        if (cancelled) return;
+        if ((!response.ok || !payload?.ok) && redirectBlockedAccountIfNeeded(payload)) {
+          return;
+        }
+        if (!response.ok || !payload?.ok || cancelled) return;
 
         const returnToRaw = url.searchParams.get("returnTo") || "";
         const safeReturnTo = resolveSafeReturnTo(returnToRaw, host);
@@ -551,7 +576,7 @@ export default function LinkLoginPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [AUTO_REDIRECT_GUARD_KEY, redirectBlockedAccountIfNeeded]);
 
   // cooldown resend
   useEffect(() => {
@@ -848,8 +873,11 @@ export default function LinkLoginPage() {
           body: JSON.stringify(payload),
         });
 
-        const j = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(j?.error || "Falha ao iniciar validacao.");
+        const j = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        if (!res.ok || !j?.ok) {
+          if (redirectBlockedAccountIfNeeded(j)) return;
+          throw new Error(String(j?.error || "Falha ao iniciar validacao."));
+        }
 
         if (j?.nextUrl) {
           const nextUrl = String(j.nextUrl);
@@ -881,7 +909,18 @@ export default function LinkLoginPage() {
         setBusy(false);
       }
     },
-    [canStart, busy, email, check.state, fullName, phone, cpf, password, router],
+    [
+      canStart,
+      busy,
+      email,
+      check.state,
+      fullName,
+      phone,
+      cpf,
+      password,
+      router,
+      redirectBlockedAccountIfNeeded,
+    ],
   );
 
   const [phoneMaskFromServer, setPhoneMaskFromServer] = useState<string>("");
@@ -951,6 +990,9 @@ export default function LinkLoginPage() {
 
         const j = (await res.json().catch(() => ({}))) as Record<string, unknown>;
         if (!res.ok || !j?.ok) {
+          if (redirectBlockedAccountIfNeeded(j)) {
+            return;
+          }
           if (
             openSecondStepChallenge(
               j,
@@ -1028,6 +1070,7 @@ export default function LinkLoginPage() {
       password,
       returnTo,
       openSecondStepChallenge,
+      redirectBlockedAccountIfNeeded,
     ],
   );
 
@@ -1056,6 +1099,9 @@ export default function LinkLoginPage() {
 
         const j = await res.json().catch(() => ({}));
         if (!res.ok || !j?.ok) {
+          if (redirectBlockedAccountIfNeeded(j as Record<string, unknown>)) {
+            return;
+          }
           if (j?.twoFactorTicket) {
             setTwoFactorTicket(String(j.twoFactorTicket || ""));
           }
@@ -1091,6 +1137,7 @@ export default function LinkLoginPage() {
       twoFactorTicket,
       verifyingTwoFactorCodeBusy,
       setTwoFactorFeedback,
+      redirectBlockedAccountIfNeeded,
     ],
   );
 
@@ -1122,6 +1169,9 @@ export default function LinkLoginPage() {
 
       const startPayload = (await startRes.json().catch(() => ({}))) as Record<string, unknown>;
       if (!startRes.ok || !startPayload?.ok) {
+        if (redirectBlockedAccountIfNeeded(startPayload)) {
+          return;
+        }
         if (startPayload?.twoFactorTicket) {
           setTwoFactorTicket(String(startPayload.twoFactorTicket || ""));
         }
@@ -1227,6 +1277,9 @@ export default function LinkLoginPage() {
 
       const finishPayload = (await finishRes.json().catch(() => ({}))) as Record<string, unknown>;
       if (!finishRes.ok || !finishPayload?.ok) {
+        if (redirectBlockedAccountIfNeeded(finishPayload)) {
+          return;
+        }
         throw new Error(
           String(finishPayload?.error || "Nao foi possivel concluir a validacao com Windows Hello."),
         );
@@ -1261,6 +1314,7 @@ export default function LinkLoginPage() {
     twoFactorTicket,
     verifyingPasskeyLoginBusy,
     setTwoFactorFeedback,
+    redirectBlockedAccountIfNeeded,
   ]);
 
   const chooseTwoFactorMethod = useCallback(
@@ -1343,6 +1397,9 @@ export default function LinkLoginPage() {
 
         const j = await res.json().catch(() => ({}));
         if (!res.ok || !j?.ok) {
+          if (redirectBlockedAccountIfNeeded(j as Record<string, unknown>)) {
+            return;
+          }
           const fallbackError =
             res.status === 429
               ? "Voce atingiu o limite de 7 tentativas. Reenvie o codigo."
@@ -1371,7 +1428,16 @@ export default function LinkLoginPage() {
         setVerifyingSmsCodeBusy(false); // ✅ destrava
       }
     },
-    [email, smsCode, busy, verifyingSmsCodeBusy, router, password, returnTo],
+    [
+      email,
+      smsCode,
+      busy,
+      verifyingSmsCodeBusy,
+      router,
+      password,
+      returnTo,
+      redirectBlockedAccountIfNeeded,
+    ],
   );
 
   const resend = useCallback(async () => {

@@ -18,6 +18,7 @@ import {
 } from "../_trusted_login";
 import crypto from "crypto";
 import {
+  ACCOUNT_STATE_PENDING_DELETION,
   ACCOUNT_STATE_DEACTIVATED,
   canReuseEmailForRegister,
   resolveAccountLifecycleByEmail,
@@ -235,6 +236,19 @@ export async function POST(req: Request) {
       syncedLifecycle?.state === ACCOUNT_STATE_DEACTIVATED
         ? canReuseEmailForRegister(syncedLifecycle)
         : false;
+
+    if (syncedLifecycle?.state === ACCOUNT_STATE_PENDING_DELETION) {
+      return NextResponse.json(
+        {
+          ok: false,
+          accountState: syncedLifecycle.state,
+          restoreDeadlineAt: syncedLifecycle.restoreDeadlineAt,
+          error:
+            "Esta conta esta em exclusao temporaria. Reative no prazo para voltar a usar o painel.",
+        },
+        { status: 409, headers: NO_STORE_HEADERS },
+      );
+    }
 
     if (
       syncedLifecycle?.state === ACCOUNT_STATE_DEACTIVATED &&

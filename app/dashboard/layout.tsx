@@ -83,14 +83,16 @@ export default async function DashboardLayout({
       sessionEmail: session.email,
     });
 
-    if (lifecycle) {
-      const synced = await syncAccountLifecycleIfNeeded({ sb, record: lifecycle });
-      if (
-        synced.state === ACCOUNT_STATE_PENDING_DELETION ||
-        synced.state === ACCOUNT_STATE_DEACTIVATED
-      ) {
-        redirect(buildReactivateUrl(hostHeader));
-      }
+    if (!lifecycle) {
+      redirect(buildLoginRedirectUrl(hostHeader));
+    }
+
+    const synced = await syncAccountLifecycleIfNeeded({ sb, record: lifecycle });
+    if (
+      synced.state === ACCOUNT_STATE_PENDING_DELETION ||
+      synced.state === ACCOUNT_STATE_DEACTIVATED
+    ) {
+      redirect(buildReactivateUrl(hostHeader));
     }
   }
 

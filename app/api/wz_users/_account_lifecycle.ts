@@ -373,12 +373,18 @@ export async function resolveAccountLifecycleBySession(params: {
   sessionUserId?: string | null;
   sessionEmail?: string | null;
 }) {
+  const sessionEmail = normalizeEmail(params.sessionEmail);
   const found = await findAccountLifecycleRow(params);
-  if (!found.row) return null;
+  if (!found.row) {
+    if (!sessionEmail) return null;
+    return resolveAccountLifecycleByEmail({
+      sb: params.sb,
+      email: sessionEmail,
+    });
+  }
   const mapped = mapRowToRecord(found.row, found.schemaReady);
   if (!mapped) return null;
 
-  const sessionEmail = normalizeEmail(params.sessionEmail);
   if (!sessionEmail || mapped.state !== ACCOUNT_STATE_ACTIVE) return mapped;
 
   const byEmail = await resolveAccountLifecycleByEmail({

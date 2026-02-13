@@ -12,6 +12,7 @@ import {
 import { readLoginTwoFactorTicket } from "../_login_two_factor_ticket";
 import { resolveTwoFactorState, verifyTwoFactorCodeWithRecovery } from "@/app/api/_twoFactor";
 import {
+  ACCOUNT_STATE_PENDING_DELETION,
   ACCOUNT_STATE_DEACTIVATED,
   resolveAccountLifecycleBySession,
   syncAccountLifecycleIfNeeded,
@@ -208,6 +209,19 @@ export async function POST(req: Request) {
     const syncedLifecycle = lifecycle
       ? await syncAccountLifecycleIfNeeded({ sb, record: lifecycle })
       : null;
+    if (syncedLifecycle?.state === ACCOUNT_STATE_PENDING_DELETION) {
+      return NextResponse.json(
+        {
+          ok: false,
+          accountState: syncedLifecycle.state,
+          restoreDeadlineAt: syncedLifecycle.restoreDeadlineAt,
+          error:
+            "Esta conta esta em exclusao temporaria. Reative no prazo para voltar a usar o painel.",
+        },
+        { status: 409, headers: NO_STORE_HEADERS },
+      );
+    }
+
     if (syncedLifecycle?.state === ACCOUNT_STATE_DEACTIVATED) {
       return NextResponse.json(
         {
