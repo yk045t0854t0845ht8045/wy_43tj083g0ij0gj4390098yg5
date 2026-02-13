@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../_supabase";
+import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -166,4 +166,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: message }, { status: 500, headers: NO_STORE_HEADERS });
   }
 }
-
