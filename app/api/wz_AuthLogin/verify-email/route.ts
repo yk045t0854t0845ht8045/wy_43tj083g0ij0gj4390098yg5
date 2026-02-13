@@ -8,7 +8,7 @@ import {
   onlyDigits,
   isValidE164BRMobile,
 } from "../_codes";
-import { sendSmsCode } from "../_sms";
+import { sendAuthSmsCode } from "../_sms";
 import { setSessionCookie } from "../_session";
 import { registerIssuedSession } from "../_session_devices";
 import {
@@ -481,7 +481,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Falha ao gerar SMS." }, { status: 500, headers: NO_STORE_HEADERS });
     }
 
-    await sendSmsCode(phoneE164, smsCode);
+    await sendAuthSmsCode(phoneE164, smsCode);
 
     return NextResponse.json(
       { ok: true, next: "sms", phoneMask: maskPhoneE164(phoneE164) },

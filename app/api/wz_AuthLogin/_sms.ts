@@ -8,6 +8,26 @@ type SmsSendResult = {
   rawStatus: string | null;
 };
 
+type SendSmsContext = "default" | "auth" | "diagnostic";
+
+type SendSmsOptions = {
+  context?: SendSmsContext;
+  timeoutMs?: number;
+  webhookMaxRetries?: number;
+  webhookRetryBaseMs?: number;
+  allowConsoleFallback?: boolean;
+  providerOrder?: SmsProvider[];
+};
+
+type ResolvedSendSmsOptions = {
+  context: SendSmsContext;
+  timeoutMs: number;
+  webhookMaxRetries: number;
+  webhookRetryBaseMs: number;
+  allowConsoleFallback: boolean;
+  providerOrder: SmsProvider[];
+};
+
 function parseBool(raw: string | undefined, fallback: boolean) {
   const value = String(raw || "").trim().toLowerCase();
   if (!value) return fallback;
@@ -21,6 +41,15 @@ function parseBool(raw: string | undefined, fallback: boolean) {
 }
 
 function parseIntSafe(raw: string | undefined, fallback: number, min: number, max: number) {
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return fallback;
+  const int = Math.floor(value);
+  if (int < min || int > max) return fallback;
+  return int;
+}
+
+function parseIntFromUnknown(raw: unknown, fallback: number, min: number, max: number) {
+  if (raw === null || raw === undefined) return fallback;
   const value = Number(raw);
   if (!Number.isFinite(value)) return fallback;
   const int = Math.floor(value);
@@ -74,6 +103,13 @@ function maskPhone(phoneE164: string) {
   return `+${visiblePrefix}${"*".repeat(Math.max(0, digits.length - 4))}${visibleSuffix}`;
 }
 
+function samePhoneNumber(a: string, b: string) {
+  const da = onlyDigits(a);
+  const db = onlyDigits(b);
+  if (!da || !db) return false;
+  return da === db;
+}
+
 function splitCsv(value: string) {
   return String(value || "")
     .split(",")
@@ -94,8 +130,28 @@ function buildCodeMessage(code: string) {
     .trim();
 }
 
-function getSmsTimeoutMs() {
+function getDefaultSmsTimeoutMs() {
   return parseIntSafe(process.env.SMS_TIMEOUT_MS, 15000, 2000, 60000);
+}
+
+function getAuthSmsTimeoutMs() {
+  return parseIntSafe(process.env.SMS_AUTH_TIMEOUT_MS, 6000, 1000, 30000);
+}
+
+function getDefaultWebhookMaxRetries() {
+  return parseIntSafe(process.env.SMS_WEBHOOK_MAX_RETRIES, 2, 0, 5);
+}
+
+function getAuthWebhookMaxRetries() {
+  return parseIntSafe(process.env.SMS_AUTH_WEBHOOK_MAX_RETRIES, 1, 0, 3);
+}
+
+function getDefaultWebhookRetryBaseMs() {
+  return parseIntSafe(process.env.SMS_WEBHOOK_RETRY_BASE_MS, 350, 100, 5000);
+}
+
+function getAuthWebhookRetryBaseMs() {
+  return parseIntSafe(process.env.SMS_AUTH_WEBHOOK_RETRY_BASE_MS, 250, 50, 2500);
 }
 
 function isSmsDebugEnabled() {
@@ -132,6 +188,76 @@ function dedupeProviders(values: Array<SmsProvider | null>) {
   return out;
 }
 
+function resolveProviderOrder(override?: SmsProvider[]) {
+  if (Array.isArray(override) && override.length > 0) {
+    return dedupeProviders(override);
+  }
+
+  const listed = splitCsv(String(process.env.SMS_PROVIDER || ""))
+    .map((token) => normalizeProviderToken(token))
+    .filter((token): token is SmsProvider => Boolean(token));
+
+  if (listed.length > 0) {
+    return dedupeProviders(listed);
+  }
+
+  return dedupeProviders(["selfhost", "webhook", "console"]);
+}
+
+function shouldAllowConsoleFallback(context: SendSmsContext, explicit?: boolean) {
+  if (typeof explicit === "boolean") return explicit;
+  if (context === "auth") {
+    return parseBool(process.env.SMS_AUTH_ALLOW_CONSOLE_FALLBACK, false);
+  }
+
+  const isProd = process.env.NODE_ENV === "production";
+  return parseBool(process.env.SMS_DEV_CONSOLE_FALLBACK, !isProd);
+}
+
+function resolveSendSmsOptions(options?: SendSmsOptions): ResolvedSendSmsOptions {
+  const context: SendSmsContext = options?.context || "default";
+
+  const timeoutBase = context === "auth" ? getAuthSmsTimeoutMs() : getDefaultSmsTimeoutMs();
+  const timeoutMs = parseIntFromUnknown(options?.timeoutMs, timeoutBase, 1000, 60000);
+
+  const retryBase =
+    context === "auth" ? getAuthWebhookMaxRetries() : getDefaultWebhookMaxRetries();
+  const webhookMaxRetries = parseIntFromUnknown(
+    options?.webhookMaxRetries,
+    retryBase,
+    0,
+    5,
+  );
+
+  const retryDelayBase =
+    context === "auth" ? getAuthWebhookRetryBaseMs() : getDefaultWebhookRetryBaseMs();
+  const webhookRetryBaseMs = parseIntFromUnknown(
+    options?.webhookRetryBaseMs,
+    retryDelayBase,
+    50,
+    5000,
+  );
+
+  const allowConsoleFallback = shouldAllowConsoleFallback(
+    context,
+    options?.allowConsoleFallback,
+  );
+
+  let providerOrder = resolveProviderOrder(options?.providerOrder);
+  if (!allowConsoleFallback) {
+    providerOrder = providerOrder.filter((provider) => provider !== "console");
+  }
+
+  return {
+    context,
+    timeoutMs,
+    webhookMaxRetries,
+    webhookRetryBaseMs,
+    allowConsoleFallback,
+    providerOrder,
+  };
+}
+
 function resolveTwilioConfig() {
   const accountSid = String(process.env.TWILIO_ACCOUNT_SID || "").trim();
   const authToken = String(process.env.TWILIO_AUTH_TOKEN || "").trim();
@@ -152,18 +278,6 @@ function resolveTwilioConfig() {
     messagingServiceSid,
     statusCallbackUrl,
   };
-}
-
-function defaultProviderOrder() {
-  const listed = splitCsv(String(process.env.SMS_PROVIDER || ""))
-    .map((token) => normalizeProviderToken(token))
-    .filter((token): token is SmsProvider => Boolean(token));
-
-  if (listed.length > 0) {
-    return dedupeProviders(listed);
-  }
-
-  return dedupeProviders(["selfhost", "webhook", "console"]);
 }
 
 function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
@@ -263,12 +377,20 @@ async function sendViaTwilio(params: { to: string; message: string; timeoutMs: n
   };
 }
 
-function resolveWebhookConfig() {
+function resolveWebhookConfig(params?: {
+  maxRetries?: number;
+  retryBaseMs?: number;
+}) {
   const url = String(process.env.SMS_WEBHOOK_URL || "").trim();
   const token = String(process.env.SMS_WEBHOOK_TOKEN || "").trim();
   const signingSecret = String(process.env.SMS_WEBHOOK_SIGNING_SECRET || "").trim();
-  const maxRetries = parseIntSafe(process.env.SMS_WEBHOOK_MAX_RETRIES, 2, 0, 5);
-  const retryBaseMs = parseIntSafe(process.env.SMS_WEBHOOK_RETRY_BASE_MS, 350, 100, 5000);
+  const maxRetries = parseIntFromUnknown(params?.maxRetries, getDefaultWebhookMaxRetries(), 0, 5);
+  const retryBaseMs = parseIntFromUnknown(
+    params?.retryBaseMs,
+    getDefaultWebhookRetryBaseMs(),
+    50,
+    5000,
+  );
 
   return {
     configured: Boolean(url),
@@ -303,13 +425,25 @@ async function sendViaWebhook(params: {
   code: string;
   message: string;
   timeoutMs: number;
+  maxRetries: number;
+  retryBaseMs: number;
 }) {
-  const cfg = resolveWebhookConfig();
+  const cfg = resolveWebhookConfig({
+    maxRetries: params.maxRetries,
+    retryBaseMs: params.retryBaseMs,
+  });
   if (!cfg.configured) {
     throw new Error("SMS webhook nao configurado. Defina SMS_WEBHOOK_URL.");
   }
 
   const ownGatewayNumber = normalizeOwnGatewayNumber(String(process.env.SMS_OWN_NUMBER || ""));
+  const blockSelfSend = parseBool(process.env.SMS_BLOCK_SELF_SEND, true);
+
+  if (blockSelfSend && ownGatewayNumber && samePhoneNumber(params.to, ownGatewayNumber)) {
+    throw new Error(
+      "Destino de SMS igual ao numero do gateway. Para teste, use outro numero ou defina SMS_BLOCK_SELF_SEND=0.",
+    );
+  }
 
   let lastError = "Webhook SMS falhou.";
 
@@ -411,16 +545,12 @@ async function sendViaWebhook(params: {
   throw new Error(lastError);
 }
 
-function isConsoleFallbackEnabled() {
+function shouldExposeProviderErrors() {
   const isProd = process.env.NODE_ENV === "production";
-  return parseBool(process.env.SMS_DEV_CONSOLE_FALLBACK, !isProd);
+  return parseBool(process.env.SMS_EXPOSE_PROVIDER_ERRORS, !isProd);
 }
 
 async function sendViaConsole(params: { to: string; code: string; message: string }) {
-  if (!isConsoleFallbackEnabled()) {
-    throw new Error("Console fallback de SMS desativado.");
-  }
-
   console.log("[SMS][console] simulated send", {
     to: maskPhone(params.to),
     code: params.code,
@@ -435,7 +565,7 @@ async function sendViaConsole(params: { to: string; code: string; message: strin
   };
 }
 
-export async function sendSmsCode(phoneE164: string, code: string) {
+export async function sendSmsCode(phoneE164: string, code: string, options?: SendSmsOptions) {
   const to = normalizeE164(phoneE164);
   const cleanCode = String(code || "").trim();
 
@@ -447,8 +577,8 @@ export async function sendSmsCode(phoneE164: string, code: string) {
     throw new Error("Codigo invalido para envio de SMS.");
   }
 
+  const sendOptions = resolveSendSmsOptions(options);
   const message = buildCodeMessage(cleanCode);
-  const timeoutMs = getSmsTimeoutMs();
   const debug = isSmsDebugEnabled();
 
   if (isDryRunEnabled()) {
@@ -456,13 +586,24 @@ export async function sendSmsCode(phoneE164: string, code: string) {
       to: maskPhone(to),
       code: cleanCode,
       message,
-      providerOrder: defaultProviderOrder(),
+      context: sendOptions.context,
+      timeoutMs: sendOptions.timeoutMs,
+      providerOrder: sendOptions.providerOrder,
+      webhookMaxRetries: sendOptions.webhookMaxRetries,
+      webhookRetryBaseMs: sendOptions.webhookRetryBaseMs,
+      allowConsoleFallback: sendOptions.allowConsoleFallback,
       gatewayNumber: normalizeOwnGatewayNumber(String(process.env.SMS_OWN_NUMBER || "")),
     });
     return true;
   }
 
-  const providerOrder = defaultProviderOrder();
+  const providerOrder = sendOptions.providerOrder;
+  if (!providerOrder.length) {
+    throw new Error(
+      "Nenhum provedor de SMS habilitado. Configure SMS_PROVIDER e/ou habilite fallback de console.",
+    );
+  }
+
   const errors: string[] = [];
 
   for (const provider of providerOrder) {
@@ -473,7 +614,7 @@ export async function sendSmsCode(phoneE164: string, code: string) {
         result = await sendViaTwilio({
           to,
           message,
-          timeoutMs,
+          timeoutMs: sendOptions.timeoutMs,
         });
       } else if (provider === "webhook" || provider === "selfhost") {
         result = await sendViaWebhook({
@@ -481,9 +622,16 @@ export async function sendSmsCode(phoneE164: string, code: string) {
           to,
           code: cleanCode,
           message,
-          timeoutMs,
+          timeoutMs: sendOptions.timeoutMs,
+          maxRetries: sendOptions.webhookMaxRetries,
+          retryBaseMs: sendOptions.webhookRetryBaseMs,
         });
       } else if (provider === "console") {
+        if (!sendOptions.allowConsoleFallback) {
+          errors.push("console: fallback desativado para este contexto");
+          continue;
+        }
+
         result = await sendViaConsole({
           to,
           code: cleanCode,
@@ -499,6 +647,7 @@ export async function sendSmsCode(phoneE164: string, code: string) {
           to: maskPhone(to),
           messageId: result.messageId,
           status: result.rawStatus,
+          context: sendOptions.context,
         });
       }
 
@@ -511,10 +660,20 @@ export async function sendSmsCode(phoneE164: string, code: string) {
 
   console.error("[SMS] all providers failed", {
     to: maskPhone(to),
+    context: sendOptions.context,
+    timeoutMs: sendOptions.timeoutMs,
     providerOrder,
     errors,
     gatewayNumber: normalizeOwnGatewayNumber(String(process.env.SMS_OWN_NUMBER || "")),
   });
 
+  if (shouldExposeProviderErrors()) {
+    throw new Error(`Falha ao enviar SMS. Detalhes: ${errors.join(" | ")}`);
+  }
+
   throw new Error("Falha ao enviar SMS no momento. Tente novamente em instantes.");
+}
+
+export async function sendAuthSmsCode(phoneE164: string, code: string) {
+  return sendSmsCode(phoneE164, code, { context: "auth" });
 }

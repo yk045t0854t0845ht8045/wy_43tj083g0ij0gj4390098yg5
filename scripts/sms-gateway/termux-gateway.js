@@ -16,6 +16,10 @@ const PORT = Number(process.env.SMS_GATEWAY_PORT || 8787);
 const TOKEN = String(process.env.SMS_WEBHOOK_TOKEN || "").trim();
 const SIGNING_SECRET = String(process.env.SMS_WEBHOOK_SIGNING_SECRET || "").trim();
 const GATEWAY_NUMBER = String(process.env.SMS_OWN_NUMBER || "").trim();
+const ALLOW_SELF_SEND = ["1", "true", "yes", "on"].includes(
+  String(process.env.SMS_GATEWAY_ALLOW_SELF_SEND || "").trim().toLowerCase(),
+);
+const SMS_SEND_TIMEOUT_MS = Number(process.env.SMS_GATEWAY_SEND_TIMEOUT_MS || 15000);
 const MAX_BODY_BYTES = 128 * 1024;
 
 function json(res, status, payload) {
@@ -37,6 +41,17 @@ function normalizeE164(value) {
 
 function isLikelyE164(value) {
   return /^\+\d{10,15}$/.test(normalizeE164(value));
+}
+
+function onlyDigits(value) {
+  return String(value || "").replace(/\D+/g, "");
+}
+
+function isSamePhoneNumber(a, b) {
+  const da = onlyDigits(normalizeE164(a));
+  const db = onlyDigits(normalizeE164(b));
+  if (!da || !db) return false;
+  return da === db;
 }
 
 function verifySignature(rawBody, req) {
@@ -61,7 +76,7 @@ function sendSms(to, message) {
     execFile(
       "termux-sms-send",
       ["-n", to, message],
-      { timeout: 15000 },
+      { timeout: Math.max(3000, SMS_SEND_TIMEOUT_MS) },
       (error, stdout, stderr) => {
         if (error) {
           reject(new Error(stderr || stdout || error.message || "termux-sms-send failed"));
@@ -73,15 +88,91 @@ function sendSms(to, message) {
   });
 }
 
+function checkCommandAvailability(command) {
+  return new Promise((resolve) => {
+    execFile("sh", ["-lc", `command -v ${command}`], { timeout: 5000 }, (error, stdout) => {
+      if (error) {
+        resolve(false);
+        return;
+      }
+      resolve(Boolean(String(stdout || "").trim()));
+    });
+  });
+}
+
+async function collectDiagnostics() {
+  const termuxSmsSendAvailable = await checkCommandAvailability("termux-sms-send");
+  const termuxApiAvailable = await checkCommandAvailability("termux-api");
+
+  return {
+    termuxSmsSendAvailable,
+    termuxApiAvailable,
+    selfSendAllowed: ALLOW_SELF_SEND,
+    sendTimeoutMs: Math.max(3000, SMS_SEND_TIMEOUT_MS),
+  };
+}
+
 const server = http.createServer(async (req, res) => {
+  if (req.method === "GET" && req.url === "/") {
+    return json(res, 200, {
+      ok: true,
+      gateway: "termux",
+      endpoints: {
+        health: { method: "GET", path: "/health" },
+        diag: { method: "GET", path: "/diag", auth: "Bearer token" },
+        send: { method: "POST", path: "/send", auth: "Bearer token" },
+      },
+      now: new Date().toISOString(),
+    });
+  }
+
   if (req.method === "GET" && req.url === "/health") {
+    const diagnostics = await collectDiagnostics();
     return json(res, 200, {
       ok: true,
       gateway: "termux",
       ownNumber: GATEWAY_NUMBER || null,
       hasToken: Boolean(TOKEN),
       hasSigningSecret: Boolean(SIGNING_SECRET),
+      diagnostics,
       now: new Date().toISOString(),
+    });
+  }
+
+  if (req.method === "GET" && req.url === "/diag") {
+    if (!TOKEN) {
+      return json(res, 503, { ok: false, error: "missing_sms_webhook_token" });
+    }
+
+    const auth = String(req.headers.authorization || "").trim();
+    if (auth !== `Bearer ${TOKEN}`) {
+      return json(res, 401, { ok: false, error: "unauthorized" });
+    }
+
+    const diagnostics = await collectDiagnostics();
+    return json(res, 200, {
+      ok: true,
+      diagnostics,
+      ownNumber: GATEWAY_NUMBER || null,
+      now: new Date().toISOString(),
+    });
+  }
+
+  if (req.method === "GET" && req.url === "/send") {
+    return json(res, 405, {
+      ok: false,
+      error: "method_not_allowed",
+      message: "Use POST /send com JSON e Authorization Bearer.",
+      expected: {
+        method: "POST",
+        path: "/send",
+        headers: ["Authorization: Bearer <SMS_WEBHOOK_TOKEN>", "Content-Type: application/json"],
+        body: {
+          to: "+5511999999999",
+          message: "Wyzer - Seu codigo de verificacao: 1234567",
+          code: "1234567",
+        },
+      },
     });
   }
 
@@ -122,6 +213,13 @@ const server = http.createServer(async (req, res) => {
       }
       if (!message) {
         return json(res, 400, { ok: false, error: "missing_message" });
+      }
+      if (!ALLOW_SELF_SEND && GATEWAY_NUMBER && isSamePhoneNumber(to, GATEWAY_NUMBER)) {
+        return json(res, 400, {
+          ok: false,
+          error: "self_send_blocked",
+          message: "Destino igual ao numero do gateway. Use outro numero ou ative SMS_GATEWAY_ALLOW_SELF_SEND=1.",
+        });
       }
 
       await sendSms(to, message);

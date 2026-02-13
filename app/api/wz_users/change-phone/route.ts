@@ -9,7 +9,7 @@ import {
   sha,
   toE164BRMobile,
 } from "@/app/api/wz_AuthLogin/_codes";
-import { sendSmsCode } from "@/app/api/wz_AuthLogin/_sms";
+import { sendAuthSmsCode } from "@/app/api/wz_AuthLogin/_sms";
 import { readActiveSessionFromRequest } from "@/app/api/wz_AuthLogin/_active_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import {
@@ -647,7 +647,7 @@ export async function POST(req: NextRequest) {
     if (!base.ok) return base.response;
 
     const code = await createSmsChallenge(base.sb, base.sessionEmail);
-    await sendSmsCode(base.currentPhone, code);
+    await sendAuthSmsCode(base.currentPhone, code);
 
     const ticket = createPhoneChangeTicket({
       userId: String(base.userRow.id),
@@ -728,7 +728,7 @@ export async function PATCH(req: NextRequest) {
       }
 
       const code = await createSmsChallenge(base.sb, base.sessionEmail);
-      await sendSmsCode(requestedNewPhone, code);
+      await sendAuthSmsCode(requestedNewPhone, code);
 
       const ticket = createPhoneChangeTicket({
         userId: String(base.userRow.id),
@@ -783,7 +783,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const code = await createSmsChallenge(base.sb, base.sessionEmail);
-    await sendSmsCode(resendToPhone, code);
+    await sendAuthSmsCode(resendToPhone, code);
 
     const refreshedTicket = createPhoneChangeTicket({
       userId: String(base.userRow.id),

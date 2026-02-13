@@ -17,6 +17,14 @@ function parseBool(raw: string | undefined, fallback: boolean) {
   return fallback;
 }
 
+function parseIntSafe(raw: string | undefined, fallback: number, min: number, max: number) {
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return fallback;
+  const int = Math.floor(value);
+  if (int < min || int > max) return fallback;
+  return int;
+}
+
 function onlyDigits(value: string) {
   return String(value || "").replace(/\D+/g, "");
 }
@@ -111,6 +119,12 @@ export async function GET(req: Request) {
         dryRun: parseBool(process.env.SMS_DRY_RUN, false),
         debug: parseBool(process.env.SMS_DEBUG, false),
         consoleFallback: parseBool(process.env.SMS_DEV_CONSOLE_FALLBACK, process.env.NODE_ENV !== "production"),
+        authConsoleFallback: parseBool(process.env.SMS_AUTH_ALLOW_CONSOLE_FALLBACK, false),
+        blockSelfSend: parseBool(process.env.SMS_BLOCK_SELF_SEND, true),
+        timeoutMs: parseIntSafe(process.env.SMS_TIMEOUT_MS, 15000, 1000, 60000),
+        authTimeoutMs: parseIntSafe(process.env.SMS_AUTH_TIMEOUT_MS, 6000, 1000, 30000),
+        webhookMaxRetries: parseIntSafe(process.env.SMS_WEBHOOK_MAX_RETRIES, 2, 0, 5),
+        authWebhookMaxRetries: parseIntSafe(process.env.SMS_AUTH_WEBHOOK_MAX_RETRIES, 1, 0, 5),
         webhookConfigured: resolveWebhookConfigured(),
         twilioConfigured: resolveTwilioConfigured(),
         hasInternalApiKey: requireInternalKey(),

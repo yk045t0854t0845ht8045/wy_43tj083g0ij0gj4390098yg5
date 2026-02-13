@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../_supabase";
 import { sha, gen7, newSalt, maskPhoneE164, isValidE164BRMobile } from "../_codes";
-import { sendSmsCode } from "../_sms";
+import { sendAuthSmsCode } from "../_sms";
 import { sendLoginCodeEmail } from "../_email";
 
 export const dynamic = "force-dynamic";
@@ -114,7 +114,7 @@ export async function POST(req: Request) {
 
     if (smsErr) return NextResponse.json({ ok: false, error: "Falha ao gerar SMS." }, { status: 500, headers: NO_STORE_HEADERS });
 
-    await sendSmsCode(phoneE164, smsCode);
+    await sendAuthSmsCode(phoneE164, smsCode);
 
     return NextResponse.json({ ok: true, phoneMask: maskPhoneE164(phoneE164) }, { status: 200, headers: NO_STORE_HEADERS });
   } catch (error: unknown) {
