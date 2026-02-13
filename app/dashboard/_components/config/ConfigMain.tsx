@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 type ConfigSectionGroupId = "user" | "billing" | "app";
 
@@ -4996,9 +4997,8 @@ function DevicesContent() {
 
         if (!mountedRef.current) return;
         const activeOthers = Array.isArray(payload.others) ? payload.others : [];
-        const history = Array.isArray(payload.history) ? payload.history : [];
         setCurrentDevice(payload.current || null);
-        setOtherDevices([...activeOthers, ...history]);
+        setOtherDevices(activeOthers);
       } catch (fetchError) {
         if (signal?.aborted || !mountedRef.current) return;
         if (!opts?.silent) {
@@ -5251,65 +5251,69 @@ function DevicesContent() {
         </button>
       </div>
 
-      <AnimatePresence>
-        {confirmingDevice && (
-          <motion.div
-            className="fixed inset-0 z-[230] flex items-center justify-center px-6"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <button
-              type="button"
-              aria-label="Fechar confirmacao"
-              className="absolute inset-0 bg-black/55 backdrop-blur-[4px]"
-              onClick={closeConfirmLogoutModal}
-            />
-
-            <motion.section
-              role="dialog"
-              aria-modal="true"
-              aria-label="Confirmar desconexao de sessao"
-              initial={{ opacity: 0, y: 14, scale: 0.985 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.985 }}
-              transition={{ type: "spring", stiffness: 320, damping: 30, mass: 0.68 }}
-              className="relative z-[1] w-full max-w-[520px] rounded-2xl border border-black/12 bg-[#f3f3f4] p-6 shadow-[0_24px_64px_rgba(0,0,0,0.28)]"
-            >
-              <h3 className="text-[22px] font-semibold text-black/82">Desconectar sessao?</h3>
-              <p className="mt-3 text-[14px] leading-[1.45] text-black/62">
-                Esta acao vai deslogar este dispositivo em tempo real.
-              </p>
-
-              <div className="mt-4 rounded-xl border border-black/12 bg-white/80 px-4 py-3">
-                <p className="text-[14px] font-semibold text-black/78">{confirmingDevice.label}</p>
-                <p className="mt-1 text-[14px] text-black/58">
-                  {confirmingDevice.location || "Localizacao indisponivel"}
-                </p>
-              </div>
-
-              <div className="mt-6 flex items-center justify-end gap-2">
+      {typeof document !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {confirmingDevice && (
+              <motion.div
+                className="fixed inset-0 z-[1200] flex items-center justify-center px-6"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
                 <button
                   type="button"
+                  aria-label="Fechar confirmacao"
+                  className="absolute inset-0 bg-black/55 backdrop-blur-[4px]"
                   onClick={closeConfirmLogoutModal}
-                  disabled={busySessionId === confirmingDevice.id}
-                  className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                />
+
+                <motion.section
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Confirmar desconexao de sessao"
+                  initial={{ opacity: 0, y: 14, scale: 0.985 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.985 }}
+                  transition={{ type: "spring", stiffness: 320, damping: 30, mass: 0.68 }}
+                  className="relative z-[1] w-full max-w-[520px] rounded-2xl border border-black/12 bg-[#f3f3f4] p-6 shadow-[0_24px_64px_rgba(0,0,0,0.28)]"
                 >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void confirmLogoutDevice()}
-                  disabled={busySessionId === confirmingDevice.id}
-                  className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  {busySessionId === confirmingDevice.id ? "Deslogando..." : "Confirmar"}
-                </button>
-              </div>
-            </motion.section>
-          </motion.div>
+                  <h3 className="text-[22px] font-semibold text-black/82">Desconectar sessao?</h3>
+                  <p className="mt-3 text-[14px] leading-[1.45] text-black/62">
+                    Esta acao vai deslogar este dispositivo em tempo real.
+                  </p>
+
+                  <div className="mt-4 rounded-xl border border-black/12 bg-white/80 px-4 py-3">
+                    <p className="text-[14px] font-semibold text-black/78">{confirmingDevice.label}</p>
+                    <p className="mt-1 text-[14px] text-black/58">
+                      {confirmingDevice.location || "Localizacao indisponivel"}
+                    </p>
+                  </div>
+
+                  <div className="mt-6 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={closeConfirmLogoutModal}
+                      disabled={busySessionId === confirmingDevice.id}
+                      className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void confirmLogoutDevice()}
+                      disabled={busySessionId === confirmingDevice.id}
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {busySessionId === confirmingDevice.id ? "Deslogando..." : "Confirmar"}
+                    </button>
+                  </div>
+                </motion.section>
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body,
         )}
-      </AnimatePresence>
     </div>
   );
 }

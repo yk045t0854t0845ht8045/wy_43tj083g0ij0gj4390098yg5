@@ -376,9 +376,8 @@ export function setSessionCookie(
 export function clearSessionCookie(res: ResponseWithCookies) {
   const sec = getSecurityConfig();
   const names = pickCookieNames();
-  const legacyDomain = getLegacyCookieDomain();
 
-  // remove active session/device cookies for current mode
+  // remove active session cookie for current mode
   res.cookies.set(names.sessionName, "", {
     httpOnly: true,
     secure: sec.isProd,
@@ -387,25 +386,10 @@ export function clearSessionCookie(res: ResponseWithCookies) {
     maxAge: 0,
     ...(names.domain ? { domain: names.domain } : {}),
   });
-  res.cookies.set(names.deviceName, "", {
-    httpOnly: true,
-    secure: sec.isProd,
-    sameSite: sec.sameSite,
-    path: "/",
-    maxAge: 0,
-    ...(names.domain ? { domain: names.domain } : {}),
-  });
 
-  // cleanup legacy session/device cookies in both domain shapes
+  // cleanup legacy session cookie in both domain shapes
+  const legacyDomain = getLegacyCookieDomain();
   res.cookies.set(LEGACY_COOKIE_NAME, "", {
-    httpOnly: true,
-    secure: sec.isProd,
-    sameSite: sec.sameSite,
-    path: "/",
-    maxAge: 0,
-    domain: legacyDomain,
-  });
-  res.cookies.set(LEGACY_DEVICE_COOKIE_NAME, "", {
     httpOnly: true,
     secure: sec.isProd,
     sameSite: sec.sameSite,
@@ -415,13 +399,6 @@ export function clearSessionCookie(res: ResponseWithCookies) {
   });
 
   res.cookies.set(LEGACY_COOKIE_NAME, "", {
-    httpOnly: true,
-    secure: sec.isProd,
-    sameSite: sec.sameSite,
-    path: "/",
-    maxAge: 0,
-  });
-  res.cookies.set(LEGACY_DEVICE_COOKIE_NAME, "", {
     httpOnly: true,
     secure: sec.isProd,
     sameSite: sec.sameSite,

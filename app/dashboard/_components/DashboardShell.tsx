@@ -350,13 +350,13 @@ export default function DashboardShell({
       />
 
       {sessionDisconnected && (
-        <div className="fixed inset-0 z-[350] flex items-center justify-center bg-black/70 px-6">
-          <div className="w-full max-w-[560px] rounded-2xl border border-white/15 bg-[#171717] p-7 text-white shadow-[0_30px_80px_rgba(0,0,0,0.45)]">
-            <h2 className="text-[28px] font-semibold leading-tight">Conta Desconectada</h2>
-            <p className="mt-3 text-[15px] leading-[1.45] text-white/78">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-white px-6">
+          <div className="w-full max-w-[760px] text-center text-black">
+            <h2 className="text-[42px] font-semibold leading-tight">Conta Desconectada</h2>
+            <p className="mx-auto mt-4 max-w-[620px] text-[18px] leading-[1.5] text-black/70">
               Recomendamos que feche Wyzer de todas as guias e fique por 5 segundos.
             </p>
-            <p className="mt-5 text-[14px] font-medium text-white/65">
+            <p className="mt-8 text-[15px] font-medium text-black/55">
               Redirecionando para o login em {disconnectCountdown}s...
             </p>
           </div>

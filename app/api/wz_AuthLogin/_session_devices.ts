@@ -185,6 +185,29 @@ async function resolveOrCreateDevice(params: {
   return String(insertRes.data.id);
 }
 
+async function findLatestSessionByDevice(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+  deviceId: string;
+}) {
+  const { sb, userId, deviceId } = params;
+  const lookup = await sb
+    .from("wz_auth_sessions")
+    .select("id,sid,revoked_at,last_seen_at,issued_at")
+    .eq("user_id", userId)
+    .eq("device_id", deviceId)
+    .order("last_seen_at", { ascending: false })
+    .order("issued_at", { ascending: false })
+    .limit(1);
+
+  if (lookup.error) throw lookup.error;
+
+  const row = Array.isArray(lookup.data) ? lookup.data[0] : null;
+  const id = String((row as { id?: unknown } | null)?.id || "").trim();
+  if (!id) return null;
+  return id;
+}
+
 export async function registerIssuedSession(params: RegisterIssuedSessionParams) {
   const sid = String(params.session?.sid || "").trim();
   const userId = String(params.userId || "").trim();
@@ -208,34 +231,47 @@ export async function registerIssuedSession(params: RegisterIssuedSessionParams)
       nowIso,
     });
 
-    const sessionUpsert = await sb
-      .from("wz_auth_sessions")
-      .upsert(
-        {
-          user_id: userId,
-          auth_user_id: String(params.authUserId || "").trim() || null,
-          email,
-          sid,
-          did_hash: String(params.session?.did || "").trim() || null,
-          device_id: deviceId,
-          login_method: normalizeLoginMethod(params.loginMethod),
-          login_flow: normalizeLoginFlow(params.loginFlow),
-          is_account_creation_session: Boolean(params.isAccountCreationSession),
-          issued_at: nowIso,
-          last_seen_at: nowIso,
-          host: identity.host,
-          ip: identity.ip,
-          location: identity.location,
-          user_agent: identity.userAgent || null,
-          updated_at: nowIso,
-        },
-        {
-          onConflict: "user_id,sid",
-          ignoreDuplicates: false,
-        },
-      )
-      .select("id")
-      .single();
+    const sessionPayload = {
+      user_id: userId,
+      auth_user_id: String(params.authUserId || "").trim() || null,
+      email,
+      sid,
+      did_hash: String(params.session?.did || "").trim() || null,
+      device_id: deviceId,
+      login_method: normalizeLoginMethod(params.loginMethod),
+      login_flow: normalizeLoginFlow(params.loginFlow),
+      is_account_creation_session: Boolean(params.isAccountCreationSession),
+      issued_at: nowIso,
+      last_seen_at: nowIso,
+      revoked_at: null as string | null,
+      host: identity.host,
+      ip: identity.ip,
+      location: identity.location,
+      user_agent: identity.userAgent || null,
+      updated_at: nowIso,
+    };
+
+    const reusableSessionId = await findLatestSessionByDevice({
+      sb,
+      userId,
+      deviceId,
+    });
+
+    const sessionUpsert = reusableSessionId
+      ? await sb
+          .from("wz_auth_sessions")
+          .update(sessionPayload)
+          .eq("id", reusableSessionId)
+          .select("id")
+          .single()
+      : await sb
+          .from("wz_auth_sessions")
+          .upsert(sessionPayload, {
+            onConflict: "user_id,sid",
+            ignoreDuplicates: false,
+          })
+          .select("id")
+          .single();
 
     if (sessionUpsert.error) throw sessionUpsert.error;
   } catch (error) {
