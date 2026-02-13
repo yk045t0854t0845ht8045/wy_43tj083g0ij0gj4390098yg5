@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../_supabase";
+import {
+  ACCOUNT_STATE_DEACTIVATED,
+  canReactivateWithinWindow,
+  canReuseEmailForRegister,
+  resolveAccountLifecycleByEmail,
+  syncAccountLifecycleIfNeeded,
+} from "@/app/api/wz_users/_account_lifecycle";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -25,19 +32,30 @@ export async function POST(req: Request) {
     }
 
     const sb = supabaseAdmin();
-
-    const { data, error } = await sb
-      .from("wz_users")
-      .select("id,email,phone_e164")
-      .eq("email", email)
-      .maybeSingle();
-
-    if (error) {
-      return NextResponse.json({ error: "Falha ao consultar cadastro." }, { status: 500, headers: NO_STORE_HEADERS });
-    }
+    const lifecycle = await resolveAccountLifecycleByEmail({ sb, email });
+    const syncedLifecycle = lifecycle
+      ? await syncAccountLifecycleIfNeeded({ sb, record: lifecycle })
+      : null;
+    const canReuseEmail =
+      syncedLifecycle?.state === ACCOUNT_STATE_DEACTIVATED
+        ? canReuseEmailForRegister(syncedLifecycle)
+        : false;
+    const canReactivate = syncedLifecycle
+      ? canReactivateWithinWindow(syncedLifecycle)
+      : false;
+    const exists = Boolean(syncedLifecycle) && !canReuseEmail;
+    const hasPhone = exists && Boolean(String(syncedLifecycle?.phoneE164 || "").trim());
 
     return NextResponse.json(
-      { exists: !!data, hasPhone: !!data?.phone_e164 },
+      {
+        exists,
+        hasPhone,
+        accountState: syncedLifecycle?.state || null,
+        canReuseEmail,
+        canReactivate,
+        emailReuseAt: syncedLifecycle?.emailReuseAt || null,
+        restoreDeadlineAt: syncedLifecycle?.restoreDeadlineAt || null,
+      },
       { status: 200, headers: NO_STORE_HEADERS },
     );
   } catch {

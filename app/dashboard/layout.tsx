@@ -1,4 +1,11 @@
 import { readSessionFromCookieHeader } from "@/app/api/wz_AuthLogin/_session";
+import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
+import {
+  ACCOUNT_STATE_DEACTIVATED,
+  ACCOUNT_STATE_PENDING_DELETION,
+  resolveAccountLifecycleBySession,
+  syncAccountLifecycleIfNeeded,
+} from "@/app/api/wz_users/_account_lifecycle";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -41,6 +48,13 @@ function buildLoginRedirectUrl(hostHeader: string | null) {
   return loginUrl.toString();
 }
 
+function buildReactivateUrl(hostHeader: string | null) {
+  const base = new URL(buildDashboardUrl(hostHeader));
+  base.pathname = "/signup/reactivate";
+  base.search = "";
+  return base.toString();
+}
+
 export default async function DashboardLayout({
   children,
 }: {
@@ -60,6 +74,23 @@ export default async function DashboardLayout({
 
     if (!session) {
       redirect(buildLoginRedirectUrl(hostHeader));
+    }
+
+    const sb = supabaseAdmin();
+    const lifecycle = await resolveAccountLifecycleBySession({
+      sb,
+      sessionUserId: session.userId,
+      sessionEmail: session.email,
+    });
+
+    if (lifecycle) {
+      const synced = await syncAccountLifecycleIfNeeded({ sb, record: lifecycle });
+      if (
+        synced.state === ACCOUNT_STATE_PENDING_DELETION ||
+        synced.state === ACCOUNT_STATE_DEACTIVATED
+      ) {
+        redirect(buildReactivateUrl(hostHeader));
+      }
     }
   }
 

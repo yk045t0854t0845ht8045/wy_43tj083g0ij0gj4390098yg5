@@ -11,6 +11,11 @@ import {
 } from "../_trusted_login";
 import { readLoginTwoFactorTicket } from "../_login_two_factor_ticket";
 import { resolveTwoFactorState, verifyTwoFactorCodeWithRecovery } from "@/app/api/_twoFactor";
+import {
+  ACCOUNT_STATE_DEACTIVATED,
+  resolveAccountLifecycleBySession,
+  syncAccountLifecycleIfNeeded,
+} from "@/app/api/wz_users/_account_lifecycle";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -195,6 +200,27 @@ export async function POST(req: Request) {
 
     const payload = ticketRes.payload;
     const sb = supabaseAdmin();
+    const lifecycle = await resolveAccountLifecycleBySession({
+      sb,
+      sessionUserId: payload.uid,
+      sessionEmail: payload.email,
+    });
+    const syncedLifecycle = lifecycle
+      ? await syncAccountLifecycleIfNeeded({ sb, record: lifecycle })
+      : null;
+    if (syncedLifecycle?.state === ACCOUNT_STATE_DEACTIVATED) {
+      return NextResponse.json(
+        {
+          ok: false,
+          accountState: syncedLifecycle.state,
+          emailReuseAt: syncedLifecycle.emailReuseAt,
+          error:
+            "Esta conta foi desativada e nao pode mais acessar o painel. Crie uma nova conta quando o prazo de reutilizacao do e-mail for liberado.",
+        },
+        { status: 403, headers: NO_STORE_HEADERS },
+      );
+    }
+
     const twoFactorState = await resolveTwoFactorState({
       sb,
       sessionUserId: payload.uid,

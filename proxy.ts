@@ -157,6 +157,13 @@ export default function proxy(req: NextRequest) {
   }
 
   if (isDashboardSubdomain) {
+    if (
+      url.pathname === "/signup/reactivate" ||
+      url.pathname.startsWith("/signup/reactivate/")
+    ) {
+      return NextResponse.next()
+    }
+
     if (url.pathname === "/dashboard" || url.pathname.startsWith("/dashboard/"))
       return NextResponse.next()
     const incomingPath = url.pathname === "/" ? "" : url.pathname

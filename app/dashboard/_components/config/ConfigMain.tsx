@@ -74,7 +74,8 @@ type AccountActionTwoFactorContext =
   | "two-factor-disable"
   | "two-factor-enable"
   | "passkey"
-  | "passkey-disable";
+  | "passkey-disable"
+  | "account-delete";
 
 type PasskeyVerificationMethod = "none" | "email" | "two-factor";
 type PasskeyFlowMode = "activate" | "disable";
@@ -692,6 +693,20 @@ function AccountContent({
   const [resendingPasskeyCode, setResendingPasskeyCode] = useState(false);
   const [verifyingPasskeyCode, setVerifyingPasskeyCode] = useState(false);
   const [registeringPasskey, setRegisteringPasskey] = useState(false);
+  const [accountDeleteModalOpen, setAccountDeleteModalOpen] = useState(false);
+  const [accountDeleteStep, setAccountDeleteStep] = useState<
+    "intro" | "verify-email" | "verify-sms" | "verify-auth"
+  >("intro");
+  const [accountDeleteTicket, setAccountDeleteTicket] = useState("");
+  const [accountDeleteEmailMask, setAccountDeleteEmailMask] = useState("");
+  const [accountDeletePhoneMask, setAccountDeletePhoneMask] = useState("");
+  const [accountDeleteEmailCode, setAccountDeleteEmailCode] = useState("");
+  const [accountDeleteSmsCode, setAccountDeleteSmsCode] = useState("");
+  const [accountDeleteError, setAccountDeleteError] = useState<string | null>(null);
+  const [accountDeleteResendCooldown, setAccountDeleteResendCooldown] = useState(0);
+  const [startingAccountDeleteFlow, setStartingAccountDeleteFlow] = useState(false);
+  const [resendingAccountDeleteCode, setResendingAccountDeleteCode] = useState(false);
+  const [verifyingAccountDeleteStep, setVerifyingAccountDeleteStep] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
@@ -774,6 +789,14 @@ function AccountContent({
     }, 1000);
     return () => window.clearInterval(timer);
   }, [passkeyResendCooldown]);
+
+  useEffect(() => {
+    if (accountDeleteResendCooldown <= 0) return;
+    const timer = window.setInterval(() => {
+      setAccountDeleteResendCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [accountDeleteResendCooldown]);
 
   const baseScale = useMemo(() => {
     if (!natural.width || !natural.height) return 1;
@@ -988,10 +1011,13 @@ function AccountContent({
     resendingPasskeyCode ||
     verifyingPasskeyCode ||
     registeringPasskey;
+  const isAccountDeleteBusy =
+    startingAccountDeleteFlow || resendingAccountDeleteCode || verifyingAccountDeleteStep;
   const accountActionTwoFactorBusy =
     (accountActionTwoFactorContext === "email" && verifyingEmailCode) ||
     (accountActionTwoFactorContext === "phone" && verifyingPhoneCode) ||
     (accountActionTwoFactorContext === "password" && verifyingPasswordCode) ||
+    (accountActionTwoFactorContext === "account-delete" && verifyingAccountDeleteStep) ||
     ((accountActionTwoFactorContext === "passkey" ||
       accountActionTwoFactorContext === "passkey-disable") &&
       verifyingPasskeyCode) ||
@@ -1060,6 +1086,10 @@ function AccountContent({
     }
     if (context === "passkey-disable") {
       setPasskeyError("Confirmacao da desativacao do Windows Hello cancelada.");
+      return;
+    }
+    if (context === "account-delete") {
+      setAccountDeleteError("Confirmacao final da exclusao da conta cancelada.");
     }
   }, [accountActionTwoFactorContext, resetAccountActionTwoFactorModal, twoFactorStep]);
 
@@ -1904,6 +1934,10 @@ function AccountContent({
     }
     if (accountActionTwoFactorContext === "passkey-disable") {
       await verifyPasskeyDisable(undefined, code);
+      return;
+    }
+    if (accountActionTwoFactorContext === "account-delete") {
+      await verifyAccountDeleteAuth(code);
       return;
     }
     await verifyPasswordChangeCode(undefined, code);
@@ -2788,6 +2822,327 @@ function AccountContent({
     }
   };
 
+  const resetAccountDeleteFlow = useCallback(() => {
+    setAccountDeleteStep("intro");
+    setAccountDeleteTicket("");
+    setAccountDeleteEmailMask(maskSecureEmail(localEmail));
+    setAccountDeletePhoneMask(maskSecurePhone(localPhoneE164));
+    setAccountDeleteEmailCode("");
+    setAccountDeleteSmsCode("");
+    setAccountDeleteError(null);
+    setAccountDeleteResendCooldown(0);
+    resetAccountActionTwoFactorModal();
+  }, [localEmail, localPhoneE164, resetAccountActionTwoFactorModal]);
+
+  const closeAccountDeleteModal = () => {
+    if (isAccountDeleteBusy || accountActionTwoFactorBusy) return;
+    setAccountDeleteModalOpen(false);
+    resetAccountDeleteFlow();
+  };
+
+  const completeAccountDeleted = useCallback(() => {
+    resetAccountActionTwoFactorModal();
+    setAccountDeleteModalOpen(false);
+    resetAccountDeleteFlow();
+    if (typeof window !== "undefined") {
+      window.location.assign("/signup/reactivate");
+    }
+  }, [resetAccountActionTwoFactorModal, resetAccountDeleteFlow]);
+
+  const openAccountDeleteModal = () => {
+    if (isAccountDeleteBusy || accountActionTwoFactorBusy) return;
+    resetAccountDeleteFlow();
+    setAccountDeleteModalOpen(true);
+  };
+
+  const startAccountDeleteFlow = async () => {
+    if (isAccountDeleteBusy || accountActionTwoFactorBusy) return;
+
+    try {
+      setStartingAccountDeleteFlow(true);
+      setAccountDeleteError(null);
+
+      const res = await fetch("/api/wz_users/account-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        phase?: "verify-email";
+        ticket?: string;
+        emailMask?: string;
+        phoneMask?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok || payload.phase !== "verify-email" || !payload.ticket) {
+        throw new Error(payload.error || "Nao foi possivel iniciar a exclusao da conta.");
+      }
+
+      setAccountDeleteStep("verify-email");
+      setAccountDeleteTicket(String(payload.ticket));
+      setAccountDeleteEmailMask(String(payload.emailMask || maskSecureEmail(localEmail)));
+      setAccountDeletePhoneMask(String(payload.phoneMask || maskSecurePhone(localPhoneE164)));
+      setAccountDeleteEmailCode("");
+      setAccountDeleteSmsCode("");
+      setAccountDeleteResendCooldown(60);
+    } catch (err) {
+      console.error("[config-account] start account delete failed:", err);
+      setAccountDeleteError(
+        err instanceof Error ? err.message : "Erro ao iniciar exclusao da conta.",
+      );
+    } finally {
+      setStartingAccountDeleteFlow(false);
+    }
+  };
+
+  const resendAccountDeleteCode = async () => {
+    if (!accountDeleteTicket || accountDeleteResendCooldown > 0) return;
+    if (isAccountDeleteBusy || accountActionTwoFactorBusy) return;
+    if (accountDeleteStep !== "verify-email" && accountDeleteStep !== "verify-sms") return;
+
+    const channel = accountDeleteStep === "verify-email" ? "email" : "sms";
+
+    try {
+      setResendingAccountDeleteCode(true);
+      setAccountDeleteError(null);
+
+      const res = await fetch("/api/wz_users/account-delete", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket: accountDeleteTicket, channel }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        ticket?: string;
+        emailMask?: string;
+        phoneMask?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok) {
+        throw new Error(payload.error || "Nao foi possivel reenviar o codigo.");
+      }
+
+      if (payload.ticket) {
+        setAccountDeleteTicket(String(payload.ticket));
+      }
+      if (payload.emailMask) {
+        setAccountDeleteEmailMask(String(payload.emailMask));
+      }
+      if (payload.phoneMask) {
+        setAccountDeletePhoneMask(String(payload.phoneMask));
+      }
+      setAccountDeleteResendCooldown(60);
+    } catch (err) {
+      console.error("[config-account] resend account delete code failed:", err);
+      setAccountDeleteError(err instanceof Error ? err.message : "Erro ao reenviar codigo.");
+    } finally {
+      setResendingAccountDeleteCode(false);
+    }
+  };
+
+  const verifyAccountDeleteEmailCode = async (nextValue?: string) => {
+    if (!accountDeleteTicket || accountDeleteStep !== "verify-email") return;
+    if (isAccountDeleteBusy || accountActionTwoFactorBusy) return;
+
+    const emailCode = onlyDigits(String(nextValue || accountDeleteEmailCode || "")).slice(0, 7);
+    if (emailCode.length !== 7) return;
+
+    try {
+      setVerifyingAccountDeleteStep(true);
+      setAccountDeleteError(null);
+
+      const res = await fetch("/api/wz_users/account-delete", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket: accountDeleteTicket, emailCode }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        next?: "verify-sms";
+        phase?: "verify-sms";
+        ticket?: string;
+        phoneMask?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok || payload.next !== "verify-sms" || !payload.ticket) {
+        const fallback =
+          res.status === 429
+            ? "Voce atingiu o limite de tentativas. Reenvie o codigo."
+            : "Codigo de e-mail invalido.";
+        setAccountDeleteError(String(payload.error || fallback));
+        setAccountDeleteEmailCode("");
+        if (res.status === 429) {
+          setAccountDeleteResendCooldown(0);
+        }
+        return;
+      }
+
+      setAccountDeleteStep("verify-sms");
+      setAccountDeleteTicket(String(payload.ticket));
+      setAccountDeletePhoneMask(String(payload.phoneMask || accountDeletePhoneMask));
+      setAccountDeleteEmailCode("");
+      setAccountDeleteSmsCode("");
+      setAccountDeleteResendCooldown(60);
+    } catch (err) {
+      console.error("[config-account] verify account delete email failed:", err);
+      setAccountDeleteError(
+        err instanceof Error ? err.message : "Erro ao validar codigo de e-mail.",
+      );
+      setAccountDeleteEmailCode("");
+    } finally {
+      setVerifyingAccountDeleteStep(false);
+    }
+  };
+
+  const verifyAccountDeleteSmsCode = async (nextValue?: string) => {
+    if (!accountDeleteTicket || accountDeleteStep !== "verify-sms") return;
+    if (isAccountDeleteBusy || accountActionTwoFactorBusy) return;
+
+    const smsCode = onlyDigits(String(nextValue || accountDeleteSmsCode || "")).slice(0, 7);
+    if (smsCode.length !== 7) return;
+
+    try {
+      setVerifyingAccountDeleteStep(true);
+      setAccountDeleteError(null);
+
+      const res = await fetch("/api/wz_users/account-delete", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket: accountDeleteTicket, smsCode }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        deleted?: boolean;
+        next?: "verify-auth";
+        phase?: "verify-auth";
+        ticket?: string;
+        authMethods?: AccountActionAuthMethodsPayload;
+        error?: string;
+      };
+
+      if (!res.ok || !payload.ok) {
+        const fallback =
+          res.status === 429
+            ? "Voce atingiu o limite de tentativas. Reenvie o codigo."
+            : "Codigo SMS invalido.";
+        setAccountDeleteError(String(payload.error || fallback));
+        setAccountDeleteSmsCode("");
+        if (res.status === 429) {
+          setAccountDeleteResendCooldown(0);
+        }
+        return;
+      }
+
+      if (payload.deleted) {
+        completeAccountDeleted();
+        return;
+      }
+
+      if (payload.next !== "verify-auth" || !payload.ticket) {
+        throw new Error("Fluxo de exclusao invalido.");
+      }
+
+      setAccountDeleteStep("verify-auth");
+      setAccountDeleteTicket(String(payload.ticket));
+      setAccountDeleteSmsCode("");
+      setAccountDeleteResendCooldown(0);
+      openAccountActionTwoFactorModal("account-delete", null, payload.authMethods);
+    } catch (err) {
+      console.error("[config-account] verify account delete sms failed:", err);
+      setAccountDeleteError(err instanceof Error ? err.message : "Erro ao validar codigo SMS.");
+      setAccountDeleteSmsCode("");
+    } finally {
+      setVerifyingAccountDeleteStep(false);
+    }
+  };
+
+  const verifyAccountDeleteAuth = async (
+    nextValue?: string,
+    providedPasskeyProof?: string
+  ) => {
+    if (!accountDeleteTicket || accountDeleteStep !== "verify-auth") return;
+    if (isAccountDeleteBusy) return;
+
+    const code = onlyDigits(String(nextValue || accountActionTwoFactorCode || "")).slice(0, 6);
+    const passkeyProof = String(providedPasskeyProof || "").trim();
+    if (code.length !== 6 && !passkeyProof) return;
+
+    const usingDynamicIsland =
+      accountActionTwoFactorContext === "account-delete" && accountActionTwoFactorModalOpen;
+
+    try {
+      setVerifyingAccountDeleteStep(true);
+      setAccountDeleteError(null);
+      if (usingDynamicIsland) {
+        clearAccountActionTwoFactorFeedback();
+      }
+
+      const res = await fetch("/api/wz_users/account-delete", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ticket: accountDeleteTicket,
+          ...(code.length === 6 ? { twoFactorCode: code } : {}),
+          ...(passkeyProof ? { passkeyProof } : {}),
+        }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        deleted?: boolean;
+      } & AccountActionAuthResponsePayload;
+
+      if ((!res.ok || !payload.ok) && payload.requiresTwoFactor && usingDynamicIsland) {
+        openAccountActionTwoFactorModal(
+          "account-delete",
+          String(payload.error || "Codigo de autenticacao invalido."),
+          payload.authMethods,
+        );
+        return;
+      }
+
+      if (!res.ok || !payload.ok) {
+        const message = String(
+          payload.error || "Nao foi possivel concluir a exclusao da conta.",
+        );
+        if (usingDynamicIsland) {
+          setAccountActionTwoFactorFeedback(message);
+          setAccountActionTwoFactorCode("");
+        } else {
+          setAccountDeleteError(message);
+        }
+        return;
+      }
+
+      if (!payload.deleted) {
+        throw new Error("Nao foi possivel concluir a exclusao da conta.");
+      }
+
+      if (usingDynamicIsland) {
+        resetAccountActionTwoFactorModal();
+      }
+      completeAccountDeleted();
+    } catch (err) {
+      console.error("[config-account] verify account delete auth failed:", err);
+      const message =
+        err instanceof Error ? err.message : "Erro ao confirmar exclusao da conta.";
+      if (usingDynamicIsland) {
+        setAccountActionTwoFactorFeedback(message);
+      } else {
+        setAccountDeleteError(message);
+      }
+    } finally {
+      setVerifyingAccountDeleteStep(false);
+    }
+  };
+
   const verifyAccountActionWithWindowsHello = useCallback(async () => {
     if (!accountActionTwoFactorContext || !accountActionAllowPasskey) return;
     if (accountActionTwoFactorBusy || accountActionTwoFactorUiLoading) return;
@@ -2948,6 +3303,10 @@ function AccountContent({
         await verifyPasskeyDisable(undefined, undefined, passkeyProof);
         return;
       }
+      if (accountActionTwoFactorContext === "account-delete") {
+        await verifyAccountDeleteAuth(undefined, passkeyProof);
+        return;
+      }
       await verifyPasswordChangeCode(undefined, undefined, passkeyProof);
     } catch (error) {
       const domErr = error as DOMException;
@@ -2978,6 +3337,7 @@ function AccountContent({
     clearAccountActionTwoFactorFeedback,
     setAccountActionTwoFactorFeedback,
     verifyEmailChangeCode,
+    verifyAccountDeleteAuth,
     verifyPasskeyDisable,
     verifyPasskeyActivation,
     verifyPasswordChangeCode,
@@ -3226,6 +3586,16 @@ function AccountContent({
     }
   };
 
+  const reopenAccountDeleteAuthIsland = () => {
+    if (!accountDeleteTicket || accountDeleteStep !== "verify-auth") return;
+    if (isAccountDeleteBusy || accountActionTwoFactorBusy) return;
+    openAccountActionTwoFactorModal(
+      "account-delete",
+      null,
+      { totp: twoFactorEnabled, passkey: passkeyEnabled },
+    );
+  };
+
   const initial = nickname.trim().charAt(0).toUpperCase() || "U";
   const maskedEmailValue = maskSecureEmail(localEmail);
   const maskedPhoneValue = maskSecurePhone(localPhoneE164);
@@ -3270,6 +3640,8 @@ function AccountContent({
       ? "Desativar autenticacao de 2 etapas"
       : accountActionTwoFactorContext === "two-factor-enable"
         ? "Ativar autenticacao de 2 etapas"
+      : accountActionTwoFactorContext === "account-delete"
+        ? "Excluir conta"
       : accountActionTwoFactorContext === "passkey-disable"
         ? "Desativar Windows Hello"
       : accountActionTwoFactorContext === "passkey"
@@ -3284,6 +3656,8 @@ function AccountContent({
       ? "Digite o codigo de 6 digitos do aplicativo autenticador para concluir a desativacao."
       : accountActionTwoFactorContext === "two-factor-enable"
         ? "Digite o codigo de 6 digitos gerado no aplicativo para ativar."
+      : accountActionTwoFactorContext === "account-delete"
+        ? "Confirme com codigo de 2 etapas ou Windows Hello para excluir a conta."
       : accountActionTwoFactorContext === "passkey-disable"
         ? "Confirme com codigo de 2 etapas ou Windows Hello para desativar."
       : accountActionTwoFactorContext === "passkey"
@@ -3422,8 +3796,17 @@ function AccountContent({
             </p>
           )}
 
-          <button type="button" className="group -mx-2 flex w-[calc(100%+16px)] items-center justify-between gap-4 rounded-xl px-2 py-5 text-left transition-[transform,background-color] duration-220 active:translate-y-[0.6px] active:scale-[0.998] cursor-pointer">
-            <span className="min-w-0"><p className="text-[18px] font-semibold text-[#e3524b]">Excluir minha conta</p><p className="mt-1 text-[15px] text-black/58">Exclua permanentemente a conta e remova o acesso de todos os espacos de trabalho.</p></span>
+          <button
+            type="button"
+            onClick={openAccountDeleteModal}
+            disabled={isAccountDeleteBusy || accountActionTwoFactorBusy}
+            className={cx(
+              "group -mx-2 flex w-[calc(100%+16px)] items-center justify-between gap-4 rounded-xl px-2 py-5 text-left transition-[transform,background-color] duration-220 active:translate-y-[0.6px] active:scale-[0.998] cursor-pointer",
+              (isAccountDeleteBusy || accountActionTwoFactorBusy) &&
+                "cursor-not-allowed opacity-60",
+            )}
+          >
+            <span className="min-w-0"><p className="text-[18px] font-semibold text-[#e3524b]">Excluir minha conta</p><p className="mt-1 text-[15px] text-black/58">Bloqueie o acesso ao painel com exclusao logica da conta. Seus dados permanecem arquivados.</p></span>
             <ChevronRight className="h-5 w-5 shrink-0 text-black/35 transition-all duration-220 group-hover:translate-x-[1px] group-hover:text-black/65" />
           </button>
         </section>
@@ -4053,6 +4436,203 @@ function AccountContent({
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
                       {verifyingPasswordCode ? "Validando..." : "Confirmar"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.section>
+          </motion.div>
+        )}
+
+        {accountDeleteModalOpen && (
+          <motion.div
+            className="fixed inset-0 z-[228] flex items-center justify-center p-4 sm:p-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/45 backdrop-blur-[4px]"
+              onClick={closeAccountDeleteModal}
+            />
+            <motion.section
+              role="dialog"
+              aria-modal="true"
+              className="relative z-[1] w-[min(96vw,700px)] overflow-hidden rounded-2xl border border-black/15 bg-[#f3f3f4] shadow-[0_26px_70px_rgba(0,0,0,0.35)] sm:w-[min(92vw,700px)]"
+              initial={{ opacity: 0, y: 10, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.985 }}
+            >
+              <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6">
+                <h3 className="text-[18px] font-semibold text-black/80">Excluir conta</h3>
+                <button
+                  type="button"
+                  onClick={closeAccountDeleteModal}
+                  disabled={isAccountDeleteBusy || accountActionTwoFactorBusy}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
+                {accountDeleteStep === "intro" && (
+                  <>
+                    <p className="text-[14px] leading-[1.45] text-black/62">
+                      Esta acao inicia a exclusao logica da conta por 14 dias. Durante esse periodo,
+                      voce ainda pode restaurar o acesso.
+                    </p>
+                    <p className="mt-3 text-[14px] leading-[1.45] text-black/62">
+                      Para confirmar a exclusao, voce vai validar:
+                    </p>
+                    <ol className="mt-2 list-decimal pl-5 text-[14px] leading-[1.5] text-black/62">
+                      <li>Codigo de 7 digitos enviado para seu e-mail.</li>
+                      <li>Codigo de 7 digitos enviado por SMS.</li>
+                      <li>Confirmacao final com Windows Hello ou codigo de 2 etapas (se ativo).</li>
+                    </ol>
+                    <p className="mt-3 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/72">
+                      E-mail: <span className="font-semibold text-black/86">{accountDeleteEmailMask || maskSecureEmail(localEmail)}</span>
+                      <br />
+                      SMS: <span className="font-semibold text-black/86">{accountDeletePhoneMask || maskSecurePhone(localPhoneE164)}</span>
+                    </p>
+                    <p className="mt-3 rounded-xl border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-3 text-[13px] font-medium text-[#b2433e]">
+                      Seus dados nao sao apagados agora, mas o acesso ao painel sera bloqueado ate
+                      restauracao dentro da janela de 14 dias.
+                    </p>
+                  </>
+                )}
+
+                {accountDeleteStep === "verify-email" && (
+                  <>
+                    <p className="text-[14px] leading-[1.45] text-black/62">
+                      Digite o codigo de 7 digitos enviado para{" "}
+                      <span className="font-semibold text-black/78">
+                        {accountDeleteEmailMask || maskSecureEmail(localEmail)}
+                      </span>
+                      .
+                    </p>
+                    <CodeBoxes
+                      length={7}
+                      value={accountDeleteEmailCode}
+                      onChange={setAccountDeleteEmailCode}
+                      onComplete={verifyAccountDeleteEmailCode}
+                      disabled={isAccountDeleteBusy}
+                    />
+                    <div className="mt-4 flex items-center justify-center">
+                      <button
+                        type="button"
+                        onClick={resendAccountDeleteCode}
+                        disabled={isAccountDeleteBusy || accountDeleteResendCooldown > 0}
+                        className="text-[13px] font-semibold text-black/72 transition-colors hover:text-black/88 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {accountDeleteResendCooldown > 0
+                          ? `Reenviar codigo (${accountDeleteResendCooldown}s)`
+                          : resendingAccountDeleteCode
+                          ? "Reenviando..."
+                          : "Reenviar codigo"}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {accountDeleteStep === "verify-sms" && (
+                  <>
+                    <p className="text-[14px] leading-[1.45] text-black/62">
+                      Digite o codigo de 7 digitos enviado por SMS para{" "}
+                      <span className="font-semibold text-black/78">
+                        {accountDeletePhoneMask || maskSecurePhone(localPhoneE164)}
+                      </span>
+                      .
+                    </p>
+                    <CodeBoxes
+                      length={7}
+                      value={accountDeleteSmsCode}
+                      onChange={setAccountDeleteSmsCode}
+                      onComplete={verifyAccountDeleteSmsCode}
+                      disabled={isAccountDeleteBusy}
+                    />
+                    <div className="mt-4 flex items-center justify-center">
+                      <button
+                        type="button"
+                        onClick={resendAccountDeleteCode}
+                        disabled={isAccountDeleteBusy || accountDeleteResendCooldown > 0}
+                        className="text-[13px] font-semibold text-black/72 transition-colors hover:text-black/88 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {accountDeleteResendCooldown > 0
+                          ? `Reenviar codigo (${accountDeleteResendCooldown}s)`
+                          : resendingAccountDeleteCode
+                          ? "Reenviando..."
+                          : "Reenviar codigo"}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {accountDeleteStep === "verify-auth" && (
+                  <div className="rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/70">
+                    Codigo de e-mail e SMS confirmados. Agora conclua na ilha dinamica com Windows
+                    Hello ou codigo de autenticacao.
+                  </div>
+                )}
+
+                {accountDeleteError && (
+                  <p className="mt-4 rounded-lg border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-2 text-[13px] font-medium text-[#b2433e]">
+                    {accountDeleteError}
+                  </p>
+                )}
+
+                <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={closeAccountDeleteModal}
+                    disabled={isAccountDeleteBusy || accountActionTwoFactorBusy}
+                    className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancelar
+                  </button>
+
+                  {accountDeleteStep === "intro" && (
+                    <button
+                      type="button"
+                      onClick={() => void startAccountDeleteFlow()}
+                      disabled={isAccountDeleteBusy || accountActionTwoFactorBusy}
+                      className="rounded-xl bg-[#e3524b] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#d34942] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {startingAccountDeleteFlow ? "Iniciando..." : "Confirmar exclusao"}
+                    </button>
+                  )}
+
+                  {accountDeleteStep === "verify-email" && (
+                    <button
+                      type="button"
+                      onClick={() => void verifyAccountDeleteEmailCode()}
+                      disabled={isAccountDeleteBusy || onlyDigits(accountDeleteEmailCode).length !== 7}
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {verifyingAccountDeleteStep ? "Validando..." : "Validar e continuar"}
+                    </button>
+                  )}
+
+                  {accountDeleteStep === "verify-sms" && (
+                    <button
+                      type="button"
+                      onClick={() => void verifyAccountDeleteSmsCode()}
+                      disabled={isAccountDeleteBusy || onlyDigits(accountDeleteSmsCode).length !== 7}
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {verifyingAccountDeleteStep ? "Validando..." : "Validar e continuar"}
+                    </button>
+                  )}
+
+                  {accountDeleteStep === "verify-auth" && (
+                    <button
+                      type="button"
+                      onClick={reopenAccountDeleteAuthIsland}
+                      disabled={isAccountDeleteBusy || accountActionTwoFactorBusy}
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {verifyingAccountDeleteStep ? "Validando..." : "Concluir exclusao"}
                     </button>
                   )}
                 </div>

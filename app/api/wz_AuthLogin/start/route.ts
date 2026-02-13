@@ -17,6 +17,12 @@ import {
   setTrustedLoginCookie,
 } from "../_trusted_login";
 import crypto from "crypto";
+import {
+  ACCOUNT_STATE_DEACTIVATED,
+  canReuseEmailForRegister,
+  resolveAccountLifecycleByEmail,
+  syncAccountLifecycleIfNeeded,
+} from "@/app/api/wz_users/_account_lifecycle";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -127,6 +133,43 @@ function sanitizeNext(nextRaw: string) {
   }
 }
 
+function formatDateTimePtBr(value?: string | null) {
+  const clean = String(value || "").trim();
+  if (!clean) return "";
+  const parsed = Date.parse(clean);
+  if (!Number.isFinite(parsed)) return "";
+  return new Date(parsed).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function isReusableDeactivatedIdentityRow(
+  row: {
+    email?: string | null;
+    account_state?: string | null;
+    account_original_email?: string | null;
+    account_email_reuse_at?: string | null;
+  },
+  expectedEmail: string,
+) {
+  const state = String(row.account_state || "").trim().toLowerCase();
+  if (state !== ACCOUNT_STATE_DEACTIVATED) return false;
+
+  const originalEmail = String(row.account_original_email || row.email || "")
+    .trim()
+    .toLowerCase();
+  if (!originalEmail || originalEmail !== expectedEmail) return false;
+
+  const reuseAtMs = Date.parse(String(row.account_email_reuse_at || ""));
+  if (!Number.isFinite(reuseAtMs)) return false;
+  return Date.now() >= reuseAtMs;
+}
+
 async function findAuthUserIdByEmail(
   sb: ReturnType<typeof supabaseAdmin>,
   email: string,
@@ -184,6 +227,32 @@ export async function POST(req: Request) {
     }
 
     const admin = supabaseAdmin();
+    const lifecycle = await resolveAccountLifecycleByEmail({ sb: admin, email });
+    const syncedLifecycle = lifecycle
+      ? await syncAccountLifecycleIfNeeded({ sb: admin, record: lifecycle })
+      : null;
+    const canReuseDeactivatedEmail =
+      syncedLifecycle?.state === ACCOUNT_STATE_DEACTIVATED
+        ? canReuseEmailForRegister(syncedLifecycle)
+        : false;
+
+    if (
+      syncedLifecycle?.state === ACCOUNT_STATE_DEACTIVATED &&
+      !canReuseDeactivatedEmail
+    ) {
+      const emailReuseAtLabel = formatDateTimePtBr(syncedLifecycle.emailReuseAt);
+      return NextResponse.json(
+        {
+          ok: false,
+          accountState: syncedLifecycle.state,
+          emailReuseAt: syncedLifecycle.emailReuseAt,
+          error: emailReuseAtLabel
+            ? `Esta conta foi desativada e nao pode mais acessar o painel. Novo cadastro com este e-mail sera liberado em ${emailReuseAtLabel}.`
+            : "Esta conta foi desativada e nao pode mais acessar o painel no momento.",
+        },
+        { status: 409, headers: NO_STORE_HEADERS },
+      );
+    }
 
     // existe perfil?
     const { data: existingWz, error: exErr } = await admin
@@ -194,8 +263,8 @@ export async function POST(req: Request) {
 
     if (exErr) console.error("[start] wz_users select error:", exErr);
 
-    // ✅ se já existe em wz_users, sempre é login (não deixa “registrar por cima”)
-    const flow = existingWz?.id ? "login" : "register";
+    // ✅ se conta desativada já passou da janela de bloqueio, permite iniciar novo cadastro.
+    const flow = existingWz?.id && !canReuseDeactivatedEmail ? "login" : "register";
 
     // ✅ LOGIN: valida senha e, se dispositivo confiável válido, finaliza sem código.
     if (flow === "login") {
@@ -337,8 +406,16 @@ export async function POST(req: Request) {
 
       // ✅ bloqueia duplicados antes de criar pending/auth
       const [dupCpf, dupPhone] = await Promise.all([
-        admin.from("wz_users").select("id,email").eq("cpf", cpf).maybeSingle(),
-        admin.from("wz_users").select("id,email").eq("phone_e164", phoneE164).maybeSingle(),
+        admin
+          .from("wz_users")
+          .select("id,email,account_state,account_original_email,account_email_reuse_at")
+          .eq("cpf", cpf)
+          .limit(20),
+        admin
+          .from("wz_users")
+          .select("id,email,account_state,account_original_email,account_email_reuse_at")
+          .eq("phone_e164", phoneE164)
+          .limit(20),
       ]);
 
       if (dupCpf.error || dupPhone.error) {
@@ -349,12 +426,31 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: false, error: "Falha ao validar cadastro." }, { status: 500, headers: NO_STORE_HEADERS });
       }
 
-      if (dupCpf.data?.id) {
-        return NextResponse.json({ ok: false, error: "Este CPF já possui uma conta." }, { status: 409, headers: NO_STORE_HEADERS });
+      const cpfRows = ((dupCpf.data || []) as Array<{
+        email?: string | null;
+        account_state?: string | null;
+        account_original_email?: string | null;
+        account_email_reuse_at?: string | null;
+      }>).filter(Boolean);
+      const phoneRows = ((dupPhone.data || []) as Array<{
+        email?: string | null;
+        account_state?: string | null;
+        account_original_email?: string | null;
+        account_email_reuse_at?: string | null;
+      }>).filter(Boolean);
+
+      const cpfHasBlockedDuplicate = cpfRows.some(
+        (row) => !isReusableDeactivatedIdentityRow(row, email),
+      );
+      if (cpfHasBlockedDuplicate) {
+        return NextResponse.json({ ok: false, error: "Este CPF ja possui uma conta." }, { status: 409, headers: NO_STORE_HEADERS });
       }
 
-      if (dupPhone.data?.id) {
-        return NextResponse.json({ ok: false, error: "Este número já possui uma conta." }, { status: 409, headers: NO_STORE_HEADERS });
+      const phoneHasBlockedDuplicate = phoneRows.some(
+        (row) => !isReusableDeactivatedIdentityRow(row, email),
+      );
+      if (phoneHasBlockedDuplicate) {
+        return NextResponse.json({ ok: false, error: "Este numero ja possui uma conta." }, { status: 409, headers: NO_STORE_HEADERS });
       }
 
       let authUserId = await findAuthUserIdByEmail(admin, email);
