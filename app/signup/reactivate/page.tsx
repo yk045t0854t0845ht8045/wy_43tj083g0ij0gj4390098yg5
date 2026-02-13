@@ -559,10 +559,13 @@ export default function ReactivatePage() {
       <div className="mx-auto flex min-h-[86vh] w-full max-w-[920px] items-center justify-center">
         <section className="w-full max-w-[760px] overflow-hidden rounded-3xl border border-black/10 bg-white/92 shadow-[0_32px_84px_rgba(0,0,0,0.24)]">
           <div className="px-6 pb-7 pt-8 sm:px-8 sm:pb-8 sm:pt-9 text-center">
+            <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-black/82 sm:text-[33px]">Conta em exclusao temporaria</h1>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/flow-icon.png" alt="Conta em reativacao" className="mx-auto h-24 w-24 rounded-2xl border border-black/10 bg-black/[0.04] object-contain p-3" />
-
-            <h1 className="mt-5 text-[28px] font-semibold tracking-[-0.02em] text-black/82 sm:text-[33px]">Conta em exclusao temporaria</h1>
+            <img
+              src="/wlp/h3br9320-f94938f-329ygh-382h8fh43-3rf843h.png"
+              alt="Conta em exclusao temporaria"
+              className="mt-4 w-full rounded-2xl border border-black/10 bg-black/[0.03] object-cover"
+            />
 
             <p className="mt-3 text-[15px] leading-[1.55] text-black/62">
               Sua conta foi bloqueada por seguranca. Durante 14 dias voce ainda pode restaurar com validacao de e-mail e autenticacao adicional.

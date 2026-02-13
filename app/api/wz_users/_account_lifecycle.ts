@@ -208,7 +208,7 @@ async function queryWzUsersRows(params: {
 
   for (let i = 0; i < columnsToTry.length; i += 1) {
     const columns = columnsToTry[i];
-    const base = params.sb.from("wz_users").select(columns).limit(5);
+    const base = params.sb.from("wz_users").select(columns).limit(50);
     const res =
       params.mode === "ilike"
         ? await base.ilike(params.column, params.value)
@@ -265,6 +265,48 @@ function pickBestRow(rows: AccountLifecycleRow[], expectedEmail?: string | null)
   return best?.row || null;
 }
 
+function getRowStatePriority(row: AccountLifecycleRow) {
+  const state = String(row.account_state || "").trim().toLowerCase();
+  if (state === ACCOUNT_STATE_PENDING_DELETION) return 3;
+  if (state === ACCOUNT_STATE_DEACTIVATED) return 2;
+  if (state === ACCOUNT_STATE_ACTIVE) return 1;
+  return 0;
+}
+
+function pickBestSessionRow(rows: AccountLifecycleRow[], expectedEmail?: string | null) {
+  if (!rows.length) return null;
+  const normalizedExpected = normalizeEmail(expectedEmail);
+  const withId = rows.filter((row) => normalizeOptionalText(row.id));
+  if (!withId.length) return null;
+
+  const byExpectedEmail = normalizedExpected
+    ? withId.filter((row) => {
+        const rowEmail = normalizeEmail(row.email);
+        const rowOriginalEmail = normalizeEmail(row.account_original_email);
+        return rowEmail === normalizedExpected || rowOriginalEmail === normalizedExpected;
+      })
+    : [];
+
+  const pool = byExpectedEmail.length ? byExpectedEmail : withId;
+  const best = pool
+    .slice()
+    .sort((a, b) => {
+      const stateDiff = getRowStatePriority(b) - getRowStatePriority(a);
+      if (stateDiff !== 0) return stateDiff;
+
+      const aId = normalizeOptionalText(a.id) || "";
+      const bId = normalizeOptionalText(b.id) || "";
+      const an = Number.parseInt(aId, 10);
+      const bn = Number.parseInt(bId, 10);
+      const aNum = Number.isFinite(an) ? an : 0;
+      const bNum = Number.isFinite(bn) ? bn : 0;
+      if (aNum !== bNum) return bNum - aNum;
+      return bId.localeCompare(aId);
+    })[0];
+
+  return best || null;
+}
+
 async function findAccountLifecycleRow(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   sessionUserId?: string | null;
@@ -272,6 +314,35 @@ async function findAccountLifecycleRow(params: {
 }) {
   const sessionUserId = normalizeOptionalText(params.sessionUserId);
   const sessionEmail = normalizeEmail(params.sessionEmail);
+
+  if (sessionUserId) {
+    const byAuthUserId = await queryWzUsersRows({
+      sb: params.sb,
+      column: "auth_user_id",
+      value: sessionUserId,
+      mode: "eq",
+    });
+    const bestByAuthUserId = pickBestSessionRow(byAuthUserId.rows, sessionEmail);
+    if (bestByAuthUserId?.id) return { row: bestByAuthUserId, schemaReady: byAuthUserId.schemaReady };
+
+    const byUserId = await queryWzUsersRows({
+      sb: params.sb,
+      column: "user_id",
+      value: sessionUserId,
+      mode: "eq",
+    });
+    const bestByUserId = pickBestSessionRow(byUserId.rows, sessionEmail);
+    if (bestByUserId?.id) return { row: bestByUserId, schemaReady: byUserId.schemaReady };
+
+    const byId = await queryWzUsersRows({
+      sb: params.sb,
+      column: "id",
+      value: sessionUserId,
+      mode: "eq",
+    });
+    const bestById = pickBestSessionRow(byId.rows, sessionEmail);
+    if (bestById?.id) return { row: bestById, schemaReady: byId.schemaReady };
+  }
 
   if (sessionEmail) {
     const byEmail = await queryWzUsersRows({
@@ -282,35 +353,6 @@ async function findAccountLifecycleRow(params: {
     });
     const best = pickBestRow(byEmail.rows, sessionEmail);
     if (best?.id) return { row: best, schemaReady: byEmail.schemaReady };
-  }
-
-  if (sessionUserId) {
-    const byAuthUserId = await queryWzUsersRows({
-      sb: params.sb,
-      column: "auth_user_id",
-      value: sessionUserId,
-      mode: "eq",
-    });
-    const bestByAuthUserId = pickBestRow(byAuthUserId.rows, sessionEmail);
-    if (bestByAuthUserId?.id) return { row: bestByAuthUserId, schemaReady: byAuthUserId.schemaReady };
-
-    const byUserId = await queryWzUsersRows({
-      sb: params.sb,
-      column: "user_id",
-      value: sessionUserId,
-      mode: "eq",
-    });
-    const bestByUserId = pickBestRow(byUserId.rows, sessionEmail);
-    if (bestByUserId?.id) return { row: bestByUserId, schemaReady: byUserId.schemaReady };
-
-    const byId = await queryWzUsersRows({
-      sb: params.sb,
-      column: "id",
-      value: sessionUserId,
-      mode: "eq",
-    });
-    const bestById = pickBestRow(byId.rows, sessionEmail);
-    if (bestById?.id) return { row: bestById, schemaReady: byId.schemaReady };
   }
 
   return { row: null as AccountLifecycleRow | null, schemaReady: false };
@@ -429,11 +471,16 @@ export async function markAccountPendingDeletion(params: {
   userId: string;
   nowMs?: number;
 }) {
+  const targetUserId = String(params.userId || "").trim();
+  if (!targetUserId) {
+    throw new Error("Nao foi possivel identificar a conta para exclusao.");
+  }
+
   const nowMs = Number(params.nowMs ?? Date.now());
   const requestedAt = new Date(nowMs).toISOString();
   const restoreDeadlineAt = plusDaysIso(requestedAt, ACCOUNT_RESTORE_WINDOW_DAYS) || requestedAt;
 
-  const { error } = await params.sb
+  const { data: updatedRow, error } = await params.sb
     .from("wz_users")
     .update({
       account_state: ACCOUNT_STATE_PENDING_DELETION,
@@ -442,14 +489,33 @@ export async function markAccountPendingDeletion(params: {
       account_deactivated_at: null,
       account_email_reuse_at: null,
     })
-    .eq("id", String(params.userId || "").trim());
+    .eq("id", targetUserId)
+    .select("id,account_state,account_restore_deadline_at")
+    .maybeSingle();
 
   if (error) {
     const message = String((error as { message?: unknown } | null)?.message || "");
     throw new Error(message || "Nao foi possivel marcar a conta para exclusao.");
   }
 
-  return { requestedAt, restoreDeadlineAt };
+  if (!updatedRow || !normalizeOptionalText((updatedRow as { id?: string | null }).id)) {
+    throw new Error("Conta nao encontrada para exclusao.");
+  }
+
+  const updatedState = String(
+    (updatedRow as { account_state?: string | null }).account_state || "",
+  )
+    .trim()
+    .toLowerCase();
+  if (updatedState !== ACCOUNT_STATE_PENDING_DELETION) {
+    throw new Error("Nao foi possivel confirmar a exclusao da conta.");
+  }
+
+  const persistedRestoreDeadlineAt = normalizeIsoDatetime(
+    (updatedRow as { account_restore_deadline_at?: string | null }).account_restore_deadline_at,
+  );
+
+  return { requestedAt, restoreDeadlineAt: persistedRestoreDeadlineAt || restoreDeadlineAt };
 }
 
 export async function markAccountRestored(params: {
@@ -459,6 +525,10 @@ export async function markAccountRestored(params: {
 }) {
   const restoredAt = new Date(Number(params.nowMs ?? Date.now())).toISOString();
   const targetUserId = String(params.userId || "").trim();
+  if (!targetUserId) {
+    throw new Error("Nao foi possivel identificar a conta para restaurar.");
+  }
+
   const { data: currentRow } = await params.sb
     .from("wz_users")
     .select("email,account_original_email")
@@ -469,7 +539,7 @@ export async function markAccountRestored(params: {
       ?.account_original_email ||
       (currentRow as { email?: string | null } | null)?.email,
   );
-  const { error } = await params.sb
+  const { data: updatedRow, error } = await params.sb
     .from("wz_users")
     .update({
       ...(restoredEmail
@@ -485,11 +555,26 @@ export async function markAccountRestored(params: {
       account_email_reuse_at: null,
       account_reactivated_at: restoredAt,
     })
-    .eq("id", targetUserId);
+    .eq("id", targetUserId)
+    .select("id,account_state")
+    .maybeSingle();
 
   if (error) {
     const message = String((error as { message?: unknown } | null)?.message || "");
     throw new Error(message || "Nao foi possivel restaurar a conta.");
+  }
+
+  if (!updatedRow || !normalizeOptionalText((updatedRow as { id?: string | null }).id)) {
+    throw new Error("Conta nao encontrada para restaurar.");
+  }
+
+  const updatedState = String(
+    (updatedRow as { account_state?: string | null }).account_state || "",
+  )
+    .trim()
+    .toLowerCase();
+  if (updatedState !== ACCOUNT_STATE_ACTIVE) {
+    throw new Error("Nao foi possivel confirmar a reativacao da conta.");
   }
 
   return { restoredAt };
