@@ -671,6 +671,7 @@ function AccountContent({
   const [twoFactorRecoveryModalOpen, setTwoFactorRecoveryModalOpen] = useState(false);
   const [twoFactorRecoveryCodes, setTwoFactorRecoveryCodes] = useState<string[]>([]);
   const [twoFactorRecoveryDownloaded, setTwoFactorRecoveryDownloaded] = useState(false);
+  const [copiedRecoveryCode, setCopiedRecoveryCode] = useState<string | null>(null);
   const [copyingTwoFactorCode, setCopyingTwoFactorCode] = useState<"idle" | "copied" | "failed">(
     "idle"
   );
@@ -1928,6 +1929,7 @@ function AccountContent({
     setTwoFactorRecoveryModalOpen(false);
     setTwoFactorRecoveryCodes([]);
     setTwoFactorRecoveryDownloaded(false);
+    setCopiedRecoveryCode(null);
   }, []);
 
   const closeTwoFactorRecoveryModal = useCallback(() => {
@@ -2019,6 +2021,14 @@ function AccountContent({
     }, 1800);
     return () => window.clearTimeout(timer);
   }, [copyingTwoFactorCode]);
+
+  useEffect(() => {
+    if (!copiedRecoveryCode) return;
+    const timer = window.setTimeout(() => {
+      setCopiedRecoveryCode(null);
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [copiedRecoveryCode]);
 
   const startTwoFactorEnableFlow = async () => {
     if (isTwoFactorBusy) return;
@@ -2135,6 +2145,31 @@ function AccountContent({
       setCopyingTwoFactorCode("copied");
     } catch {
       setCopyingTwoFactorCode("failed");
+    }
+  };
+
+  const copyTwoFactorRecoveryCode = async (code: string) => {
+    const clean = String(code || "").trim();
+    if (!clean || typeof window === "undefined") return;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(clean);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = clean;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        textarea.style.pointerEvents = "none";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      setCopiedRecoveryCode(clean);
+    } catch {
+      // noop
     }
   };
 
@@ -4886,14 +4921,31 @@ function AccountContent({
                 </p>
 
                 <div className="mt-4 grid grid-cols-3 gap-2">
-                  {twoFactorRecoveryCodes.map((code) => (
-                    <div
-                      key={code}
-                      className="rounded-xl border border-black/12 bg-white/92 px-3 py-2 text-center text-[14px] font-semibold tracking-[0.06em] text-black/78"
-                    >
-                      {code}
-                    </div>
-                  ))}
+                  {twoFactorRecoveryCodes.map((code, index) => {
+                    const cleanCode = String(code || "").trim();
+                    const isCopied = copiedRecoveryCode === cleanCode;
+                    return (
+                      <button
+                        key={`${cleanCode}-${index}`}
+                        type="button"
+                        onClick={() => void copyTwoFactorRecoveryCode(cleanCode)}
+                        title={isCopied ? "Codigo copiado" : "Passe o mouse para revelar e clique para copiar"}
+                        aria-label="Revelar e copiar codigo de recuperacao"
+                        className="group rounded-xl border border-black/12 bg-white/92 px-3 py-2 text-center text-[14px] font-semibold tracking-[0.06em] text-black/78 transition-colors hover:bg-white focus:outline-none focus:ring-2 focus:ring-black/20"
+                      >
+                        <span
+                          className={cx(
+                            "inline-block transition-[filter] duration-200",
+                            isCopied
+                              ? "blur-0"
+                              : "blur-[5px] group-hover:blur-0 group-focus-visible:blur-0 group-active:blur-0",
+                          )}
+                        >
+                          {cleanCode}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
 
                 <div className="mt-5 flex flex-wrap items-center justify-end gap-2">

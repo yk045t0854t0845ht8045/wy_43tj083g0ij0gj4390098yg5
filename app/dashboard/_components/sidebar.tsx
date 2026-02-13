@@ -370,6 +370,24 @@ type Props = {
 
 const SIDEBAR_COLLAPSE_STORAGE_KEY = "dashboard-sidebar-collapsed-v1";
 
+function buildHelpDocumentationUrlClient() {
+  if (typeof window === "undefined") return "/";
+  const host = String(window.location.hostname || "").toLowerCase();
+  if (host.endsWith(".localhost") || host === "localhost") {
+    return "http://login.localhost:3000/ajuda";
+  }
+  return "https://help.wyzer.com.br";
+}
+
+function buildHelpSupportUrlClient() {
+  if (typeof window === "undefined") return "/";
+  const host = String(window.location.hostname || "").toLowerCase();
+  if (host.endsWith(".localhost") || host === "localhost") {
+    return "http://login.localhost:3000/ajuda";
+  }
+  return "https://login.wyzer.com.br/ajuda";
+}
+
 export default function Sidebar({
   activeMain = "overview",
   activeSub = null,
@@ -388,6 +406,7 @@ export default function Sidebar({
   const [sidebarLogoFallback, setSidebarLogoFallback] = useState(false);
   const [paymentsTooltipOpen, setPaymentsTooltipOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
   const profileMenuWrapRef = useRef<HTMLDivElement | null>(null);
   const paymentsTooltipCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
@@ -535,6 +554,23 @@ export default function Sidebar({
     };
   }, [isMobile, mobileMenuOpen]);
 
+  useEffect(() => {
+    if (!helpModalOpen) return;
+
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setHelpModalOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [helpModalOpen]);
+
   const idBase = useId();
   const cleanIdBase = useMemo(
     () => idBase.replace(/[^a-zA-Z0-9_-]/g, ""),
@@ -668,6 +704,23 @@ export default function Sidebar({
     onOpenConfig?.(section);
     setProfileMenuOpen(false);
     setMobileMenuOpen(false);
+  };
+
+  const openHelpModal = () => {
+    setProfileMenuOpen(false);
+    setHelpModalOpen(true);
+  };
+
+  const closeHelpModal = () => {
+    setHelpModalOpen(false);
+  };
+
+  const redirectFromHelpModal = (target: "documentation" | "support") => {
+    const url =
+      target === "documentation"
+        ? buildHelpDocumentationUrlClient()
+        : buildHelpSupportUrlClient();
+    window.location.assign(url);
   };
 
   const mainBtnBase = cx(
@@ -1186,6 +1239,7 @@ export default function Sidebar({
               <motion.button
                 id={helpHoverTargetId}
                 type="button"
+                onClick={openHelpModal}
                 whileTap={tapFeedback}
                 transition={tapFeedbackTransition}
                 className={cx(mainBtnBase, "hover:bg-black/[0.04]")}
@@ -1392,6 +1446,68 @@ export default function Sidebar({
           )}
         </div>
       </aside>
+
+      <AnimatePresence>
+        {helpModalOpen && (
+          <motion.div
+            className="fixed inset-0 z-[220] flex items-center justify-center p-4 sm:p-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/45 backdrop-blur-[3px]"
+              onClick={closeHelpModal}
+              aria-label="Fechar modal de ajuda"
+            />
+
+            <motion.section
+              role="dialog"
+              aria-modal="true"
+              aria-label="Ajuda"
+              className="relative z-[1] w-[min(96vw,520px)] overflow-hidden rounded-2xl border border-black/15 bg-[#f3f3f4] p-5 shadow-[0_26px_70px_rgba(0,0,0,0.35)] sm:p-6"
+              initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.985 }}
+              animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.985 }}
+              transition={
+                prefersReducedMotion
+                  ? { duration: 0.1 }
+                  : { duration: 0.24, ease: [0.2, 0.8, 0.2, 1] }
+              }
+            >
+              <button
+                type="button"
+                onClick={closeHelpModal}
+                className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80"
+                aria-label="Fechar"
+              >
+                <X className="h-5 w-5" />
+              </button>
+
+              <h3 className="pr-10 text-[21px] font-semibold text-black/82">Ajuda</h3>
+              <p className="mt-2 text-[14px] text-black/58">Selecione uma opcao para continuar.</p>
+
+              <div className="mt-5 space-y-2.5">
+                <button
+                  type="button"
+                  onClick={() => redirectFromHelpModal("documentation")}
+                  className="w-full rounded-xl border border-black/12 bg-white/92 px-4 py-3 text-[15px] font-semibold text-black/82 transition-colors hover:bg-white"
+                >
+                  Documentacao
+                </button>
+                <button
+                  type="button"
+                  onClick={() => redirectFromHelpModal("support")}
+                  className="w-full rounded-xl border border-black/12 bg-white/92 px-4 py-3 text-[15px] font-semibold text-black/82 transition-colors hover:bg-white"
+                >
+                  Preciso de Ajuda
+                </button>
+              </div>
+            </motion.section>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }
