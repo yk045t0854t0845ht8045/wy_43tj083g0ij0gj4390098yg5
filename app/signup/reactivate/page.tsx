@@ -26,6 +26,9 @@ type PasskeyRequestOptionsPayload = {
   allowCredentials?: Array<{ type: "public-key"; id: string; transports?: string[] }>;
 };
 
+const RECENT_DELETE_MARKER_KEY = "wz_account_delete_recent_at";
+const RECENT_DELETE_SYNC_MAX_MS = 60_000;
+
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
@@ -194,6 +197,8 @@ export default function ReactivatePage() {
   const [verifyingStep, setVerifyingStep] = useState(false);
   const [verifyingPasskey, setVerifyingPasskey] = useState(false);
   const [restoringAccount, setRestoringAccount] = useState(false);
+  const [recentDeleteAt, setRecentDeleteAt] = useState<number | null>(null);
+  const [deletionSyncPending, setDeletionSyncPending] = useState(false);
 
   const actionBusy = startingFlow || resendingCode || verifyingStep || verifyingPasskey || restoringAccount;
   const statusState = String(status?.state || "").trim().toLowerCase();
@@ -208,6 +213,29 @@ export default function ReactivatePage() {
 
   const deadlineLabel = useMemo(() => formatDeadline(status?.restoreDeadlineAt), [status?.restoreDeadlineAt]);
 
+  const clearRecentDeleteMarker = useCallback(() => {
+    try {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(RECENT_DELETE_MARKER_KEY);
+      }
+    } catch {
+      // no-op
+    }
+    setRecentDeleteAt(null);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.sessionStorage.getItem(RECENT_DELETE_MARKER_KEY);
+      const parsed = Number.parseInt(String(raw || ""), 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) return;
+      setRecentDeleteAt(parsed);
+    } catch {
+      // no-op
+    }
+  }, []);
+
   const refreshStatus = useCallback(async () => {
     try {
       setLoadingStatus(true);
@@ -219,16 +247,41 @@ export default function ReactivatePage() {
         throw new Error(String(payload?.error || "Nao foi possivel carregar o status da conta."));
       }
       setStatus(payload);
+      const payloadState = String(payload.state || "").trim().toLowerCase();
+      const markerAgeMs =
+        typeof recentDeleteAt === "number" ? Date.now() - recentDeleteAt : Number.POSITIVE_INFINITY;
+      const markerStillFresh =
+        Number.isFinite(markerAgeMs) && markerAgeMs >= 0 && markerAgeMs <= RECENT_DELETE_SYNC_MAX_MS;
+      const isPendingOrDeactivated =
+        payloadState === "pending_deletion" || payloadState === "deactivated";
+
+      if (isPendingOrDeactivated) {
+        setDeletionSyncPending(false);
+        if (recentDeleteAt) clearRecentDeleteMarker();
+      } else if (payloadState === "active" && markerStillFresh) {
+        setDeletionSyncPending(true);
+      } else {
+        setDeletionSyncPending(false);
+        if (recentDeleteAt && !markerStillFresh) clearRecentDeleteMarker();
+      }
     } catch (error) {
       setStatusError(error instanceof Error ? error.message : "Erro inesperado.");
     } finally {
       setLoadingStatus(false);
     }
-  }, []);
+  }, [clearRecentDeleteMarker, recentDeleteAt]);
 
   useEffect(() => {
     void refreshStatus();
   }, [refreshStatus]);
+
+  useEffect(() => {
+    if (!deletionSyncPending || loadingStatus) return;
+    const timer = window.setTimeout(() => {
+      void refreshStatus();
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [deletionSyncPending, loadingStatus, refreshStatus]);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -564,7 +617,7 @@ export default function ReactivatePage() {
             <img
               src="/wlp/h3br9320-f94938f-329ygh-382h8fh43-3rf843h.png"
               alt="Conta em exclusao temporaria"
-              className="mt-4 w-full rounded-2xl border border-black/10 bg-black/[0.03] object-cover"
+              className="mt-4 w-full object-cover"
             />
 
             <p className="mt-3 text-[15px] leading-[1.55] text-black/62">
@@ -598,26 +651,19 @@ export default function ReactivatePage() {
               </div>
             )}
 
-            {!loadingStatus && !statusError && isAlreadyActive && (
-              <div className="mt-4 rounded-2xl border border-black/12 bg-black/[0.05] px-4 py-3 text-left text-[13px] font-medium text-black/62">
-                <p className="text-black/72">Esta conta ja esta ativa.</p>
-                <button
-                  type="button"
-                  onClick={() => router.replace("/")}
-                  className="mt-3 rounded-xl bg-[#171717] px-4 py-2 text-[12px] font-semibold text-white transition-all duration-220 hover:bg-[#222222]"
-                >
-                  Ir para o dashboard
-                </button>
-              </div>
+            {!loadingStatus && !statusError && deletionSyncPending && (
+              <p className="mt-4 rounded-xl border border-black/12 bg-black/[0.05] px-3 py-2 text-[13px] font-medium text-black/62">
+                Finalizando a exclusao temporaria da conta... aguarde alguns segundos.
+              </p>
             )}
 
-            {!loadingStatus && !statusError && !canReactivate && !isAlreadyActive && (
+            {!loadingStatus && !statusError && !deletionSyncPending && !canReactivate && !isAlreadyActive && (
               <p className="mt-4 rounded-xl border border-black/12 bg-black/[0.05] px-3 py-2 text-[13px] font-medium text-black/62">
                 O prazo de reativacao terminou para esta conta.
               </p>
             )}
 
-            {!loadingStatus && !statusError && canReactivate && (
+            {!loadingStatus && !statusError && !deletionSyncPending && (canReactivate || isAlreadyActive) && (
               <button
                 type="button"
                 onClick={openConfirmModal}

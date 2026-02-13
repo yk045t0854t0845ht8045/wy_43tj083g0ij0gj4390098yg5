@@ -2845,6 +2845,11 @@ function AccountContent({
     setAccountDeleteModalOpen(false);
     resetAccountDeleteFlow();
     if (typeof window !== "undefined") {
+      try {
+        window.sessionStorage.setItem("wz_account_delete_recent_at", Date.now().toString());
+      } catch {
+        // no-op
+      }
       window.location.assign("/signup/reactivate");
     }
   }, [resetAccountActionTwoFactorModal, resetAccountDeleteFlow]);

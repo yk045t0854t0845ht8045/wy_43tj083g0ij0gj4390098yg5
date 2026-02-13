@@ -125,12 +125,12 @@ function parseAccountState(
   deactivatedAt: string | null,
 ): AccountLifecycleState {
   const clean = String(raw || "").trim().toLowerCase();
-  if (clean === ACCOUNT_STATE_ACTIVE) return ACCOUNT_STATE_ACTIVE;
-  if (clean === ACCOUNT_STATE_PENDING_DELETION) return ACCOUNT_STATE_PENDING_DELETION;
   if (clean === ACCOUNT_STATE_DEACTIVATED) return ACCOUNT_STATE_DEACTIVATED;
+  if (clean === ACCOUNT_STATE_PENDING_DELETION) return ACCOUNT_STATE_PENDING_DELETION;
 
   if (deactivatedAt) return ACCOUNT_STATE_DEACTIVATED;
   if (restoreDeadlineAt) return ACCOUNT_STATE_PENDING_DELETION;
+  if (clean === ACCOUNT_STATE_ACTIVE) return ACCOUNT_STATE_ACTIVE;
   return ACCOUNT_STATE_ACTIVE;
 }
 
@@ -279,15 +279,21 @@ function pickBestSessionRow(rows: AccountLifecycleRow[], expectedEmail?: string 
   const withId = rows.filter((row) => normalizeOptionalText(row.id));
   if (!withId.length) return null;
 
-  const byExpectedEmail = normalizedExpected
+  const byExactEmail = normalizedExpected
     ? withId.filter((row) => {
         const rowEmail = normalizeEmail(row.email);
-        const rowOriginalEmail = normalizeEmail(row.account_original_email);
-        return rowEmail === normalizedExpected || rowOriginalEmail === normalizedExpected;
+        return rowEmail === normalizedExpected;
       })
     : [];
 
-  const pool = byExpectedEmail.length ? byExpectedEmail : withId;
+  const byOriginalEmail = normalizedExpected
+    ? withId.filter((row) => {
+        const rowOriginalEmail = normalizeEmail(row.account_original_email);
+        return rowOriginalEmail === normalizedExpected;
+      })
+    : [];
+
+  const pool = byExactEmail.length ? byExactEmail : byOriginalEmail.length ? byOriginalEmail : withId;
   const best = pool
     .slice()
     .sort((a, b) => {
@@ -365,7 +371,27 @@ export async function resolveAccountLifecycleBySession(params: {
 }) {
   const found = await findAccountLifecycleRow(params);
   if (!found.row) return null;
-  return mapRowToRecord(found.row, found.schemaReady);
+  const mapped = mapRowToRecord(found.row, found.schemaReady);
+  if (!mapped) return null;
+
+  const sessionEmail = normalizeEmail(params.sessionEmail);
+  if (!sessionEmail || mapped.state !== ACCOUNT_STATE_ACTIVE) return mapped;
+
+  const byEmail = await resolveAccountLifecycleByEmail({
+    sb: params.sb,
+    email: sessionEmail,
+  });
+  if (!byEmail) return mapped;
+
+  if (
+    byEmail.id !== mapped.id &&
+    (byEmail.state === ACCOUNT_STATE_PENDING_DELETION ||
+      byEmail.state === ACCOUNT_STATE_DEACTIVATED)
+  ) {
+    return byEmail;
+  }
+
+  return mapped;
 }
 
 export async function resolveAccountLifecycleByEmail(params: {
@@ -432,6 +458,8 @@ export async function syncAccountLifecycleIfNeeded(params: {
           account_state: ACCOUNT_STATE_DEACTIVATED,
           account_original_email: originalEmail,
           ...(shouldArchiveEmail ? { email: archivedEmail } : {}),
+          auth_user_id: null,
+          user_id: null,
           account_deactivated_at: deactivatedAt,
           account_email_reuse_at: emailReuseAt,
         })
