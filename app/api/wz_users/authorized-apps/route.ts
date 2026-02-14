@@ -60,7 +60,7 @@ function normalizeBoolean(value: unknown) {
 
 function providerLabel(provider: string) {
   const p = normalizeLoginProvider(provider);
-  if (p === "password") return "Senha";
+  if (p === "password") return "Wyzer Login";
   if (p === "google") return "Google";
   if (p === "apple") return "Apple";
   if (p === "github") return "GitHub";
@@ -252,7 +252,7 @@ export async function GET(req: NextRequest) {
     providers.push({
       id: providerId("password", providers.length),
       provider: "password",
-      providerLabel: "Senha",
+      providerLabel: "Wyzer Login",
       linkedAt: null,
       lastLoginAt: null,
       isPassword: true,

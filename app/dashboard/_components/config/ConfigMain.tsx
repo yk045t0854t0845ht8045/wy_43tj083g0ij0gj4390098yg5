@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import NextImage from "next/image";
 
 type ConfigSectionGroupId = "user" | "billing" | "app";
 
@@ -5625,6 +5626,17 @@ function formatAuthorizedProviderSeen(value?: string | null) {
   return `ha ${base}`;
 }
 
+function resolveAuthorizedProviderLabel(provider: AuthorizedProviderRecord) {
+  if (provider.provider === "password") return "Wyzer Login";
+  const raw = String(provider.providerLabel || "").trim();
+  if (raw) return raw;
+  if (provider.provider === "google") return "Google";
+  if (provider.provider === "apple") return "Apple";
+  if (provider.provider === "github") return "GitHub";
+  if (provider.provider === "microsoft") return "Microsoft";
+  return "Desconhecido";
+}
+
 function AuthorizedAppsContent() {
   const mountedRef = useRef(true);
   const [loading, setLoading] = useState(true);
@@ -5643,6 +5655,20 @@ function AuthorizedAppsContent() {
     if (anyExternal?.providerLabel) return String(anyExternal.providerLabel);
 
     return null;
+  }, [primaryProvider, providers]);
+  const primaryProviderDisplayName = useMemo(() => {
+    const primaryFromList = providers.find((provider) => provider.isPrimary);
+    if (primaryFromList) {
+      return resolveAuthorizedProviderLabel(primaryFromList);
+    }
+
+    const clean = String(primaryProvider || "").trim().toLowerCase();
+    if (clean === "password") return "Wyzer Login";
+    if (clean === "google") return "Google";
+    if (clean === "apple") return "Apple";
+    if (clean === "github") return "GitHub";
+    if (clean === "microsoft") return "Microsoft";
+    return "Desconhecido";
   }, [primaryProvider, providers]);
 
   const loadAuthorizedApps = useCallback(async (opts?: { signal?: AbortSignal; silent?: boolean }) => {
@@ -5748,7 +5774,13 @@ function AuthorizedAppsContent() {
                       style={{ backgroundImage: "url('/cdn/login/google-icon.png')" }}
                     />
                   ) : provider.provider === "password" ? (
-                    "PW"
+                    <NextImage
+                      src="/favicon.ico"
+                      alt=""
+                      width={20}
+                      height={20}
+                      className="h-5 w-5 rounded-sm object-contain"
+                    />
                   ) : (
                     provider.providerLabel.slice(0, 2).toUpperCase()
                   )}
@@ -5756,8 +5788,13 @@ function AuthorizedAppsContent() {
 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-[15px] font-semibold text-black/78">{provider.providerLabel}</p>
-                    {provider.isPrimary && (
+                    <p className="text-[15px] font-semibold text-black/78">{resolveAuthorizedProviderLabel(provider)}</p>
+                    {provider.provider === "password" && (
+                      <span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">
+                        Padrão
+                      </span>
+                    )}
+                    {provider.isPrimary && provider.provider !== "password" && (
                       <span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">
                         Principal
                       </span>
@@ -5784,7 +5821,7 @@ function AuthorizedAppsContent() {
         <h3 className="text-[20px] font-semibold text-black/82">Status atual</h3>
         <div className="mt-4 border-t border-black/10" />
         <div className="mt-4 rounded-xl border border-black/10 bg-white/70 px-4 py-4 text-[14px] text-black/62">
-          Provedor principal: <span className="font-semibold text-black/78">{String(primaryProvider || "password").toUpperCase()}</span>.
+          Provedor principal: <span className="font-semibold text-black/78">{primaryProviderDisplayName}</span>.
         </div>
       </section>
     </div>
