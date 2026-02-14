@@ -410,8 +410,9 @@ async function buildAuthorizedAppsPayload(params: {
 
   const authProviderNormalized = normalizeLoginProvider(params.userRow.auth_provider || "unknown");
   let creationProvider: LoginProvider =
-    creationProviderFromSessions ||
-    (authProviderNormalized !== "unknown" ? authProviderNormalized : "unknown");
+    authProviderNormalized !== "unknown"
+      ? authProviderNormalized
+      : creationProviderFromSessions || "unknown";
 
   if (creationProvider === "unknown") {
     const firstLinkedProvider = [...providerRows.rows]

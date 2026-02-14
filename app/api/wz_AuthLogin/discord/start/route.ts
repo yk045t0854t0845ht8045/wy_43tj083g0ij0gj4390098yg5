@@ -254,6 +254,9 @@ export async function POST(req: NextRequest) {
     callback.searchParams.set("st", stateTicket);
     callback.searchParams.set("oi", intent);
     callback.searchParams.set("rt", nextSafe);
+    if (intent === "connect" && connectUserId) {
+      callback.searchParams.set("cu", connectUserId);
+    }
 
     const sb = supabaseAnon();
     const { data, error } = await sb.auth.signInWithOAuth({

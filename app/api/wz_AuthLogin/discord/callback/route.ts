@@ -1313,8 +1313,26 @@ export async function GET(req: NextRequest) {
   const hintedNext = sanitizeNext(String(req.nextUrl.searchParams.get("rt") || "").trim() || "/");
   const hintedIntentRaw = String(req.nextUrl.searchParams.get("oi") || "").trim().toLowerCase();
   const hintedIntent = hintedIntentRaw === "connect" ? "connect" : "login";
+  const hintedConnectUserId = normalizeText(
+    String(req.nextUrl.searchParams.get("cu") || ""),
+  );
   const safeNext = stateRes.ok ? sanitizeNext(stateRes.payload.next) : hintedNext;
-  const oauthIntent = stateRes.ok ? readDiscordIntent(stateRes.payload) : hintedIntent;
+  let oauthIntent: "login" | "connect" = stateRes.ok
+    ? readDiscordIntent(stateRes.payload)
+    : hintedIntent;
+  const activeSession = await readActiveSessionFromRequest(req, {
+    seedIfMissing: false,
+  });
+  const activeSessionUserId = normalizeText(String(activeSession?.userId || ""));
+  if (
+    !stateRes.ok &&
+    oauthIntent !== "connect" &&
+    hintedConnectUserId &&
+    activeSessionUserId &&
+    activeSessionUserId === hintedConnectUserId
+  ) {
+    oauthIntent = "connect";
+  }
 
   const fail = (message: string) => {
     const target =
@@ -1426,18 +1444,21 @@ export async function GET(req: NextRequest) {
     const linkedUserId = identityLookup.lookupOk ? identityLookup.userId : null;
 
     if (oauthIntent === "connect") {
-      const activeSession = await readActiveSessionFromRequest(req, {
-        seedIfMissing: false,
-      });
-      const activeUserId = String(activeSession?.userId || "").trim();
-      const expectedUserId = String(stateRes.payload.connect_user_id || "").trim();
-      if (!activeUserId || !expectedUserId || activeUserId !== expectedUserId) {
+      const expectedUserId = normalizeText(
+        stateRes.ok
+          ? String(stateRes.payload.connect_user_id || "")
+          : String(hintedConnectUserId || ""),
+      );
+      if (!expectedUserId) {
+        return fail("Sessao invalida para conectar Discord.");
+      }
+      if (activeSessionUserId && activeSessionUserId !== expectedUserId) {
         return fail("Sessao invalida para conectar Discord.");
       }
 
       const targetUser = await findWzUserById({
         sb,
-        userId: activeUserId,
+        userId: expectedUserId,
       });
       if (!targetUser?.id) {
         return fail("Conta local nao encontrada para conectar Discord.");
