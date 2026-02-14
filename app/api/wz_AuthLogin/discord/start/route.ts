@@ -103,14 +103,33 @@ function sanitizeNext(raw: string) {
   return "/";
 }
 
+function pickRequestHost(req: NextRequest) {
+  return String(
+    req.headers.get("x-forwarded-host") || req.headers.get("host") || req.nextUrl.host || "",
+  )
+    .split(",")[0]
+    .trim();
+}
+
+function normalizeAuthHost(host: string, opts?: { preferRequestHost?: boolean }) {
+  const clean = String(host || "").trim();
+  if (!clean) return "";
+
+  if (opts?.preferRequestHost) return clean;
+
+  const hostOnly = clean.split(":")[0].toLowerCase();
+  if (hostOnly === "wyzer.com.br") {
+    return clean.replace(/^wyzer\.com\.br(?::\d+)?$/i, "www.wyzer.com.br");
+  }
+
+  return clean;
+}
+
 function getRequestOrigin(req: NextRequest, opts?: { preferRequestHost?: boolean }) {
   const configured = opts?.preferRequestHost ? "" : getConfiguredAuthOrigin();
   if (configured) return configured;
 
-  const hostHeader =
-    req.headers.get("x-forwarded-host") ||
-    req.headers.get("host") ||
-    req.nextUrl.host;
+  const hostHeader = normalizeAuthHost(pickRequestHost(req), opts) || req.nextUrl.host;
   const protoHeader =
     req.headers.get("x-forwarded-proto") ||
     req.nextUrl.protocol.replace(":", "") ||
@@ -215,6 +234,7 @@ export async function POST(req: NextRequest) {
       "/api/wz_AuthLogin/discord/callback",
       getRequestOrigin(req, { preferRequestHost: intent === "connect" }),
     );
+    callback.searchParams.set("st", stateTicket);
 
     const sb = supabaseAnon();
     const { data, error } = await sb.auth.signInWithOAuth({

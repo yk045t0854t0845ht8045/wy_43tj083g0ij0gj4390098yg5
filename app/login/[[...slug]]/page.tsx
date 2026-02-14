@@ -369,10 +369,10 @@ function CodeBoxes({
   return (
     <div
       className={cx(
-        "relative",
+        "relative flex-nowrap",
         dark
           ? "mt-5 flex w-full items-center justify-center gap-1 sm:gap-2"
-          : "mt-6 flex items-center justify-center gap-3"
+          : "mt-6 flex w-full items-center justify-center gap-1.5 px-2 sm:gap-3 sm:px-0"
       )}
     >
       {digits.map((d, i) => (
@@ -417,13 +417,13 @@ function CodeBoxes({
             const nextIndex = Math.min(pasted.length, length - 1);
             focus(nextIndex);
           }}
-          className={cx(
-            dark
-              ? "h-11 w-8 rounded-[10px] border border-white/14 bg-black/[0.58] text-center text-[16px] font-semibold text-white/94 sm:h-12 sm:w-10 sm:rounded-[12px] sm:text-[18px]"
-              : "h-14 w-14 rounded-[14px] bg-[#f3f3f3] ring-1 ring-black/5 text-center text-[18px] font-semibold text-black",
-            dark
-              ? "focus:outline-none focus:ring-2 focus:ring-white/18"
-              : "focus:outline-none focus:ring-2 focus:ring-black/20",
+            className={cx(
+              dark
+                ? "h-11 w-8 rounded-[10px] border border-white/14 bg-black/[0.58] text-center text-[16px] font-semibold text-white/94 sm:h-12 sm:w-10 sm:rounded-[12px] sm:text-[18px]"
+                : "h-11 w-9 rounded-[11px] bg-[#f3f3f3] ring-1 ring-black/5 text-center text-[15px] font-semibold text-black sm:h-14 sm:w-14 sm:rounded-[14px] sm:text-[18px]",
+              dark
+                ? "focus:outline-none focus:ring-2 focus:ring-white/18"
+                : "focus:outline-none focus:ring-2 focus:ring-black/20",
             "transition-all duration-200",
             disabled ? "opacity-70 cursor-not-allowed" : "",
           )}

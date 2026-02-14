@@ -4,6 +4,7 @@ import Script from "next/script";
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import {
   Check,
+  ChevronLeft,
   Copy,
   ChevronRight,
   Monitor,
@@ -6117,7 +6118,7 @@ function AuthorizedAppsContent() {
             </button>
           </div>
         ) : null}
-        <div className="relative mt-4 overflow-visible rounded-xl border border-black/10 bg-white/70">
+        <div className="relative isolate mt-4 overflow-visible rounded-xl border border-black/10 bg-white/70">
           {!orderedProviders.length ? (
             <div className="px-4 py-5 text-[14px] text-black/55">
               {loading ? "Carregando provedores..." : "Nenhum provedor conectado."}
@@ -6128,7 +6129,6 @@ function AuthorizedAppsContent() {
               const isCreationProvider =
                 String(provider.provider || "").trim().toLowerCase() ===
                 String(creationProvider || "").trim().toLowerCase();
-              const linkedAtTooltipLabel = formatAuthorizedProviderTooltipTimestamp(provider.linkedAt);
               const lastLoginTooltipLabel = formatAuthorizedProviderTooltipTimestamp(provider.lastLoginAt);
               const tooltipHoverTargetId = `authorized-apps-tooltip-icon-${provider.id}`;
               const providerTooltip = buildAuthorizedProviderTooltipData({
@@ -6141,7 +6141,7 @@ function AuthorizedAppsContent() {
                 <div
                   key={provider.id}
                   className={cx(
-                    "relative z-[1] flex items-center gap-4 px-4 py-5 overflow-visible",
+                    "relative z-[1] flex items-center gap-4 px-4 py-5 overflow-visible hover:z-[260] focus-within:z-[260]",
                     idx > 0 && "border-t border-black/10",
                   )}
                 >
@@ -6172,19 +6172,19 @@ function AuthorizedAppsContent() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-[15px] font-semibold text-black/78">{providerLabel}</p>
-                      <span className="group relative inline-flex">
+                      <span className="group relative z-[280] inline-flex">
                         <button
                           id={tooltipHoverTargetId}
                           type="button"
                           aria-label={`Detalhes de ${providerLabel}`}
-                          className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-black/14 bg-black/[0.04] text-[11px] font-semibold leading-none text-black/62 transition-colors hover:bg-black/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/25"
+                          className="inline-flex h-5 w-5 items-center justify-center rounded-full text-black/62 transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/25"
                         >
                           <AuthorizedAppsInfoIcon target={`#${tooltipHoverTargetId}`} />
                         </button>
                         <span
                           role="tooltip"
                           className={cx(
-                            "pointer-events-none absolute left-[calc(100%+8px)] top-1/2 z-[200] w-max max-w-[360px] -translate-y-1/2 rounded-xl border border-black/12 bg-white/98 px-3 py-3 text-[12px] text-black/72 shadow-[0_16px_36px_rgba(0,0,0,0.18)] backdrop-blur-[2px]",
+                            "pointer-events-none absolute left-[calc(100%+8px)] top-[44%] z-[1200] w-max max-w-[360px] -translate-y-1/2 rounded-xl border border-black/12 bg-white/98 px-3 py-3 text-[12px] text-black/72 shadow-[0_16px_36px_rgba(0,0,0,0.18)] backdrop-blur-[2px]",
                             "opacity-0 translate-x-1 scale-[0.98] transition-[opacity,transform] duration-180 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
                             "group-hover:opacity-100 group-hover:translate-x-0 group-hover:scale-100",
                             "group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:scale-100",
@@ -6213,14 +6213,6 @@ function AuthorizedAppsContent() {
                               Status da conexão
                             </p>
                             <dl className="space-y-1.5">
-                              <div className="flex items-start justify-between gap-3 rounded-lg border border-black/8 bg-black/[0.025] px-2.5 py-2">
-                                <dt className="pt-0.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-black/50">
-                                  Vinculado
-                                </dt>
-                                <dd className="text-right text-[11px] font-semibold leading-[1.35] text-black/76">
-                                  {linkedAtTooltipLabel}
-                                </dd>
-                              </div>
                               <div className="flex items-start justify-between gap-3 rounded-lg border border-black/8 bg-black/[0.025] px-2.5 py-2">
                                 <dt className="pt-0.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-black/50">
                                   Último login
@@ -6951,6 +6943,8 @@ export default function ConfigMain({
 }: ConfigMainProps) {
   const prefersReducedMotion = useReducedMotion();
   const [searchTerm, setSearchTerm] = useState("");
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [mobileView, setMobileView] = useState<"menu" | "content">("menu");
 
   const activePillTransition = useMemo(
     () =>
@@ -6996,59 +6990,311 @@ export default function ConfigMain({
   const appItems = useMemo(() => filtered.filter((i) => i.group === "app"), [filtered]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 767px)");
+    const sync = () => setIsMobileViewport(media.matches);
+    sync();
+    const onChange = () => sync();
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", onChange);
+      return () => media.removeEventListener("change", onChange);
+    }
+    media.addListener(onChange);
+    return () => media.removeListener(onChange);
+  }, []);
+
+  const closeConfig = useCallback(() => {
+    setMobileView("menu");
+    onClose();
+  }, [onClose]);
+
+  useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeConfig();
     window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prev;
       window.removeEventListener("keydown", onKey);
     };
-  }, [open, onClose]);
+  }, [closeConfig, open]);
+
+  const isMobileConfigLayout = isMobileViewport;
+
+  const handleSectionSelect = useCallback(
+    (section: ConfigSectionId) => {
+      onSectionChange(section);
+      if (isMobileConfigLayout) {
+        setMobileView("content");
+      }
+    },
+    [isMobileConfigLayout, onSectionChange],
+  );
+
+  const handleBackToMobileMenu = useCallback(() => {
+    setMobileView("menu");
+  }, []);
 
   const activeTitle = sectionTitles[activeSection];
+  const activeSectionContent = (
+    <>
+      {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} emailChangedAt={emailChangedAt} phoneChangedAt={phoneChangedAt} passwordChangedAt={passwordChangedAt} supportAccess={supportAccess} accountCreatedAt={accountCreatedAt} twoFactorEnabled={twoFactorEnabled} twoFactorEnabledAt={twoFactorEnabledAt} twoFactorDisabledAt={twoFactorDisabledAt} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} onUserPasswordChange={onUserPasswordChange} onUserSupportAccessChange={onUserSupportAccessChange} onUserTwoFactorChange={onUserTwoFactorChange} />}
+      {activeSection === "privacy-data" && <PrivacyDataContent />}
+      {activeSection === "authorized-apps" && <AuthorizedAppsContent />}
+      {activeSection === "devices" && <DevicesContent />}
+      {activeSection !== "my-account" && activeSection !== "privacy-data" && activeSection !== "authorized-apps" && activeSection !== "devices" && <PlaceholderSection title={activeTitle} />}
+    </>
+  );
 
   return (
     <AnimatePresence>
       {open && (
-        <motion.div className="fixed inset-0 z-[190] flex items-center justify-center p-4 sm:p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <motion.button type="button" aria-label="Fechar configurações" className="absolute inset-0 bg-black/55 backdrop-blur-[6px]" onClick={onClose} />
+        <motion.div
+          className={cx(
+            "fixed inset-0 z-[190]",
+            isMobileConfigLayout ? "p-0" : "flex items-center justify-center p-4 sm:p-6",
+          )}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <motion.button
+            type="button"
+            aria-label="Fechar configurações"
+            className={cx(
+              "absolute inset-0",
+              isMobileConfigLayout ? "bg-[#ececef]" : "bg-black/55 backdrop-blur-[6px]",
+            )}
+            onClick={closeConfig}
+          />
 
           <motion.section
             role="dialog"
             aria-modal="true"
             aria-label="Configurações da conta"
-            initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 20, scale: 0.985 }}
+            initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: isMobileConfigLayout ? 0 : 20, scale: isMobileConfigLayout ? 1 : 0.985 }}
             animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
-            exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.985 }}
+            exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: isMobileConfigLayout ? 0 : 12, scale: isMobileConfigLayout ? 1 : 0.985 }}
             transition={prefersReducedMotion ? { duration: 0.1 } : { type: "spring", stiffness: 320, damping: 32, mass: 0.72 }}
-            className="relative z-[1] h-[min(88vh,910px)] w-[min(95vw,1410px)] overflow-hidden rounded-2xl border border-black/15 bg-[#f3f3f4] shadow-[0_30px_80px_rgba(0,0,0,0.44)]"
+            className={cx(
+              "relative z-[1] overflow-hidden bg-[#f3f3f4]",
+              isMobileConfigLayout
+                ? "h-dvh w-screen rounded-none border-0 shadow-none"
+                : "h-[min(88vh,910px)] w-[min(95vw,1410px)] rounded-2xl border border-black/15 shadow-[0_30px_80px_rgba(0,0,0,0.44)]",
+            )}
           >
-            <div className="flex h-full min-h-0">
-              <aside className="flex h-full w-[300px] shrink-0 flex-col border-r border-black/10 bg-[#ececef]">
-                <div className="px-4 pb-3"><div className="mt-3 flex h-11 items-center gap-2 rounded-xl border border-black/14 bg-[#e7e7e8] px-3"><Search className="h-[16px] w-[16px] text-black/45" /><input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar" className="h-full w-full bg-transparent text-[14px] text-black/70 outline-none placeholder:text-black/45" /></div></div>
-                <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-5">
-                  <LayoutGroup id="config-sidebar-active-pills">
-                    <SidebarGroup title="Configurações de usuário" items={userItems} activeSection={activeSection} onSectionChange={onSectionChange} tapFeedback={tapFeedback} tapTransition={tapTransition} activePillTransition={activePillTransition} />
-                    {billingItems.length > 0 && <div className="mt-4"><SidebarGroup title="Configurações de cobrança" items={billingItems} activeSection={activeSection} onSectionChange={onSectionChange} tapFeedback={tapFeedback} tapTransition={tapTransition} activePillTransition={activePillTransition} /></div>}
-                    {appItems.length > 0 && <div className="mt-4"><SidebarGroup title="Config. do aplicativo" items={appItems} activeSection={activeSection} onSectionChange={onSectionChange} tapFeedback={tapFeedback} tapTransition={tapTransition} activePillTransition={activePillTransition} /></div>}
-                    {normalizedSearch && filtered.length === 0 && <div className="mt-4 rounded-xl border border-dashed border-black/18 bg-white/50 px-3 py-3 text-[13px] text-black/55">Nenhum item encontrado.</div>}
-                  </LayoutGroup>
-                </div>
-              </aside>
+            {isMobileConfigLayout ? (
+              <div className="relative h-full w-full bg-[#ececef]">
+                <AnimatePresence mode="wait" initial={false}>
+                  {mobileView === "menu" ? (
+                    <motion.div
+                      key="config-mobile-menu"
+                      initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, x: -28 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, x: -20 }}
+                      transition={prefersReducedMotion ? { duration: 0.1 } : { duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+                      className="flex h-full min-h-0 flex-col"
+                    >
+                      <div
+                        className="sticky top-0 z-[6] border-b border-black/10 bg-[#ececef]/95 px-4 pb-3 backdrop-blur"
+                        style={{ paddingTop: "calc(env(safe-area-inset-top) + 10px)" }}
+                      >
+                        <div className="flex h-10 items-center justify-between">
+                          <h2 className="text-[20px] font-semibold text-black/78">Configurações</h2>
+                          <button
+                            type="button"
+                            onClick={closeConfig}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80"
+                            aria-label="Fechar configurações"
+                          >
+                            <X className="h-5 w-5" />
+                          </button>
+                        </div>
+                        <div className="mt-2 flex h-11 items-center gap-2 rounded-xl border border-black/14 bg-[#e7e7e8] px-3">
+                          <Search className="h-[16px] w-[16px] text-black/45" />
+                          <input
+                            type="text"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            placeholder="Buscar"
+                            className="h-full w-full bg-transparent text-[14px] text-black/70 outline-none placeholder:text-black/45"
+                          />
+                        </div>
+                      </div>
 
-              <div className="min-w-0 flex-1 bg-[#f3f3f4]">
-                <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6"><h2 className="text-[20px] font-semibold text-black/75">{activeTitle}</h2><button type="button" onClick={onClose} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80"><X className="h-5 w-5" /></button></div>
-                <div className="h-[calc(100%-64px)] overflow-y-auto px-4 pb-8 pt-6 sm:px-8 md:px-10">
-                  {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} emailChangedAt={emailChangedAt} phoneChangedAt={phoneChangedAt} passwordChangedAt={passwordChangedAt} supportAccess={supportAccess} accountCreatedAt={accountCreatedAt} twoFactorEnabled={twoFactorEnabled} twoFactorEnabledAt={twoFactorEnabledAt} twoFactorDisabledAt={twoFactorDisabledAt} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} onUserPasswordChange={onUserPasswordChange} onUserSupportAccessChange={onUserSupportAccessChange} onUserTwoFactorChange={onUserTwoFactorChange} />}
-                  {activeSection === "privacy-data" && <PrivacyDataContent />}
-                  {activeSection === "authorized-apps" && <AuthorizedAppsContent />}
-                  {activeSection === "devices" && <DevicesContent />}
-                  {activeSection !== "my-account" && activeSection !== "privacy-data" && activeSection !== "authorized-apps" && activeSection !== "devices" && <PlaceholderSection title={activeTitle} />}
+                      <div
+                        className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 pt-3"
+                        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 20px)" }}
+                      >
+                        <LayoutGroup id="config-sidebar-active-pills-mobile">
+                          <SidebarGroup
+                            title="Configurações de usuário"
+                            items={userItems}
+                            activeSection={activeSection}
+                            onSectionChange={handleSectionSelect}
+                            tapFeedback={tapFeedback}
+                            tapTransition={tapTransition}
+                            activePillTransition={activePillTransition}
+                          />
+                          {billingItems.length > 0 && (
+                            <div className="mt-4">
+                              <SidebarGroup
+                                title="Configurações de cobrança"
+                                items={billingItems}
+                                activeSection={activeSection}
+                                onSectionChange={handleSectionSelect}
+                                tapFeedback={tapFeedback}
+                                tapTransition={tapTransition}
+                                activePillTransition={activePillTransition}
+                              />
+                            </div>
+                          )}
+                          {appItems.length > 0 && (
+                            <div className="mt-4">
+                              <SidebarGroup
+                                title="Config. do aplicativo"
+                                items={appItems}
+                                activeSection={activeSection}
+                                onSectionChange={handleSectionSelect}
+                                tapFeedback={tapFeedback}
+                                tapTransition={tapTransition}
+                                activePillTransition={activePillTransition}
+                              />
+                            </div>
+                          )}
+                          {normalizedSearch && filtered.length === 0 && (
+                            <div className="mt-4 rounded-xl border border-dashed border-black/18 bg-white/50 px-3 py-3 text-[13px] text-black/55">
+                              Nenhum item encontrado.
+                            </div>
+                          )}
+                        </LayoutGroup>
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key={`config-mobile-content-${activeSection}`}
+                      initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, x: 28 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, x: 20 }}
+                      transition={prefersReducedMotion ? { duration: 0.1 } : { duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+                      className="flex h-full min-h-0 flex-col bg-[#f3f3f4]"
+                    >
+                      <div
+                        className="sticky top-0 z-[8] border-b border-black/10 bg-[#f3f3f4]/95 backdrop-blur"
+                        style={{ paddingTop: "env(safe-area-inset-top)" }}
+                      >
+                        <div className="flex h-14 items-center justify-between px-2.5">
+                          <button
+                            type="button"
+                            onClick={handleBackToMobileMenu}
+                            className="inline-flex h-10 items-center gap-1 rounded-lg px-2 text-[13px] font-semibold text-black/70 transition-colors hover:bg-black/5 hover:text-black/85"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                            Voltar
+                          </button>
+                          <h2 className="mx-2 truncate text-[16px] font-semibold text-black/78">
+                            {activeTitle}
+                          </h2>
+                          <button
+                            type="button"
+                            onClick={closeConfig}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80"
+                            aria-label="Fechar configurações"
+                          >
+                            <X className="h-5 w-5" />
+                          </button>
+                        </div>
+                      </div>
+                      <div
+                        className="min-h-0 flex-1 overflow-y-auto px-4 pt-5"
+                        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 20px)" }}
+                      >
+                        {activeSectionContent}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            ) : (
+              <div className="flex h-full min-h-0">
+                <aside className="flex h-full w-[300px] shrink-0 flex-col border-r border-black/10 bg-[#ececef]">
+                  <div className="px-4 pb-3">
+                    <div className="mt-3 flex h-11 items-center gap-2 rounded-xl border border-black/14 bg-[#e7e7e8] px-3">
+                      <Search className="h-[16px] w-[16px] text-black/45" />
+                      <input
+                        type="text"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        placeholder="Buscar"
+                        className="h-full w-full bg-transparent text-[14px] text-black/70 outline-none placeholder:text-black/45"
+                      />
+                    </div>
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-5">
+                    <LayoutGroup id="config-sidebar-active-pills">
+                      <SidebarGroup
+                        title="Configurações de usuário"
+                        items={userItems}
+                        activeSection={activeSection}
+                        onSectionChange={handleSectionSelect}
+                        tapFeedback={tapFeedback}
+                        tapTransition={tapTransition}
+                        activePillTransition={activePillTransition}
+                      />
+                      {billingItems.length > 0 && (
+                        <div className="mt-4">
+                          <SidebarGroup
+                            title="Configurações de cobrança"
+                            items={billingItems}
+                            activeSection={activeSection}
+                            onSectionChange={handleSectionSelect}
+                            tapFeedback={tapFeedback}
+                            tapTransition={tapTransition}
+                            activePillTransition={activePillTransition}
+                          />
+                        </div>
+                      )}
+                      {appItems.length > 0 && (
+                        <div className="mt-4">
+                          <SidebarGroup
+                            title="Config. do aplicativo"
+                            items={appItems}
+                            activeSection={activeSection}
+                            onSectionChange={handleSectionSelect}
+                            tapFeedback={tapFeedback}
+                            tapTransition={tapTransition}
+                            activePillTransition={activePillTransition}
+                          />
+                        </div>
+                      )}
+                      {normalizedSearch && filtered.length === 0 && (
+                        <div className="mt-4 rounded-xl border border-dashed border-black/18 bg-white/50 px-3 py-3 text-[13px] text-black/55">
+                          Nenhum item encontrado.
+                        </div>
+                      )}
+                    </LayoutGroup>
+                  </div>
+                </aside>
+
+                <div className="min-w-0 flex-1 bg-[#f3f3f4]">
+                  <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6">
+                    <h2 className="text-[20px] font-semibold text-black/75">{activeTitle}</h2>
+                    <button
+                      type="button"
+                      onClick={closeConfig}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80"
+                      aria-label="Fechar configurações"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                  <div className="h-[calc(100%-64px)] overflow-y-auto px-4 pb-8 pt-6 sm:px-8 md:px-10">
+                    {activeSectionContent}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </motion.section>
         </motion.div>
       )}

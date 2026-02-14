@@ -188,6 +188,7 @@ function getBindConfig() {
    * - SESSION_BIND_DEVICE (default: true)
    * - SESSION_BIND_UA     (default: false)
    * - SESSION_BIND_IP     (default: true)
+   * - SESSION_BIND_IP_SOFT(default: true)
    * - SESSION_ALLOW_LEGACY(default: true)
    */
   const strictHostOnly = isStrictHostOnlyMode();
@@ -195,6 +196,7 @@ function getBindConfig() {
     bindDevice: getEnvBool("SESSION_BIND_DEVICE", true),
     bindUA: getEnvBool("SESSION_BIND_UA", false),
     bindIP: getEnvBool("SESSION_BIND_IP", true),
+    bindIPSoft: getEnvBool("SESSION_BIND_IP_SOFT", true),
     allowLegacy: getEnvBool("SESSION_ALLOW_LEGACY", strictHostOnly ? false : true),
   };
 }
@@ -260,6 +262,7 @@ function validateBinds(payload: SessionPayload, cookieHeader: string, h: HeaderL
   if (isLegacy) return cfg.allowLegacy;
 
   const parsed = parseCookieHeader(cookieHeader);
+  let deviceMatched = !cfg.bindDevice;
 
   // device
   if (cfg.bindDevice) {
@@ -271,6 +274,7 @@ function validateBinds(payload: SessionPayload, cookieHeader: string, h: HeaderL
     if (!deviceId) return false;
     const expectDid = sha256Short(deviceId);
     if (!payload.did || payload.did !== expectDid) return false;
+    deviceMatched = true;
   }
 
   // UA
@@ -284,9 +288,12 @@ function validateBinds(payload: SessionPayload, cookieHeader: string, h: HeaderL
   // IP
   if (cfg.bindIP) {
     const ip = getClientIpFromHeaders(h);
-    if (!ip) return false;
+    const canSoftPassIp = cfg.bindIPSoft && cfg.bindDevice && deviceMatched;
+    if (!ip) return canSoftPassIp;
     const expectIp = sha256Short(ipPrefix(ip));
-    if (!payload.ip || payload.ip !== expectIp) return false;
+    if (!payload.ip || payload.ip !== expectIp) {
+      if (!canSoftPassIp) return false;
+    }
   }
 
   return true;
