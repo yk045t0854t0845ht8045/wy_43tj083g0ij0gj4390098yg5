@@ -95,6 +95,8 @@ function isSessionDevicesSchemaMissing(error: unknown) {
     isMissingTableError(error, "wz_auth_user_devices") ||
     isMissingTableError(error, "wz_auth_sessions") ||
     isMissingColumnError(error, "device_fingerprint") ||
+    isMissingColumnError(error, "device_brand") ||
+    isMissingColumnError(error, "device_model") ||
     isMissingColumnError(error, "sid") ||
     isMissingColumnError(error, "login_method")
   );
@@ -137,6 +139,8 @@ async function resolveOrCreateDevice(params: {
         os_version: identity.osVersion,
         browser_family: identity.browserFamily,
         browser_version: identity.browserVersion,
+        device_brand: identity.deviceBrand,
+        device_model: identity.deviceModel,
         device_label: identity.label,
         user_agent: identity.userAgent || null,
         last_ip: identity.ip,
@@ -166,6 +170,8 @@ async function resolveOrCreateDevice(params: {
       os_version: identity.osVersion,
       browser_family: identity.browserFamily,
       browser_version: identity.browserVersion,
+      device_brand: identity.deviceBrand,
+      device_model: identity.deviceModel,
       device_label: identity.label,
       user_agent: identity.userAgent || null,
       first_ip: identity.ip,

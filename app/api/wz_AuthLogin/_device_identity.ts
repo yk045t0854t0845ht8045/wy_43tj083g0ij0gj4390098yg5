@@ -12,6 +12,8 @@ export type DeviceIdentity = {
   osVersion: string | null;
   browserFamily: string | null;
   browserVersion: string | null;
+  deviceBrand: string | null;
+  deviceModel: string | null;
   label: string;
   userAgent: string;
   ip: string | null;
@@ -218,11 +220,167 @@ function parseKind(params: { userAgent: string; secChMobile: string; secChPlatfo
   return "unknown" as const;
 }
 
+function normalizeDeviceBrand(value?: string | null) {
+  const clean = normalizeWhitespace(String(value || ""));
+  if (!clean) return null;
+  return clean.slice(0, 48);
+}
+
+function normalizeDeviceModel(value?: string | null) {
+  const clean = normalizeWhitespace(
+    String(value || "")
+      .replace(/^"+|"+$/g, "")
+      .replace(/\s+build\/.+$/i, "")
+      .replace(/\bwv\b/gi, "")
+      .replace(/\bmobile\b/gi, "")
+      .replace(/\btablet\b/gi, ""),
+  );
+  if (!clean) return null;
+  if (
+    /^(linux|android)$/i.test(clean) ||
+    /^[a-z]{2}[-_][a-z]{2}$/i.test(clean) ||
+    /^(u|k|\?0)$/i.test(clean)
+  ) {
+    return null;
+  }
+  return clean.slice(0, 80);
+}
+
+function detectDeviceBrand(value: string) {
+  const source = String(value || "");
+  if (!source) return null;
+
+  if (/\biphone\b|\bipad\b|\bipod\b/i.test(source)) return "Apple";
+  if (/\bsamsung\b|\bsm-[a-z0-9-]+\b|\bgt-[a-z0-9-]+\b|\bsch-[a-z0-9-]+\b|\bsgh-[a-z0-9-]+\b/i.test(source)) return "Samsung";
+  if (/\bmotorola\b|\bmoto[\s-]?[a-z0-9()\-+]+\b|\bxt\d{3,5}\b/i.test(source)) return "Motorola";
+  if (/\bpixel\b|\bgoogle\b/i.test(source)) return "Google";
+  if (/\bxiaomi\b|\bredmi\b|\bpoco\b|\bmi[\s-][a-z0-9]+\b/i.test(source)) return "Xiaomi";
+  if (/\boneplus\b|\bkb200[0-9a-z]+\b|\ble\d{4}\b|\bac\d{4}\b/i.test(source)) return "OnePlus";
+  if (/\bhuawei\b|\bhonor\b/i.test(source)) return "Huawei";
+  if (/\boppo\b|\bcph\d{3,5}\b/i.test(source)) return "Oppo";
+  if (/\brealme\b|\brmx\d{3,5}\b/i.test(source)) return "Realme";
+  if (/\bvivo\b|\bv\d{4}[a-z]?\b/i.test(source)) return "Vivo";
+  if (/\bnokia\b|\bta-\d{3,5}\b/i.test(source)) return "Nokia";
+  if (/\basus\b|\bzenfone\b|\brog phone\b/i.test(source)) return "Asus";
+  if (/\bsony\b|\bxperia\b/i.test(source)) return "Sony";
+  if (/\blg\b|\blm-[a-z0-9]+\b/i.test(source)) return "LG";
+
+  return null;
+}
+
+function extractAndroidModelFromUserAgent(userAgent: string) {
+  const byBuild = userAgent.match(/Android[^;)]*;\s*([^;()]+?)\s+Build\//i);
+  const byBuildModel = normalizeDeviceModel(byBuild?.[1] || null);
+  if (byBuildModel) return byBuildModel;
+
+  const comment = userAgent.match(/\(([^)]+)\)/)?.[1] || "";
+  if (!comment) return null;
+
+  const parts = comment
+    .split(";")
+    .map((part) => normalizeWhitespace(part))
+    .filter(Boolean);
+
+  const androidIndex = parts.findIndex((part) => /^android\b/i.test(part));
+  if (androidIndex >= 0) {
+    for (let i = androidIndex + 1; i < parts.length; i += 1) {
+      const token = normalizeDeviceModel(parts[i]);
+      if (!token) continue;
+      if (/^linux$/i.test(token)) continue;
+      return token;
+    }
+  }
+
+  return null;
+}
+
+function extractModelByPattern(userAgent: string) {
+  const patterns: RegExp[] = [
+    /\b(Pixel\s+[A-Za-z0-9()\-+ ]{1,28})\b/i,
+    /\b(SM-[A-Z0-9-]{3,24})\b/i,
+    /\b(GT-[A-Z0-9-]{3,24})\b/i,
+    /\b(XT\d{3,5})\b/i,
+    /\b(Moto\s+[A-Za-z0-9()\-+ ]{1,28})\b/i,
+    /\b(Redmi\s+[A-Za-z0-9()\-+ ]{1,28})\b/i,
+    /\b(POCO\s+[A-Za-z0-9()\-+ ]{1,28})\b/i,
+    /\b(OnePlus\s+[A-Za-z0-9()\-+ ]{1,28})\b/i,
+    /\b(CPH\d{3,5})\b/i,
+    /\b(RMX\d{3,5})\b/i,
+    /\b(TA-\d{3,5})\b/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = userAgent.match(pattern);
+    const model = normalizeDeviceModel(match?.[1] || null);
+    if (model) return model;
+  }
+
+  return null;
+}
+
+function parseDeviceBrandAndModel(params: {
+  userAgent: string;
+  secChModel: string;
+  kind: DeviceKind;
+}) {
+  const ua = String(params.userAgent || "");
+  const secChModel = normalizeDeviceModel(params.secChModel);
+
+  let model = secChModel;
+  let brand: string | null = null;
+
+  if (/iphone/i.test(ua)) {
+    brand = "Apple";
+    model = model || "iPhone";
+  } else if (/ipad/i.test(ua)) {
+    brand = "Apple";
+    model = model || "iPad";
+  } else if (/ipod/i.test(ua)) {
+    brand = "Apple";
+    model = model || "iPod";
+  }
+
+  if (!model && /android/i.test(ua)) {
+    model = extractAndroidModelFromUserAgent(ua);
+  }
+  if (!model) {
+    model = extractModelByPattern(ua);
+  }
+
+  brand = brand || detectDeviceBrand(`${secChModel || ""} ${model || ""} ${ua}`);
+  brand = normalizeDeviceBrand(brand);
+  model = normalizeDeviceModel(model);
+
+  if ((params.kind !== "mobile" && params.kind !== "tablet") && !/iphone|ipad|ipod/i.test(ua)) {
+    return { brand: null, model: null };
+  }
+
+  return { brand, model };
+}
+
 function computeDeviceLabel(params: {
   osFamily: string | null;
   browserFamily: string | null;
   kind: DeviceKind;
+  deviceBrand: string | null;
+  deviceModel: string | null;
 }) {
+  const brand = normalizeDeviceBrand(params.deviceBrand);
+  const model = normalizeDeviceModel(params.deviceModel);
+  if ((params.kind === "mobile" || params.kind === "tablet") && (brand || model)) {
+    const startsWithBrand =
+      Boolean(brand) &&
+      Boolean(model) &&
+      String(model).toLowerCase().startsWith(String(brand).toLowerCase());
+    const mobileLabel = model
+      ? brand && !startsWithBrand
+        ? `${brand} ${model}`
+        : model
+      : brand;
+
+    if (mobileLabel) return mobileLabel.toUpperCase();
+  }
+
   const os = String(params.osFamily || "Desconhecido").toUpperCase();
   const browser = String(params.browserFamily || "NAVEGADOR").toUpperCase();
   if (params.kind === "bot") return `${os} - BOT`;
@@ -246,6 +404,7 @@ export function resolveDeviceIdentity(
   const userAgent = normalizeUserAgent(headerGet(headers, "user-agent"));
   const secChMobile = headerGet(headers, "sec-ch-ua-mobile");
   const secChPlatform = headerGet(headers, "sec-ch-ua-platform").replace(/"/g, "");
+  const secChModel = headerGet(headers, "sec-ch-ua-model").replace(/"/g, "");
   const acceptLanguage = headerGet(headers, "accept-language");
   const host = normalizeHost(headers);
   const ip = resolveClientIp(headers);
@@ -258,11 +417,18 @@ export function resolveDeviceIdentity(
     secChMobile,
     secChPlatform,
   });
+  const device = parseDeviceBrandAndModel({
+    userAgent,
+    secChModel,
+    kind,
+  });
 
   const label = computeDeviceLabel({
     osFamily: os.family,
     browserFamily: browser.family,
     kind,
+    deviceBrand: device.brand,
+    deviceModel: device.model,
   });
 
   const didHash = String(params?.sessionDid || "").trim();
@@ -273,6 +439,8 @@ export function resolveDeviceIdentity(
     compactVersion(os.version),
     String(browser.family || "").toLowerCase(),
     compactVersion(browser.version),
+    String(device.brand || "").toLowerCase(),
+    String(device.model || "").toLowerCase(),
     String(secChPlatform || "").toLowerCase(),
     String(acceptLanguage || "").toLowerCase().slice(0, 20),
     userAgent.toLowerCase(),
@@ -288,6 +456,8 @@ export function resolveDeviceIdentity(
     osVersion: os.version,
     browserFamily: browser.family,
     browserVersion: browser.version,
+    deviceBrand: device.brand,
+    deviceModel: device.model,
     label,
     userAgent,
     ip,

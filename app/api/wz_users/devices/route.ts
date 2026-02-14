@@ -41,6 +41,8 @@ type DeviceRow = {
   os_version?: string | null;
   browser_family?: string | null;
   browser_version?: string | null;
+  device_brand?: string | null;
+  device_model?: string | null;
   device_label?: string | null;
   last_ip?: string | null;
   last_location?: string | null;
@@ -169,6 +171,22 @@ function buildDeviceLabel(device: DeviceRow | null) {
   const explicit = normalizeText(device?.device_label);
   if (explicit) return explicit.toUpperCase();
 
+  const brand = normalizeText(device?.device_brand);
+  const model = normalizeText(device?.device_model);
+  if (brand || model) {
+    const modelStartsWithBrand =
+      Boolean(brand) &&
+      Boolean(model) &&
+      String(model).toLowerCase().startsWith(String(brand).toLowerCase());
+    const mobileLabel = model
+      ? brand && !modelStartsWithBrand
+        ? `${brand} ${model}`
+        : model
+      : brand;
+
+    if (mobileLabel) return mobileLabel.toUpperCase();
+  }
+
   const os = normalizeText(device?.os_family) || "DESCONHECIDO";
   const browser = normalizeText(device?.browser_family) || "NAVEGADOR";
   return `${os} - ${browser}`.toUpperCase();
@@ -292,7 +310,7 @@ export async function GET(req: NextRequest) {
     const devicesRes = await sb
       .from("wz_auth_user_devices")
       .select(
-        "id,device_kind,platform,os_family,os_version,browser_family,browser_version,device_label,last_ip,last_location",
+        "id,device_kind,platform,os_family,os_version,browser_family,browser_version,device_brand,device_model,device_label,last_ip,last_location",
       )
       .in("id", deviceIds);
 
