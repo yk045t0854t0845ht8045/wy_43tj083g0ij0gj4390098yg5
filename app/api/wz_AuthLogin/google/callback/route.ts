@@ -156,7 +156,25 @@ function getDashboardOrigin() {
   return "https://dashboard.wyzer.com.br";
 }
 
+function getConfiguredAuthOrigin() {
+  const raw = String(
+    process.env.AUTH_PUBLIC_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || "",
+  ).trim();
+  if (!raw) return "";
+
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return "";
+  }
+}
+
 function getRequestOrigin(req: NextRequest) {
+  const configured = getConfiguredAuthOrigin();
+  if (configured) return configured;
+
   const hostHeader =
     req.headers.get("x-forwarded-host") ||
     req.headers.get("host") ||
