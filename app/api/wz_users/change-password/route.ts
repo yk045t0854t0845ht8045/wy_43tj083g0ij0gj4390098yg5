@@ -11,6 +11,7 @@ import {
   verifyTwoFactorCodeWithRecovery,
 } from "@/app/api/_twoFactor";
 import { readPasskeyAuthProof } from "@/app/api/wz_users/_passkey_auth_proof";
+import { upsertLoginProviderRecord } from "@/app/api/wz_AuthLogin/_login_providers";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -27,6 +28,8 @@ type WzUserRow = {
   full_name?: string | null;
   phone_e164?: string | null;
   auth_user_id?: string | null;
+  auth_provider?: string | null;
+  must_create_password?: boolean | number | string | null;
   user_id?: string | null;
 };
 
@@ -46,6 +49,16 @@ function normalizeEmail(value?: string | null) {
 function normalizeOptionalText(value?: string | null) {
   const clean = String(value || "").trim();
   return clean || null;
+}
+
+function normalizeBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const clean = value.trim().toLowerCase();
+    return clean === "1" || clean === "true" || clean === "t";
+  }
+  return false;
 }
 
 function normalizeE164Phone(value?: string | null) {
@@ -250,25 +263,54 @@ function isMissingColumnError(error: unknown, column: string) {
   );
 }
 
-async function updateWzUserPasswordChangedAt(params: {
+async function updateWzUserPasswordSecurityState(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   userId: string;
 }) {
   const passwordChangedAt = new Date().toISOString();
-  const updateRes = await params.sb
-    .from("wz_users")
-    .update({ password_changed_at: passwordChangedAt })
-    .eq("id", params.userId);
+  const attempts: Array<{
+    patch: Record<string, unknown>;
+    includesPasswordChangedAt: boolean;
+  }> = [
+    {
+      patch: { password_changed_at: passwordChangedAt, must_create_password: false },
+      includesPasswordChangedAt: true,
+    },
+    {
+      patch: { password_changed_at: passwordChangedAt },
+      includesPasswordChangedAt: true,
+    },
+    {
+      patch: { must_create_password: false },
+      includesPasswordChangedAt: false,
+    },
+  ];
 
-  if (!updateRes.error) {
-    return { error: null as unknown, passwordChangedAt };
+  for (const attempt of attempts) {
+    const updateRes = await params.sb
+      .from("wz_users")
+      .update(attempt.patch)
+      .eq("id", params.userId);
+
+    if (!updateRes.error) {
+      return {
+        error: null as unknown,
+        passwordChangedAt: attempt.includesPasswordChangedAt ? passwordChangedAt : null,
+      };
+    }
+
+    const keys = Object.keys(attempt.patch);
+    const hasMissingColumn = keys.some((key) =>
+      isMissingColumnError(updateRes.error, key),
+    );
+    if (hasMissingColumn) {
+      continue;
+    }
+
+    return { error: updateRes.error, passwordChangedAt: null as string | null };
   }
 
-  if (isMissingColumnError(updateRes.error, "password_changed_at")) {
-    return { error: null as unknown, passwordChangedAt: null as string | null };
-  }
-
-  return { error: updateRes.error, passwordChangedAt: null as string | null };
+  return { error: null as unknown, passwordChangedAt: null as string | null };
 }
 
 async function queryWzUsersRows(params: {
@@ -278,11 +320,38 @@ async function queryWzUsersRows(params: {
   mode: "eq" | "ilike";
 }) {
   const columnsToTry = [
+    "id,email,full_name,phone_e164,auth_user_id,auth_provider,must_create_password,user_id",
+    "id,email,full_name,phone_e164,auth_user_id,auth_provider,must_create_password",
+    "id,email,full_name,phone_e164,auth_user_id,must_create_password,user_id",
+    "id,email,full_name,phone_e164,auth_user_id,must_create_password",
+    "id,email,full_name,phone_e164,auth_user_id,auth_provider,user_id",
+    "id,email,full_name,phone_e164,auth_user_id,auth_provider",
+    "id,email,full_name,phone_e164,auth_provider,must_create_password,user_id",
+    "id,email,full_name,phone_e164,auth_provider,must_create_password",
+    "id,email,full_name,phone_e164,must_create_password,user_id",
+    "id,email,full_name,phone_e164,must_create_password",
+    "id,email,full_name,phone_e164,auth_provider,user_id",
+    "id,email,full_name,phone_e164,auth_provider",
     "id,email,full_name,phone_e164,auth_user_id,user_id",
     "id,email,full_name,phone_e164,auth_user_id",
     "id,email,full_name,phone_e164,user_id",
     "id,email,full_name,phone_e164",
+    "id,email,phone_e164,auth_provider,must_create_password",
+    "id,email,phone_e164,must_create_password",
+    "id,email,phone_e164,auth_provider",
     "id,email,phone_e164",
+    "id,email,full_name,auth_user_id,auth_provider,must_create_password,user_id",
+    "id,email,full_name,auth_user_id,auth_provider,must_create_password",
+    "id,email,full_name,auth_user_id,must_create_password,user_id",
+    "id,email,full_name,auth_user_id,must_create_password",
+    "id,email,full_name,auth_user_id,auth_provider,user_id",
+    "id,email,full_name,auth_user_id,auth_provider",
+    "id,email,full_name,auth_provider,must_create_password,user_id",
+    "id,email,full_name,auth_provider,must_create_password",
+    "id,email,full_name,must_create_password,user_id",
+    "id,email,full_name,must_create_password",
+    "id,email,full_name,auth_provider,user_id",
+    "id,email,full_name,auth_provider",
     "id,email,full_name,auth_user_id,user_id",
     "id,email,full_name,auth_user_id",
     "id,email,full_name,user_id",
@@ -305,6 +374,11 @@ async function queryWzUsersRows(params: {
         full_name: normalizeOptionalText(String(row.full_name || "")),
         phone_e164: normalizeOptionalText(String(row.phone_e164 || "")),
         auth_user_id: normalizeOptionalText(String(row.auth_user_id || "")),
+        auth_provider: normalizeOptionalText(String(row.auth_provider || "")),
+        must_create_password:
+          typeof row.must_create_password === "undefined"
+            ? null
+            : normalizeBoolean(row.must_create_password),
         user_id: normalizeOptionalText(String(row.user_id || "")),
       })) as WzUserRow[];
     }
@@ -422,15 +496,17 @@ async function resolveCurrentAuthUserId(params: {
 }
 
 function validatePasswordChangeInput(params: {
+  requireCurrentPassword: boolean;
   currentPassword: string;
   newPassword: string;
   confirmNewPassword: string;
 }) {
+  const requireCurrentPassword = Boolean(params.requireCurrentPassword);
   const currentPassword = String(params.currentPassword || "");
   const newPassword = String(params.newPassword || "");
   const confirmNewPassword = String(params.confirmNewPassword || "");
 
-  if (!currentPassword) {
+  if (requireCurrentPassword && !currentPassword) {
     return "Informe a senha atual.";
   }
   if (newPassword.length < 6) {
@@ -439,7 +515,7 @@ function validatePasswordChangeInput(params: {
   if (newPassword !== confirmNewPassword) {
     return "A confirmacao da nova senha nao confere.";
   }
-  if (newPassword === currentPassword) {
+  if (requireCurrentPassword && newPassword === currentPassword) {
     return "A nova senha precisa ser diferente da senha atual.";
   }
   return null;
@@ -647,8 +723,10 @@ export async function POST(req: NextRequest) {
     const currentPassword = String(body?.currentPassword || "");
     const newPassword = String(body?.newPassword || "");
     const confirmNewPassword = String(body?.confirmNewPassword || "");
+    const requiresCurrentPassword = !normalizeBoolean(base.userRow.must_create_password);
 
     const inputError = validatePasswordChangeInput({
+      requireCurrentPassword: requiresCurrentPassword,
       currentPassword,
       newPassword,
       confirmNewPassword,
@@ -660,12 +738,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const currentPasswordOk = await verifyCurrentPassword(base.sessionEmail, currentPassword);
-    if (!currentPasswordOk) {
-      return NextResponse.json(
-        { ok: false, error: "Senha atual invalida." },
-        { status: 401, headers: NO_STORE_HEADERS },
-      );
+    if (requiresCurrentPassword) {
+      const currentPasswordOk = await verifyCurrentPassword(base.sessionEmail, currentPassword);
+      if (!currentPasswordOk) {
+        return NextResponse.json(
+          { ok: false, error: "Senha atual invalida." },
+          { status: 401, headers: NO_STORE_HEADERS },
+        );
+      }
     }
 
     const dispatchRes = await dispatchPasswordChangeCode({
@@ -771,8 +851,10 @@ export async function PUT(req: NextRequest) {
     const currentPassword = String(body?.currentPassword || "");
     const newPassword = String(body?.newPassword || "");
     const confirmNewPassword = String(body?.confirmNewPassword || "");
+    const requiresCurrentPassword = !normalizeBoolean(base.userRow.must_create_password);
 
     const inputError = validatePasswordChangeInput({
+      requireCurrentPassword: requiresCurrentPassword,
       currentPassword,
       newPassword,
       confirmNewPassword,
@@ -784,12 +866,14 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const currentPasswordOk = await verifyCurrentPassword(base.sessionEmail, currentPassword);
-    if (!currentPasswordOk) {
-      return NextResponse.json(
-        { ok: false, error: "Senha atual invalida." },
-        { status: 401, headers: NO_STORE_HEADERS },
-      );
+    if (requiresCurrentPassword) {
+      const currentPasswordOk = await verifyCurrentPassword(base.sessionEmail, currentPassword);
+      if (!currentPasswordOk) {
+        return NextResponse.json(
+          { ok: false, error: "Senha atual invalida." },
+          { status: 401, headers: NO_STORE_HEADERS },
+        );
+      }
     }
 
     const verifyCode = await verifyEmailChallengeCode({
@@ -903,7 +987,7 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const { error: userUpdateError, passwordChangedAt } = await updateWzUserPasswordChangedAt({
+    const { error: userUpdateError, passwordChangedAt } = await updateWzUserPasswordSecurityState({
       sb: base.sb,
       userId: String(base.userRow.id),
     });
@@ -911,8 +995,19 @@ export async function PUT(req: NextRequest) {
       console.error("[change-password] wz_users timestamp update error:", userUpdateError);
     }
 
+    await upsertLoginProviderRecord({
+      sb: base.sb,
+      userId: String(base.userRow.id),
+      authUserId: currentAuthUserId,
+      email: base.sessionEmail,
+      provider: "password",
+      metadata: {
+        source: requiresCurrentPassword ? "password_change" : "password_setup_first_time",
+      },
+    });
+
     return NextResponse.json(
-      { ok: true, passwordChangedAt },
+      { ok: true, passwordChangedAt, mustCreatePassword: false },
       { status: 200, headers: NO_STORE_HEADERS },
     );
   } catch (error) {

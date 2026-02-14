@@ -574,6 +574,10 @@ function AccountContent({
   const [localPasswordChangedAt, setLocalPasswordChangedAt] = useState<string | null>(() =>
     normalizeIsoDatetime(passwordChangedAt)
   );
+  const [localPrimaryAuthProvider, setLocalPrimaryAuthProvider] = useState<
+    "password" | "google" | "apple" | "github" | "microsoft" | "unknown"
+  >("password");
+  const [localMustCreatePassword, setLocalMustCreatePassword] = useState(false);
   const normalizedAccountCreatedAt = useMemo(
     () => normalizeIsoDatetime(accountCreatedAt),
     [accountCreatedAt]
@@ -710,6 +714,50 @@ function AccountContent({
   useEffect(() => setLocalPhoneChangedAt(normalizeIsoDatetime(phoneChangedAt)), [phoneChangedAt]);
   useEffect(() => setLocalPasswordChangedAt(normalizeIsoDatetime(passwordChangedAt)), [passwordChangedAt]);
   useEffect(() => setSupportAccess(Boolean(initialSupportAccess)), [initialSupportAccess]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAuthorizedProviders = async () => {
+      try {
+        const res = await fetch("/api/wz_users/authorized-apps", {
+          method: "GET",
+          cache: "no-store",
+          credentials: "include",
+        });
+        const payload = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          primaryProvider?: string;
+          mustCreatePassword?: boolean;
+        };
+        if (!res.ok || !payload?.ok || cancelled) return;
+
+        const provider = String(payload.primaryProvider || "").trim().toLowerCase();
+        if (
+          provider === "password" ||
+          provider === "google" ||
+          provider === "apple" ||
+          provider === "github" ||
+          provider === "microsoft" ||
+          provider === "unknown"
+        ) {
+          setLocalPrimaryAuthProvider(provider);
+        }
+        setLocalMustCreatePassword(Boolean(payload.mustCreatePassword));
+      } catch {
+        if (!cancelled) {
+          setLocalPrimaryAuthProvider("password");
+          setLocalMustCreatePassword(false);
+        }
+      }
+    };
+
+    void loadAuthorizedProviders();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     if (twoFactorModalOpen) return;
     setTwoFactorEnabled(Boolean(initialTwoFactorEnabled));
@@ -1701,11 +1749,12 @@ function AccountContent({
   const startPasswordChange = async () => {
     if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
 
+    const requiresCurrentPassword = !localMustCreatePassword;
     const currentPassword = String(currentPasswordInput || "");
     const newPassword = String(newPasswordInput || "");
     const confirmNewPassword = String(confirmNewPasswordInput || "");
 
-    if (!currentPassword) {
+    if (requiresCurrentPassword && !currentPassword) {
       setPasswordChangeError("Informe a senha atual.");
       return;
     }
@@ -1717,7 +1766,7 @@ function AccountContent({
       setPasswordChangeError("A confirmação da nova senha não confere.");
       return;
     }
-    if (newPassword === currentPassword) {
+    if (requiresCurrentPassword && newPassword === currentPassword) {
       setPasswordChangeError("A nova senha precisa ser diferente da senha atual.");
       return;
     }
@@ -1733,6 +1782,7 @@ function AccountContent({
           currentPassword,
           newPassword,
           confirmNewPassword,
+          requireCurrentPassword: requiresCurrentPassword,
         }),
       });
 
@@ -1837,6 +1887,7 @@ function AccountContent({
           currentPassword: currentPasswordInput,
           newPassword: newPasswordInput,
           confirmNewPassword: confirmNewPasswordInput,
+          requireCurrentPassword: !localMustCreatePassword,
           ...(twoFactorCode.length === 6 ? { twoFactorCode } : {}),
           ...(passkeyProof ? { passkeyProof } : {}),
         }),
@@ -1884,6 +1935,7 @@ function AccountContent({
       const nextPasswordChangedAt =
         normalizeIsoDatetime(payload.passwordChangedAt) || new Date().toISOString();
       setLocalPasswordChangedAt(nextPasswordChangedAt);
+      setLocalMustCreatePassword(false);
       onUserPasswordChange?.(nextPasswordChangedAt);
       setPasswordModalOpen(false);
       resetPasswordChangeFlow();
@@ -3298,6 +3350,13 @@ function AccountContent({
   const emailChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localEmailChangedAt || relativeBaseTimestamp, relativeNowMs)}`;
   const phoneChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localPhoneChangedAt || relativeBaseTimestamp, relativeNowMs)}`;
   const passwordChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localPasswordChangedAt || relativeBaseTimestamp, relativeNowMs)}`;
+  const passwordStatusBadgeLabel = localMustCreatePassword ? "Pendente" : passwordChangedLabel;
+  const passwordActionLabel = localMustCreatePassword ? "Criar Senha" : "Alterar Senha";
+  const passwordDescriptionText = localMustCreatePassword
+    ? localPrimaryAuthProvider === "google"
+      ? "Sua conta foi criada com Google. Crie uma senha agora para liberar também o login por senha."
+      : "Crie sua primeira senha para ativar o login por senha nesta conta."
+    : "Atualize sua senha com confirmação por código enviado no e-mail e no SMS (quando disponível).";
   const buttonShellClass =
     "rounded-xl border px-4 py-2 text-[13px] font-semibold transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)] active:translate-y-[0.6px] active:scale-[0.992]";
   const buttonNeutralClass =
@@ -3427,7 +3486,7 @@ function AccountContent({
           <div className="space-y-6 pt-5">
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">E-mail</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{emailChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedEmailValue}</p></div><button type="button" onClick={() => void openEmailModal()} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar E-mail</button></div>
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Número de celular</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{phoneChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedPhoneValue}</p></div><button type="button" onClick={() => void openPhoneModal()} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar celular</button></div>
-            <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Senha</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{passwordChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">Atualize sua senha com confirmação por código enviado no e-mail e no SMS (quando disponível).</p></div><button type="button" onClick={() => void openPasswordModal()} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar Senha</button></div>
+            <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Senha</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{passwordStatusBadgeLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{passwordDescriptionText}</p></div><button type="button" onClick={() => void openPasswordModal()} className={cx(buttonClass, "self-start sm:self-auto")}>{passwordActionLabel}</button></div>
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -3969,7 +4028,9 @@ function AccountContent({
               exit={{ opacity: 0, y: 8, scale: 0.985 }}
             >
               <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6">
-                <h3 className="text-[18px] font-semibold text-black/80">Alterar senha</h3>
+                <h3 className="text-[18px] font-semibold text-black/80">
+                  {localMustCreatePassword ? "Criar senha" : "Alterar senha"}
+                </h3>
                 <button
                   type="button"
                   onClick={closePasswordModal}
@@ -3984,21 +4045,27 @@ function AccountContent({
                 {passwordStep === "form" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      Informe sua senha atual e a nova senha para continuar.
+                      {localMustCreatePassword
+                        ? "Defina uma senha para habilitar também login por senha nesta conta."
+                        : "Informe sua senha atual e a nova senha para continuar."}
                     </p>
 
-                    <label className="mt-5 block text-[13px] font-medium text-black/60">
-                      Senha atual
-                    </label>
-                    <input
-                      type="password"
-                      autoComplete="current-password"
-                      value={currentPasswordInput}
-                      onChange={(e) => setCurrentPasswordInput(String(e.target.value || ""))}
-                      disabled={sendingPasswordCode}
-                      className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/80 outline-none transition-[border-color,box-shadow] focus:border-black/30 focus:ring-2 focus:ring-black/10 disabled:cursor-not-allowed disabled:opacity-70"
-                      placeholder="Digite sua senha atual"
-                    />
+                    {!localMustCreatePassword && (
+                      <>
+                        <label className="mt-5 block text-[13px] font-medium text-black/60">
+                          Senha atual
+                        </label>
+                        <input
+                          type="password"
+                          autoComplete="current-password"
+                          value={currentPasswordInput}
+                          onChange={(e) => setCurrentPasswordInput(String(e.target.value || ""))}
+                          disabled={sendingPasswordCode}
+                          className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/80 outline-none transition-[border-color,box-shadow] focus:border-black/30 focus:ring-2 focus:ring-black/10 disabled:cursor-not-allowed disabled:opacity-70"
+                          placeholder="Digite sua senha atual"
+                        />
+                      </>
+                    )}
 
                     <label className="mt-4 block text-[13px] font-medium text-black/60">
                       Nova senha
@@ -4010,7 +4077,7 @@ function AccountContent({
                       onChange={(e) => setNewPasswordInput(String(e.target.value || ""))}
                       disabled={sendingPasswordCode}
                       className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/80 outline-none transition-[border-color,box-shadow] focus:border-black/30 focus:ring-2 focus:ring-black/10 disabled:cursor-not-allowed disabled:opacity-70"
-                      placeholder="Digite a nova senha"
+                      placeholder={localMustCreatePassword ? "Crie sua senha" : "Digite a nova senha"}
                     />
 
                     <label className="mt-4 block text-[13px] font-medium text-black/60">
@@ -5516,6 +5583,190 @@ function PrivacyDataContent() {
   );
 }
 
+type AuthorizedProviderRecord = {
+  id: string;
+  provider: "password" | "google" | "apple" | "github" | "microsoft" | "unknown";
+  providerLabel: string;
+  linkedAt: string | null;
+  lastLoginAt: string | null;
+  isPassword: boolean;
+  isExternal: boolean;
+  isPrimary: boolean;
+};
+
+type AuthorizedAppsApiResponse = {
+  ok?: boolean;
+  error?: string;
+  primaryProvider?: string;
+  mustCreatePassword?: boolean;
+  providers?: AuthorizedProviderRecord[];
+  summary?: {
+    linkedProviders?: number;
+    externalProviders?: number;
+    hasPasswordProvider?: boolean;
+    generatedAt?: string;
+  } | null;
+};
+
+function formatAuthorizedProviderSeen(value?: string | null) {
+  const base = formatElapsedTimeLabel(value);
+  if (base === "agora") return "agora";
+  return `ha ${base}`;
+}
+
+function AuthorizedAppsContent() {
+  const mountedRef = useRef(true);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [providers, setProviders] = useState<AuthorizedProviderRecord[]>([]);
+  const [primaryProvider, setPrimaryProvider] = useState<string>("password");
+  const [mustCreatePassword, setMustCreatePassword] = useState(false);
+
+  const loadAuthorizedApps = useCallback(async (opts?: { signal?: AbortSignal; silent?: boolean }) => {
+    const signal = opts?.signal;
+    if (!mountedRef.current) return;
+
+    if (!opts?.silent) {
+      setLoading(true);
+      setError(null);
+    }
+
+    try {
+      const response = await fetch("/api/wz_users/authorized-apps", {
+        method: "GET",
+        cache: "no-store",
+        credentials: "include",
+        signal,
+      });
+      const payload = (await response.json().catch(() => ({}))) as AuthorizedAppsApiResponse;
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(
+          String(payload?.error || "Nao foi possivel carregar aplicativos autorizados."),
+        );
+      }
+
+      if (!mountedRef.current) return;
+      setPrimaryProvider(String(payload.primaryProvider || "password").toLowerCase());
+      setMustCreatePassword(Boolean(payload.mustCreatePassword));
+      setProviders(Array.isArray(payload.providers) ? payload.providers : []);
+    } catch (fetchError) {
+      if (!mountedRef.current || signal?.aborted) return;
+      setError(
+        fetchError instanceof Error
+          ? fetchError.message
+          : "Nao foi possivel carregar aplicativos autorizados.",
+      );
+      if (!opts?.silent) {
+        setProviders([]);
+      }
+    } finally {
+      if (!opts?.silent && mountedRef.current && !signal?.aborted) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const controller = new AbortController();
+    void loadAuthorizedApps({ signal: controller.signal });
+
+    return () => {
+      mountedRef.current = false;
+      controller.abort();
+    };
+  }, [loadAuthorizedApps]);
+
+  return (
+    <div className="mx-auto w-full max-w-[980px] pb-10 text-black/80">
+      <p className="text-[15px] leading-[1.45] text-black/58">
+        Aqui estao os metodos de login vinculados a sua conta. Provedores externos (como Google)
+        podem ser usados para entrar sem senha local.
+      </p>
+      <p className="mt-3 text-[15px] leading-[1.45] text-black/58">
+        Recomendamos manter pelo menos um metodo interno de senha para contingencia de acesso.
+      </p>
+      {mustCreatePassword && (
+        <p className="mt-4 rounded-lg border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-2 text-[13px] font-medium text-[#b2433e]">
+          Sua conta foi criada por provedor externo. Finalize a criacao de senha na secao Minha
+          Conta para liberar login por senha.
+        </p>
+      )}
+      {error ? (
+        <p className="mt-4 rounded-lg border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-2 text-[13px] font-medium text-[#b2433e]">
+          {error}
+        </p>
+      ) : null}
+
+      <section className="mt-10">
+        <h3 className="text-[20px] font-semibold text-black/82">Provedores conectados</h3>
+        <div className="mt-4 border-t border-black/10" />
+        <div className="mt-4 overflow-hidden rounded-xl border border-black/10 bg-white/70">
+          {!providers.length ? (
+            <div className="px-4 py-5 text-[14px] text-black/55">
+              {loading ? "Carregando provedores..." : "Nenhum provedor conectado."}
+            </div>
+          ) : (
+            providers.map((provider, idx) => (
+              <div
+                key={provider.id}
+                className={cx(
+                  "flex items-center gap-4 px-4 py-5",
+                  idx > 0 && "border-t border-black/10",
+                )}
+              >
+                <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-black/10 bg-black/[0.04] text-[13px] font-semibold text-black/72">
+                  {provider.provider === "google" ? (
+                    <span
+                      aria-hidden
+                      className="h-5 w-5 bg-contain bg-center bg-no-repeat"
+                      style={{ backgroundImage: "url('/cdn/login/google-icon.png')" }}
+                    />
+                  ) : provider.provider === "password" ? (
+                    "PW"
+                  ) : (
+                    provider.providerLabel.slice(0, 2).toUpperCase()
+                  )}
+                </span>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-[15px] font-semibold text-black/78">{provider.providerLabel}</p>
+                    {provider.isPrimary && (
+                      <span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">
+                        Principal
+                      </span>
+                    )}
+                    {provider.isExternal && (
+                      <span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">
+                        Externo
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-[14px] text-black/58">
+                    Vinculado: {provider.linkedAt ? formatAuthorizedProviderSeen(provider.linkedAt) : "desconhecido"}
+                    {" - "}
+                    Ultimo login: {provider.lastLoginAt ? formatAuthorizedProviderSeen(provider.lastLoginAt) : "indisponivel"}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      <section className="mt-10">
+        <h3 className="text-[20px] font-semibold text-black/82">Status atual</h3>
+        <div className="mt-4 border-t border-black/10" />
+        <div className="mt-4 rounded-xl border border-black/10 bg-white/70 px-4 py-4 text-[14px] text-black/62">
+          Provedor principal: <span className="font-semibold text-black/78">{String(primaryProvider || "password").toUpperCase()}</span>.
+        </div>
+      </section>
+    </div>
+  );
+}
+
 type DeviceSessionRecord = {
   id: string;
   label: string;
@@ -6095,8 +6346,9 @@ export default function ConfigMain({
                 <div className="h-[calc(100%-64px)] overflow-y-auto px-4 pb-8 pt-6 sm:px-8 md:px-10">
                   {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} emailChangedAt={emailChangedAt} phoneChangedAt={phoneChangedAt} passwordChangedAt={passwordChangedAt} supportAccess={supportAccess} accountCreatedAt={accountCreatedAt} twoFactorEnabled={twoFactorEnabled} twoFactorEnabledAt={twoFactorEnabledAt} twoFactorDisabledAt={twoFactorDisabledAt} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} onUserPasswordChange={onUserPasswordChange} onUserSupportAccessChange={onUserSupportAccessChange} onUserTwoFactorChange={onUserTwoFactorChange} />}
                   {activeSection === "privacy-data" && <PrivacyDataContent />}
+                  {activeSection === "authorized-apps" && <AuthorizedAppsContent />}
                   {activeSection === "devices" && <DevicesContent />}
-                  {activeSection !== "my-account" && activeSection !== "privacy-data" && activeSection !== "devices" && <PlaceholderSection title={activeTitle} />}
+                  {activeSection !== "my-account" && activeSection !== "privacy-data" && activeSection !== "authorized-apps" && activeSection !== "devices" && <PlaceholderSection title={activeTitle} />}
                 </div>
               </div>
             </div>

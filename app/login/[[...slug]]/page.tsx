@@ -554,6 +554,7 @@ export default function LinkLoginPage() {
   const [verifyingSmsCodeBusy, setVerifyingSmsCodeBusy] = useState(false); // ✅ novo (só validação do sms code)
   const [twoFactorIslandLoading, setTwoFactorIslandLoading] = useState(false);
   const [twoFactorShakeTick, setTwoFactorShakeTick] = useState(0);
+  const [startingGoogleLogin, setStartingGoogleLogin] = useState(false);
   const [msgError, setMsgError] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
 
@@ -665,6 +666,17 @@ export default function LinkLoginPage() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const oauthError = String(url.searchParams.get("oauthError") || "").trim();
+    if (!oauthError) return;
+
+    setMsgError(oauthError);
+    url.searchParams.delete("oauthError");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
 
   // cooldown resend
@@ -996,6 +1008,50 @@ export default function LinkLoginPage() {
       }
     },
     [canStart, busy, email, check.state, fullName, phone, cpf, password, router],
+  );
+
+  const startGoogleLogin = useCallback(
+    async (e?: React.MouseEvent | React.FormEvent) => {
+      e?.preventDefault?.();
+      if (startingGoogleLogin || busy) return;
+
+      try {
+        setStartingGoogleLogin(true);
+        setMsgError(null);
+        const returnToValue =
+          typeof window !== "undefined"
+            ? new URL(window.location.href).searchParams.get("returnTo") || ""
+            : "";
+
+        const res = await fetch("/api/wz_AuthLogin/google/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ next: returnToValue }),
+        });
+        const payload = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          authUrl?: string;
+          error?: string;
+        };
+
+        if (!res.ok || !payload.ok || !payload.authUrl) {
+          throw new Error(
+            payload.error || "Nao foi possivel iniciar o login com Google.",
+          );
+        }
+
+        window.location.assign(String(payload.authUrl));
+      } catch (error) {
+        setMsgError(
+          error instanceof Error
+            ? error.message
+            : "Erro inesperado ao iniciar login com Google.",
+        );
+      } finally {
+        setStartingGoogleLogin(false);
+      }
+    },
+    [busy, startingGoogleLogin],
   );
 
   const [phoneMaskFromServer, setPhoneMaskFromServer] = useState<string>("");
@@ -2185,14 +2241,14 @@ export default function LinkLoginPage() {
                     ref={continueBtnRef}
                     type="submit"
                     onClick={startFlow}
-                    disabled={!canStart || busy}
+                    disabled={!canStart || busy || startingGoogleLogin}
                     whileHover={
-                      prefersReducedMotion || !canStart || busy
+                      prefersReducedMotion || !canStart || busy || startingGoogleLogin
                         ? undefined
                         : { y: -2, scale: 1.01 }
                     }
                     whileTap={
-                      prefersReducedMotion || !canStart || busy
+                      prefersReducedMotion || !canStart || busy || startingGoogleLogin
                         ? undefined
                         : { scale: 0.98 }
                     }
@@ -2204,7 +2260,7 @@ export default function LinkLoginPage() {
                       "group relative w-full mt-7 bg-[#171717] border border-[#454545] border-2 rounded-full px-15 py-5 text-white",
                       "focus:outline-none transition-all duration-300 ease-out",
                       "text-[16px] font-semibold shadow-[0_18px_55px_rgba(0,0,0,0.12)] hover:shadow-[0_22px_70px_rgba(0,0,0,0.16)] pr-16 transform-gpu",
-                      !canStart || busy
+                      !canStart || busy || startingGoogleLogin
                         ? "opacity-60 cursor-not-allowed select-none pointer-events-none"
                         : "hover:border-[#6a6a6a] focus:border-lime-400",
                     )}
@@ -2216,12 +2272,12 @@ export default function LinkLoginPage() {
 
                     <motion.span
                       whileHover={
-                        prefersReducedMotion || !canStart || busy
+                        prefersReducedMotion || !canStart || busy || startingGoogleLogin
                           ? undefined
                           : { scale: 1.06 }
                       }
                       whileTap={
-                        prefersReducedMotion || !canStart || busy
+                        prefersReducedMotion || !canStart || busy || startingGoogleLogin
                           ? undefined
                           : { scale: 0.96 }
                       }
@@ -2231,7 +2287,7 @@ export default function LinkLoginPage() {
                       }}
                       className={cx(
                         "absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-3 transition-all duration-300 ease-out",
-                        !canStart || busy
+                        !canStart || busy || startingGoogleLogin
                           ? "bg-transparent"
                           : "bg-transparent group-hover:bg-white/10 group-hover:translate-x-0.5",
                       )}
@@ -2243,6 +2299,49 @@ export default function LinkLoginPage() {
                       )}
                     </motion.span>
                   </motion.button>
+
+                  <div className="mt-5 flex items-center gap-3">
+                    <span className="h-px flex-1 bg-black/12" />
+                    <span className="text-[12px] font-semibold tracking-[0.16em] text-black/42">
+                      OU
+                    </span>
+                    <span className="h-px flex-1 bg-black/12" />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={startGoogleLogin}
+                    disabled={busy || startingGoogleLogin}
+                    className={cx(
+                      "group mt-4 inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-full border border-black/10 bg-white text-[15px] font-semibold text-black/82",
+                      "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                      "hover:border-black/20 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
+                      "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
+                      (busy || startingGoogleLogin) &&
+                        "cursor-not-allowed opacity-70",
+                    )}
+                  >
+                    {startingGoogleLogin ? (
+                      <SpinnerMini reduced={!!prefersReducedMotion} />
+                    ) : (
+                      <span
+                        aria-hidden
+                        className="h-5 w-5 bg-contain bg-center bg-no-repeat"
+                        style={{ backgroundImage: "url('/cdn/login/google-icon.png')" }}
+                      />
+                    )}
+                    <span>
+                      {startingGoogleLogin ? "Conectando..." : "Continuar com Google"}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled
+                    className="mt-3 inline-flex h-[52px] w-full items-center justify-center rounded-full border border-black/10 bg-white text-[15px] font-semibold text-black/45 opacity-65"
+                  >
+                    ...
+                  </button>
                 </motion.form>
               )}
             </AnimatePresence>
