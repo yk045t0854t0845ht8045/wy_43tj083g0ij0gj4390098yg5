@@ -505,6 +505,24 @@ async function createSmsChallenge(sb: ReturnType<typeof supabaseAdmin>, email: s
   return code;
 }
 
+async function dispatchPhoneChangeCode(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  email: string;
+  phoneE164: string;
+}) {
+  const code = await createSmsChallenge(params.sb, params.email);
+  try {
+    await sendAuthSmsCode(params.phoneE164, code);
+  } catch (error) {
+    console.error("[change-phone] sms send error:", {
+      email: params.email,
+      phoneMask: maskPhoneE164(params.phoneE164),
+      error,
+    });
+    throw error;
+  }
+}
+
 async function verifySmsChallengeCode(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   email: string;
@@ -646,8 +664,11 @@ export async function POST(req: NextRequest) {
     const base = await getSessionAndUser(req);
     if (!base.ok) return base.response;
 
-    const code = await createSmsChallenge(base.sb, base.sessionEmail);
-    await sendAuthSmsCode(base.currentPhone, code);
+    await dispatchPhoneChangeCode({
+      sb: base.sb,
+      email: base.sessionEmail,
+      phoneE164: base.currentPhone,
+    });
 
     const ticket = createPhoneChangeTicket({
       userId: String(base.userRow.id),
@@ -667,8 +688,12 @@ export async function POST(req: NextRequest) {
     );
   } catch (error) {
     console.error("[change-phone] start error:", error);
+    const message =
+      error instanceof Error && String(error.message || "").trim()
+        ? String(error.message)
+        : "Erro inesperado ao iniciar alteracao de celular.";
     return NextResponse.json(
-      { ok: false, error: "Erro inesperado ao iniciar alteracao de celular." },
+      { ok: false, error: message },
       { status: 500, headers: NO_STORE_HEADERS },
     );
   }
@@ -727,8 +752,11 @@ export async function PATCH(req: NextRequest) {
         );
       }
 
-      const code = await createSmsChallenge(base.sb, base.sessionEmail);
-      await sendAuthSmsCode(requestedNewPhone, code);
+      await dispatchPhoneChangeCode({
+        sb: base.sb,
+        email: base.sessionEmail,
+        phoneE164: requestedNewPhone,
+      });
 
       const ticket = createPhoneChangeTicket({
         userId: String(base.userRow.id),
@@ -782,8 +810,11 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    const code = await createSmsChallenge(base.sb, base.sessionEmail);
-    await sendAuthSmsCode(resendToPhone, code);
+    await dispatchPhoneChangeCode({
+      sb: base.sb,
+      email: base.sessionEmail,
+      phoneE164: resendToPhone,
+    });
 
     const refreshedTicket = createPhoneChangeTicket({
       userId: String(base.userRow.id),
@@ -806,8 +837,12 @@ export async function PATCH(req: NextRequest) {
     );
   } catch (error) {
     console.error("[change-phone] patch error:", error);
+    const message =
+      error instanceof Error && String(error.message || "").trim()
+        ? String(error.message)
+        : "Erro inesperado ao processar alteracao de celular.";
     return NextResponse.json(
-      { ok: false, error: "Erro inesperado ao processar alteracao de celular." },
+      { ok: false, error: message },
       { status: 500, headers: NO_STORE_HEADERS },
     );
   }

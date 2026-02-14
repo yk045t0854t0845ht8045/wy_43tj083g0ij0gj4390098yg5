@@ -18,6 +18,7 @@ type SendSmsOptions = {
   webhookRetryBaseMs?: number;
   allowConsoleFallback?: boolean;
   acceptUncertainDelivery?: boolean;
+  preferAcceptedAck?: boolean;
   providerOrder?: SmsProvider[];
 };
 
@@ -28,6 +29,7 @@ type ResolvedSendSmsOptions = {
   webhookRetryBaseMs: number;
   allowConsoleFallback: boolean;
   acceptUncertainDelivery: boolean;
+  preferAcceptedAck: boolean;
   providerOrder: SmsProvider[];
 };
 
@@ -234,6 +236,10 @@ function shouldPreferAcceptedAck() {
   return parseBool(process.env.SMS_WEBHOOK_PREFER_ACCEPTED_ACK, true);
 }
 
+function shouldPreferAcceptedAckForAuth() {
+  return parseBool(process.env.SMS_AUTH_PREFER_ACCEPTED_ACK, false);
+}
+
 function isQueueFallbackEnabled(context: SendSmsContext) {
   if (context !== "auth") {
     return parseBool(process.env.SMS_QUEUE_FALLBACK_NON_AUTH, false);
@@ -371,8 +377,15 @@ function resolveSendSmsOptions(options?: SendSmsOptions): ResolvedSendSmsOptions
     typeof options?.acceptUncertainDelivery === "boolean"
       ? options.acceptUncertainDelivery
       : context === "auth"
-        ? parseBool(process.env.SMS_AUTH_ACCEPT_UNCERTAIN_DELIVERY, true)
+        ? parseBool(process.env.SMS_AUTH_ACCEPT_UNCERTAIN_DELIVERY, false)
         : false;
+
+  const preferAcceptedAck =
+    typeof options?.preferAcceptedAck === "boolean"
+      ? options.preferAcceptedAck
+      : context === "auth"
+        ? shouldPreferAcceptedAckForAuth()
+        : shouldPreferAcceptedAck();
 
   return {
     context,
@@ -381,6 +394,7 @@ function resolveSendSmsOptions(options?: SendSmsOptions): ResolvedSendSmsOptions
     webhookRetryBaseMs,
     allowConsoleFallback,
     acceptUncertainDelivery,
+    preferAcceptedAck,
     providerOrder,
   };
 }
@@ -792,6 +806,7 @@ export async function sendSmsCode(phoneE164: string, code: string, options?: Sen
       providerOrder: sendOptions.providerOrder,
       webhookMaxRetries: sendOptions.webhookMaxRetries,
       webhookRetryBaseMs: sendOptions.webhookRetryBaseMs,
+      preferAcceptedAck: sendOptions.preferAcceptedAck,
       allowConsoleFallback: sendOptions.allowConsoleFallback,
       gatewayNumber: normalizeOwnGatewayNumber(String(process.env.SMS_OWN_NUMBER || "")),
     });
@@ -862,7 +877,7 @@ export async function sendSmsCode(phoneE164: string, code: string, options?: Sen
           timeoutMs: sendOptions.timeoutMs,
           maxRetries: sendOptions.webhookMaxRetries,
           retryBaseMs: sendOptions.webhookRetryBaseMs,
-          preferAcceptedAck: shouldPreferAcceptedAck(),
+          preferAcceptedAck: sendOptions.preferAcceptedAck,
         });
       } else if (provider === "console") {
         if (!sendOptions.allowConsoleFallback) {
@@ -975,5 +990,9 @@ export async function sendSmsCode(phoneE164: string, code: string, options?: Sen
 }
 
 export async function sendAuthSmsCode(phoneE164: string, code: string) {
-  return sendSmsCode(phoneE164, code, { context: "auth" });
+  return sendSmsCode(phoneE164, code, {
+    context: "auth",
+    acceptUncertainDelivery: false,
+    preferAcceptedAck: false,
+  });
 }
