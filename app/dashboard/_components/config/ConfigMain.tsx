@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import Script from "next/script";
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import {
   Check,
@@ -115,6 +116,15 @@ type PasskeyRequestOptionsPayload = {
   }>;
 };
 
+type LordIconProps = React.HTMLAttributes<HTMLElement> & {
+  src: string;
+  trigger?: string;
+  target?: string;
+  state?: string;
+  delay?: string | number;
+  colors?: string;
+};
+
 // LINKS DOS ICONES (PNG) DA SIDEBAR DE CONFIGURAÇÕES
 // Edite apenas estes caminhos/URLs para trocar os icones.
 const CONFIG_SIDEBAR_ICON_LINKS = {
@@ -135,6 +145,7 @@ const AUTHORIZED_APPS_GOOGLE_ICON_URL =
   "https://cdn.brandfetch.io/id6O2oGzv-/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1755835725776";
 const AUTHORIZED_APPS_DISCORD_ICON_URL =
   "https://cdn.brandfetch.io/idM8Hlme1a/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1668075051777";
+const AUTHORIZED_APPS_TOOLTIP_ICON_URL = "https://cdn.lordicon.com/tnapqovl.json";
 
 const menuItems: MenuItem[] = [
   { id: "my-account", label: "Minha Conta", iconSrc: CONFIG_SIDEBAR_ICON_LINKS["my-account"], group: "user" },
@@ -5706,6 +5717,20 @@ function maskAuthorizedProviderEmail(value?: string | null) {
   return `${head}${"*".repeat(starCount)}${tail}@${domain}`;
 }
 
+function AuthorizedAppsInfoIcon({ target }: { target?: string }) {
+  return (
+    <span className="inline-flex h-[14px] w-[14px] items-center justify-center overflow-hidden">
+      {React.createElement<LordIconProps>("lord-icon", {
+        src: AUTHORIZED_APPS_TOOLTIP_ICON_URL,
+        trigger: "hover",
+        target,
+        colors: "primary:#121330",
+        style: { width: "14px", height: "14px" },
+      })}
+    </span>
+  );
+}
+
 function buildAuthorizedProviderTooltipData(params: {
   provider: AuthorizedProviderRecord;
   isCreationProvider: boolean;
@@ -6009,8 +6034,21 @@ function AuthorizedAppsContent() {
     window.history.replaceState({}, "", next);
   }, [loadAuthorizedApps]);
 
+  useEffect(() => {
+    if (!actionNotice) return;
+    const timer = window.setTimeout(() => {
+      if (!mountedRef.current) return;
+      setActionNotice(null);
+    }, 10_000);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [actionNotice]);
+
   return (
     <div className="mx-auto w-full max-w-[980px] pb-10 text-black/80">
+      <Script src="https://cdn.lordicon.com/lordicon.js" strategy="afterInteractive" />
       <p className="text-[15px] leading-[1.45] text-black/58">
         Aqui estão os métodos de login vinculados à sua conta. Provedores externos (como Google)
         podem ser usados para entrar sem senha local.
@@ -6092,6 +6130,7 @@ function AuthorizedAppsContent() {
                 String(creationProvider || "").trim().toLowerCase();
               const linkedAtTooltipLabel = formatAuthorizedProviderTooltipTimestamp(provider.linkedAt);
               const lastLoginTooltipLabel = formatAuthorizedProviderTooltipTimestamp(provider.lastLoginAt);
+              const tooltipHoverTargetId = `authorized-apps-tooltip-icon-${provider.id}`;
               const providerTooltip = buildAuthorizedProviderTooltipData({
                 provider,
                 isCreationProvider,
@@ -6135,16 +6174,17 @@ function AuthorizedAppsContent() {
                       <p className="text-[15px] font-semibold text-black/78">{providerLabel}</p>
                       <span className="group relative inline-flex">
                         <button
+                          id={tooltipHoverTargetId}
                           type="button"
                           aria-label={`Detalhes de ${providerLabel}`}
                           className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-black/14 bg-black/[0.04] text-[11px] font-semibold leading-none text-black/62 transition-colors hover:bg-black/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/25"
                         >
-                          i
+                          <AuthorizedAppsInfoIcon target={`#${tooltipHoverTargetId}`} />
                         </button>
                         <span
                           role="tooltip"
                           className={cx(
-                            "pointer-events-none absolute left-[calc(100%+8px)] top-1/2 z-[200] w-max max-w-[340px] -translate-y-1/2 rounded-xl border border-black/12 bg-white/98 px-3 py-2 text-[12px] text-black/72 shadow-[0_12px_28px_rgba(0,0,0,0.16)] backdrop-blur-[2px]",
+                            "pointer-events-none absolute left-[calc(100%+8px)] top-1/2 z-[200] w-max max-w-[360px] -translate-y-1/2 rounded-xl border border-black/12 bg-white/98 px-3 py-3 text-[12px] text-black/72 shadow-[0_16px_36px_rgba(0,0,0,0.18)] backdrop-blur-[2px]",
                             "opacity-0 translate-x-1 scale-[0.98] transition-[opacity,transform] duration-180 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
                             "group-hover:opacity-100 group-hover:translate-x-0 group-hover:scale-100",
                             "group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:scale-100",
@@ -6155,30 +6195,48 @@ function AuthorizedAppsContent() {
                               {providerTooltip.tags.map((tag) => (
                                 <span
                                   key={`${provider.id}-${tag}`}
-                                  className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[10px] font-semibold text-black/68"
+                                  className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2.5 py-0.5 text-[10px] font-semibold tracking-[0.01em] text-black/70"
                                 >
                                   {tag}
                                 </span>
                               ))}
                             </span>
                           )}
-                          <dl
+                          <div
                             className={cx(
-                              "grid grid-cols-[auto,1fr] gap-x-2 gap-y-1 text-[11px] leading-[1.35]",
                               providerTooltip.tags.length > 0
                                 ? "mt-2 border-t border-dashed border-black/14 pt-2"
                                 : "mt-0",
                             )}
                           >
-                            <dt className="font-semibold text-black/55">Vinculado</dt>
-                            <dd className="text-black/74">{linkedAtTooltipLabel}</dd>
-                            <dt className="font-semibold text-black/55">Último login</dt>
-                            <dd className="text-black/74">{lastLoginTooltipLabel}</dd>
-                          </dl>
+                            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-black/45">
+                              Status da conexão
+                            </p>
+                            <dl className="space-y-1.5">
+                              <div className="flex items-start justify-between gap-3 rounded-lg border border-black/8 bg-black/[0.025] px-2.5 py-2">
+                                <dt className="pt-0.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-black/50">
+                                  Vinculado
+                                </dt>
+                                <dd className="text-right text-[11px] font-semibold leading-[1.35] text-black/76">
+                                  {linkedAtTooltipLabel}
+                                </dd>
+                              </div>
+                              <div className="flex items-start justify-between gap-3 rounded-lg border border-black/8 bg-black/[0.025] px-2.5 py-2">
+                                <dt className="pt-0.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-black/50">
+                                  Último login
+                                </dt>
+                                <dd className="text-right text-[11px] font-semibold leading-[1.35] text-black/76">
+                                  {lastLoginTooltipLabel}
+                                </dd>
+                              </div>
+                            </dl>
+                          </div>
                           {providerTooltip.note && (
-                            <span className="mt-2 block border-t border-dashed border-black/14 pt-2 leading-[1.4] text-black/66">
-                              {providerTooltip.note}
-                            </span>
+                            <div className="mt-2 rounded-lg border border-[#be8a23]/22 bg-[#f7d58a]/20 px-2.5 py-2">
+                              <span className="block text-[11px] leading-[1.4] text-[#7b540d]">
+                                {providerTooltip.note}
+                              </span>
+                            </div>
                           )}
                         </span>
                       </span>
