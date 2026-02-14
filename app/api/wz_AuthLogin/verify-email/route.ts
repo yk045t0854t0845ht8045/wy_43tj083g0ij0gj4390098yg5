@@ -41,6 +41,16 @@ function normalizeProvider(value?: string | null) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizeBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const clean = value.trim().toLowerCase();
+    return clean === "1" || clean === "true" || clean === "t";
+  }
+  return false;
+}
+
 function getEnvBool(name: string, def: boolean) {
   const v = String(process.env[name] ?? "").trim().toLowerCase();
   if (!v) return def;

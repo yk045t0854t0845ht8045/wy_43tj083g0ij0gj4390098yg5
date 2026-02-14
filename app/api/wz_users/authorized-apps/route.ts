@@ -567,9 +567,6 @@ function resolveRemoveBlockedReason(params: {
   if (params.provider === params.creationProvider) {
     return "Criado com este provedor e nao pode ser removido.";
   }
-  if (params.provider === "password" && params.passwordPinned) {
-    return "Wyzer Login com senha ativa e nao pode ser removido.";
-  }
   return null;
 }
 
