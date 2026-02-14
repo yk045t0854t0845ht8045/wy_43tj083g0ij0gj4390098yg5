@@ -87,6 +87,11 @@ function getDashboardOriginForLoginHost(host: string) {
   return "https://dashboard.wyzer.com.br";
 }
 
+const GOOGLE_PROVIDER_ICON_URL =
+  "https://cdn.brandfetch.io/id6O2oGzv-/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1755835725776";
+const DISCORD_PROVIDER_ICON_URL =
+  "https://cdn.brandfetch.io/idM8Hlme1a/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1668075051777";
+
 function isAllowedReturnToAbsolute(url: URL) {
   const host = url.hostname.toLowerCase();
   const protoOk = url.protocol === "https:" || url.protocol === "http:";
@@ -2231,7 +2236,7 @@ export default function LinkLoginPage() {
                             <span
                               aria-hidden
                               className="h-5 w-5 bg-contain bg-center bg-no-repeat"
-                              style={{ backgroundImage: "url('/cdn/login/google-icon.png')" }}
+                              style={{ backgroundImage: `url('${GOOGLE_PROVIDER_ICON_URL}')` }}
                             />
                           )}
                           <span>
@@ -2260,7 +2265,7 @@ export default function LinkLoginPage() {
                             <span
                               aria-hidden
                               className="h-5 w-5 bg-contain bg-center bg-no-repeat"
-                              style={{ backgroundImage: "url('/cdn/login/discord-icon.svg')" }}
+                              style={{ backgroundImage: `url('${DISCORD_PROVIDER_ICON_URL}')` }}
                             />
                           )}
                           <span>
@@ -2547,7 +2552,7 @@ export default function LinkLoginPage() {
                       <span
                         aria-hidden
                         className="h-5 w-5 bg-contain bg-center bg-no-repeat"
-                        style={{ backgroundImage: "url('/cdn/login/google-icon.png')" }}
+                        style={{ backgroundImage: `url('${GOOGLE_PROVIDER_ICON_URL}')` }}
                       />
                     )}
                     <span>

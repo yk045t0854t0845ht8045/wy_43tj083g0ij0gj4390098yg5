@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import NextImage from "next/image";
 
 type ConfigSectionGroupId = "user" | "billing" | "app";
 
@@ -130,6 +129,12 @@ const CONFIG_SIDEBAR_ICON_LINKS = {
   accessibility: "/cdn/dashboard/sidebar-icons/social.svg",
   "voice-video": "/cdn/dashboard/sidebar-icons/video.svg",
 } as const;
+
+const AUTHORIZED_APPS_WYZER_ICON_URL = "https://www.wyzer.com.br/logo.svg";
+const AUTHORIZED_APPS_GOOGLE_ICON_URL =
+  "https://cdn.brandfetch.io/id6O2oGzv-/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1755835725776";
+const AUTHORIZED_APPS_DISCORD_ICON_URL =
+  "https://cdn.brandfetch.io/idM8Hlme1a/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1668075051777";
 
 const menuItems: MenuItem[] = [
   { id: "my-account", label: "Minha Conta", iconSrc: CONFIG_SIDEBAR_ICON_LINKS["my-account"], group: "user" },
@@ -5775,21 +5780,19 @@ function AuthorizedAppsContent() {
                     <span
                       aria-hidden
                       className="h-5 w-5 bg-contain bg-center bg-no-repeat"
-                      style={{ backgroundImage: "url('/cdn/login/google-icon.png')" }}
+                      style={{ backgroundImage: `url('${AUTHORIZED_APPS_GOOGLE_ICON_URL}')` }}
                     />
                   ) : provider.provider === "discord" ? (
                     <span
                       aria-hidden
                       className="h-5 w-5 bg-contain bg-center bg-no-repeat"
-                      style={{ backgroundImage: "url('/cdn/login/discord-icon.svg')" }}
+                      style={{ backgroundImage: `url('${AUTHORIZED_APPS_DISCORD_ICON_URL}')` }}
                     />
                   ) : provider.provider === "password" ? (
-                    <NextImage
-                      src="/favicon.ico"
-                      alt=""
-                      width={20}
-                      height={20}
-                      className="h-5 w-5 rounded-sm object-contain"
+                    <span
+                      aria-hidden
+                      className="h-5 w-5 bg-contain bg-center bg-no-repeat"
+                      style={{ backgroundImage: `url('${AUTHORIZED_APPS_WYZER_ICON_URL}')` }}
                     />
                   ) : (
                     provider.providerLabel.slice(0, 2).toUpperCase()
