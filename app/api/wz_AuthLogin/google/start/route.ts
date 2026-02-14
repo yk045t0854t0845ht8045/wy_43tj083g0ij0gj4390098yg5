@@ -171,7 +171,7 @@ export async function POST(req: NextRequest) {
       codeVerifier,
     });
 
-    const callback = new URL("/api/wz_AuthLogin/google/callback", getRequestOrigin(req));
+    const callback = new URL("/api/wz-auth/google/callback", getRequestOrigin(req));
 
     const sb = supabaseAnon();
     const { data, error } = await sb.auth.signInWithOAuth({
