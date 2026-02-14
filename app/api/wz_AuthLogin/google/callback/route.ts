@@ -4,6 +4,13 @@ import { supabaseAdmin } from "../../_supabase";
 import { upsertLoginProviderRecord } from "../../_login_providers";
 import { gen7, newSalt, onlyDigits, sha, toE164BRMobile } from "../../_codes";
 import { sendLoginCodeEmail } from "../../_email";
+import { setSessionCookie } from "../../_session";
+import { registerIssuedSession } from "../../_session_devices";
+import {
+  hashTrustedLoginToken,
+  readTrustedLoginTokenFromCookieHeader,
+  setTrustedLoginCookie,
+} from "../../_trusted_login";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -203,6 +210,56 @@ function sanitizeNext(raw: string) {
     if (isAllowedReturnToAbsolute(u)) return u.toString();
   } catch {}
   return "/";
+}
+
+function getEnvBool(name: string, def: boolean) {
+  const v = String(process.env[name] ?? "").trim().toLowerCase();
+  if (!v) return def;
+  if (v === "1" || v === "true" || v === "yes" || v === "on") return true;
+  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
+  return def;
+}
+
+function isHostOnlyMode() {
+  const isProd = process.env.NODE_ENV === "production";
+  return isProd && getEnvBool("SESSION_COOKIE_HOST_ONLY", true);
+}
+
+function getDashboardOrigin() {
+  const env = String(process.env.DASHBOARD_ORIGIN || "").trim();
+  if (env) return env.replace(/\/+$/g, "");
+  return "https://dashboard.wyzer.com.br";
+}
+
+function makeDashboardTicket(params: {
+  userId: string;
+  email: string;
+  fullName?: string | null;
+  ttlMs?: number;
+}) {
+  const secret = getTicketSecret();
+  if (!secret) throw new Error("SESSION_SECRET/WZ_AUTH_SECRET nao configurado.");
+
+  const ttlMs = Number(params.ttlMs ?? 1000 * 60 * 5);
+  const safeFullName = sanitizeFullName(params.fullName);
+  const payload = {
+    userId: String(params.userId),
+    email: String(params.email).trim().toLowerCase(),
+    ...(safeFullName ? { fullName: safeFullName } : {}),
+    iat: Date.now(),
+    exp: Date.now() + ttlMs,
+    nonce: crypto.randomBytes(8).toString("hex"),
+  };
+
+  const payloadB64 = base64UrlEncode(JSON.stringify(payload));
+  const sig = signTicket(payloadB64, secret);
+  return `${payloadB64}.${sig}`;
+}
+
+function toDashboardRedirectTarget(next: string, dashboardOrigin: string) {
+  const clean = String(next || "").trim();
+  if (/^https?:\/\//i.test(clean)) return clean;
+  return `${dashboardOrigin}${clean.startsWith("/") ? clean : "/"}`;
 }
 
 function getConfiguredAuthOrigin() {
@@ -824,6 +881,101 @@ async function createEmailChallenge(params: {
   await sendLoginCodeEmail(params.email, emailCode);
 }
 
+async function tryTrustedGoogleBypass(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  req: NextRequest;
+  email: string;
+  userId: string;
+  authUserId: string;
+  fullName: string | null;
+  nextSafe: string;
+}) {
+  const trustedToken = readTrustedLoginTokenFromCookieHeader(
+    params.req.headers.get("cookie"),
+  );
+  if (!trustedToken) return null;
+
+  const tokenHash = hashTrustedLoginToken(trustedToken);
+  const nowIso = new Date().toISOString();
+
+  const { data: trustedRow, error: trustedErr } = await params.sb
+    .from("wz_auth_trusted_devices")
+    .select("id")
+    .eq("email", params.email)
+    .eq("token_hash", tokenHash)
+    .is("revoked_at", null)
+    .gt("expires_at", nowIso)
+    .maybeSingle();
+
+  if (trustedErr) {
+    console.error("[google-callback] trusted device lookup error:", trustedErr);
+    return null;
+  }
+
+  if (!trustedRow?.id) return null;
+
+  await params.sb
+    .from("wz_auth_trusted_devices")
+    .update({ last_used_at: nowIso })
+    .eq("id", trustedRow.id);
+
+  await params.sb.from("wz_pending_auth").delete().eq("email", params.email);
+
+  const dashboard = getDashboardOrigin();
+  const normalizedFullName = sanitizeFullName(params.fullName);
+
+  if (isHostOnlyMode()) {
+    const ticket = makeDashboardTicket({
+      userId: params.userId,
+      email: params.email,
+      fullName: normalizedFullName,
+    });
+    const nextUrl =
+      `${dashboard}/api/wz_AuthLogin/exchange` +
+      `?ticket=${encodeURIComponent(ticket)}` +
+      `&next=${encodeURIComponent(params.nextSafe)}` +
+      `&lm=google` +
+      `&lf=login`;
+
+    const res = NextResponse.redirect(nextUrl, 303);
+    setSessionCookie(
+      res,
+      {
+        userId: params.userId,
+        email: params.email,
+        fullName: normalizedFullName || undefined,
+      },
+      params.req.headers,
+    );
+    setTrustedLoginCookie(res, trustedToken);
+    return res;
+  }
+
+  const nextUrl = toDashboardRedirectTarget(params.nextSafe, dashboard);
+  const res = NextResponse.redirect(nextUrl, 303);
+  const sessionPayload = setSessionCookie(
+    res,
+    {
+      userId: params.userId,
+      email: params.email,
+      fullName: normalizedFullName || undefined,
+    },
+    params.req.headers,
+  );
+  await registerIssuedSession({
+    headers: params.req.headers,
+    userId: params.userId,
+    authUserId: params.authUserId || null,
+    email: params.email,
+    session: sessionPayload,
+    loginMethod: "google",
+    loginFlow: "login",
+    isAccountCreationSession: false,
+  });
+  setTrustedLoginCookie(res, trustedToken);
+  return res;
+}
+
 type SupabasePkceExchangePayload = {
   user?: Record<string, unknown> | null;
   error?: string;
@@ -1002,6 +1154,23 @@ export async function GET(req: NextRequest) {
           phone_e164: googlePhoneCandidate,
         },
       });
+    }
+
+    if (!wzUser.isNew) {
+      const trustedRedirect = await tryTrustedGoogleBypass({
+        sb,
+        req,
+        email,
+        userId: wzUser.userId,
+        authUserId,
+        fullName: wzUser.fullName || fullName,
+        nextSafe: safeNext,
+      });
+      if (trustedRedirect) {
+        clearGoogleStateCookie(trustedRedirect, req);
+        applyNoStore(trustedRedirect);
+        return trustedRedirect;
+      }
     }
 
     await upsertPendingGoogleOnboarding({

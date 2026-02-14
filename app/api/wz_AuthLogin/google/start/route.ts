@@ -185,8 +185,6 @@ export async function POST(req: NextRequest) {
         queryParams: {
           code_challenge: codeChallenge,
           code_challenge_method: "s256",
-          access_type: "offline",
-          prompt: "consent",
           include_granted_scopes: "true",
         },
       },
