@@ -4,11 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { WyzerAIWidget } from "@/app/wyzerai/page";
 import LoadingBase from "./LoadingBase";
 import Sidebar from "./sidebar";
-import ConfigMain, {
-  DEFAULT_DASHBOARD_APPEARANCE_SETTINGS,
-  type ConfigSectionId,
-  type DashboardAppearanceSettings,
-} from "./config/ConfigMain";
+import ConfigMain, { type ConfigSectionId } from "./config/ConfigMain";
 
 type DashboardShellProps = {
   userNickname: string;
@@ -37,84 +33,6 @@ function normalizeIsoDatetime(value?: string | null) {
 const SESSION_DISCONNECT_EVENT_KEY = "wz:session:disconnected";
 const SESSION_CHECK_TIMEOUT_MS = 4500;
 const SESSION_CHECK_MIN_GAP_MS = 1200;
-const DASHBOARD_APPEARANCE_STORAGE_KEY = "wz:dashboard:appearance:v2";
-const DASHBOARD_FONT_CLASSES = [
-  "dashboard-font-inter",
-  "dashboard-font-manrope",
-  "dashboard-font-space-grotesk",
-  "dashboard-font-poppins",
-] as const;
-const DASHBOARD_DENSITY_CLASSES = [
-  "dashboard-density-comfortable",
-  "dashboard-density-compact",
-] as const;
-const DASHBOARD_THEME_CLASSES = ["dashboard-theme-light", "dashboard-theme-dark"] as const;
-const DASHBOARD_MOTION_CLASS = "dashboard-motion-reduced";
-
-const ACCENT_HEX_BY_ID: Record<DashboardAppearanceSettings["accent"], string> = {
-  gray: "#63666f",
-  blue: "#2f80ff",
-  cyan: "#1bb6d9",
-  green: "#a3e635",
-  violet: "#8b5cf6",
-  amber: "#f4b61e",
-};
-
-function resolveAccentHex(
-  accent: DashboardAppearanceSettings["accent"],
-  resolvedTheme: "light" | "dark",
-) {
-  if (accent === "green") {
-    return resolvedTheme === "dark" ? "#65a30d" : "#a3e635";
-  }
-  return ACCENT_HEX_BY_ID[accent] || ACCENT_HEX_BY_ID.gray;
-}
-
-function toRgbTuple(hex: string) {
-  const clean = String(hex || "").replace(/[^0-9a-f]/gi, "");
-  if (clean.length !== 6) return "47,128,255";
-  const r = Number.parseInt(clean.slice(0, 2), 16);
-  const g = Number.parseInt(clean.slice(2, 4), 16);
-  const b = Number.parseInt(clean.slice(4, 6), 16);
-  if ([r, g, b].some((v) => Number.isNaN(v))) return "47,128,255";
-  return `${r},${g},${b}`;
-}
-
-function normalizeAppearanceSettings(input: unknown): DashboardAppearanceSettings {
-  const base = { ...DEFAULT_DASHBOARD_APPEARANCE_SETTINGS };
-  if (!input || typeof input !== "object") return base;
-  const source = input as Partial<DashboardAppearanceSettings>;
-
-  const themeMode = source.themeMode;
-  if (themeMode === "dark" || themeMode === "light" || themeMode === "system") {
-    base.themeMode = themeMode;
-  }
-
-  const accent = source.accent;
-  if (accent && accent in ACCENT_HEX_BY_ID) {
-    base.accent = accent;
-  }
-
-  const fontStyle = source.fontStyle;
-  if (fontStyle === "inter" || fontStyle === "manrope" || fontStyle === "space-grotesk" || fontStyle === "poppins") {
-    base.fontStyle = fontStyle;
-  }
-
-  const density = source.density;
-  if (density === "comfortable" || density === "compact") {
-    base.density = density;
-  }
-
-  if (typeof source.transparentSidebar === "boolean") {
-    base.transparentSidebar = source.transparentSidebar;
-  }
-
-  if (typeof source.reducedMotion === "boolean") {
-    base.reducedMotion = source.reducedMotion;
-  }
-
-  return base;
-}
 
 function isLikelyMobileClient() {
   if (typeof navigator === "undefined") return false;
@@ -155,11 +73,6 @@ export default function DashboardShell({
 }: DashboardShellProps) {
   const [configOpen, setConfigOpen] = useState(false);
   const [configSection, setConfigSection] = useState<ConfigSectionId>("my-account");
-  const [appearanceSettings, setAppearanceSettings] = useState<DashboardAppearanceSettings>(
-    DEFAULT_DASHBOARD_APPEARANCE_SETTINGS
-  );
-  const [appearanceLoaded, setAppearanceLoaded] = useState(false);
-  const [systemPrefersDark, setSystemPrefersDark] = useState(false);
   const [profileEmail, setProfileEmail] = useState<string>(
     String(userEmail || "").trim().toLowerCase() || "conta@wyzer.com.br"
   );
@@ -198,31 +111,6 @@ export default function DashboardShell({
     const clean = String(userPhotoLink || "").trim();
     return clean || null;
   }, [userPhotoLink]);
-
-  const resolvedTheme = useMemo(() => {
-    if (appearanceSettings.themeMode === "system") {
-      return systemPrefersDark ? "dark" : "light";
-    }
-    return appearanceSettings.themeMode;
-  }, [appearanceSettings.themeMode, systemPrefersDark]);
-
-  const accentHex = useMemo(
-    () => resolveAccentHex(appearanceSettings.accent, resolvedTheme),
-    [appearanceSettings.accent, resolvedTheme]
-  );
-  const accentRgb = useMemo(() => toRgbTuple(accentHex), [accentHex]);
-  const successAccentHex = useMemo(
-    () => (resolvedTheme === "dark" ? "#65a30d" : "#a3e635"),
-    [resolvedTheme]
-  );
-  const successAccentStrongHex = useMemo(
-    () => (resolvedTheme === "dark" ? "#4d7c0f" : "#84cc16"),
-    [resolvedTheme]
-  );
-  const switchOffHex = useMemo(
-    () => (resolvedTheme === "dark" ? "#0F0F11" : "rgba(15,15,17,0.22)"),
-    [resolvedTheme]
-  );
 
   useEffect(() => {
     setProfilePhotoLink(normalizedInitialPhotoLink);
@@ -265,82 +153,6 @@ export default function DashboardShell({
   useEffect(() => {
     setProfileTwoFactorDisabledAt(normalizeIsoDatetime(userTwoFactorDisabledAt));
   }, [userTwoFactorDisabledAt]);
-
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => setSystemPrefersDark(media.matches);
-    apply();
-    media.addEventListener("change", apply);
-    return () => media.removeEventListener("change", apply);
-  }, []);
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(DASHBOARD_APPEARANCE_STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      setAppearanceSettings(normalizeAppearanceSettings(parsed));
-    } catch {
-      // noop: fallback to defaults when storage is unavailable or invalid
-    } finally {
-      setAppearanceLoaded(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!appearanceLoaded) return;
-    try {
-      window.localStorage.setItem(
-        DASHBOARD_APPEARANCE_STORAGE_KEY,
-        JSON.stringify(appearanceSettings)
-      );
-    } catch {
-      // noop
-    }
-  }, [appearanceLoaded, appearanceSettings]);
-
-  useEffect(() => {
-    const html = document.documentElement;
-    const nextFontClass = `dashboard-font-${appearanceSettings.fontStyle}`;
-    const nextDensityClass = `dashboard-density-${appearanceSettings.density}`;
-    const nextThemeClass = `dashboard-theme-${resolvedTheme}`;
-
-    html.classList.toggle("dark", resolvedTheme === "dark");
-    html.classList.remove(...DASHBOARD_FONT_CLASSES);
-    html.classList.add(nextFontClass);
-    html.classList.remove(...DASHBOARD_DENSITY_CLASSES);
-    html.classList.add(nextDensityClass);
-    html.classList.remove(...DASHBOARD_THEME_CLASSES);
-    html.classList.add(nextThemeClass);
-    html.classList.toggle(DASHBOARD_MOTION_CLASS, appearanceSettings.reducedMotion);
-    html.style.setProperty("--dashboard-accent", accentHex);
-    html.style.setProperty("--dashboard-accent-rgb", accentRgb);
-    html.style.setProperty("--dashboard-success-accent", successAccentHex);
-    html.style.setProperty("--dashboard-success-accent-strong", successAccentStrongHex);
-    html.style.setProperty("--dashboard-switch-off", switchOffHex);
-
-    return () => {
-      html.classList.remove(nextFontClass);
-      html.classList.remove(nextDensityClass);
-      html.classList.remove(nextThemeClass);
-      html.classList.remove(DASHBOARD_MOTION_CLASS);
-      html.style.removeProperty("--dashboard-accent");
-      html.style.removeProperty("--dashboard-accent-rgb");
-      html.style.removeProperty("--dashboard-success-accent");
-      html.style.removeProperty("--dashboard-success-accent-strong");
-      html.style.removeProperty("--dashboard-switch-off");
-    };
-  }, [
-    resolvedTheme,
-    accentHex,
-    accentRgb,
-    appearanceSettings.fontStyle,
-    appearanceSettings.density,
-    appearanceSettings.reducedMotion,
-    successAccentHex,
-    successAccentStrongHex,
-    switchOffHex,
-  ]);
 
   const handleUserEmailChange = useCallback((nextEmail: string, changedAt?: string | null) => {
     const normalized = String(nextEmail || "").trim().toLowerCase();
@@ -398,10 +210,6 @@ export default function DashboardShell({
 
   const handleUserSupportAccessChange = useCallback((enabled: boolean) => {
     setProfileSupportAccess(Boolean(enabled));
-  }, []);
-
-  const handleAppearanceChange = useCallback((next: DashboardAppearanceSettings) => {
-    setAppearanceSettings(normalizeAppearanceSettings(next));
   }, []);
 
   const triggerSessionDisconnected = useCallback((opts?: { broadcast?: boolean }) => {
@@ -560,25 +368,7 @@ export default function DashboardShell({
   }, [disconnectCountdown, sessionDisconnected]);
 
   return (
-    <div
-      className={[
-        "dashboard-theme-root min-h-screen flex",
-        `dashboard-theme-${resolvedTheme}`,
-        `dashboard-font-${appearanceSettings.fontStyle}`,
-        `dashboard-density-${appearanceSettings.density}`,
-        appearanceSettings.reducedMotion ? "dashboard-motion-reduced" : "",
-        appearanceSettings.transparentSidebar ? "dashboard-sidebar-glass-enabled" : "",
-        resolvedTheme === "dark" ? "bg-[#0F0F11] text-white" : "bg-white text-black",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-      style={
-        {
-          "--dashboard-accent": accentHex,
-          "--dashboard-accent-rgb": accentRgb,
-        } as React.CSSProperties
-      }
-    >
+    <div className="min-h-screen bg-white flex">
       <LoadingBase />
       <Sidebar
         activeMain="overview"
@@ -586,13 +376,9 @@ export default function DashboardShell({
         userEmail={profileEmail}
         userPhotoLink={profilePhotoLink}
         onOpenConfig={handleOpenConfig}
-        resolvedTheme={resolvedTheme}
-        accentHex={accentHex}
-        sidebarTransparent={appearanceSettings.transparentSidebar}
-        reduceMotion={appearanceSettings.reducedMotion}
       />
 
-      <div className="dashboard-content-shell flex-1 flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center">
         <div className="text-center" />
         <WyzerAIWidget />
       </div>
@@ -602,9 +388,6 @@ export default function DashboardShell({
         onClose={handleCloseConfig}
         activeSection={configSection}
         onSectionChange={setConfigSection}
-        resolvedTheme={resolvedTheme}
-        appearanceSettings={appearanceSettings}
-        onAppearanceChange={handleAppearanceChange}
         userNickname={userNickname}
         userFullName={userFullName}
         userEmail={profileEmail}
