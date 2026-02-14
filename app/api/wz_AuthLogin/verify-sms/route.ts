@@ -39,6 +39,16 @@ function normalizeProvider(value?: string | null) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizeBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const clean = value.trim().toLowerCase();
+    return clean === "1" || clean === "true" || clean === "t";
+  }
+  return false;
+}
+
 function getEnvBool(name: string, def: boolean) {
   const v = String(process.env[name] ?? "").trim().toLowerCase();
   if (!v) return def;
@@ -201,6 +211,7 @@ type WzUserSnapshot = {
   id: string | null;
   authUserId: string | null;
   authProvider: string | null;
+  mustCreatePassword: boolean | null;
   phoneE164: string | null;
   fullName: string | null;
 };
@@ -210,7 +221,9 @@ async function getWzUserSnapshotByEmail(
   email: string,
 ) {
   const columnsToTry = [
+    "id,auth_user_id,auth_provider,must_create_password,phone_e164,full_name",
     "id,auth_user_id,auth_provider,phone_e164,full_name",
+    "id,auth_user_id,must_create_password,phone_e164,full_name",
     "id,auth_user_id,phone_e164,full_name",
     "id,auth_user_id,phone_e164",
     "id,auth_user_id",
@@ -230,6 +243,7 @@ async function getWzUserSnapshotByEmail(
         id?: string | null;
         auth_user_id?: string | null;
         auth_provider?: string | null;
+        must_create_password?: boolean | number | string | null;
         phone_e164?: string | null;
         full_name?: string | null;
       };
@@ -237,14 +251,23 @@ async function getWzUserSnapshotByEmail(
         id: normalizeText(row.id),
         authUserId: normalizeText(row.auth_user_id),
         authProvider: normalizeProvider(row.auth_provider),
+        mustCreatePassword:
+          typeof row.must_create_password === "undefined"
+            ? null
+            : normalizeBoolean(row.must_create_password),
         phoneE164: normalizeText(row.phone_e164),
         fullName: normalizeText(row.full_name),
       } as WzUserSnapshot;
     }
 
-    const hasMissingColumn = ["id", "auth_user_id", "auth_provider", "phone_e164", "full_name"].some(
-      (column) => isMissingColumnError(res.error, column),
-    );
+    const hasMissingColumn = [
+      "id",
+      "auth_user_id",
+      "auth_provider",
+      "must_create_password",
+      "phone_e164",
+      "full_name",
+    ].some((column) => isMissingColumnError(res.error, column));
     if (!hasMissingColumn) {
       console.error("[verify-sms] wz_users snapshot error:", res.error);
       break;
@@ -255,12 +278,17 @@ async function getWzUserSnapshotByEmail(
     id: null,
     authUserId: null,
     authProvider: null,
+    mustCreatePassword: null,
     phoneE164: null,
     fullName: null,
   } as WzUserSnapshot;
 }
 
-function hasGoogleIdentity(user: unknown) {
+function normalizeAuthProviderName(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function readAuthUserProviderSignals(user: unknown) {
   const candidate =
     user && typeof user === "object"
       ? (user as {
@@ -268,38 +296,77 @@ function hasGoogleIdentity(user: unknown) {
           identities?: Array<Record<string, unknown>> | null;
         })
       : null;
-  if (!candidate) return false;
+  if (!candidate) {
+    return {
+      hasGoogleProvider: false,
+      hasPasswordProvider: false,
+    };
+  }
 
-  const appProvider = String(candidate.app_metadata?.provider || "")
-    .trim()
-    .toLowerCase();
-  if (appProvider === "google") return true;
+  const appProvider = normalizeAuthProviderName(candidate.app_metadata?.provider);
+  let hasGoogleProvider = appProvider === "google";
+  let hasPasswordProvider = appProvider === "email" || appProvider === "password";
+
+  const appProvidersRaw = candidate.app_metadata?.providers;
+  if (Array.isArray(appProvidersRaw)) {
+    for (const provider of appProvidersRaw) {
+      const normalized = normalizeAuthProviderName(provider);
+      if (normalized === "google") {
+        hasGoogleProvider = true;
+      }
+      if (normalized === "email" || normalized === "password") {
+        hasPasswordProvider = true;
+      }
+    }
+  }
 
   const identities = Array.isArray(candidate.identities)
     ? candidate.identities
     : [];
-  return identities.some(
-    (identity) => String(identity?.provider || "").trim().toLowerCase() === "google",
-  );
+  for (const identity of identities) {
+    const provider = normalizeAuthProviderName(identity?.provider);
+    if (provider === "google") {
+      hasGoogleProvider = true;
+    }
+    if (provider === "email" || provider === "password") {
+      hasPasswordProvider = true;
+    }
+  }
+
+  return {
+    hasGoogleProvider,
+    hasPasswordProvider,
+  };
 }
 
-async function authUserHasGoogleProvider(
+async function getAuthUserProviderSignals(
   sb: ReturnType<typeof supabaseAdmin>,
   authUserId: string,
 ) {
   const cleanAuthUserId = String(authUserId || "").trim();
-  if (!cleanAuthUserId) return false;
+  if (!cleanAuthUserId) {
+    return {
+      hasGoogleProvider: false,
+      hasPasswordProvider: false,
+    };
+  }
 
   try {
     const { data, error } = await sb.auth.admin.getUserById(cleanAuthUserId);
     if (error) {
       console.error("[verify-sms] getUserById error:", error);
-      return false;
+      return {
+        hasGoogleProvider: false,
+        hasPasswordProvider: false,
+      };
     }
-    return hasGoogleIdentity(data?.user || null);
+    return readAuthUserProviderSignals(data?.user || null);
   } catch (error) {
-    console.error("[verify-sms] authUserHasGoogleProvider error:", error);
-    return false;
+    console.error("[verify-sms] getAuthUserProviderSignals error:", error);
+    return {
+      hasGoogleProvider: false,
+      hasPasswordProvider: false,
+    };
   }
 }
 
@@ -370,6 +437,7 @@ async function insertGoogleWzUserBestEffort(params: {
   fullName: string | null;
   phoneE164: string;
   authUserId: string;
+  mustCreatePassword: boolean;
 }) {
   const nowIso = new Date().toISOString();
   const attempts: Array<Record<string, unknown>> = [
@@ -381,7 +449,7 @@ async function insertGoogleWzUserBestEffort(params: {
       email_verified: true,
       phone_verified: true,
       auth_provider: "google",
-      must_create_password: true,
+      must_create_password: params.mustCreatePassword,
       created_at: nowIso,
     },
     {
@@ -569,7 +637,9 @@ export async function POST(req: Request) {
     }
 
     const googleByProviderColumn = wzUser.authProvider === "google";
-    const googleByAuthUser = await authUserHasGoogleProvider(sb, authUserId);
+    const authUserProviderSignals = await getAuthUserProviderSignals(sb, authUserId);
+    const googleByAuthUser = authUserProviderSignals.hasGoogleProvider;
+    const authUserHasPasswordProvider = authUserProviderSignals.hasPasswordProvider;
     const isGoogleOnboarding =
       flow === "google" ||
       (flow === "register" && (googleByProviderColumn || googleByAuthUser));
@@ -690,6 +760,11 @@ export async function POST(req: Request) {
         userId = String(ins.data.id);
       }
     } else {
+      const resolvedMustCreatePassword = authUserHasPasswordProvider
+        ? false
+        : typeof wzUser.mustCreatePassword === "boolean"
+          ? wzUser.mustCreatePassword
+          : true;
       if (wzUser.id) {
         userId = wzUser.id;
         await updateWzUserBestEffort({
@@ -702,7 +777,7 @@ export async function POST(req: Request) {
             full_name: fullName || null,
             phone_e164: phoneE164 || null,
             auth_provider: "google",
-            must_create_password: true,
+            must_create_password: resolvedMustCreatePassword,
           },
         });
       } else {
@@ -712,6 +787,7 @@ export async function POST(req: Request) {
           fullName: fullName || null,
           phoneE164,
           authUserId,
+          mustCreatePassword: resolvedMustCreatePassword,
         });
       }
     }

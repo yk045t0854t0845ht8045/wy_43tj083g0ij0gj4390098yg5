@@ -105,14 +105,14 @@ function sanitizeNext(raw: string) {
 
 function buildDiscordOauthScopes() {
   const requested = String(
-    process.env.DISCORD_OAUTH_SCOPES || "identify email guilds.join",
+    process.env.DISCORD_OAUTH_SCOPES || "identify email",
   )
     .trim()
     .split(/\s+/)
     .map((scope) => scope.trim().toLowerCase())
     .filter(Boolean);
 
-  const required = ["identify", "email", "guilds.join"];
+  const required = ["identify", "email"];
   for (const scope of required) {
     if (!requested.includes(scope)) {
       requested.push(scope);

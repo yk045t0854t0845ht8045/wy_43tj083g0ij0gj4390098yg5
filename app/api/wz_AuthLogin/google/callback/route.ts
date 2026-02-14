@@ -114,6 +114,40 @@ function normalizeOptionalPhone(value?: string | null) {
   return clean || null;
 }
 
+function normalizeAuthProviderName(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function hasPasswordProviderInAuthUser(user: Record<string, unknown>) {
+  const appMetadata =
+    user.app_metadata && typeof user.app_metadata === "object"
+      ? (user.app_metadata as Record<string, unknown>)
+      : null;
+
+  const appProvider = normalizeAuthProviderName(appMetadata?.provider);
+  if (appProvider === "email" || appProvider === "password") {
+    return true;
+  }
+
+  const appProvidersRaw = appMetadata?.providers;
+  if (Array.isArray(appProvidersRaw)) {
+    for (const provider of appProvidersRaw) {
+      const normalized = normalizeAuthProviderName(provider);
+      if (normalized === "email" || normalized === "password") {
+        return true;
+      }
+    }
+  }
+
+  const identities = Array.isArray(user.identities)
+    ? (user.identities as Array<Record<string, unknown>>)
+    : [];
+  return identities.some((identity) => {
+    const provider = normalizeAuthProviderName(identity?.provider);
+    return provider === "email" || provider === "password";
+  });
+}
+
 function normalizeGooglePhoneToE164Br(value?: string | null) {
   const digits = onlyDigits(String(value || ""));
   if (!digits) return null;
@@ -654,6 +688,7 @@ async function insertGoogleWzUser(params: {
   fullName: string | null;
   authUserId: string;
   nowIso: string;
+  mustCreatePassword: boolean;
 }) {
   const attempts: Array<Record<string, unknown>> = [
     {
@@ -664,7 +699,7 @@ async function insertGoogleWzUser(params: {
       auth_user_id: params.authUserId,
       email_verified: true,
       auth_provider: "google",
-      must_create_password: true,
+      must_create_password: params.mustCreatePassword,
       created_at: params.nowIso,
     },
     {
@@ -730,8 +765,10 @@ async function findOrCreateGoogleWzUser(params: {
   authUserId: string;
   linkedUserId?: string | null;
   nowIso: string;
+  hasPasswordProvider: boolean;
 }) {
   const linkedUserId = normalizeText(params.linkedUserId || null);
+  const hasPasswordProvider = Boolean(params.hasPasswordProvider);
   let existing: ReturnType<typeof pickBestWzUserRow> = null;
 
   if (linkedUserId) {
@@ -772,8 +809,15 @@ async function findOrCreateGoogleWzUser(params: {
     if (!existing.auth_user_id) patch.auth_user_id = params.authUserId;
     if (!existing.full_name && params.fullName) patch.full_name = params.fullName;
     if (!normalizeOptionalPhone(existing.phone_e164)) patch.phone_e164 = null;
-    if (existing.must_create_password === null) {
-      patch.must_create_password = true;
+    const existingMustCreatePassword =
+      typeof existing.must_create_password === "boolean"
+        ? existing.must_create_password
+        : null;
+    const resolvedMustCreatePassword = hasPasswordProvider
+      ? false
+      : existingMustCreatePassword ?? true;
+    if (existingMustCreatePassword !== resolvedMustCreatePassword) {
+      patch.must_create_password = resolvedMustCreatePassword;
     }
 
     await updateWzUserBestEffort({
@@ -785,7 +829,7 @@ async function findOrCreateGoogleWzUser(params: {
     return {
       userId: existing.id,
       isNew: false as const,
-      mustCreatePassword: Boolean(existing.must_create_password),
+      mustCreatePassword: resolvedMustCreatePassword,
       phoneE164: normalizeOptionalPhone(existing.phone_e164),
       fullName: existing.full_name || params.fullName || null,
       email: normalizeEmail(existing.email) || params.email,
@@ -793,17 +837,19 @@ async function findOrCreateGoogleWzUser(params: {
   }
 
   try {
+    const mustCreatePassword = hasPasswordProvider ? false : true;
     const createdId = await insertGoogleWzUser({
       sb: params.sb,
       email: params.email,
       fullName: params.fullName,
       authUserId: params.authUserId,
       nowIso: params.nowIso,
+      mustCreatePassword,
     });
     return {
       userId: createdId,
       isNew: true as const,
-      mustCreatePassword: true as const,
+      mustCreatePassword,
       phoneE164: null,
       fullName: params.fullName || null,
       email: params.email,
@@ -818,20 +864,27 @@ async function findOrCreateGoogleWzUser(params: {
       });
       const recovered = pickBestWzUserRow(rowsByEmail, params.email);
       if (recovered?.id) {
+        const recoveredMustCreatePassword =
+          hasPasswordProvider
+            ? false
+            : typeof recovered.must_create_password === "boolean"
+              ? recovered.must_create_password
+              : true;
         await updateWzUserBestEffort({
           sb: params.sb,
           userId: recovered.id,
           patch: {
             ...(recovered.auth_user_id ? {} : { auth_user_id: params.authUserId }),
-            ...(recovered.must_create_password === null
-              ? { must_create_password: true }
-              : {}),
+            ...(typeof recovered.must_create_password === "boolean" &&
+            recovered.must_create_password === recoveredMustCreatePassword
+              ? {}
+              : { must_create_password: recoveredMustCreatePassword }),
           },
         });
         return {
           userId: recovered.id,
           isNew: false as const,
-          mustCreatePassword: Boolean(recovered.must_create_password),
+          mustCreatePassword: recoveredMustCreatePassword,
           phoneE164: normalizeOptionalPhone(recovered.phone_e164),
           fullName: recovered.full_name || params.fullName || null,
           email: normalizeEmail(recovered.email) || params.email,
@@ -1225,6 +1278,7 @@ export async function GET(req: NextRequest) {
     if (!authUserId || !email) {
       return fail("Conta Google sem e-mail valido. Tente outra conta.");
     }
+    const hasPasswordProvider = hasPasswordProviderInAuthUser(user);
 
     const sb = supabaseAdmin();
     const nowIso = new Date().toISOString();
@@ -1305,6 +1359,7 @@ export async function GET(req: NextRequest) {
       authUserId,
       linkedUserId,
       nowIso,
+      hasPasswordProvider,
     });
     const accountEmail = normalizeEmail(wzUser.email) || email;
 

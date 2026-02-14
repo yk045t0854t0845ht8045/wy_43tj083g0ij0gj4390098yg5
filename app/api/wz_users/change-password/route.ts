@@ -61,6 +61,46 @@ function normalizeBoolean(value: unknown) {
   return false;
 }
 
+function normalizeAuthProviderName(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function readAuthUserHasPasswordProvider(user: unknown) {
+  const candidate =
+    user && typeof user === "object"
+      ? (user as {
+          app_metadata?: Record<string, unknown> | null;
+          identities?: Array<Record<string, unknown>> | null;
+        })
+      : null;
+  if (!candidate) return false;
+
+  const appProvider = normalizeAuthProviderName(candidate.app_metadata?.provider);
+  if (appProvider === "email" || appProvider === "password") {
+    return true;
+  }
+
+  const appProvidersRaw = candidate.app_metadata?.providers;
+  if (Array.isArray(appProvidersRaw)) {
+    for (const provider of appProvidersRaw) {
+      const normalized = normalizeAuthProviderName(provider);
+      if (normalized === "email" || normalized === "password") {
+        return true;
+      }
+    }
+  }
+
+  const identities = Array.isArray(candidate.identities) ? candidate.identities : [];
+  for (const identity of identities) {
+    const provider = normalizeAuthProviderName(identity?.provider);
+    if (provider === "email" || provider === "password") {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function normalizeE164Phone(value?: string | null) {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -313,6 +353,24 @@ async function updateWzUserPasswordSecurityState(params: {
   return { error: null as unknown, passwordChangedAt: null as string | null };
 }
 
+async function updateWzUserMustCreatePasswordFlagBestEffort(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+  mustCreatePassword: boolean;
+}) {
+  const userId = String(params.userId || "").trim();
+  if (!userId) return;
+
+  const updateRes = await params.sb
+    .from("wz_users")
+    .update({ must_create_password: params.mustCreatePassword })
+    .eq("id", userId);
+
+  if (!updateRes.error) return;
+  if (isMissingColumnError(updateRes.error, "must_create_password")) return;
+  console.error("[change-password] must_create_password update error:", updateRes.error);
+}
+
 async function queryWzUsersRows(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   column: string;
@@ -530,6 +588,54 @@ async function verifyCurrentPassword(email: string, currentPassword: string) {
   return !error;
 }
 
+async function resolveRequiresCurrentPassword(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userRow: WzUserRow;
+  sessionEmail: string;
+}) {
+  const requiresByProfileFlag = !normalizeBoolean(params.userRow.must_create_password);
+  const authUserId = await resolveCurrentAuthUserId({
+    sb: params.sb,
+    userRow: params.userRow,
+    sessionEmail: params.sessionEmail,
+  });
+  if (!authUserId) {
+    return requiresByProfileFlag;
+  }
+
+  try {
+    const { data, error } = await params.sb.auth.admin.getUserById(authUserId);
+    if (error) {
+      console.error("[change-password] getUserById error:", error);
+      return requiresByProfileFlag;
+    }
+
+    const hasPasswordProvider = readAuthUserHasPasswordProvider(data?.user || null);
+    if (hasPasswordProvider) {
+      if (!requiresByProfileFlag) {
+        await updateWzUserMustCreatePasswordFlagBestEffort({
+          sb: params.sb,
+          userId: String(params.userRow.id || ""),
+          mustCreatePassword: false,
+        });
+      }
+      return true;
+    }
+
+    if (requiresByProfileFlag) {
+      await updateWzUserMustCreatePasswordFlagBestEffort({
+        sb: params.sb,
+        userId: String(params.userRow.id || ""),
+        mustCreatePassword: true,
+      });
+    }
+    return false;
+  } catch (error) {
+    console.error("[change-password] resolveRequiresCurrentPassword error:", error);
+    return requiresByProfileFlag;
+  }
+}
+
 async function createEmailChallenge(sb: ReturnType<typeof supabaseAdmin>, email: string) {
   await sb
     .from("wz_auth_challenges")
@@ -723,7 +829,11 @@ export async function POST(req: NextRequest) {
     const currentPassword = String(body?.currentPassword || "");
     const newPassword = String(body?.newPassword || "");
     const confirmNewPassword = String(body?.confirmNewPassword || "");
-    const requiresCurrentPassword = !normalizeBoolean(base.userRow.must_create_password);
+    const requiresCurrentPassword = await resolveRequiresCurrentPassword({
+      sb: base.sb,
+      userRow: base.userRow,
+      sessionEmail: base.sessionEmail,
+    });
 
     const inputError = validatePasswordChangeInput({
       requireCurrentPassword: requiresCurrentPassword,
@@ -851,7 +961,11 @@ export async function PUT(req: NextRequest) {
     const currentPassword = String(body?.currentPassword || "");
     const newPassword = String(body?.newPassword || "");
     const confirmNewPassword = String(body?.confirmNewPassword || "");
-    const requiresCurrentPassword = !normalizeBoolean(base.userRow.must_create_password);
+    const requiresCurrentPassword = await resolveRequiresCurrentPassword({
+      sb: base.sb,
+      userRow: base.userRow,
+      sessionEmail: base.sessionEmail,
+    });
 
     const inputError = validatePasswordChangeInput({
       requireCurrentPassword: requiresCurrentPassword,

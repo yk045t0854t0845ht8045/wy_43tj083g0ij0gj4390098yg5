@@ -25,7 +25,6 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 };
 const DISCORD_STATE_COOKIE_NAME = "wz_discord_oauth_state_v1";
-const DISCORD_DEFAULT_GUILD_ID = "1467347653997363282";
 
 type DiscordStatePayload = {
   typ: "wz-discord-oauth-state";
@@ -84,73 +83,6 @@ function normalizeEmail(value?: string | null) {
   return clean || null;
 }
 
-function normalizeDiscordSnowflake(value?: string | null) {
-  const clean = String(value || "").trim();
-  if (!/^\d{17,22}$/.test(clean)) return null;
-  return clean;
-}
-
-function isDiscordGuildJoinStrictMode() {
-  return getEnvBool("DISCORD_GUILD_JOIN_STRICT", false);
-}
-
-async function ensureDiscordGuildMemberByBot(params: {
-  discordUserId?: string | null;
-  providerAccessToken?: string | null;
-}) {
-  const enabled = getEnvBool("DISCORD_GUILD_JOIN_ENABLED", true);
-  if (!enabled) return { ok: true as const, skipped: "disabled" as const };
-
-  const botToken = normalizeText(process.env.DISCORD_BOT_TOKEN);
-  const guildId = normalizeDiscordSnowflake(
-    normalizeText(process.env.DISCORD_GUILD_ID) || DISCORD_DEFAULT_GUILD_ID,
-  );
-  const discordUserId = normalizeDiscordSnowflake(params.discordUserId);
-  const providerAccessToken = normalizeText(params.providerAccessToken);
-
-  if (!botToken) return { ok: false as const, reason: "missing-bot-token" as const };
-  if (!guildId) return { ok: false as const, reason: "invalid-guild-id" as const };
-  if (!discordUserId) return { ok: false as const, reason: "missing-discord-user-id" as const };
-  if (!providerAccessToken) {
-    return { ok: false as const, reason: "missing-provider-access-token" as const };
-  }
-
-  const endpoint = `https://discord.com/api/v10/guilds/${guildId}/members/${discordUserId}`;
-  let response: Response;
-  try {
-    response = await fetch(endpoint, {
-      method: "PUT",
-      headers: {
-        Authorization: `Bot ${botToken}`,
-        "Content-Type": "application/json",
-      },
-      cache: "no-store",
-      body: JSON.stringify({
-        access_token: providerAccessToken,
-      }),
-    });
-  } catch {
-    return { ok: false as const, reason: "network-error" as const };
-  }
-
-  if (response.status === 201 || response.status === 204) {
-    return { ok: true as const, status: response.status };
-  }
-
-  const payload = (await response.json().catch(() => null)) as
-    | { message?: string; code?: number | string }
-    | null;
-  const apiMessage = normalizeText(String(payload?.message || ""));
-
-  return {
-    ok: false as const,
-    reason: "discord-api-error" as const,
-    status: response.status,
-    apiCode: payload?.code,
-    apiMessage,
-  };
-}
-
 function normalizePkceVerifier(value?: string | null) {
   const clean = String(value || "").trim();
   if (!clean) return null;
@@ -180,6 +112,40 @@ function sanitizeFullName(value?: string | null) {
 function normalizeOptionalPhone(value?: string | null) {
   const clean = String(value || "").trim();
   return clean || null;
+}
+
+function normalizeAuthProviderName(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function hasPasswordProviderInAuthUser(user: Record<string, unknown>) {
+  const appMetadata =
+    user.app_metadata && typeof user.app_metadata === "object"
+      ? (user.app_metadata as Record<string, unknown>)
+      : null;
+
+  const appProvider = normalizeAuthProviderName(appMetadata?.provider);
+  if (appProvider === "email" || appProvider === "password") {
+    return true;
+  }
+
+  const appProvidersRaw = appMetadata?.providers;
+  if (Array.isArray(appProvidersRaw)) {
+    for (const provider of appProvidersRaw) {
+      const normalized = normalizeAuthProviderName(provider);
+      if (normalized === "email" || normalized === "password") {
+        return true;
+      }
+    }
+  }
+
+  const identities = Array.isArray(user.identities)
+    ? (user.identities as Array<Record<string, unknown>>)
+    : [];
+  return identities.some((identity) => {
+    const provider = normalizeAuthProviderName(identity?.provider);
+    return provider === "email" || provider === "password";
+  });
 }
 
 function normalizeDiscordPhoneToE164Br(value?: string | null) {
@@ -769,6 +735,7 @@ async function insertDiscordWzUser(params: {
   fullName: string | null;
   authUserId: string;
   nowIso: string;
+  mustCreatePassword: boolean;
 }) {
   const attempts: Array<Record<string, unknown>> = [
     {
@@ -779,7 +746,7 @@ async function insertDiscordWzUser(params: {
       auth_user_id: params.authUserId,
       email_verified: true,
       auth_provider: "discord",
-      must_create_password: true,
+      must_create_password: params.mustCreatePassword,
       created_at: params.nowIso,
     },
     {
@@ -848,8 +815,10 @@ async function findOrCreateDiscordWzUser(params: {
   authUserId: string;
   linkedUserId?: string | null;
   nowIso: string;
+  hasPasswordProvider: boolean;
 }) {
   const linkedUserId = normalizeText(params.linkedUserId || null);
+  const hasPasswordProvider = Boolean(params.hasPasswordProvider);
   let existing: ReturnType<typeof pickBestWzUserRow> = null;
 
   if (linkedUserId) {
@@ -890,8 +859,15 @@ async function findOrCreateDiscordWzUser(params: {
     if (!existing.auth_user_id) patch.auth_user_id = params.authUserId;
     if (!existing.full_name && params.fullName) patch.full_name = params.fullName;
     if (!normalizeOptionalPhone(existing.phone_e164)) patch.phone_e164 = null;
-    if (existing.must_create_password === null) {
-      patch.must_create_password = true;
+    const existingMustCreatePassword =
+      typeof existing.must_create_password === "boolean"
+        ? existing.must_create_password
+        : null;
+    const resolvedMustCreatePassword = hasPasswordProvider
+      ? false
+      : existingMustCreatePassword ?? true;
+    if (existingMustCreatePassword !== resolvedMustCreatePassword) {
+      patch.must_create_password = resolvedMustCreatePassword;
     }
 
     await updateWzUserBestEffort({
@@ -903,7 +879,7 @@ async function findOrCreateDiscordWzUser(params: {
     return {
       userId: existing.id,
       isNew: false as const,
-      mustCreatePassword: Boolean(existing.must_create_password),
+      mustCreatePassword: resolvedMustCreatePassword,
       phoneE164: normalizeOptionalPhone(existing.phone_e164),
       fullName: existing.full_name || params.fullName || null,
       email: normalizeEmail(existing.email) || params.email,
@@ -911,17 +887,19 @@ async function findOrCreateDiscordWzUser(params: {
   }
 
   try {
+    const mustCreatePassword = hasPasswordProvider ? false : true;
     const createdId = await insertDiscordWzUser({
       sb: params.sb,
       email: params.email,
       fullName: params.fullName,
       authUserId: params.authUserId,
       nowIso: params.nowIso,
+      mustCreatePassword,
     });
     return {
       userId: createdId,
       isNew: true as const,
-      mustCreatePassword: true as const,
+      mustCreatePassword,
       phoneE164: null,
       fullName: params.fullName || null,
       email: params.email,
@@ -936,20 +914,27 @@ async function findOrCreateDiscordWzUser(params: {
       });
       const recovered = pickBestWzUserRow(rowsByEmail, params.email);
       if (recovered?.id) {
+        const recoveredMustCreatePassword =
+          hasPasswordProvider
+            ? false
+            : typeof recovered.must_create_password === "boolean"
+              ? recovered.must_create_password
+              : true;
         await updateWzUserBestEffort({
           sb: params.sb,
           userId: recovered.id,
           patch: {
             ...(recovered.auth_user_id ? {} : { auth_user_id: params.authUserId }),
-            ...(recovered.must_create_password === null
-              ? { must_create_password: true }
-              : {}),
+            ...(typeof recovered.must_create_password === "boolean" &&
+            recovered.must_create_password === recoveredMustCreatePassword
+              ? {}
+              : { must_create_password: recoveredMustCreatePassword }),
           },
         });
         return {
           userId: recovered.id,
           isNew: false as const,
-          mustCreatePassword: Boolean(recovered.must_create_password),
+          mustCreatePassword: recoveredMustCreatePassword,
           phoneE164: normalizeOptionalPhone(recovered.phone_e164),
           fullName: recovered.full_name || params.fullName || null,
           email: normalizeEmail(recovered.email) || params.email,
@@ -981,44 +966,6 @@ function parseDiscordProviderUserId(user: Record<string, unknown>) {
   if (bySub) return bySub;
   const byUserId = normalizeText(String(identityData?.user_id || ""));
   if (byUserId) return byUserId;
-  return null;
-}
-
-function parseDiscordOauthUserId(user: Record<string, unknown>) {
-  const identities = Array.isArray(user?.identities)
-    ? (user.identities as Array<Record<string, unknown>>)
-    : [];
-  const discordIdentity = identities.find(
-    (identity) => String(identity?.provider || "").trim().toLowerCase() === "discord",
-  );
-
-  const identityData =
-    discordIdentity?.identity_data && typeof discordIdentity.identity_data === "object"
-      ? (discordIdentity.identity_data as Record<string, unknown>)
-      : null;
-
-  const metadata =
-    user.user_metadata && typeof user.user_metadata === "object"
-      ? (user.user_metadata as Record<string, unknown>)
-      : null;
-
-  const candidates = [
-    identityData?.sub,
-    identityData?.user_id,
-    identityData?.id,
-    discordIdentity?.id,
-    metadata?.sub,
-    metadata?.user_id,
-    metadata?.id,
-  ];
-
-  for (const candidate of candidates) {
-    const normalized = normalizeDiscordSnowflake(
-      normalizeText(String(candidate || "")),
-    );
-    if (normalized) return normalized;
-  }
-
   return null;
 }
 
@@ -1234,11 +1181,6 @@ async function tryTrustedDiscordBypass(params: {
 
 type SupabasePkceExchangePayload = {
   user?: Record<string, unknown> | null;
-  session?: Record<string, unknown> | null;
-  provider_token?: string;
-  providerToken?: string;
-  provider_refresh_token?: string;
-  providerRefreshToken?: string;
   error?: string;
   error_description?: string;
   message?: string;
@@ -1299,22 +1241,7 @@ async function exchangeDiscordPkceCode(params: {
     };
   }
 
-  const session =
-    payload.session && typeof payload.session === "object"
-      ? (payload.session as Record<string, unknown>)
-      : null;
-
-  const providerAccessToken = normalizeText(
-    String(
-      payload.provider_token ||
-        payload.providerToken ||
-        session?.provider_token ||
-        session?.providerToken ||
-        "",
-    ),
-  );
-
-  return { ok: true as const, user, providerAccessToken };
+  return { ok: true as const, user };
 }
 
 export async function GET(req: NextRequest) {
@@ -1458,14 +1385,11 @@ export async function GET(req: NextRequest) {
     if (!authUserId || !email) {
       return fail("Conta Discord sem e-mail valido. Tente outra conta.");
     }
+    const hasPasswordProvider = hasPasswordProviderInAuthUser(user);
 
     const sb = supabaseAdmin();
     const nowIso = new Date().toISOString();
     const providerUserId = parseDiscordProviderUserId(user);
-    const discordOauthUserId =
-      parseDiscordOauthUserId(user) ||
-      normalizeDiscordSnowflake(providerUserId) ||
-      normalizeDiscordSnowflake(normalizeText(String(userMetadata?.sub || "")));
     const identityLookup = await findLinkedUserByProviderIdentity({
       sb,
       provider: "discord",
@@ -1528,24 +1452,6 @@ export async function GET(req: NextRequest) {
         return fail("Nao foi possivel conectar Discord nesta conta.");
       }
 
-      const connectGuildJoin = await ensureDiscordGuildMemberByBot({
-        discordUserId: discordOauthUserId,
-        providerAccessToken: exchange.providerAccessToken,
-      });
-      if (!connectGuildJoin.ok) {
-        console.warn("[discord-guild-join] connect failed:", {
-          reason: connectGuildJoin.reason,
-          status: connectGuildJoin.status,
-          apiCode: connectGuildJoin.apiCode,
-          apiMessage: connectGuildJoin.apiMessage,
-        });
-        if (isDiscordGuildJoinStrictMode()) {
-          return fail(
-            "Nao foi possivel adicionar sua conta ao servidor Discord agora. Tente novamente.",
-          );
-        }
-      }
-
       const successUrl = buildDiscordConnectRedirect({
         origin: requestOrigin,
         next: safeNext,
@@ -1564,6 +1470,7 @@ export async function GET(req: NextRequest) {
       authUserId,
       linkedUserId,
       nowIso,
+      hasPasswordProvider,
     });
     const accountEmail = normalizeEmail(wzUser.email) || email;
 
@@ -1586,24 +1493,6 @@ export async function GET(req: NextRequest) {
         console.warn("[discord-callback] login provider schema not ready; continuing without provider link");
       } else {
         console.error("[discord-callback] failed to persist Discord login provider link");
-      }
-    }
-
-    const loginGuildJoin = await ensureDiscordGuildMemberByBot({
-      discordUserId: discordOauthUserId,
-      providerAccessToken: exchange.providerAccessToken,
-    });
-    if (!loginGuildJoin.ok) {
-      console.warn("[discord-guild-join] login failed:", {
-        reason: loginGuildJoin.reason,
-        status: loginGuildJoin.status,
-        apiCode: loginGuildJoin.apiCode,
-        apiMessage: loginGuildJoin.apiMessage,
-      });
-      if (isDiscordGuildJoinStrictMode()) {
-        return fail(
-          "Nao foi possivel adicionar sua conta ao servidor Discord agora. Tente novamente.",
-        );
       }
     }
 

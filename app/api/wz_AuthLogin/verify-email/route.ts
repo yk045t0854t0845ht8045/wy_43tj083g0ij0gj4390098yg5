@@ -187,6 +187,7 @@ type WzUserSnapshot = {
   id: string | null;
   authUserId: string | null;
   authProvider: string | null;
+  mustCreatePassword: boolean | null;
   phoneE164: string | null;
   fullName: string | null;
 };
@@ -196,8 +197,9 @@ async function getWzUserSnapshotByEmail(
   email: string,
 ) {
   const columnsToTry = [
+    "id,auth_user_id,auth_provider,must_create_password,phone_e164,full_name",
     "id,auth_user_id,auth_provider,phone_e164,full_name",
-    "id,auth_user_id,phone_e164,full_name",
+    "id,auth_user_id,must_create_password,phone_e164,full_name",
     "id,auth_user_id",
     "id,phone_e164",
     "id",
@@ -215,6 +217,7 @@ async function getWzUserSnapshotByEmail(
         id?: string | null;
         auth_user_id?: string | null;
         auth_provider?: string | null;
+        must_create_password?: boolean | number | string | null;
         phone_e164?: string | null;
         full_name?: string | null;
       };
@@ -223,14 +226,23 @@ async function getWzUserSnapshotByEmail(
         id: normalizeText(row.id),
         authUserId: normalizeText(row.auth_user_id),
         authProvider: normalizeProvider(row.auth_provider),
+        mustCreatePassword:
+          typeof row.must_create_password === "undefined"
+            ? null
+            : normalizeBoolean(row.must_create_password),
         phoneE164: normalizeText(row.phone_e164),
         fullName: normalizeText(row.full_name),
       } as WzUserSnapshot;
     }
 
-    const hasMissingColumn = ["id", "auth_user_id", "auth_provider", "phone_e164", "full_name"].some(
-      (column) => isMissingColumnError(res.error, column),
-    );
+    const hasMissingColumn = [
+      "id",
+      "auth_user_id",
+      "auth_provider",
+      "must_create_password",
+      "phone_e164",
+      "full_name",
+    ].some((column) => isMissingColumnError(res.error, column));
     if (!hasMissingColumn) {
       console.error("[verify-email] wz_users snapshot error:", res.error);
       break;
@@ -241,6 +253,7 @@ async function getWzUserSnapshotByEmail(
     id: null,
     authUserId: null,
     authProvider: null,
+    mustCreatePassword: null,
     phoneE164: null,
     fullName: null,
   } as WzUserSnapshot;
@@ -338,6 +351,64 @@ function normalizeOAuthProvider(value?: string | null): OAuthProvider | null {
   return null;
 }
 
+function normalizeAuthProviderName(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function readAuthUserProviderSignals(user: unknown) {
+  const candidate =
+    user && typeof user === "object"
+      ? (user as {
+          app_metadata?: Record<string, unknown> | null;
+          identities?: Array<Record<string, unknown>> | null;
+        })
+      : null;
+
+  if (!candidate) {
+    return {
+      oauthProvider: null as OAuthProvider | null,
+      hasPasswordProvider: false,
+    };
+  }
+
+  const appProvider = normalizeAuthProviderName(candidate.app_metadata?.provider);
+  const appOAuthProvider = normalizeOAuthProvider(appProvider);
+
+  let oauthProvider: OAuthProvider | null = appOAuthProvider;
+  let hasPasswordProvider = appProvider === "email" || appProvider === "password";
+
+  const appProvidersRaw = candidate.app_metadata?.providers;
+  if (Array.isArray(appProvidersRaw)) {
+    for (const provider of appProvidersRaw) {
+      const normalized = normalizeAuthProviderName(provider);
+      if (normalized === "email" || normalized === "password") {
+        hasPasswordProvider = true;
+      }
+      if (!oauthProvider) {
+        const mapped = normalizeOAuthProvider(normalized);
+        if (mapped) oauthProvider = mapped;
+      }
+    }
+  }
+
+  const identities = Array.isArray(candidate.identities) ? candidate.identities : [];
+  for (const identity of identities) {
+    const provider = normalizeAuthProviderName(identity?.provider);
+    if (provider === "email" || provider === "password") {
+      hasPasswordProvider = true;
+    }
+    if (!oauthProvider) {
+      const mapped = normalizeOAuthProvider(provider);
+      if (mapped) oauthProvider = mapped;
+    }
+  }
+
+  return {
+    oauthProvider,
+    hasPasswordProvider,
+  };
+}
+
 async function insertOAuthWzUserBestEffort(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   email: string;
@@ -345,6 +416,7 @@ async function insertOAuthWzUserBestEffort(params: {
   phoneE164: string | null;
   authUserId: string;
   provider: OAuthProvider;
+  mustCreatePassword: boolean;
 }) {
   const nowIso = new Date().toISOString();
   const attempts: Array<Record<string, unknown>> = [
@@ -356,7 +428,7 @@ async function insertOAuthWzUserBestEffort(params: {
       email_verified: true,
       phone_verified: false,
       auth_provider: params.provider,
-      must_create_password: true,
+      must_create_password: params.mustCreatePassword,
       created_at: nowIso,
     },
     {
@@ -418,46 +490,34 @@ async function insertOAuthWzUserBestEffort(params: {
   throw new Error("Nao foi possivel inserir usuario OAuth em wz_users.");
 }
 
-function readOAuthProviderFromAuthUser(user: unknown): OAuthProvider | null {
-  const candidate =
-    user && typeof user === "object"
-      ? (user as {
-          app_metadata?: Record<string, unknown> | null;
-          identities?: Array<Record<string, unknown>> | null;
-        })
-      : null;
-  if (!candidate) return null;
-
-  const appProvider = normalizeOAuthProvider(candidate.app_metadata?.provider as string);
-  if (appProvider) return appProvider;
-
-  const identities = Array.isArray(candidate.identities)
-    ? candidate.identities
-    : [];
-  for (const identity of identities) {
-    const provider = normalizeOAuthProvider(String(identity?.provider || ""));
-    if (provider) return provider;
-  }
-  return null;
-}
-
-async function getAuthUserOAuthProvider(
+async function getAuthUserProviderSignals(
   sb: ReturnType<typeof supabaseAdmin>,
   authUserId: string,
 ) {
   const cleanAuthUserId = String(authUserId || "").trim();
-  if (!cleanAuthUserId) return null;
+  if (!cleanAuthUserId) {
+    return {
+      oauthProvider: null as OAuthProvider | null,
+      hasPasswordProvider: false,
+    };
+  }
 
   try {
     const { data, error } = await sb.auth.admin.getUserById(cleanAuthUserId);
     if (error) {
       console.error("[verify-email] getUserById error:", error);
-      return null;
+      return {
+        oauthProvider: null as OAuthProvider | null,
+        hasPasswordProvider: false,
+      };
     }
-    return readOAuthProviderFromAuthUser(data?.user || null);
+    return readAuthUserProviderSignals(data?.user || null);
   } catch (error) {
-    console.error("[verify-email] getAuthUserOAuthProvider error:", error);
-    return null;
+    console.error("[verify-email] getAuthUserProviderSignals error:", error);
+    return {
+      oauthProvider: null as OAuthProvider | null,
+      hasPasswordProvider: false,
+    };
   }
 }
 
@@ -564,9 +624,11 @@ export async function POST(req: Request) {
 
     const flowProvider = normalizeOAuthProvider(flowRaw);
     const profileOAuthProvider = normalizeOAuthProvider(wzUser.authProvider);
-    const authUserOAuthProvider = authUserId
-      ? await getAuthUserOAuthProvider(sb, authUserId)
-      : null;
+    const authUserProviderSignals = authUserId
+      ? await getAuthUserProviderSignals(sb, authUserId)
+      : { oauthProvider: null as OAuthProvider | null, hasPasswordProvider: false };
+    const authUserOAuthProvider = authUserProviderSignals.oauthProvider;
+    const authUserHasPasswordProvider = authUserProviderSignals.hasPasswordProvider;
     const oauthProvider =
       flowProvider ||
       profileOAuthProvider ||
@@ -913,6 +975,11 @@ export async function POST(req: Request) {
         userId = String(ins.data.id);
       }
     } else {
+      const resolvedMustCreatePassword = authUserHasPasswordProvider
+        ? false
+        : typeof wzUser.mustCreatePassword === "boolean"
+          ? wzUser.mustCreatePassword
+          : true;
       if (wzUser.id) {
         userId = wzUser.id;
         await updateWzUserBestEffort({
@@ -927,7 +994,7 @@ export async function POST(req: Request) {
             ...(!wzUser.authProvider || wzUser.authProvider === "unknown"
               ? { auth_provider: oauthProvider || "unknown" }
               : {}),
-            must_create_password: true,
+            must_create_password: resolvedMustCreatePassword,
           },
         });
       } else {
@@ -938,6 +1005,7 @@ export async function POST(req: Request) {
           phoneE164: phoneE164 || null,
           authUserId,
           provider: oauthProvider || "unknown",
+          mustCreatePassword: resolvedMustCreatePassword,
         });
       }
     }

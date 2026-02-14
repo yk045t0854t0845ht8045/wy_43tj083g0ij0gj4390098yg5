@@ -21,6 +21,7 @@ const CONNECTABLE_PROVIDER_ORDER: LoginProvider[] = ["google", "discord"];
 type WzUserRow = {
   id?: string | null;
   email?: string | null;
+  auth_user_id?: string | null;
   auth_provider?: string | null;
   must_create_password?: boolean | string | number | null;
 };
@@ -87,6 +88,184 @@ function normalizeBoolean(value: unknown) {
     return clean === "1" || clean === "true" || clean === "t";
   }
   return false;
+}
+
+function normalizeAuthProviderName(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function readAuthUserHasPasswordProvider(user: unknown) {
+  const candidate =
+    user && typeof user === "object"
+      ? (user as {
+          app_metadata?: Record<string, unknown> | null;
+          identities?: Array<Record<string, unknown>> | null;
+        })
+      : null;
+  if (!candidate) return false;
+
+  const appProvider = normalizeAuthProviderName(candidate.app_metadata?.provider);
+  if (appProvider === "email" || appProvider === "password") {
+    return true;
+  }
+
+  const appProvidersRaw = candidate.app_metadata?.providers;
+  if (Array.isArray(appProvidersRaw)) {
+    for (const provider of appProvidersRaw) {
+      const normalized = normalizeAuthProviderName(provider);
+      if (normalized === "email" || normalized === "password") {
+        return true;
+      }
+    }
+  }
+
+  const identities = Array.isArray(candidate.identities) ? candidate.identities : [];
+  for (const identity of identities) {
+    const provider = normalizeAuthProviderName(identity?.provider);
+    if (provider === "email" || provider === "password") {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function findAuthUserIdByEmail(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  email: string | null;
+}) {
+  const email = normalizeEmail(params.email);
+  if (!email) {
+    return {
+      lookupOk: false as const,
+      authUserId: null as string | null,
+    };
+  }
+
+  const PER_PAGE = 200;
+  const MAX_PAGES = 20;
+
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const { data, error } = await params.sb.auth.admin.listUsers({
+      page,
+      perPage: PER_PAGE,
+    });
+    if (error) {
+      console.error("[authorized-apps] listUsers error:", error);
+      return {
+        lookupOk: false as const,
+        authUserId: null as string | null,
+      };
+    }
+
+    const users = (data?.users || []) as Array<{
+      id?: string | null;
+      email?: string | null;
+    }>;
+    const found = users.find((user) => normalizeEmail(user.email) === email);
+    if (found?.id) {
+      return {
+        lookupOk: true as const,
+        authUserId: normalizeText(found.id),
+      };
+    }
+    if (users.length < PER_PAGE) break;
+  }
+
+  return {
+    lookupOk: true as const,
+    authUserId: null as string | null,
+  };
+}
+
+async function getAuthUserProviderSignals(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  authUserId: string | null;
+  email: string | null;
+}) {
+  let authUserId = normalizeText(params.authUserId);
+  if (!authUserId) {
+    const byEmail = await findAuthUserIdByEmail({
+      sb: params.sb,
+      email: params.email,
+    });
+    if (!byEmail.lookupOk) {
+      return {
+        lookupOk: false as const,
+        authUserId: null as string | null,
+        hasPasswordProvider: false,
+      };
+    }
+    authUserId = byEmail.authUserId;
+    if (!authUserId) {
+      return {
+        lookupOk: true as const,
+        authUserId: null as string | null,
+        hasPasswordProvider: false,
+      };
+    }
+  }
+
+  try {
+    const { data, error } = await params.sb.auth.admin.getUserById(authUserId);
+    if (error) {
+      console.error("[authorized-apps] getUserById error:", error);
+      return {
+        lookupOk: false as const,
+        authUserId: null as string | null,
+        hasPasswordProvider: false,
+      };
+    }
+
+    return {
+      lookupOk: true as const,
+      authUserId,
+      hasPasswordProvider: readAuthUserHasPasswordProvider(data?.user || null),
+    };
+  } catch (error) {
+    console.error("[authorized-apps] getAuthUserProviderSignals error:", error);
+    return {
+      lookupOk: false as const,
+      authUserId: null as string | null,
+      hasPasswordProvider: false,
+    };
+  }
+}
+
+async function updateMustCreatePasswordBestEffort(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+  mustCreatePassword: boolean;
+}) {
+  const userId = String(params.userId || "").trim();
+  if (!userId) return;
+
+  const updateRes = await params.sb
+    .from("wz_users")
+    .update({ must_create_password: params.mustCreatePassword })
+    .eq("id", userId);
+
+  if (!updateRes.error) return;
+  if (isMissingColumnError(updateRes.error, "must_create_password")) return;
+  console.error("[authorized-apps] must_create_password update error:", updateRes.error);
+}
+
+async function cleanupStalePasswordProviderRows(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+}) {
+  const userId = String(params.userId || "").trim();
+  if (!userId) return;
+
+  const deleteRes = await params.sb
+    .from("wz_auth_login_providers")
+    .delete()
+    .eq("user_id", userId)
+    .eq("provider", "password");
+
+  if (!deleteRes.error) return;
+  if (isLoginProvidersSchemaMissing(deleteRes.error)) return;
+  console.error("[authorized-apps] stale password provider cleanup error:", deleteRes.error);
 }
 
 function providerLabel(provider: string) {
@@ -201,6 +380,7 @@ async function queryWzUsersRows(params: {
       return rows.map((row) => ({
         id: normalizeText(row.id),
         email: normalizeEmail(row.email),
+        auth_user_id: normalizeText(row.auth_user_id),
         auth_provider: normalizeText(row.auth_provider),
         must_create_password:
           typeof row.must_create_password === "undefined"
@@ -213,6 +393,7 @@ async function queryWzUsersRows(params: {
   return [] as Array<{
     id: string | null;
     email: string | null;
+    auth_user_id: string | null;
     auth_provider: string | null;
     must_create_password: boolean | null;
   }>;
@@ -222,6 +403,7 @@ function pickBestWzUserRow(
   rows: Array<{
     id: string | null;
     email: string | null;
+    auth_user_id: string | null;
     auth_provider: string | null;
     must_create_password: boolean | null;
   }>,
@@ -373,6 +555,9 @@ function resolveRemoveBlockedReason(params: {
   passwordPinned: boolean;
   isPersistedProvider: boolean;
 }) {
+  if (params.provider === "password") {
+    return "Wyzer Login faz parte do acesso base e nao pode ser removido.";
+  }
   if (!params.isPersistedProvider) {
     return "Metodo base da conta e nao pode ser removido.";
   }
@@ -392,17 +577,50 @@ async function buildAuthorizedAppsPayload(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   userRow: {
     id: string;
+    email: string | null;
+    auth_user_id: string | null;
     auth_provider: string | null;
     must_create_password: boolean | null;
   };
 }): Promise<AuthorizedAppsPayload> {
   const userId = String(params.userRow.id || "").trim();
-  const mustCreatePassword = Boolean(params.userRow.must_create_password);
+  let mustCreatePassword = Boolean(params.userRow.must_create_password);
 
   const providerRows = await listLoginProvidersForUser({
     sb: params.sb,
     userId,
   });
+  const hasPersistedPasswordProvider = providerRows.rows.some(
+    (item) => normalizeLoginProvider(item.provider) === "password",
+  );
+  const authSignals = await getAuthUserProviderSignals({
+    sb: params.sb,
+    authUserId: params.userRow.auth_user_id,
+    email: params.userRow.email,
+  });
+  if (authSignals.lookupOk) {
+    if (authSignals.hasPasswordProvider && mustCreatePassword) {
+      mustCreatePassword = false;
+      await updateMustCreatePasswordBestEffort({
+        sb: params.sb,
+        userId,
+        mustCreatePassword: false,
+      });
+    } else if (!authSignals.hasPasswordProvider && !mustCreatePassword) {
+      mustCreatePassword = true;
+      await updateMustCreatePasswordBestEffort({
+        sb: params.sb,
+        userId,
+        mustCreatePassword: true,
+      });
+    }
+    if (!authSignals.hasPasswordProvider && hasPersistedPasswordProvider) {
+      await cleanupStalePasswordProviderRows({
+        sb: params.sb,
+        userId,
+      });
+    }
+  }
   const creationProviderFromSessions = await resolveCreationProviderFromSessions({
     sb: params.sb,
     userId,
@@ -440,6 +658,10 @@ async function buildAuthorizedAppsPayload(params: {
 
   for (const row of providerRows.rows) {
     const provider = normalizeLoginProvider(row.provider);
+    if (provider === "password" && authSignals.lookupOk && !authSignals.hasPasswordProvider) {
+      // Evita exibir "Wyzer Login" stale quando a senha local nao existe no Auth.
+      continue;
+    }
     const key = `${provider}:${row.providerUserId || ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -581,6 +803,8 @@ async function getSessionAndUserRow(req: NextRequest) {
     sb,
     userRow: {
       id: String(userRow.id),
+      email: userRow.email || null,
+      auth_user_id: userRow.auth_user_id || null,
       auth_provider: userRow.auth_provider || null,
       must_create_password: userRow.must_create_password ?? null,
     },
@@ -618,6 +842,12 @@ export async function POST(req: NextRequest) {
   const provider = normalizeLoginProvider(body?.provider);
   if (provider === "unknown") {
     return okJson({ ok: false, error: "Provedor invalido." }, 400);
+  }
+  if (provider === "password") {
+    return okJson(
+      { ok: false, error: "Wyzer Login faz parte do acesso base e nao pode ser removido." },
+      400,
+    );
   }
 
   const current = await buildAuthorizedAppsPayload({
