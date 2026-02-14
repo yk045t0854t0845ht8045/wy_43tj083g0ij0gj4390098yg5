@@ -5608,6 +5608,8 @@ type AuthorizedProviderRecord = {
   providerLabel: string;
   linkedAt: string | null;
   lastLoginAt: string | null;
+  linkedEmail?: string | null;
+  linkedUsername?: string | null;
   isPassword: boolean;
   isExternal: boolean;
   isPrimary: boolean;
@@ -5671,6 +5673,21 @@ function resolveAuthorizedProviderName(
   return "Desconhecido";
 }
 
+function maskAuthorizedProviderEmail(value?: string | null) {
+  const clean = String(value || "").trim().toLowerCase();
+  if (!clean) return null;
+  const parts = clean.split("@");
+  if (parts.length !== 2) return null;
+  const user = parts[0];
+  const domain = parts[1];
+  if (!user || !domain) return null;
+
+  const head = user.slice(0, 4);
+  const tail = user.length > 4 ? user.slice(-1) : "";
+  const starCount = Math.max(4, user.length - head.length - tail.length);
+  return `${head}${"*".repeat(starCount)}${tail}@${domain}`;
+}
+
 function AuthorizedAppsContent() {
   const mountedRef = useRef(true);
   const [loading, setLoading] = useState(true);
@@ -5679,10 +5696,12 @@ function AuthorizedAppsContent() {
   const [providers, setProviders] = useState<AuthorizedProviderRecord[]>([]);
   const [connectableProviders, setConnectableProviders] = useState<AuthorizedConnectableProvider[]>([]);
   const [primaryProvider, setPrimaryProvider] = useState<string>("password");
+  const [creationProvider, setCreationProvider] = useState<string>("password");
   const [mustCreatePassword, setMustCreatePassword] = useState(false);
   const [connectModalOpen, setConnectModalOpen] = useState(false);
   const [startingConnectProvider, setStartingConnectProvider] = useState<"google" | "discord" | null>(null);
   const [removingProvider, setRemovingProvider] = useState<string | null>(null);
+  const [confirmingRemoveProvider, setConfirmingRemoveProvider] = useState<AuthorizedProviderRecord | null>(null);
   const mustCreatePasswordProviderName = useMemo(() => {
     const byPrimaryProvider = resolveExternalAuthProviderName(primaryProvider);
     if (byPrimaryProvider) return byPrimaryProvider;
@@ -5728,6 +5747,12 @@ function AuthorizedAppsContent() {
       })
       .map((entry) => entry.provider);
   }, [providers]);
+  const showLowMethodsWarning = useMemo(() => {
+    const validProviders = providers.filter((provider) => provider.provider !== "unknown");
+    if (!validProviders.length) return false;
+    if (validProviders.length <= 1) return true;
+    return validProviders.every((provider) => !provider.canRemove);
+  }, [providers]);
 
   const loadAuthorizedApps = useCallback(async (opts?: { signal?: AbortSignal; silent?: boolean }) => {
     const signal = opts?.signal;
@@ -5755,6 +5780,7 @@ function AuthorizedAppsContent() {
 
       if (!mountedRef.current) return;
       setPrimaryProvider(String(payload.primaryProvider || "password").toLowerCase());
+      setCreationProvider(String(payload.creationProvider || payload.primaryProvider || "password").toLowerCase());
       setMustCreatePassword(Boolean(payload.mustCreatePassword));
       setProviders(Array.isArray(payload.providers) ? payload.providers : []);
       setConnectableProviders(
@@ -5860,6 +5886,7 @@ function AuthorizedAppsContent() {
 
       if (!mountedRef.current) return;
       setPrimaryProvider(String(payload.primaryProvider || "password").toLowerCase());
+      setCreationProvider(String(payload.creationProvider || payload.primaryProvider || "password").toLowerCase());
       setMustCreatePassword(Boolean(payload.mustCreatePassword));
       setProviders(Array.isArray(payload.providers) ? payload.providers : []);
       setConnectableProviders(
@@ -5882,6 +5909,13 @@ function AuthorizedAppsContent() {
       }
     }
   }, [removingProvider, startingConnectProvider]);
+
+  const confirmRemoveProvider = useCallback(async () => {
+    if (!confirmingRemoveProvider) return;
+    const provider = confirmingRemoveProvider;
+    setConfirmingRemoveProvider(null);
+    await removeProvider(provider);
+  }, [confirmingRemoveProvider, removeProvider]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -5948,6 +5982,11 @@ function AuthorizedAppsContent() {
           {actionNotice}
         </p>
       ) : null}
+      {showLowMethodsWarning && !loading ? (
+        <p className="mt-4 rounded-lg border border-[#be8a23]/25 bg-[#f7d58a]/20 px-3 py-2 text-[13px] font-medium text-[#7b540d]">
+          Recomendamos manter pelo menos 2 metodos ativos. Isso reduz suporte futuro.
+        </p>
+      ) : null}
 
       <section className="mt-10">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -5957,6 +5996,7 @@ function AuthorizedAppsContent() {
             onClick={() => {
               setError(null);
               setActionNotice(null);
+              setConfirmingRemoveProvider(null);
               setConnectModalOpen(true);
             }}
             disabled={loading || Boolean(startingConnectProvider) || Boolean(removingProvider)}
@@ -6012,8 +6052,16 @@ function AuthorizedAppsContent() {
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-[15px] font-semibold text-black/78">{resolveAuthorizedProviderLabel(provider)}</p>
                     {provider.provider === "password" && (
-                      <span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">
-                        Padrão
+                      <span
+                        title="Metodo interno da Wyzer com senha local."
+                        className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62"
+                      >
+                        Padrao
+                      </span>
+                    )}
+                    {String(provider.provider || "").trim().toLowerCase() === String(creationProvider || "").trim().toLowerCase() && (
+                      <span className="inline-flex items-center rounded-full border border-[#2f7f4f]/22 bg-[#35a161]/12 px-2 py-0.5 text-[11px] font-semibold text-[#2f7f4f]">
+                        Criado com este provedor
                       </span>
                     )}
                     {provider.isPrimary && provider.provider !== "password" && (
@@ -6022,8 +6070,23 @@ function AuthorizedAppsContent() {
                       </span>
                     )}
                     {provider.isExternal && (
-                      <span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">
+                      <span
+                        title="Login por conta externa, como Google ou Discord."
+                        className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62"
+                      >
                         Externo
+                      </span>
+                    )}
+                    {provider.provider === "password" && (
+                      <span
+                        className={cx(
+                          "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                          mustCreatePassword
+                            ? "border-[#be8a23]/25 bg-[#f7d58a]/20 text-[#8d6110]"
+                            : "border-[#2f7f4f]/22 bg-[#35a161]/12 text-[#2f7f4f]",
+                        )}
+                      >
+                        {mustCreatePassword ? "Senha pendente" : "Senha definida"}
                       </span>
                     )}
                   </div>
@@ -6032,6 +6095,16 @@ function AuthorizedAppsContent() {
                     {" - "}
                     Ultimo login: {provider.lastLoginAt ? formatAuthorizedProviderSeen(provider.lastLoginAt) : "indisponivel"}
                   </p>
+                  {provider.provider === "google" ? (
+                    <p className="mt-1 text-[13px] text-black/56">
+                      Email vinculado: {maskAuthorizedProviderEmail(provider.linkedEmail) || "indisponivel"}
+                    </p>
+                  ) : null}
+                  {provider.provider === "discord" ? (
+                    <p className="mt-1 text-[13px] text-black/56">
+                      Nick vinculado: {String(provider.linkedUsername || "").trim() || "indisponivel"}
+                    </p>
+                  ) : null}
                   {!provider.canRemove && provider.removeBlockedReason ? (
                     <p className="mt-1 text-[12px] font-medium text-black/46">
                       {provider.removeBlockedReason}
@@ -6042,11 +6115,17 @@ function AuthorizedAppsContent() {
                 <div className="shrink-0">
                   <button
                     type="button"
-                    onClick={() => void removeProvider(provider)}
+                    onClick={() => {
+                      if (!provider.canRemove) return;
+                      setError(null);
+                      setActionNotice(null);
+                      setConfirmingRemoveProvider(provider);
+                    }}
                     disabled={
                       !provider.canRemove ||
                       Boolean(removingProvider) ||
-                      Boolean(startingConnectProvider)
+                      Boolean(startingConnectProvider) ||
+                      Boolean(confirmingRemoveProvider)
                     }
                     title={provider.removeBlockedReason || ""}
                     className={cx(
@@ -6166,6 +6245,65 @@ function AuthorizedAppsContent() {
                       className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       Fechar
+                    </button>
+                  </div>
+                </motion.section>
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body,
+        )}
+      {typeof document !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {confirmingRemoveProvider && (
+              <motion.div
+                className="fixed inset-0 z-[1210] flex items-center justify-center px-6"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <button
+                  type="button"
+                  aria-label="Fechar confirmacao de remocao"
+                  className="absolute inset-0 bg-black/60 backdrop-blur-[4px]"
+                  onClick={() => setConfirmingRemoveProvider(null)}
+                  disabled={Boolean(removingProvider)}
+                />
+                <motion.section
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Confirmar remocao de provedor"
+                  initial={{ opacity: 0, y: 12, scale: 0.988 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.988 }}
+                  transition={{ type: "spring", stiffness: 330, damping: 32, mass: 0.7 }}
+                  className="relative z-[1] w-full max-w-[470px] rounded-2xl border border-black/12 bg-[#f3f3f4] p-6 shadow-[0_24px_64px_rgba(0,0,0,0.28)]"
+                >
+                  <h3 className="text-[21px] font-semibold text-black/82">Confirmar remocao</h3>
+                  <p className="mt-2 text-[14px] leading-[1.45] text-black/62">
+                    Tem certeza? Voce podera perder acesso.
+                  </p>
+                  <p className="mt-2 text-[14px] leading-[1.45] text-black/62">
+                    Provedor: <span className="font-semibold text-black/78">{resolveAuthorizedProviderLabel(confirmingRemoveProvider)}</span>
+                  </p>
+
+                  <div className="mt-6 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingRemoveProvider(null)}
+                      disabled={Boolean(removingProvider)}
+                      className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void confirmRemoveProvider()}
+                      disabled={Boolean(removingProvider)}
+                      className="rounded-xl border border-[#e3524b]/25 bg-[#e3524b]/12 px-4 py-2 text-[13px] font-semibold text-[#b2433e] transition-colors hover:bg-[#e3524b]/18 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {Boolean(removingProvider) ? "Removendo..." : "Remover"}
                     </button>
                   </div>
                 </motion.section>

@@ -186,6 +186,7 @@ export async function listLoginProvidersForUser(params: {
     return { schemaReady: true as const, rows: [] as Array<{
       id: string;
       provider: LoginProvider;
+      email: string | null;
       providerUserId: string | null;
       linkedAt: string | null;
       lastLoginAt: string | null;
@@ -210,6 +211,7 @@ export async function listLoginProvidersForUser(params: {
         return {
           id,
           provider: normalizeLoginProvider(row.provider),
+          email: normalizeEmail(row.email),
           providerUserId: normalizeText(row.provider_user_id),
           linkedAt: normalizeIso(row.linked_at),
           lastLoginAt: normalizeIso(row.last_login_at),
@@ -223,6 +225,7 @@ export async function listLoginProvidersForUser(params: {
         (row): row is {
           id: string;
           provider: LoginProvider;
+          email: string | null;
           providerUserId: string | null;
           linkedAt: string | null;
           lastLoginAt: string | null;
@@ -236,6 +239,7 @@ export async function listLoginProvidersForUser(params: {
       return { schemaReady: false as const, rows: [] as Array<{
         id: string;
         provider: LoginProvider;
+        email: string | null;
         providerUserId: string | null;
         linkedAt: string | null;
         lastLoginAt: string | null;
@@ -246,6 +250,7 @@ export async function listLoginProvidersForUser(params: {
     return { schemaReady: false as const, rows: [] as Array<{
       id: string;
       provider: LoginProvider;
+      email: string | null;
       providerUserId: string | null;
       linkedAt: string | null;
       lastLoginAt: string | null;

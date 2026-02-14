@@ -31,6 +31,8 @@ type ProviderPayload = {
   providerLabel: string;
   linkedAt: string | null;
   lastLoginAt: string | null;
+  linkedEmail: string | null;
+  linkedUsername: string | null;
   isPassword: boolean;
   isExternal: boolean;
   isPrimary: boolean;
@@ -96,6 +98,30 @@ function providerLabel(provider: string) {
   if (p === "github") return "GitHub";
   if (p === "microsoft") return "Microsoft";
   return "Desconhecido";
+}
+
+function pickProviderUsername(provider: LoginProvider, metadata?: Record<string, unknown> | null) {
+  if (!metadata || typeof metadata !== "object") return null;
+
+  const keysByProvider: Record<LoginProvider, string[]> = {
+    password: [],
+    google: ["fullName", "name", "displayName", "given_name", "username"],
+    discord: ["username", "global_name", "display_name", "fullName", "name", "nick", "nickname"],
+    apple: ["fullName", "name", "displayName"],
+    github: ["username", "login", "name", "fullName"],
+    microsoft: ["fullName", "name", "displayName", "username"],
+    unknown: ["fullName", "name", "displayName", "username"],
+  };
+
+  const keys = keysByProvider[provider] || keysByProvider.unknown;
+  for (const key of keys) {
+    const raw = metadata[key];
+    if (typeof raw !== "string" && typeof raw !== "number") continue;
+    const value = normalizeText(String(raw));
+    if (value) return value;
+  }
+
+  return null;
 }
 
 function providerId(provider: string, index: number) {
@@ -348,16 +374,16 @@ function resolveRemoveBlockedReason(params: {
   isPersistedProvider: boolean;
 }) {
   if (!params.isPersistedProvider) {
-    return "Provedor principal da conta.";
+    return "Metodo base da conta e nao pode ser removido.";
   }
   if (params.provider === "unknown") {
     return "Provedor invalido.";
   }
   if (params.provider === params.creationProvider) {
-    return "Provedor usado na criacao da conta.";
+    return "Criado com este provedor e nao pode ser removido.";
   }
   if (params.provider === "password" && params.passwordPinned) {
-    return "Wyzer Login padrao ativo e nao pode ser removido.";
+    return "Wyzer Login com senha ativa e nao pode ser removido.";
   }
   return null;
 }
@@ -430,6 +456,8 @@ async function buildAuthorizedAppsPayload(params: {
       providerLabel: providerLabel(provider),
       linkedAt: normalizeIso(row.linkedAt),
       lastLoginAt: normalizeIso(row.lastLoginAt),
+      linkedEmail: normalizeEmail(row.email),
+      linkedUsername: pickProviderUsername(provider, row.metadata),
       isPassword: provider === "password",
       isExternal: provider !== "password",
       isPrimary: provider === primaryProvider,
@@ -451,6 +479,8 @@ async function buildAuthorizedAppsPayload(params: {
       providerLabel: providerLabel(primaryProvider),
       linkedAt: null,
       lastLoginAt: null,
+      linkedEmail: null,
+      linkedUsername: null,
       isPassword: primaryProvider === "password",
       isExternal: primaryProvider !== "password",
       isPrimary: true,
@@ -472,6 +502,8 @@ async function buildAuthorizedAppsPayload(params: {
       providerLabel: "Wyzer Login",
       linkedAt: null,
       lastLoginAt: null,
+      linkedEmail: null,
+      linkedUsername: null,
       isPassword: true,
       isExternal: false,
       isPrimary: primaryProvider === "password",

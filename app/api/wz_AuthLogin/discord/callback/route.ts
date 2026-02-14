@@ -1296,6 +1296,16 @@ export async function GET(req: NextRequest) {
       sanitizeFullName(
         String(userMetadata?.full_name || userMetadata?.name || "").trim(),
       ) || null;
+    const discordUsername =
+      sanitizeFullName(
+        String(
+          userMetadata?.preferred_username ||
+            userMetadata?.username ||
+            userMetadata?.user_name ||
+            userMetadata?.global_name ||
+            "",
+        ).trim(),
+      ) || null;
 
     if (!authUserId || !email) {
       return fail("Conta Discord sem e-mail valido. Tente outra conta.");
@@ -1342,6 +1352,7 @@ export async function GET(req: NextRequest) {
         providerUserId,
         metadata: {
           fullName,
+          username: discordUsername,
           avatarUrl: normalizeText(String(userMetadata?.avatar_url || userMetadata?.picture || "")),
         },
         nowIso,
@@ -1381,6 +1392,7 @@ export async function GET(req: NextRequest) {
       providerUserId,
       metadata: {
         fullName,
+        username: discordUsername,
         avatarUrl: normalizeText(String(userMetadata?.avatar_url || userMetadata?.picture || "")),
       },
       nowIso,
