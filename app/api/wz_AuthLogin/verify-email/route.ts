@@ -262,6 +262,22 @@ function isPhoneConstraintViolation(error: unknown) {
   );
 }
 
+function isAuthProviderConstraintViolation(error: unknown) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  return (
+    code === "23514" &&
+    (message.includes("wz_users_auth_provider_chk") ||
+      details.includes("wz_users_auth_provider_chk") ||
+      message.includes("auth_provider") ||
+      details.includes("auth_provider"))
+  );
+}
+
 async function updateWzUserBestEffort(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   userId: string;
@@ -283,6 +299,16 @@ async function updateWzUserBestEffort(params: {
         continue;
       }
     }
+    if (isAuthProviderConstraintViolation(updateRes.error)) {
+      if (patch.auth_provider && patch.auth_provider !== "unknown") {
+        patch.auth_provider = "unknown";
+        continue;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "auth_provider")) {
+        delete patch.auth_provider;
+        continue;
+      }
+    }
 
     let removedAny = false;
     for (const key of Object.keys(patch)) {
@@ -296,12 +322,29 @@ async function updateWzUserBestEffort(params: {
   }
 }
 
-async function insertGoogleWzUserBestEffort(params: {
+type OAuthProvider = "google" | "discord" | "apple" | "github" | "microsoft" | "unknown";
+
+function normalizeOAuthProvider(value?: string | null): OAuthProvider | null {
+  const clean = String(value || "").trim().toLowerCase();
+  if (
+    clean === "google" ||
+    clean === "discord" ||
+    clean === "apple" ||
+    clean === "github" ||
+    clean === "microsoft"
+  ) {
+    return clean;
+  }
+  return null;
+}
+
+async function insertOAuthWzUserBestEffort(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   email: string;
   fullName: string | null;
   phoneE164: string | null;
   authUserId: string;
+  provider: OAuthProvider;
 }) {
   const nowIso = new Date().toISOString();
   const attempts: Array<Record<string, unknown>> = [
@@ -312,7 +355,7 @@ async function insertGoogleWzUserBestEffort(params: {
       auth_user_id: params.authUserId,
       email_verified: true,
       phone_verified: false,
-      auth_provider: "google",
+      auth_provider: params.provider,
       must_create_password: true,
       created_at: nowIso,
     },
@@ -360,6 +403,9 @@ async function insertGoogleWzUserBestEffort(params: {
 
     if (res.error) {
       lastError = res.error;
+      if (isAuthProviderConstraintViolation(res.error)) {
+        continue;
+      }
       const hasMissingColumn = Object.keys(payload).some((key) =>
         isMissingColumnError(res.error, key),
       );
@@ -369,10 +415,10 @@ async function insertGoogleWzUserBestEffort(params: {
   }
 
   if (lastError) throw lastError;
-  throw new Error("Nao foi possivel inserir usuario Google em wz_users.");
+  throw new Error("Nao foi possivel inserir usuario OAuth em wz_users.");
 }
 
-function hasGoogleIdentity(user: unknown) {
+function readOAuthProviderFromAuthUser(user: unknown): OAuthProvider | null {
   const candidate =
     user && typeof user === "object"
       ? (user as {
@@ -380,38 +426,38 @@ function hasGoogleIdentity(user: unknown) {
           identities?: Array<Record<string, unknown>> | null;
         })
       : null;
-  if (!candidate) return false;
+  if (!candidate) return null;
 
-  const appProvider = String(candidate.app_metadata?.provider || "")
-    .trim()
-    .toLowerCase();
-  if (appProvider === "google") return true;
+  const appProvider = normalizeOAuthProvider(candidate.app_metadata?.provider as string);
+  if (appProvider) return appProvider;
 
   const identities = Array.isArray(candidate.identities)
     ? candidate.identities
     : [];
-  return identities.some(
-    (identity) => String(identity?.provider || "").trim().toLowerCase() === "google",
-  );
+  for (const identity of identities) {
+    const provider = normalizeOAuthProvider(String(identity?.provider || ""));
+    if (provider) return provider;
+  }
+  return null;
 }
 
-async function authUserHasGoogleProvider(
+async function getAuthUserOAuthProvider(
   sb: ReturnType<typeof supabaseAdmin>,
   authUserId: string,
 ) {
   const cleanAuthUserId = String(authUserId || "").trim();
-  if (!cleanAuthUserId) return false;
+  if (!cleanAuthUserId) return null;
 
   try {
     const { data, error } = await sb.auth.admin.getUserById(cleanAuthUserId);
     if (error) {
       console.error("[verify-email] getUserById error:", error);
-      return false;
+      return null;
     }
-    return hasGoogleIdentity(data?.user || null);
+    return readOAuthProviderFromAuthUser(data?.user || null);
   } catch (error) {
-    console.error("[verify-email] authUserHasGoogleProvider error:", error);
-    return false;
+    console.error("[verify-email] getAuthUserOAuthProvider error:", error);
+    return null;
   }
 }
 
@@ -516,16 +562,21 @@ export async function POST(req: Request) {
       authUserId = wzUser.authUserId;
     }
 
-    const googleByProviderColumn = wzUser.authProvider === "google";
-    const googleByAuthUser = authUserId
-      ? await authUserHasGoogleProvider(sb, authUserId)
-      : false;
-    const isGoogleOnboarding =
-      flowRaw === "google" ||
-      ((flowRaw === "register" || !flowRaw) &&
-        (googleByProviderColumn || googleByAuthUser));
-    const flow = flowRaw || (isGoogleOnboarding ? "google" : "login");
-    const requiresPassword = flow === "login" || !isGoogleOnboarding;
+    const flowProvider = normalizeOAuthProvider(flowRaw);
+    const profileOAuthProvider = normalizeOAuthProvider(wzUser.authProvider);
+    const authUserOAuthProvider = authUserId
+      ? await getAuthUserOAuthProvider(sb, authUserId)
+      : null;
+    const oauthProvider =
+      flowProvider ||
+      profileOAuthProvider ||
+      authUserOAuthProvider ||
+      null;
+    const isOAuthOnboarding =
+      Boolean(oauthProvider) &&
+      (flowRaw === String(oauthProvider) || flowRaw === "register" || !flowRaw);
+    const flow = flowRaw || (isOAuthOnboarding ? String(oauthProvider) : "login");
+    const requiresPassword = flow === "login" || !isOAuthOnboarding;
 
     if (requiresPassword && (!password || password.length < 6)) {
       return NextResponse.json(
@@ -723,7 +774,7 @@ export async function POST(req: Request) {
     }
 
     try {
-      if (isGoogleOnboarding) {
+      if (isOAuthOnboarding) {
         await sb.auth.admin.updateUserById(authUserId, {
           email_confirm: true,
         });
@@ -752,7 +803,7 @@ export async function POST(req: Request) {
 
     let userId: string | null = null;
 
-    if (!isGoogleOnboarding) {
+    if (!isOAuthOnboarding) {
       if (!isValidCPF(cpf)) {
         return NextResponse.json(
           { ok: false, error: "CPF invalido. Tente novamente." },
@@ -873,17 +924,18 @@ export async function POST(req: Request) {
             auth_user_id: authUserId,
             full_name: fullName || null,
             phone_e164: phoneE164 || null,
-            auth_provider: "google",
+            auth_provider: oauthProvider || "unknown",
             must_create_password: true,
           },
         });
       } else {
-        userId = await insertGoogleWzUserBestEffort({
+        userId = await insertOAuthWzUserBestEffort({
           sb,
           email,
           fullName: fullName || null,
           phoneE164: phoneE164 || null,
           authUserId,
+          provider: oauthProvider || "unknown",
         });
       }
     }
@@ -899,9 +951,9 @@ export async function POST(req: Request) {
     }
 
     const dashboard = getDashboardOrigin();
-    const loginMethod = isGoogleOnboarding ? "google" : "email_code";
-    const loginFlow = isGoogleOnboarding ? "login" : "register";
-    const isAccountCreationSession = !isGoogleOnboarding;
+    const loginMethod = isOAuthOnboarding ? String(oauthProvider || "unknown") : "email_code";
+    const loginFlow = isOAuthOnboarding ? "login" : "register";
+    const isAccountCreationSession = !isOAuthOnboarding;
 
     if (isHostOnlyMode()) {
       const ticket = makeDashboardTicket({

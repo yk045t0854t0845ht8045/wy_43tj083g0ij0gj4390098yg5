@@ -3,6 +3,7 @@ import { supabaseAdmin } from "./_supabase";
 export type LoginProvider =
   | "password"
   | "google"
+  | "discord"
   | "apple"
   | "github"
   | "microsoft"
@@ -43,6 +44,7 @@ export function normalizeLoginProvider(value?: string | null): LoginProvider {
   if (
     clean === "password" ||
     clean === "google" ||
+    clean === "discord" ||
     clean === "apple" ||
     clean === "github" ||
     clean === "microsoft"

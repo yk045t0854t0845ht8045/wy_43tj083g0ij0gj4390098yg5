@@ -20,10 +20,10 @@ const NO_STORE_HEADERS = {
   Pragma: "no-cache",
   Expires: "0",
 };
-const GOOGLE_STATE_COOKIE_NAME = "wz_google_oauth_state_v1";
+const DISCORD_STATE_COOKIE_NAME = "wz_discord_oauth_state_v1";
 
-type GoogleStatePayload = {
-  typ: "wz-google-oauth-state";
+type DiscordStatePayload = {
+  typ: "wz-discord-oauth-state";
   next: string;
   iat: number;
   exp: number;
@@ -108,7 +108,7 @@ function normalizeOptionalPhone(value?: string | null) {
   return clean || null;
 }
 
-function normalizeGooglePhoneToE164Br(value?: string | null) {
+function normalizeDiscordPhoneToE164Br(value?: string | null) {
   const digits = onlyDigits(String(value || ""));
   if (!digits) return null;
 
@@ -131,7 +131,7 @@ function normalizeGooglePhoneToE164Br(value?: string | null) {
   return null;
 }
 
-function extractGooglePhoneCandidate(user: Record<string, unknown>) {
+function extractDiscordPhoneCandidate(user: Record<string, unknown>) {
   const candidates: Array<string> = [];
 
   const pushCandidate = (raw: unknown) => {
@@ -173,7 +173,7 @@ function extractGooglePhoneCandidate(user: Record<string, unknown>) {
   }
 
   for (const candidate of candidates) {
-    const normalized = normalizeGooglePhoneToE164Br(candidate);
+    const normalized = normalizeDiscordPhoneToE164Br(candidate);
     if (normalized) return normalized;
   }
 
@@ -293,7 +293,7 @@ function getRequestOrigin(req: NextRequest) {
   return `${proto}://${hostHeader}`;
 }
 
-function resolveGoogleStateCookieDomain(req: NextRequest) {
+function resolveDiscordStateCookieDomain(req: NextRequest) {
   const host = String(
     req.headers.get("x-forwarded-host") || req.headers.get("host") || req.nextUrl.host || "",
   )
@@ -314,9 +314,9 @@ function applyNoStore(res: NextResponse) {
   res.headers.set("Expires", NO_STORE_HEADERS.Expires);
 }
 
-function clearGoogleStateCookie(res: NextResponse, req: NextRequest) {
+function clearDiscordStateCookie(res: NextResponse, req: NextRequest) {
   res.cookies.set({
-    name: GOOGLE_STATE_COOKIE_NAME,
+    name: DISCORD_STATE_COOKIE_NAME,
     value: "",
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -325,10 +325,10 @@ function clearGoogleStateCookie(res: NextResponse, req: NextRequest) {
     maxAge: 0,
   });
 
-  const domain = resolveGoogleStateCookieDomain(req);
+  const domain = resolveDiscordStateCookieDomain(req);
   if (domain) {
     res.cookies.set({
-      name: GOOGLE_STATE_COOKIE_NAME,
+      name: DISCORD_STATE_COOKIE_NAME,
       value: "",
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -340,7 +340,7 @@ function clearGoogleStateCookie(res: NextResponse, req: NextRequest) {
   }
 }
 
-function readGoogleStateTicket(ticket: string) {
+function readDiscordStateTicket(ticket: string) {
   const secret = getTicketSecret();
   if (!secret) {
     return { ok: false as const, error: "SESSION_SECRET/WZ_AUTH_SECRET nao configurado." };
@@ -362,8 +362,8 @@ function readGoogleStateTicket(ticket: string) {
   }
 
   try {
-    const parsed = JSON.parse(base64UrlDecodeToString(payloadB64)) as GoogleStatePayload;
-    if (parsed?.typ !== "wz-google-oauth-state") {
+    const parsed = JSON.parse(base64UrlDecodeToString(payloadB64)) as DiscordStatePayload;
+    if (parsed?.typ !== "wz-discord-oauth-state") {
       return { ok: false as const, error: "State OAuth invalido." };
     }
     if (!parsed.exp || parsed.exp < Date.now()) {
@@ -389,7 +389,7 @@ function buildLoginErrorRedirect(params: {
   return url.toString();
 }
 
-function buildGoogleOnboardingRedirect(params: {
+function buildDiscordOnboardingRedirect(params: {
   origin: string;
   next: string;
   email: string;
@@ -399,7 +399,7 @@ function buildGoogleOnboardingRedirect(params: {
   if (safeNext && safeNext !== "/") {
     url.searchParams.set("returnTo", safeNext);
   }
-  url.searchParams.set("oauthProvider", "google");
+  url.searchParams.set("oauthProvider", "discord");
   url.searchParams.set("oauthEmail", params.email);
   url.searchParams.set("oauthStep", "email");
   return url.toString();
@@ -455,6 +455,22 @@ function isPhoneConstraintViolation(error: unknown) {
       details.includes("wz_users_phone_e164_br_chk") ||
       message.includes("phone_e164") ||
       details.includes("phone_e164"))
+  );
+}
+
+function isAuthProviderConstraintViolation(error: unknown) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  return (
+    code === "23514" &&
+    (message.includes("wz_users_auth_provider_chk") ||
+      details.includes("wz_users_auth_provider_chk") ||
+      message.includes("auth_provider") ||
+      details.includes("auth_provider"))
   );
 }
 
@@ -550,6 +566,16 @@ async function updateWzUserBestEffort(params: {
         continue;
       }
     }
+    if (isAuthProviderConstraintViolation(updateRes.error)) {
+      if (patch.auth_provider && patch.auth_provider !== "unknown") {
+        patch.auth_provider = "unknown";
+        continue;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "auth_provider")) {
+        delete patch.auth_provider;
+        continue;
+      }
+    }
 
     let removedAny = false;
     for (const key of Object.keys(patch)) {
@@ -565,7 +591,7 @@ async function updateWzUserBestEffort(params: {
   }
 }
 
-async function insertGoogleWzUser(params: {
+async function insertDiscordWzUser(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   email: string;
   fullName: string | null;
@@ -580,7 +606,7 @@ async function insertGoogleWzUser(params: {
       phone_verified: false,
       auth_user_id: params.authUserId,
       email_verified: true,
-      auth_provider: "google",
+      auth_provider: "discord",
       must_create_password: true,
       created_at: params.nowIso,
     },
@@ -627,6 +653,9 @@ async function insertGoogleWzUser(params: {
 
     if (insertRes.error) {
       lastError = insertRes.error;
+      if (isAuthProviderConstraintViolation(insertRes.error)) {
+        continue;
+      }
       const keys = Object.keys(payload);
       const hasMissingColumn = keys.some((key) =>
         isMissingColumnError(insertRes.error, key),
@@ -640,7 +669,7 @@ async function insertGoogleWzUser(params: {
   throw new Error("Nao foi possivel inserir usuario wz_users.");
 }
 
-async function findOrCreateGoogleWzUser(params: {
+async function findOrCreateDiscordWzUser(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   email: string;
   fullName: string | null;
@@ -673,7 +702,7 @@ async function findOrCreateGoogleWzUser(params: {
     if (normalizeEmail(existing.email) !== normalizeEmail(params.email)) {
       patch.email = params.email;
     }
-    patch.auth_provider = "google";
+    patch.auth_provider = "discord";
     if (existing.must_create_password === null) {
       patch.must_create_password = true;
     }
@@ -694,7 +723,7 @@ async function findOrCreateGoogleWzUser(params: {
   }
 
   try {
-    const createdId = await insertGoogleWzUser({
+    const createdId = await insertDiscordWzUser({
       sb: params.sb,
       email: params.email,
       fullName: params.fullName,
@@ -723,7 +752,7 @@ async function findOrCreateGoogleWzUser(params: {
           userId: recovered.id,
           patch: {
             ...(recovered.auth_user_id ? {} : { auth_user_id: params.authUserId }),
-            auth_provider: "google",
+            auth_provider: "discord",
             ...(recovered.must_create_password === null
               ? { must_create_password: true }
               : {}),
@@ -743,21 +772,21 @@ async function findOrCreateGoogleWzUser(params: {
   }
 }
 
-function parseGoogleProviderUserId(user: Record<string, unknown>) {
+function parseDiscordProviderUserId(user: Record<string, unknown>) {
   const identities = Array.isArray(user?.identities)
     ? (user.identities as Array<Record<string, unknown>>)
     : [];
-  const googleIdentity = identities.find(
-    (identity) => String(identity?.provider || "").trim().toLowerCase() === "google",
+  const discordIdentity = identities.find(
+    (identity) => String(identity?.provider || "").trim().toLowerCase() === "discord",
   );
-  if (!googleIdentity) return null;
+  if (!discordIdentity) return null;
 
-  const directId = normalizeText(String(googleIdentity.id || ""));
+  const directId = normalizeText(String(discordIdentity.id || ""));
   if (directId) return directId;
 
   const identityData =
-    googleIdentity.identity_data && typeof googleIdentity.identity_data === "object"
-      ? (googleIdentity.identity_data as Record<string, unknown>)
+    discordIdentity.identity_data && typeof discordIdentity.identity_data === "object"
+      ? (discordIdentity.identity_data as Record<string, unknown>)
       : null;
   const bySub = normalizeText(String(identityData?.sub || ""));
   if (bySub) return bySub;
@@ -766,7 +795,7 @@ function parseGoogleProviderUserId(user: Record<string, unknown>) {
   return null;
 }
 
-async function upsertPendingGoogleOnboarding(params: {
+async function upsertPendingDiscordOnboarding(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   email: string;
   authUserId: string;
@@ -777,7 +806,7 @@ async function upsertPendingGoogleOnboarding(params: {
   const attempts: Array<Record<string, unknown>> = [
     {
       email: params.email,
-      flow: "google",
+      flow: "discord",
       stage: "email",
       auth_user_id: params.authUserId,
       full_name: params.fullName,
@@ -881,7 +910,7 @@ async function createEmailChallenge(params: {
   await sendLoginCodeEmail(params.email, emailCode);
 }
 
-async function tryTrustedGoogleBypass(params: {
+async function tryTrustedDiscordBypass(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   req: NextRequest;
   email: string;
@@ -908,7 +937,7 @@ async function tryTrustedGoogleBypass(params: {
     .maybeSingle();
 
   if (trustedErr) {
-    console.error("[google-callback] trusted device lookup error:", trustedErr);
+    console.error("[discord-callback] trusted device lookup error:", trustedErr);
     return null;
   }
 
@@ -934,7 +963,7 @@ async function tryTrustedGoogleBypass(params: {
       `${dashboard}/api/wz_AuthLogin/exchange` +
       `?ticket=${encodeURIComponent(ticket)}` +
       `&next=${encodeURIComponent(params.nextSafe)}` +
-      `&lm=google` +
+      `&lm=discord` +
       `&lf=login`;
 
     const res = NextResponse.redirect(nextUrl, 303);
@@ -968,7 +997,7 @@ async function tryTrustedGoogleBypass(params: {
     authUserId: params.authUserId || null,
     email: params.email,
     session: sessionPayload,
-    loginMethod: "google",
+    loginMethod: "discord",
     loginFlow: "login",
     isAccountCreationSession: false,
   });
@@ -984,7 +1013,7 @@ type SupabasePkceExchangePayload = {
   msg?: string;
 };
 
-async function exchangeGooglePkceCode(params: {
+async function exchangeDiscordPkceCode(params: {
   code: string;
   codeVerifier: string;
 }) {
@@ -1044,9 +1073,9 @@ async function exchangeGooglePkceCode(params: {
 export async function GET(req: NextRequest) {
   const requestOrigin = getRequestOrigin(req);
   const stFromQuery = String(req.nextUrl.searchParams.get("st") || "").trim();
-  const stFromCookie = String(req.cookies.get(GOOGLE_STATE_COOKIE_NAME)?.value || "").trim();
+  const stFromCookie = String(req.cookies.get(DISCORD_STATE_COOKIE_NAME)?.value || "").trim();
   const st = stFromQuery || stFromCookie;
-  const stateRes = readGoogleStateTicket(st);
+  const stateRes = readDiscordStateTicket(st);
   const safeNext = stateRes.ok ? sanitizeNext(stateRes.payload.next) : "/";
 
   const fail = (message: string) => {
@@ -1058,7 +1087,7 @@ export async function GET(req: NextRequest) {
       }),
       303,
     );
-    clearGoogleStateCookie(res, req);
+    clearDiscordStateCookie(res, req);
     applyNoStore(res);
     return res;
   };
@@ -1078,7 +1107,7 @@ export async function GET(req: NextRequest) {
 
   const code = String(req.nextUrl.searchParams.get("code") || "").trim();
   if (!code) {
-    return fail("Codigo OAuth ausente. Reinicie o login com Google.");
+    return fail("Codigo OAuth ausente. Reinicie o login com Discord.");
   }
 
   try {
@@ -1086,17 +1115,17 @@ export async function GET(req: NextRequest) {
       stateRes.ok ? String(stateRes.payload.cv || "") : "",
     );
     if (!codeVerifier) {
-      return fail("Sessao OAuth invalida. Reinicie o login com Google.");
+      return fail("Sessao OAuth invalida. Reinicie o login com Discord.");
     }
 
-    const exchange = await exchangeGooglePkceCode({
+    const exchange = await exchangeDiscordPkceCode({
       code,
       codeVerifier,
     });
     if (!exchange.ok) {
-      console.error("[google-callback] PKCE exchange error:", exchange.error);
+      console.error("[discord-callback] PKCE exchange error:", exchange.error);
       return fail(
-        "Nao foi possivel validar o retorno do Google. Confira as URLs de redirecionamento.",
+        "Nao foi possivel validar o retorno do Discord. Confira as URLs de redirecionamento.",
       );
     }
 
@@ -1113,13 +1142,13 @@ export async function GET(req: NextRequest) {
       ) || null;
 
     if (!authUserId || !email) {
-      return fail("Conta Google sem e-mail valido. Tente outra conta.");
+      return fail("Conta Discord sem e-mail valido. Tente outra conta.");
     }
 
     const sb = supabaseAdmin();
     const nowIso = new Date().toISOString();
 
-    const wzUser = await findOrCreateGoogleWzUser({
+    const wzUser = await findOrCreateDiscordWzUser({
       sb,
       email,
       fullName,
@@ -1127,13 +1156,13 @@ export async function GET(req: NextRequest) {
       nowIso,
     });
 
-    const providerUserId = parseGoogleProviderUserId(user);
+    const providerUserId = parseDiscordProviderUserId(user);
     await upsertLoginProviderRecord({
       sb,
       userId: wzUser.userId,
       authUserId,
       email,
-      provider: "google",
+      provider: "discord",
       providerUserId,
       metadata: {
         fullName,
@@ -1142,22 +1171,22 @@ export async function GET(req: NextRequest) {
       nowIso,
     });
 
-    const googlePhoneCandidate = extractGooglePhoneCandidate(user);
+    const discordPhoneCandidate = extractDiscordPhoneCandidate(user);
     const currentPhone = normalizeOptionalPhone(wzUser.phoneE164);
-    const effectivePhone = currentPhone || googlePhoneCandidate || null;
+    const effectivePhone = currentPhone || discordPhoneCandidate || null;
 
-    if (!currentPhone && googlePhoneCandidate) {
+    if (!currentPhone && discordPhoneCandidate) {
       await updateWzUserBestEffort({
         sb,
         userId: wzUser.userId,
         patch: {
-          phone_e164: googlePhoneCandidate,
+          phone_e164: discordPhoneCandidate,
         },
       });
     }
 
     if (!wzUser.isNew) {
-      const trustedRedirect = await tryTrustedGoogleBypass({
+      const trustedRedirect = await tryTrustedDiscordBypass({
         sb,
         req,
         email,
@@ -1167,13 +1196,13 @@ export async function GET(req: NextRequest) {
         nextSafe: safeNext,
       });
       if (trustedRedirect) {
-        clearGoogleStateCookie(trustedRedirect, req);
+        clearDiscordStateCookie(trustedRedirect, req);
         applyNoStore(trustedRedirect);
         return trustedRedirect;
       }
     }
 
-    await upsertPendingGoogleOnboarding({
+    await upsertPendingDiscordOnboarding({
       sb,
       email,
       authUserId,
@@ -1187,22 +1216,22 @@ export async function GET(req: NextRequest) {
       email,
     });
 
-    const successUrl = buildGoogleOnboardingRedirect({
+    const successUrl = buildDiscordOnboardingRedirect({
       origin: requestOrigin,
       next: safeNext,
       email,
     });
     const res = NextResponse.redirect(successUrl, 303);
-    clearGoogleStateCookie(res, req);
+    clearDiscordStateCookie(res, req);
     applyNoStore(res);
     return res;
   } catch (error) {
-    console.error("[google-callback] error:", error);
+    console.error("[discord-callback] error:", error);
     if (isPhoneConstraintViolation(error)) {
       return fail(
-        "Nao foi possivel concluir seu cadastro Google por regra de telefone da conta. Tente novamente em instantes.",
+        "Nao foi possivel concluir seu cadastro Discord por regra de telefone da conta. Tente novamente em instantes.",
       );
     }
-    return fail("Erro inesperado no login Google. Tente novamente.");
+    return fail("Erro inesperado no login Discord. Tente novamente.");
   }
 }

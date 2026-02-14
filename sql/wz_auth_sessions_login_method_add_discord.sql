@@ -1,4 +1,4 @@
--- Permite registrar sessoes com metodo de login Google.
+-- Permite gravar sessoes com login_method = 'discord'.
 
 alter table if exists public.wz_auth_sessions
   drop constraint if exists wz_auth_sessions_login_method_chk;

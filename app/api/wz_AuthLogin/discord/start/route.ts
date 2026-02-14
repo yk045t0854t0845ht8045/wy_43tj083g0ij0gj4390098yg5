@@ -10,10 +10,10 @@ const NO_STORE_HEADERS = {
   Pragma: "no-cache",
   Expires: "0",
 };
-const GOOGLE_STATE_COOKIE_NAME = "wz_google_oauth_state_v1";
+const DISCORD_STATE_COOKIE_NAME = "wz_discord_oauth_state_v1";
 
-type GoogleStatePayload = {
-  typ: "wz-google-oauth-state";
+type DiscordStatePayload = {
+  typ: "wz-discord-oauth-state";
   next: string;
   iat: number;
   exp: number;
@@ -116,7 +116,7 @@ function getRequestOrigin(req: NextRequest) {
   return `${proto}://${hostHeader}`;
 }
 
-function resolveGoogleStateCookieDomain(req: NextRequest) {
+function resolveDiscordStateCookieDomain(req: NextRequest) {
   const host = String(
     req.headers.get("x-forwarded-host") || req.headers.get("host") || req.nextUrl.host || "",
   )
@@ -131,7 +131,7 @@ function resolveGoogleStateCookieDomain(req: NextRequest) {
   return undefined;
 }
 
-function createGoogleStateTicket(params: {
+function createDiscordStateTicket(params: {
   next: string;
   codeVerifier?: string;
   ttlMs?: number;
@@ -141,8 +141,8 @@ function createGoogleStateTicket(params: {
 
   const now = Date.now();
   const ttlMs = Math.max(30000, Number(params.ttlMs || 1000 * 60 * 10));
-  const payload: GoogleStatePayload = {
-    typ: "wz-google-oauth-state",
+  const payload: DiscordStatePayload = {
+    typ: "wz-discord-oauth-state",
     next: sanitizeNext(params.next),
     iat: now,
     exp: now + ttlMs,
@@ -166,19 +166,19 @@ export async function POST(req: NextRequest) {
     const codeVerifier = createPkceCodeVerifier();
     const codeChallenge = createPkceCodeChallenge(codeVerifier);
     const oauthScopes =
-      String(process.env.GOOGLE_OAUTH_SCOPES || "email profile").trim() ||
-      "email profile";
+      String(process.env.DISCORD_OAUTH_SCOPES || "identify email").trim() ||
+      "identify email";
 
-    const stateTicket = createGoogleStateTicket({
+    const stateTicket = createDiscordStateTicket({
       next: nextSafe,
       codeVerifier,
     });
 
-    const callback = new URL("/api/wz_AuthLogin/google/callback", getRequestOrigin(req));
+    const callback = new URL("/api/wz_AuthLogin/discord/callback", getRequestOrigin(req));
 
     const sb = supabaseAnon();
     const { data, error } = await sb.auth.signInWithOAuth({
-      provider: "google",
+      provider: "discord",
       options: {
         redirectTo: callback.toString(),
         scopes: oauthScopes,
@@ -191,12 +191,12 @@ export async function POST(req: NextRequest) {
     });
 
     if (error || !data?.url) {
-      console.error("[google-start] signInWithOAuth error:", error);
+      console.error("[discord-start] signInWithOAuth error:", error);
       return NextResponse.json(
         {
           ok: false,
           error:
-            "Nao foi possivel iniciar login com Google. Verifique as chaves OAuth no Supabase.",
+            "Nao foi possivel iniciar login com Discord. Verifique as chaves OAuth no Supabase.",
         },
         { status: 500, headers: NO_STORE_HEADERS },
       );
@@ -209,9 +209,9 @@ export async function POST(req: NextRequest) {
       },
       { status: 200, headers: NO_STORE_HEADERS },
     );
-    const cookieDomain = resolveGoogleStateCookieDomain(req);
+    const cookieDomain = resolveDiscordStateCookieDomain(req);
     response.cookies.set({
-      name: GOOGLE_STATE_COOKIE_NAME,
+      name: DISCORD_STATE_COOKIE_NAME,
       value: stateTicket,
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -222,11 +222,11 @@ export async function POST(req: NextRequest) {
     });
     return response;
   } catch (error) {
-    console.error("[google-start] error:", error);
+    console.error("[discord-start] error:", error);
     const message =
       error instanceof Error && String(error.message || "").trim()
         ? String(error.message)
-        : "Erro inesperado ao iniciar login com Google.";
+        : "Erro inesperado ao iniciar login com Discord.";
     return NextResponse.json(
       { ok: false, error: message },
       { status: 500, headers: NO_STORE_HEADERS },

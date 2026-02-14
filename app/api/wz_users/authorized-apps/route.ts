@@ -21,7 +21,7 @@ type WzUserRow = {
 
 type ProviderPayload = {
   id: string;
-  provider: "password" | "google" | "apple" | "github" | "microsoft" | "unknown";
+  provider: "password" | "google" | "discord" | "apple" | "github" | "microsoft" | "unknown";
   providerLabel: string;
   linkedAt: string | null;
   lastLoginAt: string | null;
@@ -62,6 +62,7 @@ function providerLabel(provider: string) {
   const p = normalizeLoginProvider(provider);
   if (p === "password") return "Wyzer Login";
   if (p === "google") return "Google";
+  if (p === "discord") return "Discord";
   if (p === "apple") return "Apple";
   if (p === "github") return "GitHub";
   if (p === "microsoft") return "Microsoft";

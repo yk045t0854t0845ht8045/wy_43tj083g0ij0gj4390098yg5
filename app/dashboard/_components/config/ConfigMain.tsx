@@ -201,6 +201,7 @@ function onlyDigits(value: string) {
 function resolveExternalAuthProviderName(provider?: string | null) {
   const clean = String(provider || "").trim().toLowerCase();
   if (clean === "google") return "Google";
+  if (clean === "discord") return "Discord";
   if (clean === "github") return "GitHub";
   if (clean === "apple") return "Apple";
   if (clean === "microsoft") return "Microsoft";
@@ -585,7 +586,7 @@ function AccountContent({
     normalizeIsoDatetime(passwordChangedAt)
   );
   const [localPrimaryAuthProvider, setLocalPrimaryAuthProvider] = useState<
-    "password" | "google" | "apple" | "github" | "microsoft" | "unknown"
+    "password" | "google" | "discord" | "apple" | "github" | "microsoft" | "unknown"
   >("password");
   const [localMustCreatePassword, setLocalMustCreatePassword] = useState(false);
   const normalizedAccountCreatedAt = useMemo(
@@ -746,6 +747,7 @@ function AccountContent({
         if (
           provider === "password" ||
           provider === "google" ||
+          provider === "discord" ||
           provider === "apple" ||
           provider === "github" ||
           provider === "microsoft" ||
@@ -5597,7 +5599,7 @@ function PrivacyDataContent() {
 
 type AuthorizedProviderRecord = {
   id: string;
-  provider: "password" | "google" | "apple" | "github" | "microsoft" | "unknown";
+  provider: "password" | "google" | "discord" | "apple" | "github" | "microsoft" | "unknown";
   providerLabel: string;
   linkedAt: string | null;
   lastLoginAt: string | null;
@@ -5631,6 +5633,7 @@ function resolveAuthorizedProviderLabel(provider: AuthorizedProviderRecord) {
   const raw = String(provider.providerLabel || "").trim();
   if (raw) return raw;
   if (provider.provider === "google") return "Google";
+  if (provider.provider === "discord") return "Discord";
   if (provider.provider === "apple") return "Apple";
   if (provider.provider === "github") return "GitHub";
   if (provider.provider === "microsoft") return "Microsoft";
@@ -5665,6 +5668,7 @@ function AuthorizedAppsContent() {
     const clean = String(primaryProvider || "").trim().toLowerCase();
     if (clean === "password") return "Wyzer Login";
     if (clean === "google") return "Google";
+    if (clean === "discord") return "Discord";
     if (clean === "apple") return "Apple";
     if (clean === "github") return "GitHub";
     if (clean === "microsoft") return "Microsoft";
@@ -5773,9 +5777,15 @@ function AuthorizedAppsContent() {
                       className="h-5 w-5 bg-contain bg-center bg-no-repeat"
                       style={{ backgroundImage: "url('/cdn/login/google-icon.png')" }}
                     />
+                  ) : provider.provider === "discord" ? (
+                    <span
+                      aria-hidden
+                      className="h-5 w-5 bg-contain bg-center bg-no-repeat"
+                      style={{ backgroundImage: "url('/cdn/login/discord-icon.svg')" }}
+                    />
                   ) : provider.provider === "password" ? (
                     <NextImage
-                      src="/logo.svg"
+                      src="/favicon.ico"
                       alt=""
                       width={20}
                       height={20}
