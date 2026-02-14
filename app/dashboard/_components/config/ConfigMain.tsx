@@ -5611,18 +5611,28 @@ type AuthorizedProviderRecord = {
   isPassword: boolean;
   isExternal: boolean;
   isPrimary: boolean;
+  canRemove?: boolean;
+  removeBlockedReason?: string | null;
+};
+
+type AuthorizedConnectableProvider = {
+  provider: "password" | "google" | "discord" | "apple" | "github" | "microsoft" | "unknown";
+  providerLabel: string;
 };
 
 type AuthorizedAppsApiResponse = {
   ok?: boolean;
   error?: string;
   primaryProvider?: string;
+  creationProvider?: string;
   mustCreatePassword?: boolean;
   providers?: AuthorizedProviderRecord[];
+  connectableProviders?: AuthorizedConnectableProvider[];
   summary?: {
     linkedProviders?: number;
     externalProviders?: number;
     hasPasswordProvider?: boolean;
+    allSupportedConnected?: boolean;
     generatedAt?: string;
   } | null;
 };
@@ -5645,13 +5655,34 @@ function resolveAuthorizedProviderLabel(provider: AuthorizedProviderRecord) {
   return "Desconhecido";
 }
 
+function resolveAuthorizedProviderName(
+  provider?: string | null,
+  providerLabelRaw?: string | null,
+) {
+  const clean = String(provider || "").trim().toLowerCase();
+  const raw = String(providerLabelRaw || "").trim();
+  if (clean === "password") return "Wyzer Login";
+  if (clean === "google") return "Google";
+  if (clean === "discord") return "Discord";
+  if (clean === "apple") return "Apple";
+  if (clean === "github") return "GitHub";
+  if (clean === "microsoft") return "Microsoft";
+  if (raw) return raw;
+  return "Desconhecido";
+}
+
 function AuthorizedAppsContent() {
   const mountedRef = useRef(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [providers, setProviders] = useState<AuthorizedProviderRecord[]>([]);
+  const [connectableProviders, setConnectableProviders] = useState<AuthorizedConnectableProvider[]>([]);
   const [primaryProvider, setPrimaryProvider] = useState<string>("password");
   const [mustCreatePassword, setMustCreatePassword] = useState(false);
+  const [connectModalOpen, setConnectModalOpen] = useState(false);
+  const [startingConnectProvider, setStartingConnectProvider] = useState<"google" | "discord" | null>(null);
+  const [removingProvider, setRemovingProvider] = useState<string | null>(null);
   const mustCreatePasswordProviderName = useMemo(() => {
     const byPrimaryProvider = resolveExternalAuthProviderName(primaryProvider);
     if (byPrimaryProvider) return byPrimaryProvider;
@@ -5708,6 +5739,9 @@ function AuthorizedAppsContent() {
       setPrimaryProvider(String(payload.primaryProvider || "password").toLowerCase());
       setMustCreatePassword(Boolean(payload.mustCreatePassword));
       setProviders(Array.isArray(payload.providers) ? payload.providers : []);
+      setConnectableProviders(
+        Array.isArray(payload.connectableProviders) ? payload.connectableProviders : [],
+      );
     } catch (fetchError) {
       if (!mountedRef.current || signal?.aborted) return;
       setError(
@@ -5717,6 +5751,7 @@ function AuthorizedAppsContent() {
       );
       if (!opts?.silent) {
         setProviders([]);
+        setConnectableProviders([]);
       }
     } finally {
       if (!opts?.silent && mountedRef.current && !signal?.aborted) {
@@ -5724,6 +5759,111 @@ function AuthorizedAppsContent() {
       }
     }
   }, []);
+
+  const startConnectProvider = useCallback(async (provider: "google" | "discord") => {
+    if (startingConnectProvider || removingProvider) return;
+
+    setError(null);
+    setActionNotice(null);
+    setStartingConnectProvider(provider);
+    try {
+      const next =
+        typeof window !== "undefined" ? window.location.href : "/dashboard";
+      const response = await fetch(`/api/wz_AuthLogin/${provider}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          intent: "connect",
+          next,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        authUrl?: string;
+      };
+
+      if (!response.ok || !payload?.ok || !payload?.authUrl) {
+        throw new Error(
+          String(payload?.error || "Nao foi possivel iniciar a conexao do provedor."),
+        );
+      }
+
+      if (typeof window !== "undefined") {
+        window.location.assign(String(payload.authUrl));
+      }
+    } catch (connectError) {
+      if (!mountedRef.current) return;
+      setError(
+        connectError instanceof Error
+          ? connectError.message
+          : "Nao foi possivel iniciar a conexao do provedor.",
+      );
+    } finally {
+      if (mountedRef.current) {
+        setStartingConnectProvider(null);
+      }
+    }
+  }, [removingProvider, startingConnectProvider]);
+
+  const removeProvider = useCallback(async (provider: AuthorizedProviderRecord) => {
+    const providerId = String(provider.provider || "").trim().toLowerCase();
+    if (!providerId) return;
+    if (removingProvider || startingConnectProvider) return;
+    if (!provider.canRemove) {
+      setError(
+        String(provider.removeBlockedReason || "Este provedor nao pode ser removido."),
+      );
+      return;
+    }
+
+    setError(null);
+    setActionNotice(null);
+    setRemovingProvider(providerId);
+    try {
+      const response = await fetch("/api/wz_users/authorized-apps", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        credentials: "include",
+        body: JSON.stringify({
+          action: "remove-provider",
+          provider: providerId,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as AuthorizedAppsApiResponse & {
+        removedProvider?: string;
+      };
+      if (!response.ok || !payload?.ok) {
+        throw new Error(String(payload?.error || "Nao foi possivel remover o provedor."));
+      }
+
+      if (!mountedRef.current) return;
+      setPrimaryProvider(String(payload.primaryProvider || "password").toLowerCase());
+      setMustCreatePassword(Boolean(payload.mustCreatePassword));
+      setProviders(Array.isArray(payload.providers) ? payload.providers : []);
+      setConnectableProviders(
+        Array.isArray(payload.connectableProviders) ? payload.connectableProviders : [],
+      );
+      const removedProviderName = resolveAuthorizedProviderName(
+        payload.removedProvider || provider.provider,
+      );
+      setActionNotice(`${removedProviderName} removido da conta.`);
+    } catch (removeError) {
+      if (!mountedRef.current) return;
+      setError(
+        removeError instanceof Error
+          ? removeError.message
+          : "Nao foi possivel remover o provedor.",
+      );
+    } finally {
+      if (mountedRef.current) {
+        setRemovingProvider(null);
+      }
+    }
+  }, [removingProvider, startingConnectProvider]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -5734,6 +5874,34 @@ function AuthorizedAppsContent() {
       mountedRef.current = false;
       controller.abort();
     };
+  }, [loadAuthorizedApps]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const url = new URL(window.location.href);
+    const oauthConnect = String(url.searchParams.get("oauthConnect") || "").trim().toLowerCase();
+    const oauthProvider = String(url.searchParams.get("oauthProvider") || "").trim().toLowerCase();
+    const oauthError = String(url.searchParams.get("oauthError") || "").trim();
+    if (!oauthConnect && !oauthError) return;
+
+    if (oauthConnect === "ok") {
+      const providerName = resolveAuthorizedProviderName(oauthProvider || null);
+      setActionNotice(`${providerName} conectado com sucesso.`);
+      setError(null);
+      void loadAuthorizedApps({ silent: true });
+    } else {
+      const fallback =
+        oauthError || "Nao foi possivel conectar o provedor escolhido.";
+      setError(fallback);
+    }
+
+    url.searchParams.delete("oauthConnect");
+    url.searchParams.delete("oauthProvider");
+    url.searchParams.delete("oauthError");
+    const next =
+      `${url.pathname}${url.search || ""}${url.hash || ""}` || "/";
+    window.history.replaceState({}, "", next);
   }, [loadAuthorizedApps]);
 
   return (
@@ -5757,9 +5925,32 @@ function AuthorizedAppsContent() {
           {error}
         </p>
       ) : null}
+      {actionNotice ? (
+        <p className="mt-4 rounded-lg border border-[#35a161]/25 bg-[#35a161]/8 px-3 py-2 text-[13px] font-medium text-[#2f7f4f]">
+          {actionNotice}
+        </p>
+      ) : null}
 
       <section className="mt-10">
-        <h3 className="text-[20px] font-semibold text-black/82">Provedores conectados</h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-[20px] font-semibold text-black/82">Provedores conectados</h3>
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setActionNotice(null);
+              setConnectModalOpen(true);
+            }}
+            disabled={loading || Boolean(startingConnectProvider) || Boolean(removingProvider)}
+            className={cx(
+              "rounded-full bg-[#171717] px-4 py-2 text-[12px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992]",
+              (loading || Boolean(startingConnectProvider) || Boolean(removingProvider)) &&
+                "cursor-not-allowed opacity-70",
+            )}
+          >
+            Adicionar conexao
+          </button>
+        </div>
         <div className="mt-4 border-t border-black/10" />
         <div className="mt-4 overflow-hidden rounded-xl border border-black/10 bg-white/70">
           {!providers.length ? (
@@ -5823,6 +6014,32 @@ function AuthorizedAppsContent() {
                     {" - "}
                     Ultimo login: {provider.lastLoginAt ? formatAuthorizedProviderSeen(provider.lastLoginAt) : "indisponivel"}
                   </p>
+                  {!provider.canRemove && provider.removeBlockedReason ? (
+                    <p className="mt-1 text-[12px] font-medium text-black/46">
+                      {provider.removeBlockedReason}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => void removeProvider(provider)}
+                    disabled={
+                      !provider.canRemove ||
+                      Boolean(removingProvider) ||
+                      Boolean(startingConnectProvider)
+                    }
+                    title={provider.removeBlockedReason || ""}
+                    className={cx(
+                      "rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors",
+                      provider.canRemove
+                        ? "border-black/15 bg-white text-black/72 hover:bg-black/[0.03]"
+                        : "border-black/10 bg-black/[0.03] text-black/35 cursor-not-allowed",
+                    )}
+                  >
+                    {removingProvider === provider.provider ? "Removendo..." : "Remover"}
+                  </button>
                 </div>
               </div>
             ))
@@ -5837,6 +6054,108 @@ function AuthorizedAppsContent() {
           Provedor principal: <span className="font-semibold text-black/78">{primaryProviderDisplayName}</span>.
         </div>
       </section>
+
+      {typeof document !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {connectModalOpen && (
+              <motion.div
+                className="fixed inset-0 z-[1200] flex items-center justify-center px-6"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <button
+                  type="button"
+                  aria-label="Fechar conexoes"
+                  className="absolute inset-0 bg-black/55 backdrop-blur-[4px]"
+                  onClick={() => setConnectModalOpen(false)}
+                  disabled={Boolean(startingConnectProvider)}
+                />
+                <motion.section
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Adicionar conexao"
+                  initial={{ opacity: 0, y: 14, scale: 0.985 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.985 }}
+                  transition={{ type: "spring", stiffness: 320, damping: 30, mass: 0.68 }}
+                  className="relative z-[1] w-full max-w-[520px] rounded-2xl border border-black/12 bg-[#f3f3f4] p-6 shadow-[0_24px_64px_rgba(0,0,0,0.28)]"
+                >
+                  <h3 className="text-[22px] font-semibold text-black/82">Adicionar conexao</h3>
+                  <p className="mt-2 text-[14px] leading-[1.45] text-black/62">
+                    Conecte novos provedores para facilitar login futuro na mesma conta.
+                  </p>
+
+                  {connectableProviders.length === 0 ? (
+                    <div className="mt-5 rounded-xl border border-black/12 bg-white/80 px-4 py-3 text-[14px] text-black/62">
+                      Voce ja possui todos conectados a sua conta.
+                    </div>
+                  ) : (
+                    <div className="mt-5 space-y-3">
+                      {connectableProviders
+                        .filter(
+                          (provider) =>
+                            provider.provider === "google" || provider.provider === "discord",
+                        )
+                        .map((provider) => {
+                          const connectProvider = provider.provider as "google" | "discord";
+                          const isBusy = startingConnectProvider === connectProvider;
+                          return (
+                            <button
+                              key={provider.provider}
+                              type="button"
+                              onClick={() => void startConnectProvider(connectProvider)}
+                              disabled={Boolean(startingConnectProvider)}
+                              className={cx(
+                                "group inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-[15px] border border-black/10 bg-white text-[15px] font-semibold text-black/82",
+                                "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                                "hover:border-black/20 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
+                                "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
+                                Boolean(startingConnectProvider) && "cursor-not-allowed opacity-70",
+                              )}
+                            >
+                              {isBusy ? (
+                                <span className="inline-flex h-4 w-4 rounded-full border-2 border-black/35 border-t-transparent animate-spin" />
+                              ) : (
+                                <span
+                                  aria-hidden
+                                  className="h-5 w-5 bg-contain bg-center bg-no-repeat"
+                                  style={{
+                                    backgroundImage:
+                                      connectProvider === "google"
+                                        ? `url('${AUTHORIZED_APPS_GOOGLE_ICON_URL}')`
+                                        : `url('${AUTHORIZED_APPS_DISCORD_ICON_URL}')`,
+                                  }}
+                                />
+                              )}
+                              <span>
+                                {isBusy
+                                  ? "Conectando..."
+                                  : `Conectar ${resolveAuthorizedProviderName(provider.provider, provider.providerLabel)}`}
+                              </span>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  )}
+
+                  <div className="mt-6 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setConnectModalOpen(false)}
+                      disabled={Boolean(startingConnectProvider)}
+                      className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/70 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                </motion.section>
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body,
+        )}
     </div>
   );
 }

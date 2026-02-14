@@ -1,6 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { readActiveSessionFromRequest } from "@/app/api/wz_AuthLogin/_active_session";
-import { listLoginProvidersForUser, normalizeLoginProvider } from "@/app/api/wz_AuthLogin/_login_providers";
+import {
+  listLoginProvidersForUser,
+  normalizeLoginProvider,
+  type LoginProvider,
+} from "@/app/api/wz_AuthLogin/_login_providers";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +15,8 @@ const NO_STORE_HEADERS = {
   Pragma: "no-cache",
   Expires: "0",
 };
+
+const CONNECTABLE_PROVIDER_ORDER: LoginProvider[] = ["google", "discord"];
 
 type WzUserRow = {
   id?: string | null;
@@ -28,6 +34,29 @@ type ProviderPayload = {
   isPassword: boolean;
   isExternal: boolean;
   isPrimary: boolean;
+  canRemove: boolean;
+  removeBlockedReason: string | null;
+};
+
+type ConnectableProviderPayload = {
+  provider: "password" | "google" | "discord" | "apple" | "github" | "microsoft" | "unknown";
+  providerLabel: string;
+};
+
+type AuthorizedAppsPayload = {
+  schemaReady: boolean;
+  primaryProvider: LoginProvider;
+  creationProvider: LoginProvider;
+  mustCreatePassword: boolean;
+  providers: ProviderPayload[];
+  connectableProviders: ConnectableProviderPayload[];
+  summary: {
+    linkedProviders: number;
+    externalProviders: number;
+    hasPasswordProvider: boolean;
+    allSupportedConnected: boolean;
+    generatedAt: string;
+  };
 };
 
 function normalizeText(value?: string | null) {
@@ -71,6 +100,51 @@ function providerLabel(provider: string) {
 
 function providerId(provider: string, index: number) {
   return `${normalizeLoginProvider(provider)}-${index + 1}`;
+}
+
+function isMissingColumnError(error: unknown, column: string) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  const needle = String(column || "").trim().toLowerCase();
+  if (!needle) return false;
+  if (code === "42703" || code === "PGRST204") return true;
+  return (
+    (message.includes(needle) || details.includes(needle)) &&
+    (message.includes("column") || details.includes("column"))
+  );
+}
+
+function isMissingTableError(error: unknown, table: string) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  const needle = String(table || "").trim().toLowerCase();
+  if (!needle) return false;
+  if (code === "42P01" || code === "PGRST205") return true;
+  return (
+    (message.includes(needle) || details.includes(needle)) &&
+    (message.includes("does not exist") ||
+      details.includes("does not exist") ||
+      message.includes("relation") ||
+      details.includes("relation") ||
+      message.includes("table") ||
+      details.includes("table"))
+  );
+}
+
+function isLoginProvidersSchemaMissing(error: unknown) {
+  return (
+    isMissingTableError(error, "wz_auth_login_providers") ||
+    isMissingColumnError(error, "provider") ||
+    isMissingColumnError(error, "user_id")
+  );
 }
 
 async function queryWzUsersRows(params: {
@@ -178,42 +252,161 @@ async function findWzUserRow(params: {
   return null;
 }
 
-function okJson(payload: unknown, status = 200) {
-  return NextResponse.json(payload, {
-    status,
-    headers: NO_STORE_HEADERS,
-  });
+function mapCreationProviderFromSession(loginMethod: unknown, loginFlow: unknown) {
+  const method = String(loginMethod || "").trim().toLowerCase();
+  const flow = String(loginFlow || "").trim().toLowerCase();
+
+  if (
+    method === "google" ||
+    method === "discord" ||
+    method === "apple" ||
+    method === "github" ||
+    method === "microsoft"
+  ) {
+    return method as LoginProvider;
+  }
+
+  if (flow === "register") return "password" as LoginProvider;
+
+  if (
+    method === "password" ||
+    method === "email_code" ||
+    method === "sms_code" ||
+    method === "totp" ||
+    method === "passkey" ||
+    method === "trusted" ||
+    method === "exchange" ||
+    method === "sync" ||
+    method === "unknown"
+  ) {
+    return "password" as LoginProvider;
+  }
+
+  return null;
 }
 
-export async function GET(req: NextRequest) {
-  const session = await readActiveSessionFromRequest(req);
-  if (!session) {
-    return okJson({ ok: false, error: "Nao autenticado." }, 401);
+async function resolveCreationProviderFromSessions(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+}) {
+  const userId = String(params.userId || "").trim();
+  if (!userId) return null;
+
+  const pickFromRows = (
+    rows: Array<{ login_method?: string | null; login_flow?: string | null }>,
+  ) => {
+    for (const row of rows) {
+      const mapped = mapCreationProviderFromSession(row.login_method, row.login_flow);
+      if (mapped) return mapped;
+    }
+    return null;
+  };
+
+  const byCreationFlag = await params.sb
+    .from("wz_auth_sessions")
+    .select("login_method,login_flow,issued_at")
+    .eq("user_id", userId)
+    .eq("is_account_creation_session", true)
+    .order("issued_at", { ascending: true })
+    .limit(10);
+
+  if (!byCreationFlag.error) {
+    const mapped = pickFromRows(
+      (byCreationFlag.data || []) as Array<{ login_method?: string | null; login_flow?: string | null }>,
+    );
+    if (mapped) return mapped;
+  } else if (
+    !isMissingTableError(byCreationFlag.error, "wz_auth_sessions") &&
+    !isMissingColumnError(byCreationFlag.error, "is_account_creation_session")
+  ) {
+    console.error("[authorized-apps] creation-session lookup error:", byCreationFlag.error);
   }
 
-  const userId = String(session.userId || "").trim();
-  const email = normalizeEmail(session.email);
-  if (!userId || !email) {
-    return okJson({ ok: false, error: "Sessao invalida." }, 401);
+  const byEarliestSession = await params.sb
+    .from("wz_auth_sessions")
+    .select("login_method,login_flow,issued_at")
+    .eq("user_id", userId)
+    .order("issued_at", { ascending: true })
+    .limit(10);
+
+  if (!byEarliestSession.error) {
+    return pickFromRows(
+      (byEarliestSession.data || []) as Array<{ login_method?: string | null; login_flow?: string | null }>,
+    );
   }
 
-  const sb = supabaseAdmin();
-  const userRow = await findWzUserRow({
-    sb,
-    userId,
-    email,
-  });
-  if (!userRow?.id) {
-    return okJson({ ok: false, error: "Usuario nao encontrado." }, 404);
+  if (!isMissingTableError(byEarliestSession.error, "wz_auth_sessions")) {
+    console.error("[authorized-apps] earliest-session lookup error:", byEarliestSession.error);
   }
+  return null;
+}
 
-  const primaryProvider = normalizeLoginProvider(userRow.auth_provider || "password");
-  const mustCreatePassword = Boolean(userRow.must_create_password);
+function resolveRemoveBlockedReason(params: {
+  provider: LoginProvider;
+  creationProvider: LoginProvider;
+  passwordPinned: boolean;
+  isPersistedProvider: boolean;
+}) {
+  if (!params.isPersistedProvider) {
+    return "Provedor principal da conta.";
+  }
+  if (params.provider === "unknown") {
+    return "Provedor invalido.";
+  }
+  if (params.provider === params.creationProvider) {
+    return "Provedor usado na criacao da conta.";
+  }
+  if (params.provider === "password" && params.passwordPinned) {
+    return "Wyzer Login padrao ativo e nao pode ser removido.";
+  }
+  return null;
+}
+
+async function buildAuthorizedAppsPayload(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userRow: {
+    id: string;
+    auth_provider: string | null;
+    must_create_password: boolean | null;
+  };
+}): Promise<AuthorizedAppsPayload> {
+  const userId = String(params.userRow.id || "").trim();
+  const mustCreatePassword = Boolean(params.userRow.must_create_password);
 
   const providerRows = await listLoginProvidersForUser({
-    sb,
-    userId: String(userRow.id),
+    sb: params.sb,
+    userId,
   });
+  const creationProviderFromSessions = await resolveCreationProviderFromSessions({
+    sb: params.sb,
+    userId,
+  });
+
+  const authProviderNormalized = normalizeLoginProvider(params.userRow.auth_provider || "unknown");
+  let creationProvider: LoginProvider =
+    creationProviderFromSessions ||
+    (authProviderNormalized !== "unknown" ? authProviderNormalized : "unknown");
+
+  if (creationProvider === "unknown") {
+    const firstLinkedProvider = [...providerRows.rows]
+      .map((row) => ({
+        provider: normalizeLoginProvider(row.provider),
+        linkedAtMs: Date.parse(String(row.linkedAt || "")) || Number.MAX_SAFE_INTEGER,
+      }))
+      .filter((row) => row.provider !== "unknown")
+      .sort((a, b) => a.linkedAtMs - b.linkedAtMs)[0];
+
+    if (firstLinkedProvider?.provider) {
+      creationProvider = firstLinkedProvider.provider;
+    }
+  }
+
+  if (creationProvider === "unknown") {
+    creationProvider = "password";
+  }
+
+  const primaryProvider: LoginProvider = creationProvider;
+  const passwordPinned = !mustCreatePassword;
 
   const providers: ProviderPayload[] = [];
   const seen = new Set<string>();
@@ -224,6 +417,13 @@ export async function GET(req: NextRequest) {
     if (seen.has(key)) continue;
     seen.add(key);
 
+    const removeBlockedReason = resolveRemoveBlockedReason({
+      provider,
+      creationProvider,
+      passwordPinned,
+      isPersistedProvider: true,
+    });
+
     providers.push({
       id: row.id,
       provider,
@@ -233,10 +433,18 @@ export async function GET(req: NextRequest) {
       isPassword: provider === "password",
       isExternal: provider !== "password",
       isPrimary: provider === primaryProvider,
+      canRemove: !removeBlockedReason,
+      removeBlockedReason,
     });
   }
 
   if (!providers.some((item) => item.provider === primaryProvider)) {
+    const removeBlockedReason = resolveRemoveBlockedReason({
+      provider: primaryProvider,
+      creationProvider,
+      passwordPinned,
+      isPersistedProvider: false,
+    });
     providers.push({
       id: providerId(primaryProvider, providers.length),
       provider: primaryProvider,
@@ -246,10 +454,18 @@ export async function GET(req: NextRequest) {
       isPassword: primaryProvider === "password",
       isExternal: primaryProvider !== "password",
       isPrimary: true,
+      canRemove: false,
+      removeBlockedReason,
     });
   }
 
   if (!mustCreatePassword && !providers.some((item) => item.provider === "password")) {
+    const removeBlockedReason = resolveRemoveBlockedReason({
+      provider: "password",
+      creationProvider,
+      passwordPinned,
+      isPersistedProvider: false,
+    });
     providers.push({
       id: providerId("password", providers.length),
       provider: "password",
@@ -259,6 +475,8 @@ export async function GET(req: NextRequest) {
       isPassword: true,
       isExternal: false,
       isPrimary: primaryProvider === "password",
+      canRemove: false,
+      removeBlockedReason,
     });
   }
 
@@ -270,17 +488,154 @@ export async function GET(req: NextRequest) {
     return a.provider.localeCompare(b.provider);
   });
 
-  return okJson({
-    ok: true,
+  const connectedProviderSet = new Set<LoginProvider>(
+    providers.map((provider) => normalizeLoginProvider(provider.provider)),
+  );
+  const connectableProviders: ConnectableProviderPayload[] = CONNECTABLE_PROVIDER_ORDER.filter(
+    (provider) => !connectedProviderSet.has(provider),
+  ).map((provider) => ({
+    provider,
+    providerLabel: providerLabel(provider),
+  }));
+
+  return {
     schemaReady: providerRows.schemaReady,
     primaryProvider,
+    creationProvider,
     mustCreatePassword,
     providers,
+    connectableProviders,
     summary: {
       linkedProviders: providers.length,
       externalProviders: providers.filter((item) => item.isExternal).length,
       hasPasswordProvider: providers.some((item) => item.provider === "password"),
+      allSupportedConnected: connectableProviders.length === 0,
       generatedAt: new Date().toISOString(),
     },
+  };
+}
+
+function okJson(payload: unknown, status = 200) {
+  return NextResponse.json(payload, {
+    status,
+    headers: NO_STORE_HEADERS,
+  });
+}
+
+async function getSessionAndUserRow(req: NextRequest) {
+  const session = await readActiveSessionFromRequest(req, { seedIfMissing: false });
+  if (!session) {
+    return { error: okJson({ ok: false, error: "Nao autenticado." }, 401) };
+  }
+
+  const userId = String(session.userId || "").trim();
+  const email = normalizeEmail(session.email);
+  if (!userId || !email) {
+    return { error: okJson({ ok: false, error: "Sessao invalida." }, 401) };
+  }
+
+  const sb = supabaseAdmin();
+  const userRow = await findWzUserRow({
+    sb,
+    userId,
+    email,
+  });
+  if (!userRow?.id) {
+    return { error: okJson({ ok: false, error: "Usuario nao encontrado." }, 404) };
+  }
+
+  return {
+    sb,
+    userRow: {
+      id: String(userRow.id),
+      auth_provider: userRow.auth_provider || null,
+      must_create_password: userRow.must_create_password ?? null,
+    },
+  };
+}
+
+export async function GET(req: NextRequest) {
+  const context = await getSessionAndUserRow(req);
+  if ("error" in context) return context.error;
+
+  const payload = await buildAuthorizedAppsPayload({
+    sb: context.sb,
+    userRow: context.userRow,
+  });
+
+  return okJson({
+    ok: true,
+    ...payload,
+  });
+}
+
+export async function POST(req: NextRequest) {
+  const context = await getSessionAndUserRow(req);
+  if ("error" in context) return context.error;
+
+  const body = (await req.json().catch(() => ({}))) as {
+    action?: string;
+    provider?: string;
+  };
+  const action = String(body?.action || "").trim().toLowerCase();
+  if (action !== "remove-provider") {
+    return okJson({ ok: false, error: "Acao invalida." }, 400);
+  }
+
+  const provider = normalizeLoginProvider(body?.provider);
+  if (provider === "unknown") {
+    return okJson({ ok: false, error: "Provedor invalido." }, 400);
+  }
+
+  const current = await buildAuthorizedAppsPayload({
+    sb: context.sb,
+    userRow: context.userRow,
+  });
+  const currentProvider = current.providers.find((item) => item.provider === provider);
+  if (!currentProvider) {
+    return okJson({ ok: false, error: "Provedor nao encontrado." }, 404);
+  }
+  if (!currentProvider.canRemove) {
+    return okJson(
+      {
+        ok: false,
+        error: currentProvider.removeBlockedReason || "Este provedor nao pode ser removido.",
+      },
+      400,
+    );
+  }
+  if (!current.schemaReady) {
+    return okJson(
+      { ok: false, error: "Schema de provedores nao disponivel para remocao." },
+      409,
+    );
+  }
+
+  const deleteRes = await context.sb
+    .from("wz_auth_login_providers")
+    .delete()
+    .eq("user_id", context.userRow.id)
+    .eq("provider", provider);
+
+  if (deleteRes.error) {
+    if (isLoginProvidersSchemaMissing(deleteRes.error)) {
+      return okJson(
+        { ok: false, error: "Schema de provedores nao disponivel para remocao." },
+        409,
+      );
+    }
+    console.error("[authorized-apps] remove provider error:", deleteRes.error);
+    return okJson({ ok: false, error: "Nao foi possivel remover o provedor." }, 500);
+  }
+
+  const updated = await buildAuthorizedAppsPayload({
+    sb: context.sb,
+    userRow: context.userRow,
+  });
+
+  return okJson({
+    ok: true,
+    removedProvider: provider,
+    ...updated,
   });
 }

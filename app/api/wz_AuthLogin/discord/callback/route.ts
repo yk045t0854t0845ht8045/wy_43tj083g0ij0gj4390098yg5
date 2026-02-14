@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
+import { readActiveSessionFromRequest } from "../../_active_session";
 import { supabaseAdmin } from "../../_supabase";
 import { upsertLoginProviderRecord } from "../../_login_providers";
 import { gen7, newSalt, onlyDigits, sha, toE164BRMobile } from "../../_codes";
@@ -25,6 +26,8 @@ const DISCORD_STATE_COOKIE_NAME = "wz_discord_oauth_state_v1";
 type DiscordStatePayload = {
   typ: "wz-discord-oauth-state";
   next: string;
+  intent?: "login" | "connect";
+  connect_user_id?: string;
   iat: number;
   exp: number;
   nonce: string;
@@ -405,6 +408,36 @@ function buildDiscordOnboardingRedirect(params: {
   return url.toString();
 }
 
+function readDiscordIntent(payload?: DiscordStatePayload | null) {
+  return payload?.intent === "connect" ? "connect" : "login";
+}
+
+function buildDiscordConnectRedirect(params: {
+  origin: string;
+  next: string;
+  ok: boolean;
+  error?: string;
+}) {
+  const safeNext = sanitizeNext(params.next);
+  const url = /^https?:\/\//i.test(safeNext)
+    ? new URL(safeNext)
+    : new URL(safeNext || "/", params.origin);
+
+  if (params.ok) {
+    url.searchParams.set("oauthConnect", "ok");
+    url.searchParams.set("oauthProvider", "discord");
+  } else {
+    url.searchParams.set("oauthConnect", "error");
+    url.searchParams.set("oauthProvider", "discord");
+    url.searchParams.set(
+      "oauthError",
+      String(params.error || "Falha ao conectar Discord.").slice(0, 220),
+    );
+  }
+
+  return url.toString();
+}
+
 function isMissingColumnError(error: unknown, column: string) {
   const code =
     typeof (error as { code?: unknown } | null)?.code === "string"
@@ -418,6 +451,27 @@ function isMissingColumnError(error: unknown, column: string) {
   return (
     (message.includes(needle) || details.includes(needle)) &&
     (message.includes("column") || details.includes("column"))
+  );
+}
+
+function isMissingTableError(error: unknown, table: string) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  const needle = String(table || "").trim().toLowerCase();
+  if (!needle) return false;
+  if (code === "42P01" || code === "PGRST205") return true;
+  return (
+    (message.includes(needle) || details.includes(needle)) &&
+    (message.includes("does not exist") ||
+      details.includes("does not exist") ||
+      message.includes("relation") ||
+      details.includes("relation") ||
+      message.includes("table") ||
+      details.includes("table"))
   );
 }
 
@@ -523,6 +577,92 @@ async function queryWzUsersRows(params: {
     auth_provider: string | null;
     must_create_password: boolean | null;
   }>;
+}
+
+async function findWzUserById(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+}) {
+  const userId = String(params.userId || "").trim();
+  if (!userId) return null;
+
+  const columnsToTry = [
+    "id,email,full_name",
+    "id,email",
+    "id",
+  ];
+
+  for (const columns of columnsToTry) {
+    const res = await params.sb
+      .from("wz_users")
+      .select(columns)
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (!res.error) {
+      const row = (res.data || {}) as {
+        id?: string | null;
+        email?: string | null;
+        full_name?: string | null;
+      };
+      const id = normalizeText(row.id);
+      if (!id) return null;
+      return {
+        id,
+        email: normalizeEmail(row.email),
+        fullName: sanitizeFullName(row.full_name),
+      };
+    }
+
+    const hasMissingColumn = ["id", "email", "full_name"].some((column) =>
+      isMissingColumnError(res.error, column),
+    );
+    if (!hasMissingColumn) {
+      console.error("[discord-callback] find wz_user by id error:", res.error);
+      break;
+    }
+  }
+
+  return null;
+}
+
+async function isDiscordLinkedToAnotherUser(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  targetUserId: string;
+  authUserId: string;
+  providerUserId: string | null;
+}) {
+  const targetUserId = String(params.targetUserId || "").trim();
+  if (!targetUserId) return false;
+
+  const checkRows = async (column: "auth_user_id" | "provider_user_id", value: string) => {
+    const clean = String(value || "").trim();
+    if (!clean) return false;
+    const res = await params.sb
+      .from("wz_auth_login_providers")
+      .select("user_id")
+      .eq("provider", "discord")
+      .eq(column, clean)
+      .limit(10);
+
+    if (res.error) {
+      if (
+        isMissingTableError(res.error, "wz_auth_login_providers") ||
+        isMissingColumnError(res.error, column) ||
+        isMissingColumnError(res.error, "user_id")
+      ) {
+        return false;
+      }
+      throw res.error;
+    }
+
+    const rows = (res.data || []) as Array<{ user_id?: string | null }>;
+    return rows.some((row) => normalizeText(row.user_id) !== targetUserId);
+  };
+
+  if (await checkRows("auth_user_id", params.authUserId)) return true;
+  if (await checkRows("provider_user_id", String(params.providerUserId || ""))) return true;
+  return false;
 }
 
 function pickBestWzUserRow(
@@ -702,7 +842,10 @@ async function findOrCreateDiscordWzUser(params: {
     if (normalizeEmail(existing.email) !== normalizeEmail(params.email)) {
       patch.email = params.email;
     }
-    patch.auth_provider = "discord";
+    const existingProvider = String(existing.auth_provider || "").trim().toLowerCase();
+    if (!existingProvider || existingProvider === "unknown") {
+      patch.auth_provider = "discord";
+    }
     if (existing.must_create_password === null) {
       patch.must_create_password = true;
     }
@@ -752,7 +895,10 @@ async function findOrCreateDiscordWzUser(params: {
           userId: recovered.id,
           patch: {
             ...(recovered.auth_user_id ? {} : { auth_user_id: params.authUserId }),
-            auth_provider: "discord",
+            ...(String(recovered.auth_provider || "").trim().toLowerCase() &&
+            String(recovered.auth_provider || "").trim().toLowerCase() !== "unknown"
+              ? {}
+              : { auth_provider: "discord" }),
             ...(recovered.must_create_password === null
               ? { must_create_password: true }
               : {}),
@@ -1077,14 +1223,24 @@ export async function GET(req: NextRequest) {
   const st = stFromQuery || stFromCookie;
   const stateRes = readDiscordStateTicket(st);
   const safeNext = stateRes.ok ? sanitizeNext(stateRes.payload.next) : "/";
+  const oauthIntent = stateRes.ok ? readDiscordIntent(stateRes.payload) : "login";
 
   const fail = (message: string) => {
+    const target =
+      oauthIntent === "connect"
+        ? buildDiscordConnectRedirect({
+            origin: requestOrigin,
+            next: safeNext,
+            ok: false,
+            error: message,
+          })
+        : buildLoginErrorRedirect({
+            origin: requestOrigin,
+            next: safeNext,
+            error: message,
+          });
     const res = NextResponse.redirect(
-      buildLoginErrorRedirect({
-        origin: requestOrigin,
-        next: safeNext,
-        error: message,
-      }),
+      target,
       303,
     );
     clearDiscordStateCookie(res, req);
@@ -1147,6 +1303,66 @@ export async function GET(req: NextRequest) {
 
     const sb = supabaseAdmin();
     const nowIso = new Date().toISOString();
+    const providerUserId = parseDiscordProviderUserId(user);
+
+    if (oauthIntent === "connect") {
+      const activeSession = await readActiveSessionFromRequest(req, {
+        seedIfMissing: false,
+      });
+      const activeUserId = String(activeSession?.userId || "").trim();
+      const expectedUserId = String(stateRes.payload.connect_user_id || "").trim();
+      if (!activeUserId || !expectedUserId || activeUserId !== expectedUserId) {
+        return fail("Sessao invalida para conectar Discord.");
+      }
+
+      const targetUser = await findWzUserById({
+        sb,
+        userId: activeUserId,
+      });
+      if (!targetUser?.id) {
+        return fail("Conta local nao encontrada para conectar Discord.");
+      }
+
+      const linkedElsewhere = await isDiscordLinkedToAnotherUser({
+        sb,
+        targetUserId: targetUser.id,
+        authUserId,
+        providerUserId,
+      });
+      if (linkedElsewhere) {
+        return fail("Esta conta Discord ja esta conectada a outra conta.");
+      }
+
+      const connectUpsert = await upsertLoginProviderRecord({
+        sb,
+        userId: targetUser.id,
+        authUserId,
+        email,
+        provider: "discord",
+        providerUserId,
+        metadata: {
+          fullName,
+          avatarUrl: normalizeText(String(userMetadata?.avatar_url || userMetadata?.picture || "")),
+        },
+        nowIso,
+      });
+      if (!connectUpsert.ok) {
+        if (!connectUpsert.schemaReady) {
+          return fail("Schema de provedores nao disponivel para conectar Discord.");
+        }
+        return fail("Nao foi possivel conectar Discord nesta conta.");
+      }
+
+      const successUrl = buildDiscordConnectRedirect({
+        origin: requestOrigin,
+        next: safeNext,
+        ok: true,
+      });
+      const res = NextResponse.redirect(successUrl, 303);
+      clearDiscordStateCookie(res, req);
+      applyNoStore(res);
+      return res;
+    }
 
     const wzUser = await findOrCreateDiscordWzUser({
       sb,
@@ -1156,8 +1372,7 @@ export async function GET(req: NextRequest) {
       nowIso,
     });
 
-    const providerUserId = parseDiscordProviderUserId(user);
-    await upsertLoginProviderRecord({
+    const loginUpsert = await upsertLoginProviderRecord({
       sb,
       userId: wzUser.userId,
       authUserId,
@@ -1170,6 +1385,13 @@ export async function GET(req: NextRequest) {
       },
       nowIso,
     });
+    if (!loginUpsert.ok) {
+      if (!loginUpsert.schemaReady) {
+        console.warn("[discord-callback] login provider schema not ready; continuing without provider link");
+      } else {
+        console.error("[discord-callback] failed to persist Discord login provider link");
+      }
+    }
 
     const discordPhoneCandidate = extractDiscordPhoneCandidate(user);
     const currentPhone = normalizeOptionalPhone(wzUser.phoneE164);

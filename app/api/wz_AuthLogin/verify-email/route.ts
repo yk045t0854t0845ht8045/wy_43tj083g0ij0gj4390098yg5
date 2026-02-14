@@ -924,7 +924,9 @@ export async function POST(req: Request) {
             auth_user_id: authUserId,
             full_name: fullName || null,
             phone_e164: phoneE164 || null,
-            auth_provider: oauthProvider || "unknown",
+            ...(!wzUser.authProvider || wzUser.authProvider === "unknown"
+              ? { auth_provider: oauthProvider || "unknown" }
+              : {}),
             must_create_password: true,
           },
         });

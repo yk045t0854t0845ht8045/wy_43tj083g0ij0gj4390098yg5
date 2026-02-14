@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
+import { readActiveSessionFromRequest } from "../../_active_session";
 import { supabaseAnon } from "../../_supabase";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,8 @@ const GOOGLE_STATE_COOKIE_NAME = "wz_google_oauth_state_v1";
 type GoogleStatePayload = {
   typ: "wz-google-oauth-state";
   next: string;
+  intent?: "login" | "connect";
+  connect_user_id?: string;
   iat: number;
   exp: number;
   nonce: string;
@@ -100,8 +103,8 @@ function sanitizeNext(raw: string) {
   return "/";
 }
 
-function getRequestOrigin(req: NextRequest) {
-  const configured = getConfiguredAuthOrigin();
+function getRequestOrigin(req: NextRequest, opts?: { preferRequestHost?: boolean }) {
+  const configured = opts?.preferRequestHost ? "" : getConfiguredAuthOrigin();
   if (configured) return configured;
 
   const hostHeader =
@@ -133,6 +136,8 @@ function resolveGoogleStateCookieDomain(req: NextRequest) {
 
 function createGoogleStateTicket(params: {
   next: string;
+  intent?: "login" | "connect";
+  connectUserId?: string;
   codeVerifier?: string;
   ttlMs?: number;
 }) {
@@ -144,6 +149,8 @@ function createGoogleStateTicket(params: {
   const payload: GoogleStatePayload = {
     typ: "wz-google-oauth-state",
     next: sanitizeNext(params.next),
+    intent: params.intent === "connect" ? "connect" : "login",
+    connect_user_id: String(params.connectUserId || "").trim() || undefined,
     iat: now,
     exp: now + ttlMs,
     nonce: crypto.randomBytes(8).toString("hex"),
@@ -160,9 +167,37 @@ export async function POST(req: NextRequest) {
     const body = (await req.json().catch(() => ({}))) as {
       next?: string;
       returnTo?: string;
+      intent?: string;
     };
+    const intentRaw = String(body?.intent || "").trim().toLowerCase();
+    const intent = intentRaw === "connect" ? "connect" : "login";
     const nextRaw = String(body?.next || body?.returnTo || "").trim();
     const nextSafe = sanitizeNext(nextRaw || "/");
+    let connectUserId = "";
+    if (intent === "connect") {
+      const activeSession = await readActiveSessionFromRequest(req, {
+        seedIfMissing: false,
+      });
+      if (!activeSession?.userId) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Sessao invalida para conectar provedor.",
+          },
+          { status: 401, headers: NO_STORE_HEADERS },
+        );
+      }
+      connectUserId = String(activeSession.userId).trim();
+      if (!connectUserId) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Sessao invalida para conectar provedor.",
+          },
+          { status: 401, headers: NO_STORE_HEADERS },
+        );
+      }
+    }
     const codeVerifier = createPkceCodeVerifier();
     const codeChallenge = createPkceCodeChallenge(codeVerifier);
     const oauthScopes =
@@ -171,10 +206,15 @@ export async function POST(req: NextRequest) {
 
     const stateTicket = createGoogleStateTicket({
       next: nextSafe,
+      intent,
+      connectUserId,
       codeVerifier,
     });
 
-    const callback = new URL("/api/wz_AuthLogin/google/callback", getRequestOrigin(req));
+    const callback = new URL(
+      "/api/wz_AuthLogin/google/callback",
+      getRequestOrigin(req, { preferRequestHost: intent === "connect" }),
+    );
 
     const sb = supabaseAnon();
     const { data, error } = await sb.auth.signInWithOAuth({
