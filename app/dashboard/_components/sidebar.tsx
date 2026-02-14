@@ -95,87 +95,94 @@ type LordIconProps = React.HTMLAttributes<HTMLElement> & {
   target?: string;
   state?: string;
   delay?: string | number;
+  colors?: string;
 };
 
-function IOverview({ target }: { target?: string }) {
+function IOverview({ target, colors }: { target?: string; colors?: string }) {
   return (
     <span className="w-[18px] h-[18px] inline-flex items-center justify-center overflow-hidden">
       {React.createElement<LordIconProps>("lord-icon", {
         src: "https://cdn.lordicon.com/ewtxwele.json",
         trigger: "hover",
         target,
+        colors,
         style: { width: "18px", height: "18px" },
       })}
     </span>
   );
 }
 
-function ITransactions({ target }: { target?: string }) {
+function ITransactions({ target, colors }: { target?: string; colors?: string }) {
   return (
     <span className="w-[18px] h-[18px] inline-flex items-center justify-center overflow-hidden">
       {React.createElement<LordIconProps>("lord-icon", {
         src: "https://cdn.lordicon.com/ynsswhvj.json",
         trigger: "hover",
         target,
+        colors,
         style: { width: "18px", height: "18px" },
       })}
     </span>
   );
 }
 
-function ICatalog({ target }: { target?: string }) {
+function ICatalog({ target, colors }: { target?: string; colors?: string }) {
   return (
     <span className="w-[18px] h-[18px] inline-flex items-center justify-center overflow-hidden">
       {React.createElement<LordIconProps>("lord-icon", {
         src: "https://cdn.lordicon.com/awjeikyj.json",
         trigger: "hover",
         target,
+        colors,
         style: { width: "18px", height: "18px" },
       })}
     </span>
   );
 }
 
-function ICustomers({ target }: { target?: string }) {
+function ICustomers({ target, colors }: { target?: string; colors?: string }) {
   return (
     <span className="w-[18px] h-[18px] inline-flex items-center justify-center overflow-hidden">
       {React.createElement<LordIconProps>("lord-icon", {
         src: "https://cdn.lordicon.com/fmsilsqx.json",
         trigger: "hover",
         target,
+        colors,
         style: { width: "18px", height: "18px" },
       })}
     </span>
   );
 }
 
-function ICategories({ target }: { target?: string }) {
+function ICategories({ target, colors }: { target?: string; colors?: string }) {
   return (
     <span className="w-[18px] h-[18px] inline-flex items-center justify-center overflow-hidden">
       {React.createElement<LordIconProps>("lord-icon", {
         src: "https://cdn.lordicon.com/iwlihxdl.json",
         trigger: "hover",
         target,
+        colors,
         style: { width: "18px", height: "18px" },
       })}
     </span>
   );
 }
 
-function IHelp({ target }: { target?: string }) {
+function IHelp({ target, colors }: { target?: string; colors?: string }) {
   return (
     <span className="w-[18px] h-[18px] inline-flex items-center justify-center overflow-hidden">
       {React.createElement<LordIconProps>("lord-icon", {
         src: "https://cdn.lordicon.com/etrhcwgm.json",
         trigger: "hover",
         target,
+        colors,
         style: { width: "18px", height: "18px" },
       })}
     </span>
   );
 }
 
-function ISettings({ target }: { target?: string }) {
+function ISettings({ target, colors }: { target?: string; colors?: string }) {
   return (
     <span className="w-[18px] h-[18px] inline-flex items-center justify-center overflow-hidden">
       {React.createElement<LordIconProps>("lord-icon", {
@@ -183,19 +190,21 @@ function ISettings({ target }: { target?: string }) {
         state: "hover-cog-4",
         trigger: "hover",
         target,
+        colors,
         style: { width: "18px", height: "18px" },
       })}
     </span>
   );
 }
 
-function IMyAccount({ target }: { target?: string }) {
+function IMyAccount({ target, colors }: { target?: string; colors?: string }) {
   return (
     <span className="w-[18px] h-[18px] inline-flex items-center justify-center overflow-hidden">
       {React.createElement<LordIconProps>("lord-icon", {
         src: "https://cdn.lordicon.com/spzqjmbt.json",
         trigger: "hover",
         target,
+        colors,
         style: { width: "18px", height: "18px" },
       })}
     </span>
@@ -203,31 +212,33 @@ function IMyAccount({ target }: { target?: string }) {
 }
 
 
-function SidebarCollapseIcon() {
+function SidebarCollapseIcon({ colors }: { colors?: string }) {
   return (
     <span className="inline-flex items-center justify-center" aria-hidden="true">
       {React.createElement<LordIconProps>("lord-icon", {
         src: "https://cdn.lordicon.com/ntjwyxgv.json",
         trigger: "hover",
+        colors,
         style: { width: "22px", height: "22px" },
       })}
     </span>
   );
 }
 
-function SidebarMobileCloseIcon() {
+function SidebarMobileCloseIcon({ dark = false }: { dark?: boolean }) {
   return (
     <span className="inline-flex items-center justify-center" aria-hidden="true">
-      <X className="h-[20px] w-[20px] text-black/80" strokeWidth={2} />
+      <X className={cx("h-[20px] w-[20px]", dark ? "text-white/84" : "text-black/80")} strokeWidth={2} />
     </span>
   );
 }
 
-function CaretDown({ open }: { open: boolean }) {
+function CaretDown({ open, dark = false }: { open: boolean; dark?: boolean }) {
   return (
     <span
       className={cx(
-        "inline-flex h-[18px] w-[18px] items-center justify-center text-black/55 transition-transform duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+        "inline-flex h-[18px] w-[18px] items-center justify-center transition-transform duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+        dark ? "text-white/58" : "text-black/55",
         open && "rotate-180"
       )}
       aria-hidden="true"
@@ -248,10 +259,10 @@ function CaretDown({ open }: { open: boolean }) {
   );
 }
 
-function ProfileChevron({ open }: { open: boolean }) {
+function ProfileChevron({ open, dark = false }: { open: boolean; dark?: boolean }) {
   return (
     <motion.span
-      className="inline-flex h-[18px] w-[18px] items-center justify-center text-black/45"
+      className={cx("inline-flex h-[18px] w-[18px] items-center justify-center", dark ? "text-white/55" : "text-black/45")}
       animate={{ rotate: open ? 180 : 0, y: open ? -0.4 : 0.4 }}
       transition={{
         type: "spring",
@@ -281,6 +292,7 @@ type CollapsedTooltipProps = {
   label: string;
   open?: boolean;
   interactive?: boolean;
+  dark?: boolean;
   actions?: Array<{
     id: string;
     label: string;
@@ -294,6 +306,7 @@ function CollapsedTooltip({
   label,
   open = false,
   interactive = false,
+  dark = false,
   actions,
   onMouseEnter,
   onMouseLeave,
@@ -321,19 +334,23 @@ function CollapsedTooltip({
         className={cx(
           "relative w-max rounded-xl border border-black/10",
           isInteractive ? "min-w-[130px] max-w-[240px] px-3 py-2" : "max-w-[220px] px-4 py-2",
-          "bg-white/98 backdrop-blur-[2px]",
+          dark ? "border-white/16 bg-[#0f1728]/95" : "border-black/10 bg-white/98",
+          "backdrop-blur-[2px]",
           "shadow-[0_10px_24px_rgba(0,0,0,0.14)]"
         )}
       >
         <span
           aria-hidden="true"
-          className="absolute -left-[5px] top-1/2 h-[10px] w-[10px] -translate-y-1/2 rotate-45 border-b border-l border-black/10 bg-white/98"
+          className={cx(
+            "absolute -left-[5px] top-1/2 h-[10px] w-[10px] -translate-y-1/2 rotate-45 border-b border-l",
+            dark ? "border-white/16 bg-[#0f1728]/95" : "border-black/10 bg-white/98"
+          )}
         />
-        <p className="text-[12px] font-semibold tracking-[-0.01em] text-black/90">
+        <p className={cx("text-[12px] font-semibold tracking-[-0.01em]", dark ? "text-white/92" : "text-black/90")}>
           {label}
         </p>
         {actions && actions.length > 0 && (
-          <ul className="mt-2 space-y-1.5 border-t border-dashed border-black/15 pt-2">
+          <ul className={cx("mt-2 space-y-1.5 border-t border-dashed pt-2", dark ? "border-white/16" : "border-black/15")}>
             {actions.map((action) => (
               <li key={action.id}>
                 <button
@@ -342,10 +359,10 @@ function CollapsedTooltip({
                   tabIndex={open ? 0 : -1}
                   className={cx(
                     "w-full rounded-lg px-2.5 py-1.5 text-left",
-                    "text-[12px] font-medium text-black/75",
+                    dark ? "text-[12px] font-medium text-white/75" : "text-[12px] font-medium text-black/75",
                     "transition-colors duration-150 ease-out",
-                    "hover:bg-black/[0.05] hover:text-black/90",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/25"
+                    dark ? "hover:bg-white/[0.08] hover:text-white/94" : "hover:bg-black/[0.05] hover:text-black/90",
+                    dark ? "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/24" : "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/25"
                   )}
                 >
                   {action.label}
@@ -366,6 +383,10 @@ type Props = {
   userEmail?: string;
   userPhotoLink?: string | null;
   onOpenConfig?: (section?: ConfigSectionId) => void;
+  resolvedTheme?: "light" | "dark";
+  accentHex?: string;
+  sidebarTransparent?: boolean;
+  reduceMotion?: boolean;
 };
 
 const SIDEBAR_COLLAPSE_STORAGE_KEY = "dashboard-sidebar-collapsed-v1";
@@ -395,6 +416,10 @@ export default function Sidebar({
   userEmail = "conta@wyzer.com.br",
   userPhotoLink = null,
   onOpenConfig,
+  resolvedTheme = "light",
+  accentHex = "#2f80ff",
+  sidebarTransparent = false,
+  reduceMotion = false,
 }: Props) {
   const [transactionsOpen, setTransactionsOpen] = useState(
     () => activeMain === "transactions"
@@ -416,6 +441,8 @@ export default function Sidebar({
   const [activeSubState, setActiveSubState] = useState<SubItemId | null>(activeSub);
   const isCollapsed = !isMobile && desktopCollapsed;
   const showCollapsedTooltips = isCollapsed && !isMobile;
+  const isDarkTheme = resolvedTheme === "dark";
+  const lordIconColors = isDarkTheme ? "primary:#ffffff" : undefined;
   const expandedSidebarLogoSrc = "/lg/topj4390tjg83gh43g.svg";
   const collapsedSidebarLogoSrc = "/logo-m.svg";
   const preferredSidebarLogoSrc = isCollapsed
@@ -600,9 +627,10 @@ export default function Sidebar({
     !isCollapsed && isOnTransactions && transactionsOpen && activeSubState !== null;
 
   const prefersReducedMotion = useReducedMotion();
+  const reduceMotionEnabled = prefersReducedMotion || reduceMotion;
   const activePillTransition = useMemo(
     () =>
-      prefersReducedMotion
+      reduceMotionEnabled
         ? { duration: 0.12 }
         : {
             type: "spring" as const,
@@ -612,20 +640,33 @@ export default function Sidebar({
             restDelta: 0.25,
             restSpeed: 0.25,
           },
-    [prefersReducedMotion]
+    [reduceMotionEnabled]
   );
 
   const tapFeedback = useMemo(
-    () => (prefersReducedMotion ? undefined : { scale: 0.992, y: 0.6 }),
-    [prefersReducedMotion]
+    () => (reduceMotionEnabled ? undefined : { scale: 0.992, y: 0.6 }),
+    [reduceMotionEnabled]
   );
 
   const tapFeedbackTransition = useMemo(
     () =>
-      prefersReducedMotion
+      reduceMotionEnabled
         ? { duration: 0.08 }
         : { type: "spring" as const, stiffness: 1200, damping: 52, mass: 0.24 },
-    [prefersReducedMotion]
+    [reduceMotionEnabled]
+  );
+
+  const activePillStyle = useMemo(
+    () => ({
+      backgroundColor: accentHex,
+      opacity: isDarkTheme ? 0.24 : 0.14,
+    }),
+    [accentHex, isDarkTheme]
+  );
+
+  const accentIndicatorStyle = useMemo(
+    () => ({ backgroundColor: accentHex }),
+    [accentHex]
   );
 
   const measureIndicator = () => {
@@ -724,21 +765,23 @@ export default function Sidebar({
   };
 
   const mainBtnBase = cx(
+    "dashboard-sidebar-main-item",
     "w-full h-[40px] rounded-xl",
     "flex items-center",
     isCollapsed ? "justify-center px-0" : "gap-3 px-3",
     "relative overflow-hidden transform-gpu will-change-transform",
     "text-[15px] font-medium",
-    "text-black/90",
+    isDarkTheme ? "text-white/88" : "text-black/90",
     "transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]"
   );
 
   const subBtnBase = cx(
+    "dashboard-sidebar-sub-item",
     "w-full h-[35px] rounded-xl",
     "flex items-center",
     "relative overflow-hidden transform-gpu will-change-transform active:scale-[0.992] active:translate-y-[0.5px]",
     "px-3 text-[15px] font-semibold tracking-[-0.01em]",
-    "text-black/90",
+    isDarkTheme ? "text-white/88" : "text-black/90",
     "transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]"
   );
 
@@ -801,8 +844,8 @@ export default function Sidebar({
           className={cx(
             "sm:hidden",
             "fixed left-3 top-3 z-[60]",
-            "h-[44px] w-[44px] rounded-full bg-white",
-            "border border-black/10",
+            "h-[44px] w-[44px] rounded-full border",
+            isDarkTheme ? "bg-[#0f1728] border-white/14" : "bg-white border-black/10",
             "shadow-[0_10px_24px_rgba(0,0,0,0.14)]",
             "flex items-center justify-center",
             "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.98]"
@@ -818,7 +861,7 @@ export default function Sidebar({
             strokeWidth="1.9"
             strokeLinecap="round"
             strokeLinejoin="round"
-            className="text-black/80"
+            className={isDarkTheme ? "text-white/82" : "text-black/80"}
             aria-hidden="true"
           >
             <path d="M4 7h16" />
@@ -838,6 +881,7 @@ export default function Sidebar({
 
       <aside
         className={cx(
+          "dashboard-sidebar-shell",
           "fixed sm:static",
           "inset-y-0 left-0 sm:inset-auto sm:left-auto",
           "z-50 sm:z-auto",
@@ -846,7 +890,13 @@ export default function Sidebar({
           isCollapsed
             ? "sm:w-[92px] sm:min-w-[92px] sm:max-w-[92px]"
             : "sm:w-[308px] sm:min-w-[308px] sm:max-w-[308px]",
-          "min-h-svh bg-[#f6f6f7] text-black",
+          "min-h-svh",
+          isDarkTheme ? "bg-[#0b1323] text-white" : "bg-[#f6f6f7] text-black",
+          sidebarTransparent
+            ? isDarkTheme
+              ? "bg-[#0b1323]/78 backdrop-blur-[20px]"
+              : "bg-[#f6f6f7]/82 backdrop-blur-[18px]"
+            : "",
           "flex flex-col overflow-visible",
           "shadow-[0_20px_50px_rgba(0,0,0,0.18)] sm:shadow-none",
           "transform-gpu transition-[transform,width,min-width,max-width] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
@@ -915,7 +965,7 @@ export default function Sidebar({
                 aria-label={isCollapsed ? "Expandir sidebar" : "Minimizar sidebar"}
                 title={isCollapsed ? "Expandir sidebar" : "Minimizar sidebar"}
               >
-                <SidebarCollapseIcon />
+                <SidebarCollapseIcon colors={lordIconColors} />
               </button>
             )}
 
@@ -930,11 +980,11 @@ export default function Sidebar({
               )}
               aria-label="Close menu"
             >
-              <SidebarMobileCloseIcon />
+              <SidebarMobileCloseIcon dark={isDarkTheme} />
             </button>
           </div>
 
-          <div className="mt-2 border-t border-dashed border-black/15" />
+          <div className={cx("mt-2 border-t border-dashed", isDarkTheme ? "border-white/14" : "border-black/15")} />
         </div>
 
         <nav
@@ -955,25 +1005,27 @@ export default function Sidebar({
                   className={cx(
                     mainBtnBase,
                     overviewHoverClass,
-                    activeMainState !== "overview" && "hover:bg-black/[0.04]"
+                    activeMainState !== "overview" && (isDarkTheme ? "hover:bg-white/[0.08]" : "hover:bg-black/[0.04]")
                   )}
                   aria-label="Visao Geral"
                 >
                   {activeMainState === "overview" && (
                     <motion.span
                       layoutId="sidebar-active-main-pill"
-                      className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
+                      className="sidebar-active-pill pointer-events-none absolute inset-0 rounded-xl will-change-transform"
+                      style={activePillStyle}
                       transition={activePillTransition}
                     />
                   )}
                   <span className={itemContentBase}>
-                    <IOverview target={`.${overviewHoverClass}`} />
+                    <IOverview target={`.${overviewHoverClass}`} colors={lordIconColors} />
                     <span className={itemLabelBase}>Visao Geral</span>
                   </span>
                 </motion.button>
                 {showCollapsedTooltips && (
                   <CollapsedTooltip
                     label="Visao Geral"
+                    dark={isDarkTheme}
                     interactive={false}
                   />
                 )}
@@ -988,25 +1040,27 @@ export default function Sidebar({
                   transition={tapFeedbackTransition}
                   className={cx(
                     mainBtnBase,
-                    activeMainState !== "catalog" && "hover:bg-black/[0.04]"
+                    activeMainState !== "catalog" && (isDarkTheme ? "hover:bg-white/[0.08]" : "hover:bg-black/[0.04]")
                   )}
                   aria-label="Atendimentos"
                 >
                   {activeMainState === "catalog" && (
                     <motion.span
                       layoutId="sidebar-active-main-pill"
-                      className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
+                      className="sidebar-active-pill pointer-events-none absolute inset-0 rounded-xl will-change-transform"
+                      style={activePillStyle}
                       transition={activePillTransition}
                     />
                   )}
                   <span className={itemContentBase}>
-                    <ICatalog target={`#${catalogHoverTargetId}`} />
+                    <ICatalog target={`#${catalogHoverTargetId}`} colors={lordIconColors} />
                     <span className={itemLabelBase}>Atendimentos</span>
                   </span>
                 </motion.button>
                 {showCollapsedTooltips && (
                   <CollapsedTooltip
                     label="Atendimentos"
+                    dark={isDarkTheme}
                     interactive={false}
                   />
                 )}
@@ -1021,25 +1075,27 @@ export default function Sidebar({
                   transition={tapFeedbackTransition}
                   className={cx(
                     mainBtnBase,
-                    activeMainState !== "categories" && "hover:bg-black/[0.04]"
+                    activeMainState !== "categories" && (isDarkTheme ? "hover:bg-white/[0.08]" : "hover:bg-black/[0.04]")
                   )}
                   aria-label="Categorias"
                 >
                   {activeMainState === "categories" && (
                     <motion.span
                       layoutId="sidebar-active-main-pill"
-                      className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
+                      className="sidebar-active-pill pointer-events-none absolute inset-0 rounded-xl will-change-transform"
+                      style={activePillStyle}
                       transition={activePillTransition}
                     />
                   )}
                   <span className={itemContentBase}>
-                    <ICategories target={`#${categoriesHoverTargetId}`} />
+                    <ICategories target={`#${categoriesHoverTargetId}`} colors={lordIconColors} />
                     <span className={itemLabelBase}>Categorias</span>
                   </span>
                 </motion.button>
                 {showCollapsedTooltips && (
                   <CollapsedTooltip
                     label="Categorias"
+                    dark={isDarkTheme}
                     interactive={false}
                   />
                 )}
@@ -1054,25 +1110,27 @@ export default function Sidebar({
                   transition={tapFeedbackTransition}
                   className={cx(
                     mainBtnBase,
-                    activeMainState !== "customers" && "hover:bg-black/[0.04]"
+                    activeMainState !== "customers" && (isDarkTheme ? "hover:bg-white/[0.08]" : "hover:bg-black/[0.04]")
                   )}
                   aria-label="Produtos"
                 >
                   {activeMainState === "customers" && (
                     <motion.span
                       layoutId="sidebar-active-main-pill"
-                      className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
+                      className="sidebar-active-pill pointer-events-none absolute inset-0 rounded-xl will-change-transform"
+                      style={activePillStyle}
                       transition={activePillTransition}
                     />
                   )}
                   <span className={itemContentBase}>
-                    <ICustomers target={`#${productsHoverTargetId}`} />
+                    <ICustomers target={`#${productsHoverTargetId}`} colors={lordIconColors} />
                     <span className={itemLabelBase}>Produtos</span>
                   </span>
                 </motion.button>
                 {showCollapsedTooltips && (
                   <CollapsedTooltip
                     label="Produtos"
+                    dark={isDarkTheme}
                     interactive={false}
                   />
                 )}
@@ -1097,9 +1155,9 @@ export default function Sidebar({
                     "flex items-center",
                     isCollapsed ? "justify-center px-0" : "px-3",
                     "text-[15px] font-medium",
-                    "text-black/90",
+                    isDarkTheme ? "text-white/88" : "text-black/90",
                     "transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-                    !isOnTransactions && "hover:bg-black/[0.04]"
+                    !isOnTransactions && (isDarkTheme ? "hover:bg-white/[0.08]" : "hover:bg-black/[0.04]")
                   )}
                   aria-expanded={transactionsOpen}
                   aria-label="Pagamentos"
@@ -1107,23 +1165,25 @@ export default function Sidebar({
                   {isOnTransactions && (
                     <motion.span
                       layoutId="sidebar-active-main-pill"
-                      className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
+                      className="sidebar-active-pill pointer-events-none absolute inset-0 rounded-xl will-change-transform"
+                      style={activePillStyle}
                       transition={activePillTransition}
                     />
                   )}
                   <span className={cx(itemContentBase, !isCollapsed && "flex-1")}>
-                    <ITransactions target={`#${transactionsHoverTargetId}`} />
+                    <ITransactions target={`#${transactionsHoverTargetId}`} colors={lordIconColors} />
                     <span className={itemLabelBase}>Pagamentos</span>
                   </span>
                   {!isCollapsed && (
                     <span className="relative z-[1] ml-auto inline-flex h-[20px] w-[20px] items-center justify-center self-center">
-                      <CaretDown open={transactionsOpen} />
+                      <CaretDown open={transactionsOpen} dark={isDarkTheme} />
                     </span>
                   )}
                 </motion.button>
                 {showCollapsedTooltips && (
                   <CollapsedTooltip
                     label="Pagamentos"
+                    dark={isDarkTheme}
                     open={paymentsTooltipOpen}
                     interactive
                     onMouseEnter={openPaymentsTooltip}
@@ -1157,7 +1217,8 @@ export default function Sidebar({
                     <div
                       className={cx(
                         "absolute left-[24px] top-[8px] bottom-[8px]",
-                        "border-l border-dashed border-black/20",
+                        "border-l border-dashed",
+                        isDarkTheme ? "border-white/20" : "border-black/20",
                         transactionsOpen ? "opacity-100" : "opacity-0"
                       )}
                     />
@@ -1167,12 +1228,13 @@ export default function Sidebar({
                       className={cx(
                         "absolute",
                         "top-0",
-                        "left-[23px] w-[3px] h-[26px] rounded-full bg-black",
+                        "left-[23px] w-[3px] h-[26px] rounded-full",
                         "transition-[transform,opacity] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
                         indicatorVisible ? "opacity-100" : "opacity-0"
                       )}
                       style={{
                         transform: `translateY(${Math.round(indicatorY)}px)`,
+                        ...accentIndicatorStyle,
                       }}
                     />
 
@@ -1187,13 +1249,14 @@ export default function Sidebar({
                           className={cx(
                             subBtnBase,
                             !(isOnTransactions && activeSubState === "orders") &&
-                              "hover:bg-black/[0.04]"
+                              (isDarkTheme ? "hover:bg-white/[0.08]" : "hover:bg-black/[0.04]")
                           )}
                         >
                           {isOnTransactions && activeSubState === "orders" && (
                             <motion.span
                               layoutId="sidebar-active-sub-pill"
-                              className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
+                              className="sidebar-active-pill pointer-events-none absolute inset-0 rounded-xl will-change-transform"
+                              style={activePillStyle}
                               transition={activePillTransition}
                             />
                           )}
@@ -1211,13 +1274,14 @@ export default function Sidebar({
                           className={cx(
                             subBtnBase,
                             !(isOnTransactions && activeSubState === "drafts") &&
-                              "hover:bg-black/[0.04]"
+                              (isDarkTheme ? "hover:bg-white/[0.08]" : "hover:bg-black/[0.04]")
                           )}
                         >
                           {isOnTransactions && activeSubState === "drafts" && (
                             <motion.span
                               layoutId="sidebar-active-sub-pill"
-                              className="pointer-events-none absolute inset-0 rounded-xl bg-black/[0.06] will-change-transform"
+                              className="sidebar-active-pill pointer-events-none absolute inset-0 rounded-xl will-change-transform"
+                              style={activePillStyle}
                               transition={activePillTransition}
                             />
                           )}
@@ -1242,17 +1306,18 @@ export default function Sidebar({
                 onClick={openHelpModal}
                 whileTap={tapFeedback}
                 transition={tapFeedbackTransition}
-                className={cx(mainBtnBase, "hover:bg-black/[0.04]")}
+                className={cx(mainBtnBase, isDarkTheme ? "hover:bg-white/[0.08]" : "hover:bg-black/[0.04]")}
                 aria-label="Ajuda"
               >
                 <span className={itemContentBase}>
-                  <IHelp target={`#${helpHoverTargetId}`} />
+                  <IHelp target={`#${helpHoverTargetId}`} colors={lordIconColors} />
                   <span className={itemLabelBase}>Ajuda</span>
                 </span>
               </motion.button>
               {showCollapsedTooltips && (
                 <CollapsedTooltip
                   label="Ajuda"
+                  dark={isDarkTheme}
                   interactive={false}
                 />
               )}
@@ -1265,17 +1330,18 @@ export default function Sidebar({
                 onClick={() => openConfigModal("my-account")}
                 whileTap={tapFeedback}
                 transition={tapFeedbackTransition}
-                className={cx(mainBtnBase, "hover:bg-black/[0.04]")}
+                className={cx(mainBtnBase, isDarkTheme ? "hover:bg-white/[0.08]" : "hover:bg-black/[0.04]")}
                 aria-label="Configurações"
               >
                 <span className={itemContentBase}>
-                  <ISettings target={`#${settingsHoverTargetId}`} />
+                  <ISettings target={`#${settingsHoverTargetId}`} colors={lordIconColors} />
                   <span className={itemLabelBase}>Configurações</span>
                 </span>
               </motion.button>
               {showCollapsedTooltips && (
                 <CollapsedTooltip
                   label="Configurações"
+                  dark={isDarkTheme}
                   interactive={false}
                 />
               )}
@@ -1283,7 +1349,7 @@ export default function Sidebar({
           </ul>
 
 
-          <div className="mb-3 border-t border-dashed border-black/15" />
+          <div className={cx("mb-3 border-t border-dashed", isDarkTheme ? "border-white/14" : "border-black/15")} />
 
           {isCollapsed ? (
             <button
@@ -1292,7 +1358,8 @@ export default function Sidebar({
               className={cx(
                 "mx-auto hidden sm:flex h-[42px] w-[42px] rounded-xl",
                 "items-center justify-center",
-                "transition-colors duration-200 ease-out hover:bg-white"
+                "transition-colors duration-200 ease-out",
+                isDarkTheme ? "hover:bg-white/[0.08]" : "hover:bg-white"
               )}
               aria-label={`Expandir perfil ${resolvedUserNickname}`}
               title={resolvedUserNickname}
@@ -1311,17 +1378,22 @@ export default function Sidebar({
               <AnimatePresence>
                 {profileMenuOpen && (
                   <motion.div
-                    initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.985 }}
-                    animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
-                    exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.985 }}
+                    initial={reduceMotionEnabled ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.985 }}
+                    animate={reduceMotionEnabled ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+                    exit={reduceMotionEnabled ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.985 }}
                     transition={
-                      prefersReducedMotion
+                      reduceMotionEnabled
                         ? { duration: 0.12 }
                         : { duration: 0.24, ease: [0.2, 0.8, 0.2, 1] }
                     }
                     className="absolute bottom-[calc(100%+10px)] left-0 right-0 z-[140]"
                   >
-                    <div className="max-h-[65vh] overflow-y-auto rounded-2xl border border-black/10 bg-white/98 p-2 shadow-[0_18px_38px_rgba(0,0,0,0.18)] backdrop-blur-[2px]">
+                    <div
+                      className={cx(
+                        "max-h-[65vh] overflow-y-auto rounded-2xl border p-2 shadow-[0_18px_38px_rgba(0,0,0,0.18)] backdrop-blur-[2px]",
+                        isDarkTheme ? "border-white/14 bg-[#0f1728]/95" : "border-black/10 bg-white/98"
+                      )}
+                    >
                       <div className="flex items-center gap-3 px-2 pb-2 pt-1">
                         <UserAvatar
                           photoLink={resolvedUserPhotoLink}
@@ -1332,16 +1404,16 @@ export default function Sidebar({
                           backgroundClass="bg-[#171717]"
                         />
                         <span className="min-w-0">
-                          <span className="block truncate text-[14px] font-semibold text-black/90">
+                          <span className={cx("block truncate text-[14px] font-semibold", isDarkTheme ? "text-white/92" : "text-black/90")}>
                             {resolvedUserNickname}
                           </span>
-                          <span className="block truncate text-[12px] font-medium text-black/55">
+                          <span className={cx("block truncate text-[12px] font-medium", isDarkTheme ? "text-white/58" : "text-black/55")}>
                             {resolvedUserEmail}
                           </span>
                         </span>
                       </div>
 
-                      <div className="mx-2 mb-1 border-t border-black/10" />
+                      <div className={cx("mx-2 mb-1 border-t", isDarkTheme ? "border-white/14" : "border-black/10")} />
 
                       <div className="space-y-1.5 px-1 py-1">
                         <motion.button
@@ -1352,11 +1424,11 @@ export default function Sidebar({
                           transition={tapFeedbackTransition}
                           className={cx(
                             "flex h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left",
-                            "text-[14px] font-medium text-black/80",
-                            "transition-colors duration-200 ease-out hover:bg-black/[0.06]"
+                            isDarkTheme ? "text-[14px] font-medium text-white/82" : "text-[14px] font-medium text-black/80",
+                            isDarkTheme ? "transition-colors duration-200 ease-out hover:bg-white/[0.08]" : "transition-colors duration-200 ease-out hover:bg-black/[0.06]"
                           )}
                         >
-                          <IMyAccount target={`#${profileMyAccountHoverTargetId}`} />
+                          <IMyAccount target={`#${profileMyAccountHoverTargetId}`} colors={lordIconColors} />
                           <span>Minha conta</span>
                         </motion.button>
 
@@ -1368,16 +1440,16 @@ export default function Sidebar({
                           transition={tapFeedbackTransition}
                           className={cx(
                             "flex h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left",
-                            "text-[14px] font-medium text-black/80",
-                            "transition-colors duration-200 ease-out hover:bg-black/[0.06]"
+                            isDarkTheme ? "text-[14px] font-medium text-white/82" : "text-[14px] font-medium text-black/80",
+                            isDarkTheme ? "transition-colors duration-200 ease-out hover:bg-white/[0.08]" : "transition-colors duration-200 ease-out hover:bg-black/[0.06]"
                           )}
                         >
-                          <ISettings target={`#${profileSettingsHoverTargetId}`} />
+                          <ISettings target={`#${profileSettingsHoverTargetId}`} colors={lordIconColors} />
                           <span>Configurações</span>
                         </motion.button>
                       </div>
 
-                      <div className="mx-2 mb-1 mt-1 border-t border-black/10" />
+                      <div className={cx("mx-2 mb-1 mt-1 border-t", isDarkTheme ? "border-white/14" : "border-black/10")} />
 
                       <form method="post" action="/api/wz_AuthLogin/logout" className="px-1 pb-1 pt-0.5">
                         <motion.button
@@ -1386,8 +1458,8 @@ export default function Sidebar({
                           transition={tapFeedbackTransition}
                           className={cx(
                             "flex h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left",
-                            "text-[14px] font-medium text-black/80",
-                            "transition-colors duration-200 ease-out hover:bg-black/[0.06]"
+                            isDarkTheme ? "text-[14px] font-medium text-white/82" : "text-[14px] font-medium text-black/80",
+                            isDarkTheme ? "transition-colors duration-200 ease-out hover:bg-white/[0.08]" : "transition-colors duration-200 ease-out hover:bg-black/[0.06]"
                           )}
                         >
                           <span className="inline-flex h-[18px] w-[18px] items-center justify-center overflow-hidden">
@@ -1413,10 +1485,18 @@ export default function Sidebar({
                 onClick={() => setProfileMenuOpen((v) => !v)}
                 className={cx(
                   "w-full rounded-2xl",
-                  profileMenuOpen ? "bg-black/[0.10]" : "bg-black/[0.06]",
+                  profileMenuOpen
+                    ? isDarkTheme
+                      ? "bg-white/[0.13]"
+                      : "bg-black/[0.10]"
+                    : isDarkTheme
+                      ? "bg-white/[0.08]"
+                      : "bg-black/[0.06]",
                   "px-2 py-2",
                   "flex items-center justify-between gap-3",
-                  "transition-all duration-200 ease-out hover:bg-black/[0.10] active:scale-[0.99]"
+                  isDarkTheme
+                    ? "transition-all duration-200 ease-out hover:bg-white/[0.13] active:scale-[0.99]"
+                    : "transition-all duration-200 ease-out hover:bg-black/[0.10] active:scale-[0.99]"
                 )}
                 aria-label={`${resolvedUserNickname} - ${resolvedUserEmail}`}
                 aria-expanded={profileMenuOpen}
@@ -1432,15 +1512,15 @@ export default function Sidebar({
                     backgroundClass="bg-[#171717]"
                   />
                   <span className="min-w-0">
-                    <span className="block truncate text-[14px] font-semibold text-black/90">
+                    <span className={cx("block truncate text-[14px] font-semibold", isDarkTheme ? "text-white/92" : "text-black/90")}>
                       {resolvedUserNickname}
                     </span>
-                    <span className="block truncate text-[12px] font-medium text-black/55">
+                    <span className={cx("block truncate text-[12px] font-medium", isDarkTheme ? "text-white/58" : "text-black/55")}>
                       {resolvedUserEmail}
                     </span>
                   </span>
                 </span>
-                <ProfileChevron open={profileMenuOpen} />
+                <ProfileChevron open={profileMenuOpen} dark={isDarkTheme} />
               </button>
             </div>
           )}
@@ -1466,12 +1546,15 @@ export default function Sidebar({
               role="dialog"
               aria-modal="true"
               aria-label="Ajuda"
-              className="relative z-[1] w-[min(96vw,520px)] overflow-hidden rounded-2xl border border-black/15 bg-[#f3f3f4] p-5 shadow-[0_26px_70px_rgba(0,0,0,0.35)] sm:p-6"
-              initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.985 }}
-              animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
-              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.985 }}
+              className={cx(
+                "relative z-[1] w-[min(96vw,520px)] overflow-hidden rounded-2xl border p-5 shadow-[0_26px_70px_rgba(0,0,0,0.35)] sm:p-6",
+                isDarkTheme ? "border-white/14 bg-[#0f1728]" : "border-black/15 bg-[#f3f3f4]"
+              )}
+              initial={reduceMotionEnabled ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.985 }}
+              animate={reduceMotionEnabled ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+              exit={reduceMotionEnabled ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.985 }}
               transition={
-                prefersReducedMotion
+                reduceMotionEnabled
                   ? { duration: 0.1 }
                   : { duration: 0.24, ease: [0.2, 0.8, 0.2, 1] }
               }
@@ -1479,27 +1562,36 @@ export default function Sidebar({
               <button
                 type="button"
                 onClick={closeHelpModal}
-                className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80"
+                className={cx(
+                  "absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-lg transition-colors",
+                  isDarkTheme ? "text-white/54 hover:bg-white/[0.08] hover:text-white/88" : "text-black/45 hover:bg-black/5 hover:text-black/80"
+                )}
                 aria-label="Fechar"
               >
                 <X className="h-5 w-5" />
               </button>
 
-              <h3 className="pr-10 text-[21px] font-semibold text-black/82">Ajuda</h3>
-              <p className="mt-2 text-[14px] text-black/58">Selecione uma opção para continuar.</p>
+              <h3 className={cx("pr-10 text-[21px] font-semibold", isDarkTheme ? "text-white/88" : "text-black/82")}>Ajuda</h3>
+              <p className={cx("mt-2 text-[14px]", isDarkTheme ? "text-white/60" : "text-black/58")}>Selecione uma opção para continuar.</p>
 
               <div className="mt-5 space-y-2.5">
                 <button
                   type="button"
                   onClick={() => redirectFromHelpModal("documentation")}
-                  className="w-full rounded-xl border border-black/12 bg-white/92 px-4 py-3 text-[15px] font-semibold text-black/82 transition-colors hover:bg-white"
+                  className={cx(
+                    "w-full rounded-xl border px-4 py-3 text-[15px] font-semibold transition-colors",
+                    isDarkTheme ? "border-white/14 bg-white/[0.06] text-white/88 hover:bg-white/[0.1]" : "border-black/12 bg-white/92 text-black/82 hover:bg-white"
+                  )}
                 >
                   Documentação
                 </button>
                 <button
                   type="button"
                   onClick={() => redirectFromHelpModal("support")}
-                  className="w-full rounded-xl border border-black/12 bg-white/92 px-4 py-3 text-[15px] font-semibold text-black/82 transition-colors hover:bg-white"
+                  className={cx(
+                    "w-full rounded-xl border px-4 py-3 text-[15px] font-semibold transition-colors",
+                    isDarkTheme ? "border-white/14 bg-white/[0.06] text-white/88 hover:bg-white/[0.1]" : "border-black/12 bg-white/92 text-black/82 hover:bg-white"
+                  )}
                 >
                   Preciso de Ajuda
                 </button>

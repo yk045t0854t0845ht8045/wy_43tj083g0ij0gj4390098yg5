@@ -16,6 +16,20 @@ import { createPortal } from "react-dom";
 
 type ConfigSectionGroupId = "user" | "billing" | "app";
 
+export type DashboardThemeMode = "dark" | "system" | "light";
+export type DashboardAppearanceAccent = "blue" | "cyan" | "green" | "violet" | "amber";
+export type DashboardFontStyle = "inter" | "manrope" | "space-grotesk" | "poppins";
+export type DashboardDensity = "comfortable" | "compact";
+
+export type DashboardAppearanceSettings = {
+  themeMode: DashboardThemeMode;
+  accent: DashboardAppearanceAccent;
+  transparentSidebar: boolean;
+  fontStyle: DashboardFontStyle;
+  density: DashboardDensity;
+  reducedMotion: boolean;
+};
+
 export type ConfigSectionId =
   | "my-account"
   | "content-social"
@@ -47,6 +61,9 @@ type ConfigMainProps = {
   onClose: () => void;
   activeSection: ConfigSectionId;
   onSectionChange: (section: ConfigSectionId) => void;
+  resolvedTheme?: "light" | "dark";
+  appearanceSettings?: DashboardAppearanceSettings;
+  onAppearanceChange?: (next: DashboardAppearanceSettings) => void;
   userNickname?: string;
   userFullName?: string;
   userEmail?: string;
@@ -163,6 +180,48 @@ const sectionTitles: Record<ConfigSectionId, string> = {
   "voice-video": "Voz e Vídeo",
 };
 
+type AppearanceAccentOption = {
+  id: DashboardAppearanceAccent;
+  label: string;
+  color: string;
+};
+
+const APPEARANCE_ACCENT_OPTIONS: AppearanceAccentOption[] = [
+  { id: "blue", label: "Azul", color: "#2f80ff" },
+  { id: "cyan", label: "Ciano", color: "#1bb6d9" },
+  { id: "green", label: "Verde", color: "#22c55e" },
+  { id: "violet", label: "Violeta", color: "#8b5cf6" },
+  { id: "amber", label: "Dourado", color: "#f4b61e" },
+];
+
+type AppearanceFontOption = {
+  id: DashboardFontStyle;
+  label: string;
+  sample: string;
+  className: string;
+};
+
+const APPEARANCE_FONT_OPTIONS: AppearanceFontOption[] = [
+  { id: "inter", label: "Inter", sample: "Aa", className: "dashboard-font-inter" },
+  { id: "manrope", label: "Manrope", sample: "Aa", className: "dashboard-font-manrope" },
+  { id: "space-grotesk", label: "Space", sample: "Aa", className: "dashboard-font-space-grotesk" },
+  { id: "poppins", label: "Poppins", sample: "Aa", className: "dashboard-font-poppins" },
+];
+
+const APPEARANCE_DENSITY_OPTIONS: Array<{ id: DashboardDensity; label: string; description: string }> = [
+  { id: "comfortable", label: "Confortavel", description: "Mais espaco e leitura suave." },
+  { id: "compact", label: "Compacto", description: "Mais informacao na tela." },
+];
+
+export const DEFAULT_DASHBOARD_APPEARANCE_SETTINGS: DashboardAppearanceSettings = {
+  themeMode: "system",
+  accent: "blue",
+  transparentSidebar: false,
+  fontStyle: "inter",
+  density: "comfortable",
+  reducedMotion: false,
+};
+
 const AVATAR_ACCEPT = "image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml";
 const AVATAR_MAX_SIZE = 5 * 1024 * 1024;
 const CROP_SIZE = 320;
@@ -178,6 +237,11 @@ const AVATAR_ALLOWED_TYPES = new Set([
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
+}
+
+function getAppearanceAccentColor(accent: DashboardAppearanceAccent) {
+  const match = APPEARANCE_ACCENT_OPTIONS.find((option) => option.id === accent);
+  return match?.color || APPEARANCE_ACCENT_OPTIONS[0].color;
 }
 
 function normalizeForSearch(value: string) {
@@ -5904,6 +5968,284 @@ function DevicesContent() {
   );
 }
 
+function AppearanceContent({
+  settings,
+  resolvedTheme,
+  onChange,
+}: {
+  settings: DashboardAppearanceSettings;
+  resolvedTheme: "light" | "dark";
+  onChange: (next: DashboardAppearanceSettings) => void;
+}) {
+  const isDark = resolvedTheme === "dark";
+  const accentColor = getAppearanceAccentColor(settings.accent);
+
+  const updateAppearance = useCallback(
+    (patch: Partial<DashboardAppearanceSettings>) => {
+      onChange({
+        ...settings,
+        ...patch,
+      });
+    },
+    [onChange, settings],
+  );
+
+  const sectionCardClass = isDark
+    ? "rounded-2xl border border-white/12 bg-white/[0.035] px-5 py-5 sm:px-6"
+    : "rounded-2xl border border-black/10 bg-white/82 px-5 py-5 sm:px-6";
+  const titleClass = isDark ? "text-[22px] font-semibold text-white/92" : "text-[22px] font-semibold text-black/82";
+  const bodyClass = isDark ? "text-[15px] leading-[1.45] text-white/62" : "text-[15px] leading-[1.45] text-black/58";
+  const labelClass = isDark ? "text-[18px] font-semibold text-white/88" : "text-[18px] font-semibold text-black/82";
+  const descriptionClass = isDark ? "mt-1 text-[14px] text-white/58" : "mt-1 text-[14px] text-black/56";
+
+  return (
+    <div className="mx-auto w-full max-w-[980px] pb-10">
+      <h3 className={titleClass}>Personalize sua experiencia</h3>
+      <p className={cx("mt-2", bodyClass)}>
+        Ajuste tema, identidade visual, tipografia e comportamento da interface para deixar o painel com a sua cara.
+      </p>
+
+      <section className={cx("mt-8", sectionCardClass)}>
+        <h4 className={labelClass}>Tema</h4>
+        <p className={descriptionClass}>Escolha o visual padrao da interface.</p>
+
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {[
+            { id: "dark" as DashboardThemeMode, label: "Dark", preview: "dark" as const },
+            { id: "system" as DashboardThemeMode, label: "Sistema", preview: "system" as const },
+            { id: "light" as DashboardThemeMode, label: "Light", preview: "light" as const },
+          ].map((themeOption) => {
+            const selected = settings.themeMode === themeOption.id;
+            return (
+              <button
+                key={themeOption.id}
+                type="button"
+                onClick={() => updateAppearance({ themeMode: themeOption.id })}
+                className={cx(
+                  "group rounded-2xl border p-3 text-left transition-all duration-220",
+                  selected
+                    ? isDark
+                      ? "border-white/35 bg-white/[0.08]"
+                      : "border-black/24 bg-black/[0.03]"
+                    : isDark
+                      ? "border-white/14 bg-white/[0.03] hover:border-white/24 hover:bg-white/[0.05]"
+                      : "border-black/12 bg-white/86 hover:border-black/20 hover:bg-white",
+                )}
+              >
+                <div
+                  className={cx(
+                    "relative h-24 overflow-hidden rounded-xl border",
+                    themeOption.preview === "dark" && "border-[#2f3d55] bg-[#101828]",
+                    themeOption.preview === "light" && "border-black/10 bg-[#f8f8fb]",
+                    themeOption.preview === "system" && "border-black/10 bg-gradient-to-r from-[#101828] via-[#101828] to-[#f8f8fb]",
+                  )}
+                >
+                  <div className="absolute left-3 top-3 h-1.5 w-14 rounded-full bg-black/20" />
+                  <div className="absolute left-3 top-6 h-1.5 w-9 rounded-full bg-black/20" />
+                  <div className="absolute left-3 top-10 h-9 w-16 rounded-md bg-black/24" />
+                  <div className="absolute right-3 top-10 h-9 w-7 rounded-md bg-black/24" />
+                </div>
+                <span className={cx("mt-3 block text-[14px] font-semibold", isDark ? "text-white/88" : "text-black/80")}>
+                  {themeOption.label}
+                  {selected && <span className={cx("ml-2 text-[12px] font-medium", isDark ? "text-white/60" : "text-black/52")}>Ativo</span>}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className={cx("mt-6", sectionCardClass)}>
+        <h4 className={labelClass}>Cor de destaque</h4>
+        <p className={descriptionClass}>Aplica nos botoes principais, selecao e indicadores ativos.</p>
+
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          {APPEARANCE_ACCENT_OPTIONS.map((accent) => {
+            const selected = settings.accent === accent.id;
+            return (
+              <button
+                key={accent.id}
+                type="button"
+                onClick={() => updateAppearance({ accent: accent.id })}
+                className={cx(
+                  "group relative h-11 w-11 rounded-full border transition-all duration-200",
+                  selected
+                    ? isDark
+                      ? "border-white/60 shadow-[0_0_0_3px_rgba(255,255,255,0.14)]"
+                      : "border-black/35 shadow-[0_0_0_3px_rgba(0,0,0,0.08)]"
+                    : isDark
+                      ? "border-white/18 hover:border-white/35"
+                      : "border-black/12 hover:border-black/25",
+                )}
+                title={accent.label}
+                aria-label={`Selecionar ${accent.label}`}
+              >
+                <span className="absolute inset-[5px] rounded-full" style={{ backgroundColor: accent.color }} />
+                {selected && (
+                  <span className="absolute inset-0 inline-flex items-center justify-center text-white">
+                    <Check className="h-4 w-4 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]" />
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className={cx("mt-6", sectionCardClass)}>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <span>
+            <h4 className={labelClass}>Sidebar transparente</h4>
+            <p className={descriptionClass}>Ativa efeito glass para desktop, mantendo leitura e profundidade.</p>
+          </span>
+          <button
+            type="button"
+            onClick={() => updateAppearance({ transparentSidebar: !settings.transparentSidebar })}
+            className={cx(
+              "relative inline-flex h-[30px] w-[54px] items-center rounded-full border p-[3px] transition-all duration-220",
+              settings.transparentSidebar
+                ? isDark
+                  ? "border-white/28"
+                  : "border-black/15"
+                : isDark
+                  ? "border-white/18 bg-white/[0.06]"
+                  : "border-black/14 bg-black/[0.06]",
+            )}
+            style={settings.transparentSidebar ? { backgroundColor: accentColor } : undefined}
+            aria-pressed={settings.transparentSidebar}
+            aria-label="Ativar ou desativar transparencia da sidebar"
+          >
+            <span
+              className={cx(
+                "block h-[22px] w-[22px] rounded-full transition-transform duration-220",
+                settings.transparentSidebar ? "translate-x-[24px] bg-white" : isDark ? "translate-x-0 bg-white/90" : "translate-x-0 bg-white",
+              )}
+            />
+          </button>
+        </div>
+      </section>
+
+      <section className={cx("mt-6", sectionCardClass)}>
+        <h4 className={labelClass}>Fonte da interface</h4>
+        <p className={descriptionClass}>Muda tipografia em menus, configuracoes e elementos de navegacao.</p>
+
+        <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {APPEARANCE_FONT_OPTIONS.map((font) => {
+            const selected = settings.fontStyle === font.id;
+            return (
+              <button
+                key={font.id}
+                type="button"
+                onClick={() => updateAppearance({ fontStyle: font.id })}
+                className={cx(
+                  font.className,
+                  "rounded-xl border px-3 py-2.5 text-center transition-all duration-200",
+                  selected
+                    ? isDark
+                      ? "border-white/35 bg-white/[0.09] text-white/92"
+                      : "border-black/24 bg-black/[0.03] text-black/82"
+                    : isDark
+                      ? "border-white/14 bg-white/[0.03] text-white/72 hover:border-white/24 hover:bg-white/[0.06]"
+                      : "border-black/12 bg-white/90 text-black/62 hover:border-black/20 hover:bg-white",
+                )}
+              >
+                <span className="block text-[20px] leading-none">{font.sample}</span>
+                <span className="mt-1 block text-[12px] font-semibold">{font.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className={cx("mt-6", sectionCardClass)}>
+        <h4 className={labelClass}>Densidade e movimento</h4>
+        <p className={descriptionClass}>Controle espaco visual e intensidade de animacoes.</p>
+
+        <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {APPEARANCE_DENSITY_OPTIONS.map((option) => {
+            const selected = settings.density === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => updateAppearance({ density: option.id })}
+                className={cx(
+                  "rounded-xl border px-4 py-3 text-left transition-all duration-200",
+                  selected
+                    ? isDark
+                      ? "border-white/34 bg-white/[0.08]"
+                      : "border-black/24 bg-black/[0.03]"
+                    : isDark
+                      ? "border-white/14 bg-white/[0.03] hover:border-white/24 hover:bg-white/[0.05]"
+                      : "border-black/12 bg-white/88 hover:border-black/20 hover:bg-white",
+                )}
+              >
+                <p className={cx("text-[14px] font-semibold", isDark ? "text-white/90" : "text-black/80")}>{option.label}</p>
+                <p className={cx("mt-1 text-[13px]", isDark ? "text-white/60" : "text-black/56")}>{option.description}</p>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className={cx("mt-4 flex items-center justify-between rounded-xl border px-4 py-3", isDark ? "border-white/12 bg-white/[0.03]" : "border-black/10 bg-white/84")}>
+          <span>
+            <p className={cx("text-[14px] font-semibold", isDark ? "text-white/88" : "text-black/80")}>Reduzir animacoes</p>
+            <p className={cx("mt-0.5 text-[13px]", isDark ? "text-white/58" : "text-black/55")}>Diminui transicoes para uma navegacao mais direta.</p>
+          </span>
+          <button
+            type="button"
+            onClick={() => updateAppearance({ reducedMotion: !settings.reducedMotion })}
+            className={cx(
+              "relative inline-flex h-[30px] w-[54px] items-center rounded-full border p-[3px] transition-all duration-220",
+              settings.reducedMotion
+                ? isDark
+                  ? "border-white/28"
+                  : "border-black/15"
+                : isDark
+                  ? "border-white/18 bg-white/[0.06]"
+                  : "border-black/14 bg-black/[0.06]",
+            )}
+            style={settings.reducedMotion ? { backgroundColor: accentColor } : undefined}
+            aria-pressed={settings.reducedMotion}
+            aria-label="Ativar ou desativar reducao de animacoes"
+          >
+            <span
+              className={cx(
+                "block h-[22px] w-[22px] rounded-full transition-transform duration-220",
+                settings.reducedMotion ? "translate-x-[24px] bg-white" : isDark ? "translate-x-0 bg-white/90" : "translate-x-0 bg-white",
+              )}
+            />
+          </button>
+        </div>
+      </section>
+
+      <section className={cx("mt-6 overflow-hidden", sectionCardClass)}>
+        <div className={cx("rounded-xl border p-4", isDark ? "border-white/14 bg-black/20" : "border-black/10 bg-[#f4f4f6]")}>
+          <p className={cx("text-[14px] font-semibold", isDark ? "text-white/90" : "text-black/80")}>Preview rapido</p>
+          <p className={cx("mt-1 text-[13px]", isDark ? "text-white/58" : "text-black/56")}>
+            Veja como os elementos principais reagem ao tema e accent escolhidos.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              className="rounded-full px-4 py-2 text-[12px] font-semibold text-white transition-transform active:scale-[0.99]"
+              style={{ backgroundColor: accentColor }}
+            >
+              Acao primaria
+            </button>
+            <span className={cx("rounded-full border px-3 py-1.5 text-[12px] font-semibold", isDark ? "border-white/16 text-white/70" : "border-black/12 text-black/62")}>
+              {settings.themeMode === "system" ? "Tema: Sistema" : `Tema: ${settings.themeMode === "dark" ? "Dark" : "Light"}`}
+            </span>
+            <span className={cx("rounded-full border px-3 py-1.5 text-[12px] font-semibold", isDark ? "border-white/16 text-white/70" : "border-black/12 text-black/62")}>
+              {settings.density === "compact" ? "Densidade: Compacta" : "Densidade: Confortavel"}
+            </span>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function SidebarGroup({
   title,
   items,
@@ -5912,6 +6254,8 @@ function SidebarGroup({
   tapFeedback,
   tapTransition,
   activePillTransition,
+  dark = false,
+  accentColor,
 }: {
   title: string;
   items: MenuItem[];
@@ -5922,11 +6266,13 @@ function SidebarGroup({
   activePillTransition:
     | { duration: number }
     | { type: "spring"; stiffness: number; damping: number; mass: number; restDelta: number; restSpeed: number };
+  dark?: boolean;
+  accentColor?: string;
 }) {
   if (!items.length) return null;
   return (
-    <div className="border-t border-black/10 pt-3">
-      <p className="mb-2 text-[13px] font-semibold text-black/45">{title}</p>
+    <div className={cx("border-t pt-3", dark ? "border-white/12" : "border-black/10")}>
+      <p className={cx("mb-2 text-[13px] font-semibold", dark ? "text-white/46" : "text-black/45")}>{title}</p>
       <ul className="space-y-0.5">
         {items.map((item) => {
           const active = item.id === activeSection;
@@ -5939,11 +6285,25 @@ function SidebarGroup({
                 transition={tapTransition}
                 className={cx(
                   "relative flex h-[40px] w-full items-center overflow-hidden rounded-xl px-2.5 text-left text-[15px] font-medium transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-                  active ? "text-black/80" : "text-black/55 hover:bg-black/[0.04] hover:text-black/80"
+                  active
+                    ? dark
+                      ? "text-white/90"
+                      : "text-black/80"
+                    : dark
+                      ? "text-white/58 hover:bg-white/[0.08] hover:text-white/88"
+                      : "text-black/55 hover:bg-black/[0.04] hover:text-black/80"
                 )}
               >
                 {active && (
-                  <motion.span layoutId="config-sidebar-active-pill" className="pointer-events-none absolute inset-0 rounded-xl bg-[#d9d9de]" transition={activePillTransition} />
+                  <motion.span
+                    layoutId="config-sidebar-active-pill"
+                    className={cx(
+                      "pointer-events-none absolute inset-0 rounded-xl",
+                      dark ? "bg-white/[0.14]" : "bg-[#d9d9de]",
+                    )}
+                    style={accentColor ? { backgroundColor: accentColor, opacity: dark ? 0.26 : 0.2 } : undefined}
+                    transition={activePillTransition}
+                  />
                 )}
                 <span className="relative z-[1] flex min-w-0 items-center gap-2.5">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -5965,12 +6325,19 @@ function SidebarGroup({
   );
 }
 
-function PlaceholderSection({ title }: { title: string }) {
+function PlaceholderSection({ title, dark = false }: { title: string; dark?: boolean }) {
   return (
     <div className="mx-auto w-full max-w-[900px] pb-10">
-      <div className="rounded-2xl border border-dashed border-black/20 bg-white/50 p-6">
-        <h3 className="text-[20px] font-semibold text-black/80">{title}</h3>
-        <p className="mt-2 text-[14px] text-black/65">Esta seção foi preparada no modal e pode receber seu conteúdo específico agora.</p>
+      <div
+        className={cx(
+          "rounded-2xl border border-dashed p-6",
+          dark ? "border-white/20 bg-white/[0.03]" : "border-black/20 bg-white/50",
+        )}
+      >
+        <h3 className={cx("text-[20px] font-semibold", dark ? "text-white/88" : "text-black/80")}>{title}</h3>
+        <p className={cx("mt-2 text-[14px]", dark ? "text-white/60" : "text-black/65")}>
+          Esta seção foi preparada no modal e pode receber seu conteúdo específico agora.
+        </p>
       </div>
     </div>
   );
@@ -5981,6 +6348,9 @@ export default function ConfigMain({
   onClose,
   activeSection,
   onSectionChange,
+  resolvedTheme = "light",
+  appearanceSettings = DEFAULT_DASHBOARD_APPEARANCE_SETTINGS,
+  onAppearanceChange,
   userNickname = "Usuario",
   userFullName,
   userEmail = "conta@wyzer.com.br",
@@ -6003,16 +6373,38 @@ export default function ConfigMain({
 }: ConfigMainProps) {
   const prefersReducedMotion = useReducedMotion();
   const [searchTerm, setSearchTerm] = useState("");
+  const resolvedAppearanceSettings = useMemo(
+    () => ({
+      ...DEFAULT_DASHBOARD_APPEARANCE_SETTINGS,
+      ...appearanceSettings,
+    }),
+    [appearanceSettings],
+  );
+
+  const isDarkTheme = resolvedTheme === "dark";
+  const accentColor = useMemo(
+    () => getAppearanceAccentColor(resolvedAppearanceSettings.accent),
+    [resolvedAppearanceSettings.accent],
+  );
+
+  const handleAppearanceChange = useCallback(
+    (next: DashboardAppearanceSettings) => {
+      onAppearanceChange?.(next);
+    },
+    [onAppearanceChange],
+  );
+
+  const reduceMotionEnabled = prefersReducedMotion || resolvedAppearanceSettings.reducedMotion;
 
   const activePillTransition = useMemo(
     () =>
-      prefersReducedMotion
+      reduceMotionEnabled
         ? { duration: 0.12 }
         : { type: "spring" as const, stiffness: 980, damping: 54, mass: 0.46, restDelta: 0.25, restSpeed: 0.25 },
-    [prefersReducedMotion]
+    [reduceMotionEnabled]
   );
-  const tapFeedback = useMemo(() => (prefersReducedMotion ? undefined : { scale: 0.992, y: 0.6 }), [prefersReducedMotion]);
-  const tapTransition = useMemo(() => (prefersReducedMotion ? { duration: 0.08 } : ({ type: "spring" as const, stiffness: 1200, damping: 52, mass: 0.24 })), [prefersReducedMotion]);
+  const tapFeedback = useMemo(() => (reduceMotionEnabled ? undefined : { scale: 0.992, y: 0.6 }), [reduceMotionEnabled]);
+  const tapTransition = useMemo(() => (reduceMotionEnabled ? { duration: 0.08 } : ({ type: "spring" as const, stiffness: 1200, damping: 52, mass: 0.24 })), [reduceMotionEnabled]);
 
   const nickname = useMemo(
     () => String(userFullName || "").trim() || String(userNickname || "").trim() || "usuario",
@@ -6071,32 +6463,130 @@ export default function ConfigMain({
             role="dialog"
             aria-modal="true"
             aria-label="Configuracoes da conta"
-            initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 20, scale: 0.985 }}
-            animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
-            exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.985 }}
-            transition={prefersReducedMotion ? { duration: 0.1 } : { type: "spring", stiffness: 320, damping: 32, mass: 0.72 }}
-            className="relative z-[1] h-[min(88vh,910px)] w-[min(95vw,1410px)] overflow-hidden rounded-2xl border border-black/15 bg-[#f3f3f4] shadow-[0_30px_80px_rgba(0,0,0,0.44)]"
+            initial={reduceMotionEnabled ? { opacity: 0 } : { opacity: 0, y: 20, scale: 0.985 }}
+            animate={reduceMotionEnabled ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+            exit={reduceMotionEnabled ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.985 }}
+            transition={reduceMotionEnabled ? { duration: 0.1 } : { type: "spring", stiffness: 320, damping: 32, mass: 0.72 }}
+            className={cx(
+              "dashboard-config-shell relative z-[1] h-[min(88vh,910px)] w-[min(95vw,1410px)] overflow-hidden rounded-2xl border shadow-[0_30px_80px_rgba(0,0,0,0.44)]",
+              isDarkTheme ? "border-white/12 bg-[#0f1728] text-white" : "border-black/15 bg-[#f3f3f4] text-black"
+            )}
           >
             <div className="flex h-full min-h-0">
-              <aside className="flex h-full w-[300px] shrink-0 flex-col border-r border-black/10 bg-[#ececef]">
-                <div className="px-4 pb-3"><div className="mt-3 flex h-11 items-center gap-2 rounded-xl border border-black/14 bg-[#e7e7e8] px-3"><Search className="h-[16px] w-[16px] text-black/45" /><input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar" className="h-full w-full bg-transparent text-[14px] text-black/70 outline-none placeholder:text-black/45" /></div></div>
+              <aside
+                className={cx(
+                  "dashboard-config-sidebar flex h-full w-[300px] shrink-0 flex-col border-r",
+                  isDarkTheme ? "border-white/10 bg-[#0b1323]" : "border-black/10 bg-[#ececef]"
+                )}
+              >
+                <div className="px-4 pb-3">
+                  <div
+                    className={cx(
+                      "mt-3 flex h-11 items-center gap-2 rounded-xl border px-3",
+                      isDarkTheme ? "border-white/12 bg-white/[0.04]" : "border-black/14 bg-[#e7e7e8]"
+                    )}
+                  >
+                    <Search className={cx("h-[16px] w-[16px]", isDarkTheme ? "text-white/45" : "text-black/45")} />
+                    <input
+                      type="text"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      placeholder="Buscar"
+                      className={cx(
+                        "h-full w-full bg-transparent text-[14px] outline-none",
+                        isDarkTheme ? "text-white/76 placeholder:text-white/44" : "text-black/70 placeholder:text-black/45"
+                      )}
+                    />
+                  </div>
+                </div>
                 <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-5">
                   <LayoutGroup id="config-sidebar-active-pills">
-                    <SidebarGroup title="Configuracoes de usuario" items={userItems} activeSection={activeSection} onSectionChange={onSectionChange} tapFeedback={tapFeedback} tapTransition={tapTransition} activePillTransition={activePillTransition} />
-                    {billingItems.length > 0 && <div className="mt-4"><SidebarGroup title="Configuracoes de cobranca" items={billingItems} activeSection={activeSection} onSectionChange={onSectionChange} tapFeedback={tapFeedback} tapTransition={tapTransition} activePillTransition={activePillTransition} /></div>}
-                    {appItems.length > 0 && <div className="mt-4"><SidebarGroup title="Config. do aplicativo" items={appItems} activeSection={activeSection} onSectionChange={onSectionChange} tapFeedback={tapFeedback} tapTransition={tapTransition} activePillTransition={activePillTransition} /></div>}
-                    {normalizedSearch && filtered.length === 0 && <div className="mt-4 rounded-xl border border-dashed border-black/18 bg-white/50 px-3 py-3 text-[13px] text-black/55">Nenhum item encontrado.</div>}
+                    <SidebarGroup
+                      title="Configuracoes de usuario"
+                      items={userItems}
+                      activeSection={activeSection}
+                      onSectionChange={onSectionChange}
+                      tapFeedback={tapFeedback}
+                      tapTransition={tapTransition}
+                      activePillTransition={activePillTransition}
+                      dark={isDarkTheme}
+                      accentColor={accentColor}
+                    />
+                    {billingItems.length > 0 && (
+                      <div className="mt-4">
+                        <SidebarGroup
+                          title="Configuracoes de cobranca"
+                          items={billingItems}
+                          activeSection={activeSection}
+                          onSectionChange={onSectionChange}
+                          tapFeedback={tapFeedback}
+                          tapTransition={tapTransition}
+                          activePillTransition={activePillTransition}
+                          dark={isDarkTheme}
+                          accentColor={accentColor}
+                        />
+                      </div>
+                    )}
+                    {appItems.length > 0 && (
+                      <div className="mt-4">
+                        <SidebarGroup
+                          title="Config. do aplicativo"
+                          items={appItems}
+                          activeSection={activeSection}
+                          onSectionChange={onSectionChange}
+                          tapFeedback={tapFeedback}
+                          tapTransition={tapTransition}
+                          activePillTransition={activePillTransition}
+                          dark={isDarkTheme}
+                          accentColor={accentColor}
+                        />
+                      </div>
+                    )}
+                    {normalizedSearch && filtered.length === 0 && (
+                      <div
+                        className={cx(
+                          "mt-4 rounded-xl border border-dashed px-3 py-3 text-[13px]",
+                          isDarkTheme ? "border-white/18 bg-white/[0.03] text-white/58" : "border-black/18 bg-white/50 text-black/55"
+                        )}
+                      >
+                        Nenhum item encontrado.
+                      </div>
+                    )}
                   </LayoutGroup>
                 </div>
               </aside>
 
-              <div className="min-w-0 flex-1 bg-[#f3f3f4]">
-                <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6"><h2 className="text-[20px] font-semibold text-black/75">{activeTitle}</h2><button type="button" onClick={onClose} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80"><X className="h-5 w-5" /></button></div>
+              <div className={cx("dashboard-config-body min-w-0 flex-1", isDarkTheme ? "bg-[#0f1728]" : "bg-[#f3f3f4]")}>
+                <div
+                  className={cx(
+                    "flex h-16 items-center justify-between border-b px-4 sm:px-6",
+                    isDarkTheme ? "border-white/10" : "border-black/10"
+                  )}
+                >
+                  <h2 className={cx("text-[20px] font-semibold", isDarkTheme ? "text-white/84" : "text-black/75")}>{activeTitle}</h2>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className={cx(
+                      "inline-flex h-9 w-9 items-center justify-center rounded-lg transition-colors",
+                      isDarkTheme ? "text-white/52 hover:bg-white/[0.08] hover:text-white/88" : "text-black/45 hover:bg-black/5 hover:text-black/80"
+                    )}
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
                 <div className="h-[calc(100%-64px)] overflow-y-auto px-4 pb-8 pt-6 sm:px-8 md:px-10">
                   {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} emailChangedAt={emailChangedAt} phoneChangedAt={phoneChangedAt} passwordChangedAt={passwordChangedAt} supportAccess={supportAccess} accountCreatedAt={accountCreatedAt} twoFactorEnabled={twoFactorEnabled} twoFactorEnabledAt={twoFactorEnabledAt} twoFactorDisabledAt={twoFactorDisabledAt} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} onUserPasswordChange={onUserPasswordChange} onUserSupportAccessChange={onUserSupportAccessChange} onUserTwoFactorChange={onUserTwoFactorChange} />}
                   {activeSection === "privacy-data" && <PrivacyDataContent />}
                   {activeSection === "devices" && <DevicesContent />}
-                  {activeSection !== "my-account" && activeSection !== "privacy-data" && activeSection !== "devices" && <PlaceholderSection title={activeTitle} />}
+                  {activeSection === "appearance" && (
+                    <AppearanceContent
+                      settings={resolvedAppearanceSettings}
+                      resolvedTheme={resolvedTheme}
+                      onChange={handleAppearanceChange}
+                    />
+                  )}
+                  {activeSection !== "my-account" && activeSection !== "privacy-data" && activeSection !== "devices" && activeSection !== "appearance" && <PlaceholderSection title={activeTitle} dark={isDarkTheme} />}
                 </div>
               </div>
             </div>
