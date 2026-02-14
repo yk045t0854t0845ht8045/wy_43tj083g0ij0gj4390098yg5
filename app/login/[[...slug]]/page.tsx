@@ -2313,7 +2313,7 @@ export default function LinkLoginPage() {
                     onClick={startGoogleLogin}
                     disabled={busy || startingGoogleLogin}
                     className={cx(
-                      "group mt-4 inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-full border border-black/10 bg-white text-[15px] font-semibold text-black/82",
+                      "group mt-4 inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-[15px] border border-black/10 bg-white text-[15px] font-semibold text-black/82",
                       "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
                       "hover:border-black/20 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
                       "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
@@ -2338,7 +2338,7 @@ export default function LinkLoginPage() {
                   <button
                     type="button"
                     disabled
-                    className="mt-3 inline-flex h-[52px] w-full items-center justify-center rounded-full border border-black/10 bg-white text-[15px] font-semibold text-black/45 opacity-65"
+                    className="mt-3 inline-flex h-[52px] w-full items-center justify-center rounded-[15px] border border-black/10 bg-white text-[15px] font-semibold text-black/45 opacity-65"
                   >
                     ...
                   </button>
