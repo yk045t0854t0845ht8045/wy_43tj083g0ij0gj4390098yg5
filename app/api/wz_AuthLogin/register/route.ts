@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../_supabase";
-import { sha, gen7, newSalt, maskPhoneE164, isValidE164BRMobile } from "../_codes";
-import { sendAuthSmsCode } from "../_sms";
+import { sha, gen7, newSalt } from "../_codes";
 import { sendLoginCodeEmail } from "../_email";
 
 function isValidEmail(v: string) {
@@ -22,92 +21,52 @@ export async function POST(req: Request) {
     const email = String(body?.email || "").trim().toLowerCase();
     const step = normalizeStep(String(body?.step || ""));
 
-    if (!isValidEmail(email))
-      return NextResponse.json({ ok: false, error: "E-mail inválido." }, { status: 400 });
+    if (!isValidEmail(email)) {
+      return NextResponse.json({ ok: false, error: "E-mail invalido." }, { status: 400 });
+    }
 
-    if (step !== "email" && step !== "sms") {
-      return NextResponse.json({ ok: false, error: "Etapa inválida para reenvio." }, { status: 400 });
+    if (step !== "email") {
+      return NextResponse.json(
+        { ok: false, error: "No momento apenas reenvio por e-mail esta ativo." },
+        { status: 400 },
+      );
     }
 
     const sb = supabaseAdmin();
 
     const pend = await sb.from("wz_pending_auth").select("*").eq("email", email).maybeSingle();
-    const pendRow = pend.data;
-
-    if (!pendRow) {
-      return NextResponse.json({ ok: false, error: "Sessão inválida. Reinicie." }, { status: 400 });
-    }
-
-    if (step === "email") {
-      await sb
-        .from("wz_auth_challenges")
-        .update({ consumed: true })
-        .eq("email", email)
-        .eq("channel", "email")
-        .eq("consumed", false);
-
-      const code = gen7();
-      const salt = newSalt();
-      const hash = sha(code, salt);
-      const expiresAt = new Date(Date.now() + 1000 * 60 * 10).toISOString();
-
-      const { error } = await sb.from("wz_auth_challenges").insert({
-        email,
-        channel: "email",
-        code_hash: hash,
-        salt,
-        expires_at: expiresAt,
-        attempts_left: 7,
-        consumed: false,
-      });
-
-      if (error) return NextResponse.json({ ok: false, error: "Falha ao gerar e-mail." }, { status: 500 });
-
-      await sendLoginCodeEmail(email, code);
-      return NextResponse.json({ ok: true }, { status: 200 });
-    }
-
-    // step === sms
-    const phoneE164 = String(pendRow?.phone_e164 || "");
-    if (!phoneE164) {
-      return NextResponse.json({ ok: false, error: "Nenhum telefone encontrado para SMS." }, { status: 400 });
-    }
-
-    // ✅ valida antes de reenviar
-    if (!isValidE164BRMobile(phoneE164)) {
-      return NextResponse.json(
-        { ok: false, error: "Telefone inválido para SMS. Use um celular BR válido com DDD." },
-        { status: 400 }
-      );
+    if (!pend.data) {
+      return NextResponse.json({ ok: false, error: "Sessao invalida. Reinicie." }, { status: 400 });
     }
 
     await sb
       .from("wz_auth_challenges")
       .update({ consumed: true })
       .eq("email", email)
-      .eq("channel", "sms")
+      .eq("channel", "email")
       .eq("consumed", false);
 
-    const smsCode = gen7();
-    const smsSalt = newSalt();
-    const smsHash = sha(smsCode, smsSalt);
+    const code = gen7();
+    const salt = newSalt();
+    const hash = sha(code, salt);
     const expiresAt = new Date(Date.now() + 1000 * 60 * 10).toISOString();
 
-    const { error: smsErr } = await sb.from("wz_auth_challenges").insert({
+    const { error } = await sb.from("wz_auth_challenges").insert({
       email,
-      channel: "sms",
-      code_hash: smsHash,
-      salt: smsSalt,
+      channel: "email",
+      code_hash: hash,
+      salt,
       expires_at: expiresAt,
       attempts_left: 7,
       consumed: false,
     });
 
-    if (smsErr) return NextResponse.json({ ok: false, error: "Falha ao gerar SMS." }, { status: 500 });
+    if (error) {
+      return NextResponse.json({ ok: false, error: "Falha ao gerar e-mail." }, { status: 500 });
+    }
 
-    await sendAuthSmsCode(phoneE164, smsCode);
-
-    return NextResponse.json({ ok: true, phoneMask: maskPhoneE164(phoneE164) }, { status: 200 });
+    await sendLoginCodeEmail(email, code);
+    return NextResponse.json({ ok: true }, { status: 200 });
   } catch (error: unknown) {
     console.error("[register] error:", error);
     const message = error instanceof Error ? error.message : "Erro inesperado.";

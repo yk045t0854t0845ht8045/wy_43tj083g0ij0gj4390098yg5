@@ -257,6 +257,10 @@ function shouldQueueFirstForAuth(params: {
   const force = parseBool(process.env.SMS_QUEUE_FORCE_FIRST, false);
   if (force) return true;
 
+  // If a managed provider is available, prefer direct delivery first.
+  // Queue-first is only useful when auth flow depends on private self-host webhook.
+  if (params.providerOrder.includes("twilio")) return false;
+
   const allowAuto = parseBool(process.env.SMS_QUEUE_AUTO_FIRST_ON_PRIVATE_HOST, true);
   if (!allowAuto) return false;
 
@@ -309,6 +313,14 @@ function dedupeProviders(values: Array<SmsProvider | null>) {
   return out;
 }
 
+function hasTwilioEnvConfig() {
+  const accountSid = String(process.env.TWILIO_ACCOUNT_SID || "").trim();
+  const authToken = String(process.env.TWILIO_AUTH_TOKEN || "").trim();
+  const fromNumber = String(process.env.TWILIO_FROM_NUMBER || "").trim();
+  const messagingServiceSid = String(process.env.TWILIO_MESSAGING_SERVICE_SID || "").trim();
+  return Boolean(accountSid && authToken && (fromNumber || messagingServiceSid));
+}
+
 function resolveProviderOrder(override?: SmsProvider[]) {
   if (Array.isArray(override) && override.length > 0) {
     return dedupeProviders(override);
@@ -320,6 +332,10 @@ function resolveProviderOrder(override?: SmsProvider[]) {
 
   if (listed.length > 0) {
     return dedupeProviders(listed);
+  }
+
+  if (hasTwilioEnvConfig()) {
+    return dedupeProviders(["twilio", "selfhost", "webhook", "console"]);
   }
 
   return dedupeProviders(["selfhost", "webhook", "console"]);

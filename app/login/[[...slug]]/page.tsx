@@ -15,12 +15,10 @@ import {
   X,
   Undo2,
   Mail,
-  Phone,
   Eye,
   EyeOff,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { DotLottieReact } from "@lottiefiles/dotlottie-react";
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -80,14 +78,6 @@ function maskEmail(email: string) {
       ? `${dom[0] || ""}*`
       : `${dom.slice(0, 2)}***${dom.slice(-1)}`;
   return `${user}@${domMasked}${tld ? "." + tld : ""}`;
-}
-
-function maskPhone(phone: string) {
-  const d = onlyDigits(phone);
-  if (d.length < 10) return phone;
-  const a = d.slice(0, 2);
-  const last = d.slice(-2);
-  return `(${a}) *****-${last}`;
 }
 
 function getDashboardOriginForLoginHost(host: string) {
@@ -271,10 +261,7 @@ type EmailCheckState =
 type Step =
   | "collect"
   | "emailCode"
-  | "twoFactorCode"
-  | "emailSuccess"
-  | "collectPhone"
-  | "smsCode";
+  | "twoFactorCode";
 type LoginAuthMethod = "choose" | "totp" | "passkey";
 type LoginAuthMethodsPayload = { totp?: boolean; passkey?: boolean };
 type PasskeyLoginOptionsPayload = {
@@ -338,7 +325,7 @@ function CodeBoxes({
   onChange: (v: string) => void;
   onComplete?: (v: string) => void;
   disabled?: boolean;
-  loading?: boolean; // ✅ novo
+  loading?: boolean; // novo
   reduced?: boolean;
   variant?: "light" | "dark";
 }) {
@@ -395,13 +382,13 @@ function CodeBoxes({
           maxLength={1}
           value={d}
           onChange={(e) => {
-            if (disabled) return; // ✅ trava também o handler
+            if (disabled) return; // trava também o handler
             const ch = onlyDigits(e.target.value).slice(-1);
             setAt(i, ch);
             if (ch && i < length - 1) focus(i + 1);
           }}
           onKeyDown={(e) => {
-            if (disabled) return; // ✅ trava
+            if (disabled) return; // trava
             if (e.key === "Backspace") {
               if (digits[i]) {
                 setAt(i, "");
@@ -414,7 +401,7 @@ function CodeBoxes({
             if (e.key === "ArrowRight" && i < length - 1) focus(i + 1);
           }}
           onPaste={(e) => {
-            if (disabled) return; // ✅ trava
+            if (disabled) return; // trava
             e.preventDefault();
             const pasted = onlyDigits(
               e.clipboardData.getData("text") || "",
@@ -437,7 +424,7 @@ function CodeBoxes({
         />
       ))}
 
-      {/* ✅ Overlay de validação (spinner central) */}
+      {/* Overlay de validacao (spinner central) */}
       <AnimatePresence initial={false}>
         {showLoadingOverlay && (
           <motion.div
@@ -480,17 +467,6 @@ export default function LinkLoginPage() {
       } catch {}
     }
   }, []);
-
-  function consumeReturnTo(): string | null {
-    try {
-      const v = sessionStorage.getItem(RETURN_TO_KEY);
-      if (!v) return null;
-      sessionStorage.removeItem(RETURN_TO_KEY);
-      return v;
-    } catch {
-      return null;
-    }
-  }
 
   const prefersReducedMotion = useReducedMotion();
   const pathname = usePathname();
@@ -536,7 +512,7 @@ export default function LinkLoginPage() {
   const [phone, setPhone] = useState("");
   const [cpf, setCpf] = useState("");
 
-  // ✅ senha (serve pro login e pro registro)
+  // senha (serve pro login e pro registro)
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
@@ -548,25 +524,18 @@ export default function LinkLoginPage() {
   const [twoFactorAllowsTotp, setTwoFactorAllowsTotp] = useState(true);
   const [twoFactorAllowsPasskey, setTwoFactorAllowsPasskey] = useState(false);
   const [twoFactorMethod, setTwoFactorMethod] = useState<LoginAuthMethod>("totp");
-  const [smsCode, setSmsCode] = useState("");
   const [googleOnboarding, setGoogleOnboarding] = useState(false);
-
-  const [emailSuccessOpen, setEmailSuccessOpen] = useState(false);
-  const emailSuccessTimerRef = useRef<number | null>(null);
 
   // ui states
   const [busy, setBusy] = useState(false);
-  const [verifyingEmailCodeBusy, setVerifyingEmailCodeBusy] = useState(false); // ✅ novo (só validação do email code)
+  const [verifyingEmailCodeBusy, setVerifyingEmailCodeBusy] = useState(false); // novo (só validação do email code)
   const [verifyingTwoFactorCodeBusy, setVerifyingTwoFactorCodeBusy] =
     useState(false);
   const [verifyingPasskeyLoginBusy, setVerifyingPasskeyLoginBusy] =
     useState(false);
-  const [collectingGooglePhoneBusy, setCollectingGooglePhoneBusy] =
-    useState(false);
   const [checkingExistingSession, setCheckingExistingSession] = useState(true);
   const [sessionCheckLabel, setSessionCheckLabel] =
     useState("Verificando sessao...");
-  const [verifyingSmsCodeBusy, setVerifyingSmsCodeBusy] = useState(false); // ✅ novo (só validação do sms code)
   const [twoFactorIslandLoading, setTwoFactorIslandLoading] = useState(false);
   const [twoFactorShakeTick, setTwoFactorShakeTick] = useState(0);
   const [startingGoogleLogin, setStartingGoogleLogin] = useState(false);
@@ -587,7 +556,7 @@ export default function LinkLoginPage() {
         const decoded = decodeEmailFromUrlToken(tokenFromRoute);
         if (decoded && decoded.includes("@")) {
           setEmail(decoded);
-          setEmailLocked(true); // ✅ veio da URL, já trava o input
+          setEmailLocked(true); // veio da URL, já trava o input
           setCheck({ state: "typing" });
         }
       }
@@ -753,7 +722,6 @@ export default function LinkLoginPage() {
     setPassword("");
     setMsgError(null);
     setEmailCode("");
-    setSmsCode("");
 
     if (oauthStep === "email") {
       setStep("emailCode");
@@ -775,15 +743,6 @@ export default function LinkLoginPage() {
     );
     return () => window.clearInterval(t);
   }, [resendCooldown]);
-
-  useEffect(() => {
-    return () => {
-      if (emailSuccessTimerRef.current) {
-        window.clearTimeout(emailSuccessTimerRef.current);
-        emailSuccessTimerRef.current = null;
-      }
-    };
-  }, []);
 
   // email check debounce
   useEffect(() => {
@@ -834,7 +793,7 @@ export default function LinkLoginPage() {
           setCheck({ state: "new" });
         }
 
-        // ✅ animação + trava o email quando válido (modelo Google)
+        // animação + trava o email quando válido (modelo Google)
         setEmailLocked(true);
       } catch (err: any) {
         if (err?.name === "AbortError") return;
@@ -855,8 +814,6 @@ export default function LinkLoginPage() {
     setVerifyingEmailCodeBusy(false);
     setVerifyingTwoFactorCodeBusy(false);
     setVerifyingPasskeyLoginBusy(false);
-    setVerifyingSmsCodeBusy(false);
-    setCollectingGooglePhoneBusy(false);
     setMsgError(null);
     setResendCooldown(0);
     setTwoFactorIslandLoading(false);
@@ -880,7 +837,6 @@ export default function LinkLoginPage() {
     setTwoFactorAllowsPasskey(false);
     setTwoFactorMethod("totp");
     passkeyAutoStartTicketRef.current = "";
-    setSmsCode("");
     setGoogleOnboarding(false);
 
     // garante URL limpa
@@ -926,7 +882,7 @@ export default function LinkLoginPage() {
   const EmailAdornment = useMemo(() => {
     const s = check.state;
 
-    // ✅ se email locked, mostra botão reset (seta voltar)
+    // se email locked, mostra botão reset (seta voltar)
     const showReset =
       emailLocked &&
       (s === "exists" || s === "new" || s === "invalid" || s === "error");
@@ -999,10 +955,7 @@ export default function LinkLoginPage() {
       }
       return "Abra seu aplicativo autenticador para continuar.";
     }
-    if (step === "collectPhone")
-      return "Informe seu numero de celular para receber o codigo SMS.";
-    if (step === "smsCode") return "Insira o codigo enviado por SMS.";
-    if (check.state === "checking") return "Verificando seu e-mail…";
+    if (check.state === "checking") return "Verificando seu e-mail...";
     if (check.state === "exists")
       return googleOnboarding
         ? "Conta Google conectada. Vamos confirmar com codigo."
@@ -1054,7 +1007,7 @@ export default function LinkLoginPage() {
       try {
         const payload: any = { email: email.trim().toLowerCase() };
 
-        // ✅ sempre manda senha (login e register)
+        // sempre manda senha (login e register)
         payload.password = String(password || "");
         if (typeof window !== "undefined") {
           const currentUrl = new URL(window.location.href);
@@ -1153,9 +1106,7 @@ export default function LinkLoginPage() {
     [busy, startingGoogleLogin],
   );
 
-  const [phoneMaskFromServer, setPhoneMaskFromServer] = useState<string>("");
-
-  // ✅ Declare returnTo at component level
+  // Declare returnTo at component level
   const url =
     typeof window !== "undefined" ? new URL(window.location.href) : null;
   const returnTo = url?.searchParams.get("returnTo") || "";
@@ -1202,7 +1153,7 @@ export default function LinkLoginPage() {
       const c = onlyDigits(code ?? emailCode).slice(0, 7);
       if (c.length !== 7 || busy || verifyingEmailCodeBusy) return;
 
-      setVerifyingEmailCodeBusy(true); // ✅ trava e mostra loader no code
+      setVerifyingEmailCodeBusy(true); // trava e mostra loader no code
       setBusy(true);
       setMsgError(null);
 
@@ -1235,7 +1186,6 @@ export default function LinkLoginPage() {
               : "Codigo invalido. Tente novamente.";
           setMsgError(String(j?.error || fallbackError));
           setEmailCode("");
-          setSmsCode("");
           if (res.status === 429) {
             setResendCooldown(0);
           }
@@ -1246,38 +1196,6 @@ export default function LinkLoginPage() {
           if (!openSecondStepChallenge(j, null)) {
             throw new Error("Fluxo de autenticacao em 2 etapas invalido.");
           }
-          return;
-        }
-
-        if (j?.next === "collect-phone") {
-          setGoogleOnboarding(true);
-          setStep("collectPhone");
-          setSmsCode("");
-          setResendCooldown(0);
-          return;
-        }
-
-        if (j?.next === "sms") {
-          setPhoneMaskFromServer(String(j?.phoneMask || ""));
-          setEmailSuccessOpen(true);
-          setStep("emailSuccess");
-
-          if (emailSuccessTimerRef.current) {
-            window.clearTimeout(emailSuccessTimerRef.current);
-            emailSuccessTimerRef.current = null;
-          }
-
-          emailSuccessTimerRef.current = window.setTimeout(
-            () => {
-              setEmailSuccessOpen(false);
-              setStep("smsCode");
-              setSmsCode("");
-              setResendCooldown(35);
-              emailSuccessTimerRef.current = null;
-            },
-            prefersReducedMotion ? 0 : 1500, // ✅ dura mais
-          );
-
           return;
         }
 
@@ -1292,7 +1210,7 @@ export default function LinkLoginPage() {
         setMsgError(err?.message || "Erro inesperado. Tente novamente.");
       } finally {
         setBusy(false);
-        setVerifyingEmailCodeBusy(false); // ✅ destrava
+        setVerifyingEmailCodeBusy(false); // destrava
       }
     },
     [
@@ -1301,7 +1219,6 @@ export default function LinkLoginPage() {
       busy,
       verifyingEmailCodeBusy,
       router,
-      prefersReducedMotion,
       password,
       returnTo,
       openSecondStepChallenge,
@@ -1597,110 +1514,6 @@ export default function LinkLoginPage() {
     verifyPasskeyLogin,
   ]);
 
-  const saveGooglePhone = useCallback(
-    async (e?: React.FormEvent | React.MouseEvent) => {
-      e?.preventDefault?.();
-
-      const phoneDigits = onlyDigits(phone).slice(0, 11);
-      if (phoneDigits.length !== 11) {
-        setMsgError("Informe um celular BR valido com DDD.");
-        return;
-      }
-      if (busy || collectingGooglePhoneBusy) return;
-
-      setCollectingGooglePhoneBusy(true);
-      setBusy(true);
-      setMsgError(null);
-
-      try {
-        const res = await fetch("/api/wz_AuthLogin/google/phone", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: email.trim().toLowerCase(),
-            phone: phoneDigits,
-          }),
-        });
-
-        const j = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-        if (!res.ok || !j?.ok) {
-          throw new Error(
-            String(j?.error || "Nao foi possivel salvar o numero para validacao."),
-          );
-        }
-
-        setPhoneMaskFromServer(String(j?.phoneMask || ""));
-        setStep("smsCode");
-        setSmsCode("");
-        setResendCooldown(35);
-      } catch (error: unknown) {
-        setMsgError(
-          error instanceof Error
-            ? error.message
-            : "Erro inesperado ao salvar numero.",
-        );
-      } finally {
-        setBusy(false);
-        setCollectingGooglePhoneBusy(false);
-      }
-    },
-    [phone, busy, collectingGooglePhoneBusy, email],
-  );
-
-  const verifySmsCode = useCallback(
-    async (code?: string) => {
-      const c = onlyDigits(code ?? smsCode).slice(0, 7);
-      if (c.length !== 7 || busy || verifyingSmsCodeBusy) return;
-
-      setVerifyingSmsCodeBusy(true); // ✅ trava e mostra loader no code
-      setBusy(true);
-      setMsgError(null);
-
-      try {
-        const res = await fetch("/api/wz_AuthLogin/verify-sms", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: email.trim().toLowerCase(),
-            code: c,
-            password,
-            next: returnTo || "", // ✅ manda o returnTo (se tiver)
-          }),
-        });
-
-        const j = await res.json().catch(() => ({}));
-        if (!res.ok || !j?.ok) {
-          const fallbackError =
-            res.status === 429
-              ? "Voce atingiu o limite de 7 tentativas. Reenvie o codigo."
-              : "Codigo invalido. Tente novamente.";
-          setMsgError(String(j?.error || fallbackError));
-          setEmailCode("");
-          setSmsCode("");
-          if (res.status === 429) {
-            setResendCooldown(0);
-          }
-          return;
-        }
-
-        const consumedReturnTo = consumeReturnTo();
-        const nextUrl = String(j?.nextUrl || consumedReturnTo || "/app");
-
-        if (/^https?:\/\//i.test(nextUrl)) {
-          window.location.assign(nextUrl);
-        } else {
-          router.push(nextUrl);
-        }
-      } catch (err: any) {
-        setMsgError(err?.message || "Erro inesperado. Tente novamente.");
-      } finally {
-        setBusy(false);
-        setVerifyingSmsCodeBusy(false); // ✅ destrava
-      }
-    },
-    [email, smsCode, busy, verifyingSmsCodeBusy, router, password, returnTo],
-  );
-
   const resend = useCallback(async () => {
     if (busy || resendCooldown > 0) return;
     setBusy(true);
@@ -1788,7 +1601,7 @@ export default function LinkLoginPage() {
   const continueBtnRef = useRef<HTMLButtonElement | null>(null);
   const bottomLinksRef = useRef<HTMLDivElement | null>(null);
 
-  // ✅ novo: ref do painel onde estão os inputs/steps
+  // novo: ref do painel onde estão os inputs/steps
   const centerPanelRef = useRef<HTMLDivElement | null>(null);
 
   const [hideBottomLinks, setHideBottomLinks] = useState(false);
@@ -1797,7 +1610,7 @@ export default function LinkLoginPage() {
   const settleFramesRef = useRef(0);
   const holdUntilRef = useRef(0);
   const lastDecisionRef = useRef(false);
-  const holdTimerRef = useRef<number | null>(null); // ✅ acorda sozinho após HOLD
+  const holdTimerRef = useRef<number | null>(null); // acorda sozinho após HOLD
 
   const computeBottomLinksHide = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -1830,7 +1643,7 @@ export default function LinkLoginPage() {
     const vv = typeof window !== "undefined" ? window.visualViewport : null;
     const vh = (vv?.height ?? window.innerHeight) || 0;
 
-    // ✅ NOVO: se BottomLinks encostar em QUALQUER parte do painel (ícone/título/textos/inputs), esconde
+    // NOVO: se BottomLinks encostar em QUALQUER parte do painel (ícone/título/textos/inputs), esconde
     const overlapWithPanel = (() => {
       if (!root) return false;
 
@@ -1847,7 +1660,7 @@ export default function LinkLoginPage() {
       return xOverlap > 8 && yOverlap > 8;
     })();
 
-    // ✅ mantém também a proteção específica de interativos (caso queira)
+    // mantém também a proteção específica de interativos (caso queira)
     const overlapWithInteractive = (() => {
       if (!root) return false;
 
@@ -1899,7 +1712,7 @@ export default function LinkLoginPage() {
 
     const now = performance.now();
 
-    // ✅ hardHide agora considera:
+    // hardHide agora considera:
     // (1) encostou no painel (texto/ícone/etc) OU
     // (2) encostou em inputs/botões OU
     // (3) encostou no botão continuar
@@ -1922,7 +1735,7 @@ export default function LinkLoginPage() {
     } else {
       const inHold = now < holdUntilRef.current;
 
-      // ✅ só libera quando NÃO estiver encostando em nada do painel
+      // so libera quando nao estiver encostando em nada do painel
       if (!btnVisible && !overlapWithPanel && !overlapWithInteractive) {
         clearHoldTimer();
         holdUntilRef.current = 0;
@@ -1979,7 +1792,7 @@ export default function LinkLoginPage() {
     [computeBottomLinksHide],
   );
 
-  // useLayoutEffect evita “piscar” no primeiro paint após F5
+  // useLayoutEffect evita "piscar" no primeiro paint apos F5
   useLayoutEffect(() => {
     scheduleBottomLinksCheck(14);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1991,12 +1804,12 @@ export default function LinkLoginPage() {
     window.addEventListener("resize", onAnyChange, { passive: true });
     window.addEventListener("scroll", onAnyChange, { passive: true });
 
-    // ✅ Zoom do browser / mobile pinch-zoom (quando suportado)
+    // Zoom do browser / mobile pinch-zoom (quando suportado)
     const vv = typeof window !== "undefined" ? window.visualViewport : null;
     vv?.addEventListener("resize", onAnyChange, { passive: true } as any);
     vv?.addEventListener("scroll", onAnyChange, { passive: true } as any);
 
-    // ✅ Observa mudanças reais de layout (inclusive após fontes)
+    // Observa mudanças reais de layout (inclusive após fontes)
     let ro: ResizeObserver | null = null;
     try {
       ro = new ResizeObserver(() => scheduleBottomLinksCheck(12));
@@ -2004,11 +1817,11 @@ export default function LinkLoginPage() {
       if (continueBtnRef.current) ro.observe(continueBtnRef.current);
       if (bottomLinksRef.current) ro.observe(bottomLinksRef.current);
 
-      // ✅ novo
+      // novo
       if (centerPanelRef.current) ro.observe(centerPanelRef.current);
     } catch {}
 
-    // ✅ Quando fontes carregam, o layout muda (evita pisca pós F5)
+    // Quando fontes carregam, o layout muda (evita pisca pós F5)
     const fontsAny: any = (document as any).fonts;
     if (fontsAny?.ready?.then) {
       fontsAny.ready.then(() => scheduleBottomLinksCheck(12)).catch(() => {});
@@ -2125,10 +1938,6 @@ export default function LinkLoginPage() {
     if (step === "emailCode") return <Mail className="h-6 w-6 text-black/80" />;
     if (step === "twoFactorCode")
       return <Check className="h-6 w-6 text-black/80" />;
-    if (step === "emailSuccess")
-      return <Check className="h-6 w-6 text-black/80" />;
-    if (step === "collectPhone") return <Phone className="h-6 w-6 text-black/80" />;
-    if (step === "smsCode") return <Phone className="h-6 w-6 text-black/80" />;
     return <Mail className="h-6 w-6 text-black/80" />;
   }, [step]);
 
@@ -2188,11 +1997,7 @@ export default function LinkLoginPage() {
                         : twoFactorAllowsPasskey
                           ? "Continue com Windows Hello"
                           : "Confirme a autenticacao de 2 etapas"
-                    : step === "emailSuccess"
-                      ? "Codigo validado com sucesso"
-                      : step === "collectPhone"
-                        ? "Informe seu celular para validar"
-                      : "Confirme seu numero por SMS"}
+                    : "Entrar na Wyzer"}
               </div>
 
               <div className="mt-2 text-black/55 text-[14px] sm:text-[15px] md:text-[16px]">
@@ -2210,20 +2015,6 @@ export default function LinkLoginPage() {
                       : twoFactorAllowsPasskey
                         ? "Use o PIN ou biometria do dispositivo para continuar."
                         : "Abra seu aplicativo autenticador para continuar."}
-                  </>
-                ) : step === "emailSuccess" ? (
-                  <>
-                    Verificacao concluida. Vamos confirmar seu numero por SMS.
-                  </>
-                ) : step === "collectPhone" ? (
-                  <>
-                    Digite seu celular com DDD para receber o codigo SMS.
-                  </>
-                ) : step === "smsCode" ? (
-                  <>
-                    <span className="text-black/75">
-                      {phoneMaskFromServer || maskPhone(phone)}
-                    </span>
                   </>
                 ) : (
                   helperText
@@ -2275,7 +2066,7 @@ export default function LinkLoginPage() {
                       inputMode="email"
                     />
 
-                    {/* ✅ loader / checks / reset 100% centralizados */}
+                    {/* loader / checks / reset 100% centralizados */}
                     <div className="absolute right-5 top-1/2 -translate-y-1/2 flex items-center">
                       {EmailAdornment}
                     </div>
@@ -2531,8 +2322,8 @@ export default function LinkLoginPage() {
                     value={emailCode}
                     onChange={setEmailCode}
                     onComplete={(v) => verifyEmailCode(v)}
-                    disabled={busy || verifyingEmailCodeBusy} // ✅ trava inputs
-                    loading={verifyingEmailCodeBusy} // ✅ loader central
+                    disabled={busy || verifyingEmailCodeBusy} // trava inputs
+                    loading={verifyingEmailCodeBusy} // loader central
                     reduced={!!prefersReducedMotion}
                   />
 
@@ -2575,7 +2366,7 @@ export default function LinkLoginPage() {
                     <button
                       type="button"
                       onClick={resetAll}
-                      disabled={busy || verifyingEmailCodeBusy} // ✅ não deixa “remover o código” no meio
+                      disabled={busy || verifyingEmailCodeBusy} // nao deixa remover o codigo no meio
                       className={cx(
                         "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
                         busy || verifyingEmailCodeBusy
@@ -2591,287 +2382,6 @@ export default function LinkLoginPage() {
               )}
             </AnimatePresence>
 
-            {/* STEP: EMAIL SUCCESS */}
-            <AnimatePresence mode="sync" initial={false}>
-              {step === "emailSuccess" && (
-                <motion.div
-                  key="emailSuccess"
-                  initial={{ opacity: 0, y: 14, filter: "blur(10px)" }}
-                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                  exit={{ opacity: 0, y: 10, filter: "blur(10px)" }}
-                  transition={{
-                    duration: prefersReducedMotion ? 0 : DUR.md,
-                    ease: EASE,
-                  }}
-                  className="mt-10"
-                >
-                  <div className="flex flex-col items-center justify-center text-center">
-                    {/* GIF / Lottie (DotLottie) */}
-                    <motion.div
-                      className="h-40 w-40 rounded-2xl overflow-hidden"
-                      initial={{ opacity: 0, scale: 0.92 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{
-                        duration: prefersReducedMotion ? 0 : 0.25,
-                        ease: EASE,
-                      }}
-                    >
-                      <DotLottieReact
-                        src="https://lottie.host/486672b2-c90e-4b34-bf26-62286504b54d/cmJkEq0miI.lottie"
-                        loop
-                        autoplay
-                        className="h-full w-full"
-                      />
-                      <span className="sr-only">Sucesso</span>
-                    </motion.div>
-
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{
-                        duration: prefersReducedMotion ? 0 : 0.35,
-                        ease: EASE,
-                        delay: 0.05,
-                      }}
-                      className="mt-5 text-black/70 text-[14px] sm:text-[15px]"
-                    >
-                      Você será direcionado para a validação por SMS.
-                    </motion.div>
-
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{
-                        duration: prefersReducedMotion ? 0 : 0.35,
-                        ease: EASE,
-                        delay: 0.1,
-                      }}
-                      className="mt-4"
-                    >
-                      <SpinnerMini reduced={!!prefersReducedMotion} />
-                    </motion.div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* STEP: COLLECT PHONE (GOOGLE) */}
-            <AnimatePresence mode="sync" initial={false}>
-              {step === "collectPhone" && (
-                <motion.form
-                  key="collectPhone"
-                  onSubmit={saveGooglePhone}
-                  initial={{ opacity: 0, y: 14, filter: "blur(10px)" }}
-                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                  exit={{ opacity: 0, y: 10, filter: "blur(10px)" }}
-                  transition={{
-                    duration: prefersReducedMotion ? 0 : DUR.md,
-                    ease: EASE,
-                  }}
-                  className="mt-10"
-                >
-                  <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden">
-                    <input
-                      type="tel"
-                      value={phone}
-                      onChange={(e) => setPhone(formatPhoneBR(e.target.value))}
-                      placeholder="Numero de telefone"
-                      className="w-full bg-transparent px-6 py-5 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
-                      autoComplete="tel"
-                      inputMode="tel"
-                    />
-                  </div>
-
-                  <AnimatePresence initial={false}>
-                    {!!msgError && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 8, filter: "blur(8px)" }}
-                        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                        exit={{ opacity: 0, y: 8, filter: "blur(8px)" }}
-                        transition={{
-                          duration: prefersReducedMotion ? 0 : 0.22,
-                          ease: EASE,
-                        }}
-                        className="mt-4 rounded-[16px] bg-black/5 ring-1 ring-black/10 px-4 py-3 text-[13px] text-black/70 text-center"
-                      >
-                        {msgError}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  <motion.button
-                    type="submit"
-                    disabled={busy || collectingGooglePhoneBusy || onlyDigits(phone).length !== 11}
-                    whileHover={
-                      prefersReducedMotion ||
-                      busy ||
-                      collectingGooglePhoneBusy ||
-                      onlyDigits(phone).length !== 11
-                        ? undefined
-                        : { y: -2, scale: 1.01 }
-                    }
-                    whileTap={
-                      prefersReducedMotion ||
-                      busy ||
-                      collectingGooglePhoneBusy ||
-                      onlyDigits(phone).length !== 11
-                        ? undefined
-                        : { scale: 0.98 }
-                    }
-                    transition={{
-                      duration: prefersReducedMotion ? 0 : DUR.sm,
-                      ease: EASE,
-                    }}
-                    className={cx(
-                      "group relative w-full mt-7 bg-[#171717] border border-[#454545] border-2 rounded-full px-15 py-5 text-white",
-                      "focus:outline-none transition-all duration-300 ease-out",
-                      "text-[16px] font-semibold shadow-[0_18px_55px_rgba(0,0,0,0.12)] hover:shadow-[0_22px_70px_rgba(0,0,0,0.16)] pr-16 transform-gpu",
-                      busy || collectingGooglePhoneBusy || onlyDigits(phone).length !== 11
-                        ? "opacity-60 cursor-not-allowed select-none pointer-events-none"
-                        : "hover:border-[#6a6a6a] focus:border-lime-400",
-                    )}
-                    style={{ willChange: "transform" }}
-                  >
-                    <span className="relative z-10">
-                      {collectingGooglePhoneBusy ? "Salvando..." : "Continuar"}
-                    </span>
-
-                    <motion.span
-                      whileHover={
-                        prefersReducedMotion ||
-                        busy ||
-                        collectingGooglePhoneBusy ||
-                        onlyDigits(phone).length !== 11
-                          ? undefined
-                          : { scale: 1.06 }
-                      }
-                      whileTap={
-                        prefersReducedMotion ||
-                        busy ||
-                        collectingGooglePhoneBusy ||
-                        onlyDigits(phone).length !== 11
-                          ? undefined
-                          : { scale: 0.96 }
-                      }
-                      transition={{
-                        duration: prefersReducedMotion ? 0 : DUR.sm,
-                        ease: EASE,
-                      }}
-                      className={cx(
-                        "absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-3 transition-all duration-300 ease-out",
-                        busy || collectingGooglePhoneBusy || onlyDigits(phone).length !== 11
-                          ? "bg-transparent"
-                          : "bg-transparent group-hover:bg-white/10 group-hover:translate-x-0.5",
-                      )}
-                    >
-                      {collectingGooglePhoneBusy ? (
-                        <SpinnerMini reduced={!!prefersReducedMotion} />
-                      ) : (
-                        <ArrowRight className="w-5 h-5 text-white transition-transform duration-300 group-hover:translate-x-0.5" />
-                      )}
-                    </motion.span>
-                  </motion.button>
-
-                  <div className="mt-6 flex items-center justify-center">
-                    <button
-                      type="button"
-                      onClick={resetAll}
-                      disabled={busy || collectingGooglePhoneBusy}
-                      className={cx(
-                        "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
-                        busy || collectingGooglePhoneBusy
-                          ? "text-black/35 cursor-not-allowed"
-                          : "text-black/55 hover:text-black/75",
-                      )}
-                    >
-                      <Undo2 className="h-4 w-4" />
-                      Trocar e-mail
-                    </button>
-                  </div>
-                </motion.form>
-              )}
-            </AnimatePresence>
-
-            {/* STEP: SMS CODE */}
-            <AnimatePresence mode="sync" initial={false}>
-              {step === "smsCode" && (
-                <motion.div
-                  key="smsCode"
-                  initial={{ opacity: 0, y: 14, filter: "blur(10px)" }}
-                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                  exit={{ opacity: 0, y: 10, filter: "blur(10px)" }}
-                  transition={{
-                    duration: prefersReducedMotion ? 0 : DUR.md,
-                    ease: EASE,
-                  }}
-                  className="mt-10"
-                >
-                  <CodeBoxes
-                    length={7}
-                    value={smsCode}
-                    onChange={setSmsCode}
-                    onComplete={(v) => verifySmsCode(v)}
-                    disabled={busy || verifyingSmsCodeBusy} // ✅ trava inputs
-                    loading={verifyingSmsCodeBusy} // ✅ loader central
-                    reduced={!!prefersReducedMotion}
-                  />
-
-                  <AnimatePresence initial={false}>
-                    {!!msgError && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 8, filter: "blur(8px)" }}
-                        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                        exit={{ opacity: 0, y: 8, filter: "blur(8px)" }}
-                        transition={{
-                          duration: prefersReducedMotion ? 0 : 0.22,
-                          ease: EASE,
-                        }}
-                        className="mt-4 rounded-[16px] bg-black/5 ring-1 ring-black/10 px-4 py-3 text-[13px] text-black/70 text-center"
-                      >
-                        {msgError}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  <div className="mt-8 flex items-center justify-center">
-                    <button
-                      type="button"
-                      onClick={resend}
-                      disabled={
-                        busy || verifyingSmsCodeBusy || resendCooldown > 0
-                      }
-                      className={cx(
-                        "text-[14px] font-semibold text-black/80 hover:text-black transition-colors",
-                        busy || verifyingSmsCodeBusy || resendCooldown > 0
-                          ? "opacity-50 cursor-not-allowed"
-                          : "",
-                      )}
-                    >
-                      {resendCooldown > 0
-                        ? `Reenviar código (${resendCooldown}s)`
-                        : "Reenviar código"}
-                    </button>
-                  </div>
-
-                  <div className="mt-6 flex items-center justify-center">
-                    <button
-                      type="button"
-                      onClick={resetAll}
-                      disabled={busy || verifyingSmsCodeBusy} // ✅ não deixa resetar no meio
-                      className={cx(
-                        "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
-                        busy || verifyingSmsCodeBusy
-                          ? "text-black/35 cursor-not-allowed"
-                          : "text-black/55 hover:text-black/75",
-                      )}
-                    >
-                      <Undo2 className="h-4 w-4" />
-                      Trocar e-mail
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
           </div>
         </motion.div>
       </div>
@@ -3301,3 +2811,4 @@ export default function LinkLoginPage() {
     </div>
   );
 }
+

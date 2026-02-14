@@ -3361,12 +3361,13 @@ function AccountContent({
   const passwordChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localPasswordChangedAt || relativeBaseTimestamp, relativeNowMs)}`;
   const passwordStatusBadgeLabel = localMustCreatePassword ? "Pendente" : passwordChangedLabel;
   const passwordActionLabel = localMustCreatePassword ? "Criar Senha" : "Alterar Senha";
+  const showPhoneSecuritySection = false;
   const externalPrimaryAuthProviderName = resolveExternalAuthProviderName(localPrimaryAuthProvider);
   const passwordDescriptionText = localMustCreatePassword
     ? externalPrimaryAuthProviderName
       ? `Sua conta foi criada com ${externalPrimaryAuthProviderName}. Crie uma senha agora para liberar tambem o login por senha.`
       : "Crie sua primeira senha para ativar o login por senha nesta conta."
-    : "Atualize sua senha com confirmacao por codigo enviado no e-mail e no SMS (quando disponivel).";
+    : "Atualize sua senha com confirmacao por codigo enviado no e-mail.";
   const buttonShellClass =
     "rounded-xl border px-4 py-2 text-[13px] font-semibold transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)] active:translate-y-[0.6px] active:scale-[0.992]";
   const buttonNeutralClass =
@@ -3495,7 +3496,7 @@ function AccountContent({
           <div className="mt-4 border-t border-black/10" />
           <div className="space-y-6 pt-5">
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">E-mail</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{emailChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedEmailValue}</p></div><button type="button" onClick={() => void openEmailModal()} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar E-mail</button></div>
-            <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Número de celular</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{phoneChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedPhoneValue}</p></div><button type="button" onClick={() => void openPhoneModal()} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar celular</button></div>
+            {showPhoneSecuritySection && <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Número de celular</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{phoneChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedPhoneValue}</p></div><button type="button" onClick={() => void openPhoneModal()} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar celular</button></div>}
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Senha</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{passwordStatusBadgeLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{passwordDescriptionText}</p></div><button type="button" onClick={() => void openPasswordModal()} className={cx(buttonClass, "self-start sm:self-auto")}>{passwordActionLabel}</button></div>
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4">
               <div>
@@ -3804,7 +3805,7 @@ function AccountContent({
           </motion.div>
         )}
 
-        {phoneModalOpen && (
+        {showPhoneSecuritySection && phoneModalOpen && (
           <motion.div
             className="fixed inset-0 z-[226] flex items-center justify-center p-4 sm:p-6"
             initial={{ opacity: 0 }}

@@ -3,14 +3,11 @@ import { NextResponse } from "next/server";
 import { resolveTwoFactorState } from "@/app/api/_twoFactor";
 import { supabaseAdmin, supabaseAnon } from "../_supabase";
 import {
-  gen7,
+  isValidCPF,
   isValidE164BRMobile,
-  maskPhoneE164,
-  newSalt,
   onlyDigits,
   sha,
 } from "../_codes";
-import { sendAuthSmsCode } from "../_sms";
 import { setSessionCookie } from "../_session";
 import { registerIssuedSession } from "../_session_devices";
 import {
@@ -191,6 +188,7 @@ type WzUserSnapshot = {
   authUserId: string | null;
   authProvider: string | null;
   phoneE164: string | null;
+  fullName: string | null;
 };
 
 async function getWzUserSnapshotByEmail(
@@ -198,8 +196,8 @@ async function getWzUserSnapshotByEmail(
   email: string,
 ) {
   const columnsToTry = [
-    "id,auth_user_id,auth_provider,phone_e164",
-    "id,auth_user_id,phone_e164",
+    "id,auth_user_id,auth_provider,phone_e164,full_name",
+    "id,auth_user_id,phone_e164,full_name",
     "id,auth_user_id",
     "id,phone_e164",
     "id",
@@ -218,6 +216,7 @@ async function getWzUserSnapshotByEmail(
         auth_user_id?: string | null;
         auth_provider?: string | null;
         phone_e164?: string | null;
+        full_name?: string | null;
       };
 
       return {
@@ -225,10 +224,11 @@ async function getWzUserSnapshotByEmail(
         authUserId: normalizeText(row.auth_user_id),
         authProvider: normalizeProvider(row.auth_provider),
         phoneE164: normalizeText(row.phone_e164),
+        fullName: normalizeText(row.full_name),
       } as WzUserSnapshot;
     }
 
-    const hasMissingColumn = ["id", "auth_user_id", "auth_provider", "phone_e164"].some(
+    const hasMissingColumn = ["id", "auth_user_id", "auth_provider", "phone_e164", "full_name"].some(
       (column) => isMissingColumnError(res.error, column),
     );
     if (!hasMissingColumn) {
@@ -242,7 +242,134 @@ async function getWzUserSnapshotByEmail(
     authUserId: null,
     authProvider: null,
     phoneE164: null,
+    fullName: null,
   } as WzUserSnapshot;
+}
+
+function isPhoneConstraintViolation(error: unknown) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  return (
+    code === "23514" &&
+    (message.includes("wz_users_phone_e164_br_chk") ||
+      details.includes("wz_users_phone_e164_br_chk") ||
+      message.includes("phone_e164") ||
+      details.includes("phone_e164"))
+  );
+}
+
+async function updateWzUserBestEffort(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+  patch: Record<string, unknown>;
+}) {
+  const userId = String(params.userId || "").trim();
+  if (!userId) return;
+
+  const patch = { ...params.patch };
+  if (!Object.keys(patch).length) return;
+
+  while (Object.keys(patch).length) {
+    const updateRes = await params.sb.from("wz_users").update(patch).eq("id", userId);
+    if (!updateRes.error) return;
+
+    if (isPhoneConstraintViolation(updateRes.error)) {
+      if (!Object.prototype.hasOwnProperty.call(patch, "phone_e164")) {
+        patch.phone_e164 = null;
+        continue;
+      }
+    }
+
+    let removedAny = false;
+    for (const key of Object.keys(patch)) {
+      if (isMissingColumnError(updateRes.error, key)) {
+        delete patch[key];
+        removedAny = true;
+      }
+    }
+
+    if (!removedAny) throw updateRes.error;
+  }
+}
+
+async function insertGoogleWzUserBestEffort(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  email: string;
+  fullName: string | null;
+  phoneE164: string | null;
+  authUserId: string;
+}) {
+  const nowIso = new Date().toISOString();
+  const attempts: Array<Record<string, unknown>> = [
+    {
+      email: params.email,
+      full_name: params.fullName,
+      phone_e164: params.phoneE164,
+      auth_user_id: params.authUserId,
+      email_verified: true,
+      phone_verified: false,
+      auth_provider: "google",
+      must_create_password: true,
+      created_at: nowIso,
+    },
+    {
+      email: params.email,
+      full_name: params.fullName,
+      phone_e164: params.phoneE164,
+      auth_user_id: params.authUserId,
+      email_verified: true,
+      phone_verified: false,
+      created_at: nowIso,
+    },
+    {
+      email: params.email,
+      full_name: params.fullName,
+      phone_e164: params.phoneE164,
+      auth_user_id: params.authUserId,
+      created_at: nowIso,
+    },
+    {
+      email: params.email,
+      full_name: params.fullName,
+      phone_e164: params.phoneE164,
+      auth_user_id: params.authUserId,
+    },
+    {
+      email: params.email,
+      full_name: params.fullName,
+      auth_user_id: params.authUserId,
+    },
+  ];
+
+  let lastError: unknown = null;
+
+  for (const payload of attempts) {
+    const res = await params.sb
+      .from("wz_users")
+      .insert(payload)
+      .select("id")
+      .single();
+
+    if (!res.error && res.data?.id) {
+      return String(res.data.id);
+    }
+
+    if (res.error) {
+      lastError = res.error;
+      const hasMissingColumn = Object.keys(payload).some((key) =>
+        isMissingColumnError(res.error, key),
+      );
+      if (hasMissingColumn) continue;
+      throw res.error;
+    }
+  }
+
+  if (lastError) throw lastError;
+  throw new Error("Nao foi possivel inserir usuario Google em wz_users.");
 }
 
 function hasGoogleIdentity(user: unknown) {
@@ -588,103 +715,243 @@ export async function POST(req: Request) {
       return res;
     }
 
-    if (authUserId) {
-      try {
-        if (isGoogleOnboarding) {
-          await sb.auth.admin.updateUserById(authUserId, {
-            email_confirm: true,
-          });
-        } else {
-          await sb.auth.admin.updateUserById(authUserId, {
-            email_confirm: true,
-            password,
-          });
-        }
-      } catch (err) {
-        console.error("[verify-email] auth confirm/update failed:", err);
-      }
-
-      try {
-        await sb
-          .from("wz_pending_auth")
-          .update({ auth_user_id: authUserId, updated_at: new Date().toISOString() })
-          .eq("email", email);
-      } catch {}
-    }
-
-    const pendingPhone = String(pend.data.phone_e164 || "").trim();
-    const profilePhone = String(wzUser.phoneE164 || "").trim();
-    const phoneE164 = pendingPhone || profilePhone;
-
-    if (!phoneE164 || !isValidE164BRMobile(phoneE164)) {
-      if (isGoogleOnboarding) {
-        const patch: Record<string, unknown> = {
-          stage: "phone",
-          updated_at: new Date().toISOString(),
-        };
-        if (authUserId) patch.auth_user_id = authUserId;
-        await sb.from("wz_pending_auth").update(patch).eq("email", email);
-
-        return NextResponse.json(
-          { ok: true, next: "collect-phone" },
-          { status: 200, headers: NO_STORE_HEADERS },
-        );
-      }
-
-      const missingPhoneMessage = !phoneE164
-        ? "Telefone nao encontrado para SMS."
-        : "Telefone invalido para SMS. Use um celular BR valido com DDD.";
+    if (!authUserId) {
       return NextResponse.json(
-        { ok: false, error: missingPhoneMessage },
-        { status: 400, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    const pendingPatch: Record<string, unknown> = {
-      stage: "sms",
-      updated_at: new Date().toISOString(),
-    };
-    if (authUserId) pendingPatch.auth_user_id = authUserId;
-    if (!pendingPhone || pendingPhone !== phoneE164) {
-      pendingPatch.phone_e164 = phoneE164;
-    }
-    await sb.from("wz_pending_auth").update(pendingPatch).eq("email", email);
-
-    await sb
-      .from("wz_auth_challenges")
-      .update({ consumed: true })
-      .eq("email", email)
-      .eq("channel", "sms")
-      .eq("consumed", false);
-
-    const smsCode = gen7();
-    const smsSalt = newSalt();
-    const smsHash = sha(smsCode, smsSalt);
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 10).toISOString();
-
-    const { error: smsErr } = await sb.from("wz_auth_challenges").insert({
-      email,
-      channel: "sms",
-      code_hash: smsHash,
-      salt: smsSalt,
-      expires_at: expiresAt,
-      attempts_left: 7,
-      consumed: false,
-    });
-
-    if (smsErr) {
-      return NextResponse.json(
-        { ok: false, error: "Falha ao gerar SMS." },
+        { ok: false, error: "Nao foi possivel vincular autenticacao. Reinicie e tente novamente." },
         { status: 500, headers: NO_STORE_HEADERS },
       );
     }
 
-    await sendAuthSmsCode(phoneE164, smsCode);
+    try {
+      if (isGoogleOnboarding) {
+        await sb.auth.admin.updateUserById(authUserId, {
+          email_confirm: true,
+        });
+      } else {
+        await sb.auth.admin.updateUserById(authUserId, {
+          email_confirm: true,
+          password,
+        });
+      }
+    } catch (err) {
+      console.error("[verify-email] auth confirm/update failed:", err);
+    }
 
-    return NextResponse.json(
-      { ok: true, next: "sms", phoneMask: maskPhoneE164(phoneE164) },
+    try {
+      await sb
+        .from("wz_pending_auth")
+        .update({ auth_user_id: authUserId, updated_at: new Date().toISOString() })
+        .eq("email", email);
+    } catch {}
+
+    const fullName = String(pend.data.full_name || wzUser.fullName || "").trim();
+    const cpf = String(pend.data.cpf || "").trim();
+    const pendingPhone = String(pend.data.phone_e164 || "").trim();
+    const profilePhone = String(wzUser.phoneE164 || "").trim();
+    const phoneE164 = pendingPhone || profilePhone || null;
+
+    let userId: string | null = null;
+
+    if (!isGoogleOnboarding) {
+      if (!isValidCPF(cpf)) {
+        return NextResponse.json(
+          { ok: false, error: "CPF invalido. Tente novamente." },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      if (!phoneE164 || !isValidE164BRMobile(phoneE164)) {
+        return NextResponse.json(
+          { ok: false, error: "Celular invalido. Use um numero BR valido com DDD." },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const confPhone = await sb
+        .from("wz_users")
+        .select("id,email")
+        .eq("phone_e164", phoneE164)
+        .maybeSingle();
+      if (confPhone.error) {
+        console.error("[verify-email] phone duplicate check error:", confPhone.error);
+        return NextResponse.json(
+          { ok: false, error: "Falha ao validar cadastro." },
+          { status: 500, headers: NO_STORE_HEADERS },
+        );
+      }
+      if (confPhone.data?.id && String(confPhone.data.email || "").toLowerCase() !== email) {
+        return NextResponse.json(
+          { ok: false, error: "Este numero ja possui uma conta." },
+          { status: 409, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const confCpf = await sb.from("wz_users").select("id,email").eq("cpf", cpf).maybeSingle();
+      if (confCpf.error) {
+        console.error("[verify-email] cpf duplicate check error:", confCpf.error);
+        return NextResponse.json(
+          { ok: false, error: "Falha ao validar cadastro." },
+          { status: 500, headers: NO_STORE_HEADERS },
+        );
+      }
+      if (confCpf.data?.id && String(confCpf.data.email || "").toLowerCase() !== email) {
+        return NextResponse.json(
+          { ok: false, error: "Este CPF ja possui uma conta." },
+          { status: 409, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const existing = await sb
+        .from("wz_users")
+        .select("id")
+        .eq("email", email)
+        .maybeSingle();
+
+      if (existing.error) {
+        console.error("[verify-email] wz_users select error:", existing.error);
+        return NextResponse.json(
+          { ok: false, error: "Falha ao validar cadastro." },
+          { status: 500, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      if (existing.data?.id) {
+        userId = String(existing.data.id);
+        const upUserErr = await sb
+          .from("wz_users")
+          .update({
+            email_verified: true,
+            phone_verified: false,
+            auth_user_id: authUserId,
+            full_name: fullName || null,
+            cpf: cpf || null,
+            phone_e164: phoneE164 || null,
+          })
+          .eq("id", userId);
+
+        if (upUserErr.error) {
+          console.error("[verify-email] wz_users update error:", upUserErr.error);
+          return NextResponse.json(
+            { ok: false, error: "Falha ao atualizar cadastro." },
+            { status: 500, headers: NO_STORE_HEADERS },
+          );
+        }
+      } else {
+        const ins = await sb
+          .from("wz_users")
+          .insert({
+            email,
+            full_name: fullName || null,
+            cpf: cpf || null,
+            phone_e164: phoneE164 || null,
+            auth_user_id: authUserId,
+            email_verified: true,
+            phone_verified: false,
+            created_at: new Date().toISOString(),
+          })
+          .select("id")
+          .single();
+
+        if (ins.error || !ins.data?.id) {
+          console.error("[verify-email] wz_users insert error:", ins.error);
+          return NextResponse.json(
+            { ok: false, error: "Falha ao salvar cadastro." },
+            { status: 500, headers: NO_STORE_HEADERS },
+          );
+        }
+        userId = String(ins.data.id);
+      }
+    } else {
+      if (wzUser.id) {
+        userId = wzUser.id;
+        await updateWzUserBestEffort({
+          sb,
+          userId,
+          patch: {
+            email_verified: true,
+            phone_verified: false,
+            auth_user_id: authUserId,
+            full_name: fullName || null,
+            phone_e164: phoneE164 || null,
+            auth_provider: "google",
+            must_create_password: true,
+          },
+        });
+      } else {
+        userId = await insertGoogleWzUserBestEffort({
+          sb,
+          email,
+          fullName: fullName || null,
+          phoneE164: phoneE164 || null,
+          authUserId,
+        });
+      }
+    }
+
+    await sb.from("wz_pending_auth").delete().eq("email", email);
+
+    const resolvedUserId = String(userId || "").trim();
+    if (!resolvedUserId) {
+      return NextResponse.json(
+        { ok: false, error: "Falha ao finalizar autenticacao." },
+        { status: 500, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const dashboard = getDashboardOrigin();
+    const loginMethod = isGoogleOnboarding ? "google" : "email_code";
+    const loginFlow = isGoogleOnboarding ? "login" : "register";
+    const isAccountCreationSession = !isGoogleOnboarding;
+
+    if (isHostOnlyMode()) {
+      const ticket = makeDashboardTicket({
+        userId: resolvedUserId,
+        email,
+        fullName,
+      });
+      const nextUrl =
+        `${dashboard}/api/wz_AuthLogin/exchange` +
+        `?ticket=${encodeURIComponent(ticket)}` +
+        `&next=${encodeURIComponent(nextSafe)}` +
+        `&lm=${encodeURIComponent(loginMethod)}` +
+        `&lf=${encodeURIComponent(loginFlow)}` +
+        (isAccountCreationSession ? "&acs=1" : "");
+
+      const res = NextResponse.json(
+        { ok: true, nextUrl },
+        { status: 200, headers: NO_STORE_HEADERS },
+      );
+      setSessionCookie(
+        res,
+        { userId: resolvedUserId, email, fullName },
+        req.headers,
+      );
+      await issueTrustedLogin(sb, email, res);
+      return res;
+    }
+
+    const nextUrl = `${dashboard}${nextSafe.startsWith("/") ? nextSafe : "/"}`;
+    const res = NextResponse.json(
+      { ok: true, nextUrl },
       { status: 200, headers: NO_STORE_HEADERS },
     );
+    const sessionPayload = setSessionCookie(
+      res,
+      { userId: resolvedUserId, email, fullName },
+      req.headers,
+    );
+    await registerIssuedSession({
+      headers: req.headers,
+      userId: resolvedUserId,
+      authUserId: authUserId || null,
+      email,
+      session: sessionPayload,
+      loginMethod,
+      loginFlow,
+      isAccountCreationSession,
+    });
+    await issueTrustedLogin(sb, email, res);
+    return res;
   } catch (e: unknown) {
     console.error("[verify-email] error:", e);
     const message = e instanceof Error ? e.message : "Erro inesperado.";
