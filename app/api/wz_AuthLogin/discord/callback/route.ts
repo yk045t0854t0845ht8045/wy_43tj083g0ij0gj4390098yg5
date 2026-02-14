@@ -25,6 +25,7 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 };
 const DISCORD_STATE_COOKIE_NAME = "wz_discord_oauth_state_v1";
+const DISCORD_DEFAULT_GUILD_ID = "1467347653997363282";
 
 type DiscordStatePayload = {
   typ: "wz-discord-oauth-state";
@@ -81,6 +82,68 @@ function normalizeText(value?: string | null) {
 function normalizeEmail(value?: string | null) {
   const clean = String(value || "").trim().toLowerCase();
   return clean || null;
+}
+
+function normalizeDiscordSnowflake(value?: string | null) {
+  const clean = String(value || "").trim();
+  if (!/^\d{17,22}$/.test(clean)) return null;
+  return clean;
+}
+
+function isDiscordGuildJoinStrictMode() {
+  return getEnvBool("DISCORD_GUILD_JOIN_STRICT", false);
+}
+
+async function ensureDiscordGuildMemberByBot(params: {
+  discordUserId?: string | null;
+  providerAccessToken?: string | null;
+}) {
+  const enabled = getEnvBool("DISCORD_GUILD_JOIN_ENABLED", true);
+  if (!enabled) return { ok: true as const, skipped: "disabled" as const };
+
+  const botToken = normalizeText(process.env.DISCORD_BOT_TOKEN);
+  const guildId = normalizeDiscordSnowflake(
+    normalizeText(process.env.DISCORD_GUILD_ID) || DISCORD_DEFAULT_GUILD_ID,
+  );
+  const discordUserId = normalizeDiscordSnowflake(params.discordUserId);
+  const providerAccessToken = normalizeText(params.providerAccessToken);
+
+  if (!botToken) return { ok: false as const, reason: "missing-bot-token" as const };
+  if (!guildId) return { ok: false as const, reason: "invalid-guild-id" as const };
+  if (!discordUserId) return { ok: false as const, reason: "missing-discord-user-id" as const };
+  if (!providerAccessToken) {
+    return { ok: false as const, reason: "missing-provider-access-token" as const };
+  }
+
+  const endpoint = `https://discord.com/api/v10/guilds/${guildId}/members/${discordUserId}`;
+  const response = await fetch(endpoint, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bot ${botToken}`,
+      "Content-Type": "application/json",
+    },
+    cache: "no-store",
+    body: JSON.stringify({
+      access_token: providerAccessToken,
+    }),
+  });
+
+  if (response.status === 201 || response.status === 204) {
+    return { ok: true as const, status: response.status };
+  }
+
+  const payload = (await response.json().catch(() => null)) as
+    | { message?: string; code?: number | string }
+    | null;
+  const apiMessage = normalizeText(String(payload?.message || ""));
+
+  return {
+    ok: false as const,
+    reason: "discord-api-error" as const,
+    status: response.status,
+    apiCode: payload?.code,
+    apiMessage,
+  };
 }
 
 function normalizePkceVerifier(value?: string | null) {
@@ -903,6 +966,44 @@ function parseDiscordProviderUserId(user: Record<string, unknown>) {
   return null;
 }
 
+function parseDiscordOauthUserId(user: Record<string, unknown>) {
+  const identities = Array.isArray(user?.identities)
+    ? (user.identities as Array<Record<string, unknown>>)
+    : [];
+  const discordIdentity = identities.find(
+    (identity) => String(identity?.provider || "").trim().toLowerCase() === "discord",
+  );
+
+  const identityData =
+    discordIdentity?.identity_data && typeof discordIdentity.identity_data === "object"
+      ? (discordIdentity.identity_data as Record<string, unknown>)
+      : null;
+
+  const metadata =
+    user.user_metadata && typeof user.user_metadata === "object"
+      ? (user.user_metadata as Record<string, unknown>)
+      : null;
+
+  const candidates = [
+    identityData?.sub,
+    identityData?.user_id,
+    identityData?.id,
+    discordIdentity?.id,
+    metadata?.sub,
+    metadata?.user_id,
+    metadata?.id,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeDiscordSnowflake(
+      normalizeText(String(candidate || "")),
+    );
+    if (normalized) return normalized;
+  }
+
+  return null;
+}
+
 async function upsertPendingDiscordOnboarding(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   email: string;
@@ -1115,6 +1216,11 @@ async function tryTrustedDiscordBypass(params: {
 
 type SupabasePkceExchangePayload = {
   user?: Record<string, unknown> | null;
+  session?: Record<string, unknown> | null;
+  provider_token?: string;
+  providerToken?: string;
+  provider_refresh_token?: string;
+  providerRefreshToken?: string;
   error?: string;
   error_description?: string;
   message?: string;
@@ -1175,7 +1281,22 @@ async function exchangeDiscordPkceCode(params: {
     };
   }
 
-  return { ok: true as const, user };
+  const session =
+    payload.session && typeof payload.session === "object"
+      ? (payload.session as Record<string, unknown>)
+      : null;
+
+  const providerAccessToken = normalizeText(
+    String(
+      payload.provider_token ||
+        payload.providerToken ||
+        session?.provider_token ||
+        session?.providerToken ||
+        "",
+    ),
+  );
+
+  return { ok: true as const, user, providerAccessToken };
 }
 
 export async function GET(req: NextRequest) {
@@ -1276,6 +1397,10 @@ export async function GET(req: NextRequest) {
     const sb = supabaseAdmin();
     const nowIso = new Date().toISOString();
     const providerUserId = parseDiscordProviderUserId(user);
+    const discordOauthUserId =
+      parseDiscordOauthUserId(user) ||
+      normalizeDiscordSnowflake(providerUserId) ||
+      normalizeDiscordSnowflake(normalizeText(String(userMetadata?.sub || "")));
     const identityLookup = await findLinkedUserByProviderIdentity({
       sb,
       provider: "discord",
@@ -1335,6 +1460,24 @@ export async function GET(req: NextRequest) {
         return fail("Nao foi possivel conectar Discord nesta conta.");
       }
 
+      const connectGuildJoin = await ensureDiscordGuildMemberByBot({
+        discordUserId: discordOauthUserId,
+        providerAccessToken: exchange.providerAccessToken,
+      });
+      if (!connectGuildJoin.ok) {
+        console.warn("[discord-guild-join] connect failed:", {
+          reason: connectGuildJoin.reason,
+          status: connectGuildJoin.status,
+          apiCode: connectGuildJoin.apiCode,
+          apiMessage: connectGuildJoin.apiMessage,
+        });
+        if (isDiscordGuildJoinStrictMode()) {
+          return fail(
+            "Nao foi possivel adicionar sua conta ao servidor Discord agora. Tente novamente.",
+          );
+        }
+      }
+
       const successUrl = buildDiscordConnectRedirect({
         origin: requestOrigin,
         next: safeNext,
@@ -1375,6 +1518,24 @@ export async function GET(req: NextRequest) {
         console.warn("[discord-callback] login provider schema not ready; continuing without provider link");
       } else {
         console.error("[discord-callback] failed to persist Discord login provider link");
+      }
+    }
+
+    const loginGuildJoin = await ensureDiscordGuildMemberByBot({
+      discordUserId: discordOauthUserId,
+      providerAccessToken: exchange.providerAccessToken,
+    });
+    if (!loginGuildJoin.ok) {
+      console.warn("[discord-guild-join] login failed:", {
+        reason: loginGuildJoin.reason,
+        status: loginGuildJoin.status,
+        apiCode: loginGuildJoin.apiCode,
+        apiMessage: loginGuildJoin.apiMessage,
+      });
+      if (isDiscordGuildJoinStrictMode()) {
+        return fail(
+          "Nao foi possivel adicionar sua conta ao servidor Discord agora. Tente novamente.",
+        );
       }
     }
 

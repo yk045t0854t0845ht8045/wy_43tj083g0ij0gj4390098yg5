@@ -103,6 +103,25 @@ function sanitizeNext(raw: string) {
   return "/";
 }
 
+function buildDiscordOauthScopes() {
+  const requested = String(
+    process.env.DISCORD_OAUTH_SCOPES || "identify email guilds.join",
+  )
+    .trim()
+    .split(/\s+/)
+    .map((scope) => scope.trim().toLowerCase())
+    .filter(Boolean);
+
+  const required = ["identify", "email", "guilds.join"];
+  for (const scope of required) {
+    if (!requested.includes(scope)) {
+      requested.push(scope);
+    }
+  }
+
+  return requested.join(" ");
+}
+
 function pickRequestHost(req: NextRequest) {
   return String(
     req.headers.get("x-forwarded-host") || req.headers.get("host") || req.nextUrl.host || "",
@@ -219,9 +238,7 @@ export async function POST(req: NextRequest) {
     }
     const codeVerifier = createPkceCodeVerifier();
     const codeChallenge = createPkceCodeChallenge(codeVerifier);
-    const oauthScopes =
-      String(process.env.DISCORD_OAUTH_SCOPES || "identify email").trim() ||
-      "identify email";
+    const oauthScopes = buildDiscordOauthScopes();
 
     const stateTicket = createDiscordStateTicket({
       next: nextSafe,
