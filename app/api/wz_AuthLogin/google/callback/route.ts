@@ -19,6 +19,7 @@ const NO_STORE_HEADERS = {
   Pragma: "no-cache",
   Expires: "0",
 };
+const GOOGLE_STATE_COOKIE_NAME = "wz_google_oauth_state_v1";
 
 type GoogleStatePayload = {
   typ: "wz-google-oauth-state";
@@ -187,10 +188,51 @@ function getRequestOrigin(req: NextRequest) {
   return `${proto}://${hostHeader}`;
 }
 
+function resolveGoogleStateCookieDomain(req: NextRequest) {
+  const host = String(
+    req.headers.get("x-forwarded-host") || req.headers.get("host") || req.nextUrl.host || "",
+  )
+    .split(":")[0]
+    .trim()
+    .toLowerCase();
+
+  if (!host) return undefined;
+  if (host === "wyzer.com.br" || host.endsWith(".wyzer.com.br")) {
+    return ".wyzer.com.br";
+  }
+  return undefined;
+}
+
 function applyNoStore(res: NextResponse) {
   res.headers.set("Cache-Control", NO_STORE_HEADERS["Cache-Control"]);
   res.headers.set("Pragma", NO_STORE_HEADERS.Pragma);
   res.headers.set("Expires", NO_STORE_HEADERS.Expires);
+}
+
+function clearGoogleStateCookie(res: NextResponse, req: NextRequest) {
+  res.cookies.set({
+    name: GOOGLE_STATE_COOKIE_NAME,
+    value: "",
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
+
+  const domain = resolveGoogleStateCookieDomain(req);
+  if (domain) {
+    res.cookies.set({
+      name: GOOGLE_STATE_COOKIE_NAME,
+      value: "",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      domain,
+      maxAge: 0,
+    });
+  }
 }
 
 function makeDashboardTicket(params: {
@@ -666,7 +708,9 @@ async function exchangeGooglePkceCode(params: {
 
 export async function GET(req: NextRequest) {
   const requestOrigin = getRequestOrigin(req);
-  const st = String(req.nextUrl.searchParams.get("st") || "").trim();
+  const stFromQuery = String(req.nextUrl.searchParams.get("st") || "").trim();
+  const stFromCookie = String(req.cookies.get(GOOGLE_STATE_COOKIE_NAME)?.value || "").trim();
+  const st = stFromQuery || stFromCookie;
   const stateRes = readGoogleStateTicket(st);
   const safeNext = stateRes.ok ? sanitizeNext(stateRes.payload.next) : "/";
 
@@ -679,6 +723,7 @@ export async function GET(req: NextRequest) {
       }),
       303,
     );
+    clearGoogleStateCookie(res, req);
     applyNoStore(res);
     return res;
   };
@@ -781,6 +826,7 @@ export async function GET(req: NextRequest) {
         (isAccountCreationSession ? "&acs=1" : "");
 
       const res = NextResponse.redirect(nextUrl, 303);
+      clearGoogleStateCookie(res, req);
       setSessionCookie(
         res,
         { userId: wzUser.userId, email, fullName },
@@ -793,6 +839,7 @@ export async function GET(req: NextRequest) {
 
     const redirectTarget = toRedirectTarget(safeNext, dashboard);
     const res = NextResponse.redirect(redirectTarget, 303);
+    clearGoogleStateCookie(res, req);
     const sessionPayload = setSessionCookie(
       res,
       { userId: wzUser.userId, email, fullName },

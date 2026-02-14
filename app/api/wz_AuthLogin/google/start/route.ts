@@ -10,6 +10,7 @@ const NO_STORE_HEADERS = {
   Pragma: "no-cache",
   Expires: "0",
 };
+const GOOGLE_STATE_COOKIE_NAME = "wz_google_oauth_state_v1";
 
 type GoogleStatePayload = {
   typ: "wz-google-oauth-state";
@@ -115,6 +116,21 @@ function getRequestOrigin(req: NextRequest) {
   return `${proto}://${hostHeader}`;
 }
 
+function resolveGoogleStateCookieDomain(req: NextRequest) {
+  const host = String(
+    req.headers.get("x-forwarded-host") || req.headers.get("host") || req.nextUrl.host || "",
+  )
+    .split(":")[0]
+    .trim()
+    .toLowerCase();
+
+  if (!host) return undefined;
+  if (host === "wyzer.com.br" || host.endsWith(".wyzer.com.br")) {
+    return ".wyzer.com.br";
+  }
+  return undefined;
+}
+
 function createGoogleStateTicket(params: {
   next: string;
   codeVerifier?: string;
@@ -156,7 +172,6 @@ export async function POST(req: NextRequest) {
     });
 
     const callback = new URL("/api/wz_AuthLogin/google/callback", getRequestOrigin(req));
-    callback.searchParams.set("st", stateTicket);
 
     const sb = supabaseAnon();
     const { data, error } = await sb.auth.signInWithOAuth({
@@ -186,13 +201,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json(
+    const response = NextResponse.json(
       {
         ok: true,
         authUrl: String(data.url),
       },
       { status: 200, headers: NO_STORE_HEADERS },
     );
+    const cookieDomain = resolveGoogleStateCookieDomain(req);
+    response.cookies.set({
+      name: GOOGLE_STATE_COOKIE_NAME,
+      value: stateTicket,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 10,
+      ...(cookieDomain ? { domain: cookieDomain } : {}),
+    });
+    return response;
   } catch (error) {
     console.error("[google-start] error:", error);
     const message =
