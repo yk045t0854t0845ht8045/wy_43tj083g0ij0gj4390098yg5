@@ -5775,7 +5775,7 @@ function AuthorizedAppsContent() {
                     />
                   ) : provider.provider === "password" ? (
                     <NextImage
-                      src="/favicon.ico"
+                      src="/logo.svg"
                       alt=""
                       width={20}
                       height={20}
