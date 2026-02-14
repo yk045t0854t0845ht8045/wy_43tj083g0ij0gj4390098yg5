@@ -5710,6 +5710,24 @@ function AuthorizedAppsContent() {
     if (clean === "microsoft") return "Microsoft";
     return "Desconhecido";
   }, [primaryProvider, providers]);
+  const orderedProviders = useMemo(() => {
+    const getRank = (provider: AuthorizedProviderRecord) => {
+      const providerId = String(provider.provider || "").trim().toLowerCase();
+      if (providerId === "password") return 3;
+      if (!provider.canRemove) return 2;
+      return 1;
+    };
+
+    return providers
+      .map((provider, index) => ({ provider, index }))
+      .sort((a, b) => {
+        const rankA = getRank(a.provider);
+        const rankB = getRank(b.provider);
+        if (rankA !== rankB) return rankA - rankB;
+        return a.index - b.index;
+      })
+      .map((entry) => entry.provider);
+  }, [providers]);
 
   const loadAuthorizedApps = useCallback(async (opts?: { signal?: AbortSignal; silent?: boolean }) => {
     const signal = opts?.signal;
@@ -5953,12 +5971,12 @@ function AuthorizedAppsContent() {
         </div>
         <div className="mt-4 border-t border-black/10" />
         <div className="mt-4 overflow-hidden rounded-xl border border-black/10 bg-white/70">
-          {!providers.length ? (
+          {!orderedProviders.length ? (
             <div className="px-4 py-5 text-[14px] text-black/55">
               {loading ? "Carregando provedores..." : "Nenhum provedor conectado."}
             </div>
           ) : (
-            providers.map((provider, idx) => (
+            orderedProviders.map((provider, idx) => (
               <div
                 key={provider.id}
                 className={cx(
