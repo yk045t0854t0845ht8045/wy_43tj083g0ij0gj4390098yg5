@@ -17,7 +17,7 @@ import { createPortal } from "react-dom";
 type ConfigSectionGroupId = "user" | "billing" | "app";
 
 export type DashboardThemeMode = "dark" | "system" | "light";
-export type DashboardAppearanceAccent = "blue" | "cyan" | "green" | "violet" | "amber";
+export type DashboardAppearanceAccent = "gray" | "blue" | "cyan" | "green" | "violet" | "amber";
 export type DashboardFontStyle = "inter" | "manrope" | "space-grotesk" | "poppins";
 export type DashboardDensity = "comfortable" | "compact";
 
@@ -187,9 +187,10 @@ type AppearanceAccentOption = {
 };
 
 const APPEARANCE_ACCENT_OPTIONS: AppearanceAccentOption[] = [
+  { id: "gray", label: "Cinza", color: "#63666f" },
   { id: "blue", label: "Azul", color: "#2f80ff" },
   { id: "cyan", label: "Ciano", color: "#1bb6d9" },
-  { id: "green", label: "Verde", color: "#22c55e" },
+  { id: "green", label: "Lime", color: "#a3e635" },
   { id: "violet", label: "Violeta", color: "#8b5cf6" },
   { id: "amber", label: "Dourado", color: "#f4b61e" },
 ];
@@ -214,8 +215,8 @@ const APPEARANCE_DENSITY_OPTIONS: Array<{ id: DashboardDensity; label: string; d
 ];
 
 export const DEFAULT_DASHBOARD_APPEARANCE_SETTINGS: DashboardAppearanceSettings = {
-  themeMode: "system",
-  accent: "blue",
+  themeMode: "light",
+  accent: "gray",
   transparentSidebar: false,
   fontStyle: "inter",
   density: "comfortable",
@@ -239,9 +240,22 @@ function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-function getAppearanceAccentColor(accent: DashboardAppearanceAccent) {
+function getAppearanceAccentColor(
+  accent: DashboardAppearanceAccent,
+  resolvedTheme: "light" | "dark" = "light",
+) {
+  if (accent === "green") {
+    return resolvedTheme === "dark" ? "#65a30d" : "#a3e635";
+  }
   const match = APPEARANCE_ACCENT_OPTIONS.find((option) => option.id === accent);
   return match?.color || APPEARANCE_ACCENT_OPTIONS[0].color;
+}
+
+function toWhiteSvgVariant(src: string) {
+  const clean = String(src || "").trim();
+  if (!clean.endsWith(".svg")) return clean;
+  if (clean.endsWith("_white.svg")) return clean;
+  return `${clean.slice(0, -4)}_white.svg`;
 }
 
 function normalizeForSearch(value: string) {
@@ -3422,14 +3436,14 @@ function AccountContent({
   const twoFactorButtonClass = cx(
     buttonShellClass,
     twoFactorEnabled
-      ? "border-lime-500 bg-lime-400 text-black hover:border-lime-600 hover:bg-lime-500"
+      ? "border-[color:var(--dashboard-success-accent-strong)] bg-[var(--dashboard-success-accent)] text-black hover:border-[color:var(--dashboard-success-accent-strong)] hover:bg-[var(--dashboard-success-accent-strong)]"
       : buttonNeutralClass,
     (loadingTwoFactorStatus || isTwoFactorBusy) && "cursor-wait opacity-70"
   );
   const passkeyButtonClass = cx(
     buttonShellClass,
     passkeyEnabled
-      ? "border-lime-500 bg-lime-400 text-black hover:border-lime-600 hover:bg-lime-500"
+      ? "border-[color:var(--dashboard-success-accent-strong)] bg-[var(--dashboard-success-accent)] text-black hover:border-[color:var(--dashboard-success-accent-strong)] hover:bg-[var(--dashboard-success-accent-strong)]"
       : buttonNeutralClass,
     (loadingPasskeyStatus || isPasskeyBusy) && "cursor-wait opacity-70"
   );
@@ -3542,7 +3556,22 @@ function AccountContent({
           <div className="mt-4 border-t border-black/10" />
           <div className="flex items-center justify-between gap-4 -mx-2 rounded-xl px-2 py-5">
             <div className="min-w-0"><p className="text-[18px] font-semibold text-black/85">Acesso para suporte</p><p className="mt-1 text-[15px] leading-[1.45] text-black/58">Conceda ao suporte acesso temporário para ajudar a resolver problemas ou recuperar conteúdo. Você pode revogar a qualquer momento.</p><p className="mt-1 text-[12px] text-black/45">Nossa equipe nunca pedirá senhas ou acessos em nenhum canal de comunicação. Caso aconteça, reporte imediatamente em nossos canais seguros de comunicação.</p></div>
-            <button type="button" role="switch" aria-checked={supportAccess} onClick={() => void toggleSupportAccess()} disabled={savingSupportAccess} className={cx("relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-all duration-220 disabled:cursor-not-allowed disabled:opacity-70", supportAccess ? "bg-lime-400/85" : "bg-black/20")}>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={supportAccess}
+              onClick={() => void toggleSupportAccess()}
+              disabled={savingSupportAccess}
+              className={cx(
+                "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-all duration-220 disabled:cursor-not-allowed disabled:opacity-70",
+                supportAccess ? "border-transparent" : "border-black/15",
+              )}
+              style={{
+                backgroundColor: supportAccess
+                  ? "var(--dashboard-success-accent)"
+                  : "var(--dashboard-switch-off)",
+              }}
+            >
               <span className={cx("inline-block h-5 w-5 rounded-full bg-white transition-transform duration-220", supportAccess ? "translate-x-6" : "translate-x-1")} />
             </button>
           </div>
@@ -5226,9 +5255,14 @@ function PrivacyToggleRow({
         onClick={disabled ? undefined : onToggle}
         disabled={disabled}
         className={cx(
-          "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-all duration-220 disabled:cursor-not-allowed disabled:opacity-70",
-          checked ? "bg-lime-400/85" : "bg-black/20",
+          "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-all duration-220 disabled:cursor-not-allowed disabled:opacity-70",
+          checked ? "border-transparent" : "border-black/15",
         )}
+        style={{
+          backgroundColor: checked
+            ? "var(--dashboard-success-accent)"
+            : "var(--dashboard-switch-off)",
+        }}
       >
         <span
           className={cx(
@@ -5978,7 +6012,7 @@ function AppearanceContent({
   onChange: (next: DashboardAppearanceSettings) => void;
 }) {
   const isDark = resolvedTheme === "dark";
-  const accentColor = getAppearanceAccentColor(settings.accent);
+  const accentColor = getAppearanceAccentColor(settings.accent, resolvedTheme);
 
   const updateAppearance = useCallback(
     (patch: Partial<DashboardAppearanceSettings>) => {
@@ -6011,9 +6045,9 @@ function AppearanceContent({
 
         <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
           {[
+            { id: "light" as DashboardThemeMode, label: "Light", preview: "light" as const },
             { id: "dark" as DashboardThemeMode, label: "Dark", preview: "dark" as const },
             { id: "system" as DashboardThemeMode, label: "Sistema", preview: "system" as const },
-            { id: "light" as DashboardThemeMode, label: "Light", preview: "light" as const },
           ].map((themeOption) => {
             const selected = settings.themeMode === themeOption.id;
             return (
@@ -6034,16 +6068,26 @@ function AppearanceContent({
               >
                 <div
                   className={cx(
-                    "relative h-24 overflow-hidden rounded-xl border",
-                    themeOption.preview === "dark" && "border-[#2f3d55] bg-[#101828]",
-                    themeOption.preview === "light" && "border-black/10 bg-[#f8f8fb]",
-                    themeOption.preview === "system" && "border-black/10 bg-gradient-to-r from-[#101828] via-[#101828] to-[#f8f8fb]",
+                    "relative h-28 overflow-hidden rounded-xl border",
+                    themeOption.preview === "dark" && "border-white/14 bg-[#0F0F11]",
+                    themeOption.preview === "light" && "border-black/12 bg-[#f6f6f8]",
+                    themeOption.preview === "system" && "border-black/10 bg-gradient-to-r from-[#f6f6f8] via-[#f6f6f8] via-50% to-[#0F0F11] to-50%",
                   )}
                 >
-                  <div className="absolute left-3 top-3 h-1.5 w-14 rounded-full bg-black/20" />
-                  <div className="absolute left-3 top-6 h-1.5 w-9 rounded-full bg-black/20" />
-                  <div className="absolute left-3 top-10 h-9 w-16 rounded-md bg-black/24" />
-                  <div className="absolute right-3 top-10 h-9 w-7 rounded-md bg-black/24" />
+                  <div className={cx("absolute left-4 right-4 top-4 h-3 rounded-full", themeOption.preview === "dark" ? "bg-white/14" : "bg-black/8")} />
+                  <div className={cx("absolute left-4 top-10 h-14 w-[70%] rounded-lg border", themeOption.preview === "dark" ? "border-white/10 bg-white/[0.04]" : "border-black/10 bg-white/80")} />
+                  <div className={cx("absolute right-4 top-10 h-14 w-[22%] rounded-lg border", themeOption.preview === "dark" ? "border-white/10 bg-white/[0.06]" : "border-black/10 bg-white/86")} />
+                  <div className={cx("absolute left-4 right-4 bottom-4 h-3 rounded-full", themeOption.preview === "dark" ? "bg-white/10" : "bg-black/7")} />
+                  {selected && (
+                    <span
+                      className={cx(
+                        "absolute left-3 top-3 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold",
+                        themeOption.preview === "dark" ? "bg-white text-[#0F0F11]" : "bg-[#0F0F11] text-white",
+                      )}
+                    >
+                      ✓
+                    </span>
+                  )}
                 </div>
                 <span className={cx("mt-3 block text-[14px] font-semibold", isDark ? "text-white/88" : "text-black/80")}>
                   {themeOption.label}
@@ -6062,6 +6106,7 @@ function AppearanceContent({
         <div className="mt-5 flex flex-wrap items-center gap-3">
           {APPEARANCE_ACCENT_OPTIONS.map((accent) => {
             const selected = settings.accent === accent.id;
+            const swatchColor = getAppearanceAccentColor(accent.id, resolvedTheme);
             return (
               <button
                 key={accent.id}
@@ -6080,7 +6125,7 @@ function AppearanceContent({
                 title={accent.label}
                 aria-label={`Selecionar ${accent.label}`}
               >
-                <span className="absolute inset-[5px] rounded-full" style={{ backgroundColor: accent.color }} />
+                <span className="absolute inset-[5px] rounded-full" style={{ backgroundColor: swatchColor }} />
                 {selected && (
                   <span className="absolute inset-0 inline-flex items-center justify-center text-white">
                     <Check className="h-4 w-4 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]" />
@@ -6276,6 +6321,7 @@ function SidebarGroup({
       <ul className="space-y-0.5">
         {items.map((item) => {
           const active = item.id === activeSection;
+          const preferredIconSrc = dark ? toWhiteSvgVariant(item.iconSrc) : item.iconSrc;
           return (
             <li key={item.id}>
               <motion.button
@@ -6308,11 +6354,19 @@ function SidebarGroup({
                 <span className="relative z-[1] flex min-w-0 items-center gap-2.5">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={item.iconSrc}
+                    src={preferredIconSrc}
                     alt=""
                     className="h-[20px] w-[20px] shrink-0 object-contain"
                     draggable={false}
                     referrerPolicy="no-referrer"
+                    data-fallback-src={item.iconSrc}
+                    onError={(event) => {
+                      const target = event.currentTarget;
+                      const fallback = target.dataset.fallbackSrc || item.iconSrc;
+                      if (target.src.includes("_white.svg")) {
+                        target.src = fallback;
+                      }
+                    }}
                   />
                   <span className="truncate">{item.label}</span>
                 </span>
@@ -6383,8 +6437,8 @@ export default function ConfigMain({
 
   const isDarkTheme = resolvedTheme === "dark";
   const accentColor = useMemo(
-    () => getAppearanceAccentColor(resolvedAppearanceSettings.accent),
-    [resolvedAppearanceSettings.accent],
+    () => getAppearanceAccentColor(resolvedAppearanceSettings.accent, resolvedTheme),
+    [resolvedAppearanceSettings.accent, resolvedTheme],
   );
 
   const handleAppearanceChange = useCallback(
@@ -6469,14 +6523,14 @@ export default function ConfigMain({
             transition={reduceMotionEnabled ? { duration: 0.1 } : { type: "spring", stiffness: 320, damping: 32, mass: 0.72 }}
             className={cx(
               "dashboard-config-shell relative z-[1] h-[min(88vh,910px)] w-[min(95vw,1410px)] overflow-hidden rounded-2xl border shadow-[0_30px_80px_rgba(0,0,0,0.44)]",
-              isDarkTheme ? "border-white/12 bg-[#0f1728] text-white" : "border-black/15 bg-[#f3f3f4] text-black"
+              isDarkTheme ? "border-white/12 bg-[#0F0F11] text-white" : "border-black/15 bg-[#f3f3f4] text-black"
             )}
           >
             <div className="flex h-full min-h-0">
               <aside
                 className={cx(
                   "dashboard-config-sidebar flex h-full w-[300px] shrink-0 flex-col border-r",
-                  isDarkTheme ? "border-white/10 bg-[#0b1323]" : "border-black/10 bg-[#ececef]"
+                  isDarkTheme ? "border-white/10 bg-[#0F0F11]" : "border-black/10 bg-[#ececef]"
                 )}
               >
                 <div className="px-4 pb-3">
@@ -6556,7 +6610,7 @@ export default function ConfigMain({
                 </div>
               </aside>
 
-              <div className={cx("dashboard-config-body min-w-0 flex-1", isDarkTheme ? "bg-[#0f1728]" : "bg-[#f3f3f4]")}>
+              <div className={cx("dashboard-config-body min-w-0 flex-1", isDarkTheme ? "bg-[#0F0F11]" : "bg-[#f3f3f4]")}>
                 <div
                   className={cx(
                     "flex h-16 items-center justify-between border-b px-4 sm:px-6",

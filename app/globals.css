@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
 @custom-variant dark (&:is(.dark *));
@@ -432,100 +433,121 @@ button>span[aria-hidden="true"] {
 }
 
 /* Dashboard appearance controls */
-.dashboard-theme-root {
-  --dashboard-accent: #2f80ff;
-  --dashboard-accent-rgb: 47, 128, 255;
-  transition: background-color 220ms ease, color 220ms ease;
+.dashboard-theme-root,
+.dashboard-config-shell,
+.dashboard-sidebar-shell {
+  transition: background-color 220ms ease, color 220ms ease, border-color 220ms ease;
 }
 
-.dashboard-theme-root.dashboard-font-inter {
+.dashboard-theme-root {
+  --dashboard-accent: #63666f;
+  --dashboard-accent-rgb: 99, 102, 111;
+  --dashboard-success-accent: #a3e635;
+  --dashboard-success-accent-strong: #84cc16;
+  --dashboard-switch-off: rgba(15, 15, 17, 0.22);
+}
+
+.dashboard-font-inter .dashboard-theme-root,
+.dashboard-font-inter .dashboard-config-shell,
+.dashboard-font-inter .dashboard-sidebar-shell {
   font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial;
 }
 
-.dashboard-theme-root.dashboard-font-manrope {
+.dashboard-font-manrope .dashboard-theme-root,
+.dashboard-font-manrope .dashboard-config-shell,
+.dashboard-font-manrope .dashboard-sidebar-shell {
   font-family: "Manrope", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial;
 }
 
-.dashboard-theme-root.dashboard-font-space-grotesk {
+.dashboard-font-space-grotesk .dashboard-theme-root,
+.dashboard-font-space-grotesk .dashboard-config-shell,
+.dashboard-font-space-grotesk .dashboard-sidebar-shell {
   font-family: "Space Grotesk", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial;
 }
 
-.dashboard-theme-root.dashboard-font-poppins {
+.dashboard-font-poppins .dashboard-theme-root,
+.dashboard-font-poppins .dashboard-config-shell,
+.dashboard-font-poppins .dashboard-sidebar-shell {
   font-family: "Poppins", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial;
 }
 
-.dashboard-theme-root.dashboard-theme-dark {
-  background:
-    radial-gradient(130% 120% at -10% -20%, rgba(77, 110, 255, 0.2) 0%, rgba(77, 110, 255, 0) 45%),
-    radial-gradient(120% 90% at 110% -10%, rgba(24, 164, 220, 0.18) 0%, rgba(24, 164, 220, 0) 46%),
-    #070c17;
+.dashboard-theme-dark .dashboard-theme-root {
+  background: #0F0F11 !important;
 }
 
-.dashboard-theme-root .dashboard-sidebar-shell .sidebar-active-pill {
-  background: rgba(var(--dashboard-accent-rgb), 0.14) !important;
+.dashboard-theme-dark .dashboard-config-shell,
+.dashboard-theme-dark .dashboard-config-shell .dashboard-config-sidebar,
+.dashboard-theme-dark .dashboard-config-shell .dashboard-config-body {
+  background-color: #0F0F11 !important;
 }
 
-.dashboard-theme-root.dashboard-theme-dark .dashboard-sidebar-shell .sidebar-active-pill {
-  background: rgba(var(--dashboard-accent-rgb), 0.24) !important;
+.dashboard-theme-dark .dashboard-config-shell .dashboard-config-body [class*="text-black"] {
+  color: rgba(236, 244, 255, 0.88) !important;
 }
 
-.dashboard-theme-root.dashboard-theme-dark .dashboard-sidebar-shell {
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.dashboard-theme-root.dashboard-theme-dark .dashboard-sidebar-shell [class*="text-black"] {
-  color: rgba(238, 245, 255, 0.88) !important;
-}
-
-.dashboard-theme-root.dashboard-theme-dark .dashboard-sidebar-shell [class*="border-black"] {
-  border-color: rgba(255, 255, 255, 0.15) !important;
-}
-
-.dashboard-theme-root.dashboard-theme-dark .dashboard-sidebar-shell [class*="bg-white"] {
-  background-color: rgba(255, 255, 255, 0.06) !important;
-}
-
-.dashboard-theme-root.dashboard-theme-dark .dashboard-sidebar-shell [class*="hover:bg-black"]:hover {
-  background-color: rgba(255, 255, 255, 0.1) !important;
-}
-
-.dashboard-theme-root.dashboard-theme-dark .dashboard-config-shell [class*="text-black"] {
-  color: rgba(236, 244, 255, 0.86) !important;
-}
-
-.dashboard-theme-root.dashboard-theme-dark .dashboard-config-shell [class*="border-black"] {
+.dashboard-theme-dark .dashboard-config-shell .dashboard-config-body [class*="border-black"] {
   border-color: rgba(255, 255, 255, 0.14) !important;
 }
 
-.dashboard-theme-root.dashboard-theme-dark .dashboard-config-shell [class*="bg-white"] {
+.dashboard-theme-dark .dashboard-config-shell .dashboard-config-body [class*="bg-white"] {
   background-color: rgba(255, 255, 255, 0.05) !important;
 }
 
-.dashboard-theme-root.dashboard-theme-dark .dashboard-config-shell [class*="hover:bg-black"]:hover {
+.dashboard-theme-dark .dashboard-config-shell .dashboard-config-body [class*="hover:bg-black"]:hover {
   background-color: rgba(255, 255, 255, 0.1) !important;
 }
 
-.dashboard-theme-root.dashboard-theme-dark .dashboard-config-shell [class*="bg-[#f3f3f4]"] {
-  background-color: #0f1728 !important;
+.dashboard-theme-dark .dashboard-config-shell,
+.dashboard-theme-dark .dashboard-sidebar-shell {
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
-.dashboard-theme-root.dashboard-theme-dark .dashboard-config-shell [class*="bg-[#ececef]"] {
-  background-color: #0b1323 !important;
+.dashboard-theme-root .dashboard-sidebar-shell .sidebar-active-pill {
+  background: rgba(var(--dashboard-accent-rgb), 0.16) !important;
 }
 
-.dashboard-theme-root.dashboard-density-compact .dashboard-sidebar-main-item {
+.dashboard-theme-dark .dashboard-sidebar-shell .sidebar-active-pill {
+  background: rgba(var(--dashboard-accent-rgb), 0.28) !important;
+}
+
+.dashboard-sidebar-shell.dashboard-sidebar-transparent {
+  backdrop-filter: blur(20px) saturate(150%);
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.dashboard-theme-dark .dashboard-sidebar-shell.dashboard-sidebar-transparent {
+  background-color: rgba(15, 15, 17, 0.74) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dashboard-theme-dark .dashboard-config-shell button[role="switch"][aria-checked="false"] {
+  background-color: #0F0F11 !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+}
+
+.dashboard-theme-dark .dashboard-config-shell button[role="switch"] > span {
+  background-color: #ffffff !important;
+}
+
+.dashboard-density-compact .dashboard-sidebar-main-item {
   height: 36px !important;
   font-size: 14px !important;
 }
 
-.dashboard-theme-root.dashboard-density-compact .dashboard-sidebar-sub-item {
+.dashboard-density-compact .dashboard-sidebar-sub-item {
   height: 31px !important;
   font-size: 13px !important;
 }
 
-.dashboard-theme-root.dashboard-motion-reduced *,
-.dashboard-theme-root.dashboard-motion-reduced *::before,
-.dashboard-theme-root.dashboard-motion-reduced *::after {
+.dashboard-motion-reduced .dashboard-theme-root *,
+.dashboard-motion-reduced .dashboard-theme-root *::before,
+.dashboard-motion-reduced .dashboard-theme-root *::after,
+.dashboard-motion-reduced .dashboard-config-shell *,
+.dashboard-motion-reduced .dashboard-config-shell *::before,
+.dashboard-motion-reduced .dashboard-config-shell *::after,
+.dashboard-motion-reduced .dashboard-sidebar-shell *,
+.dashboard-motion-reduced .dashboard-sidebar-shell *::before,
+.dashboard-motion-reduced .dashboard-sidebar-shell *::after {
   animation-duration: 0.01ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;

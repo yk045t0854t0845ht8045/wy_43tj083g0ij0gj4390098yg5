@@ -27,6 +27,13 @@ function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
+function toWhiteSvgVariant(src: string) {
+  const clean = String(src || "").trim();
+  if (!clean.endsWith(".svg")) return clean;
+  if (clean.endsWith("_white.svg")) return clean;
+  return `${clean.slice(0, -4)}_white.svg`;
+}
+
 type UserAvatarProps = {
   photoLink?: string | null;
   initial: string;
@@ -334,7 +341,7 @@ function CollapsedTooltip({
         className={cx(
           "relative w-max rounded-xl border border-black/10",
           isInteractive ? "min-w-[130px] max-w-[240px] px-3 py-2" : "max-w-[220px] px-4 py-2",
-          dark ? "border-white/16 bg-[#0f1728]/95" : "border-black/10 bg-white/98",
+          dark ? "border-white/16 bg-[#0F0F11]/95" : "border-black/10 bg-white/98",
           "backdrop-blur-[2px]",
           "shadow-[0_10px_24px_rgba(0,0,0,0.14)]"
         )}
@@ -343,7 +350,7 @@ function CollapsedTooltip({
           aria-hidden="true"
           className={cx(
             "absolute -left-[5px] top-1/2 h-[10px] w-[10px] -translate-y-1/2 rotate-45 border-b border-l",
-            dark ? "border-white/16 bg-[#0f1728]/95" : "border-black/10 bg-white/98"
+            dark ? "border-white/16 bg-[#0F0F11]/95" : "border-black/10 bg-white/98"
           )}
         />
         <p className={cx("text-[12px] font-semibold tracking-[-0.01em]", dark ? "text-white/92" : "text-black/90")}>
@@ -478,6 +485,11 @@ export default function Sidebar({
     const value = String(userPhotoLink || "").trim();
     return value || null;
   }, [userPhotoLink]);
+  const logoutIconBaseSrc = "/f9dc89e1-e5a9-4eae-b48e-955160b064fe.svg";
+  const logoutIconSrc = useMemo(
+    () => (isDarkTheme ? toWhiteSvgVariant(logoutIconBaseSrc) : logoutIconBaseSrc),
+    [isDarkTheme]
+  );
 
   useEffect(() => setActiveMainState(activeMain), [activeMain]);
   useEffect(() => setActiveSubState(activeSub), [activeSub]);
@@ -845,7 +857,7 @@ export default function Sidebar({
             "sm:hidden",
             "fixed left-3 top-3 z-[60]",
             "h-[44px] w-[44px] rounded-full border",
-            isDarkTheme ? "bg-[#0f1728] border-white/14" : "bg-white border-black/10",
+            isDarkTheme ? "bg-[#0F0F11] border-white/14" : "bg-white border-black/10",
             "shadow-[0_10px_24px_rgba(0,0,0,0.14)]",
             "flex items-center justify-center",
             "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.98]"
@@ -891,11 +903,11 @@ export default function Sidebar({
             ? "sm:w-[92px] sm:min-w-[92px] sm:max-w-[92px]"
             : "sm:w-[308px] sm:min-w-[308px] sm:max-w-[308px]",
           "min-h-svh",
-          isDarkTheme ? "bg-[#0b1323] text-white" : "bg-[#f6f6f7] text-black",
+          isDarkTheme ? "bg-[#0F0F11] text-white" : "bg-[#f6f6f7] text-black",
           sidebarTransparent
             ? isDarkTheme
-              ? "bg-[#0b1323]/78 backdrop-blur-[20px]"
-              : "bg-[#f6f6f7]/82 backdrop-blur-[18px]"
+              ? "dashboard-sidebar-transparent bg-[#0F0F11]/74 backdrop-blur-[20px]"
+              : "dashboard-sidebar-transparent bg-[#f6f6f7]/82 backdrop-blur-[18px]"
             : "",
           "flex flex-col overflow-visible",
           "shadow-[0_20px_50px_rgba(0,0,0,0.18)] sm:shadow-none",
@@ -1391,7 +1403,7 @@ export default function Sidebar({
                     <div
                       className={cx(
                         "max-h-[65vh] overflow-y-auto rounded-2xl border p-2 shadow-[0_18px_38px_rgba(0,0,0,0.18)] backdrop-blur-[2px]",
-                        isDarkTheme ? "border-white/14 bg-[#0f1728]/95" : "border-black/10 bg-white/98"
+                        isDarkTheme ? "border-white/14 bg-[#0F0F11]/95" : "border-black/10 bg-white/98"
                       )}
                     >
                       <div className="flex items-center gap-3 px-2 pb-2 pt-1">
@@ -1463,13 +1475,20 @@ export default function Sidebar({
                           )}
                         >
                           <span className="inline-flex h-[18px] w-[18px] items-center justify-center overflow-hidden">
-                            <Image
-                              src="/f9dc89e1-e5a9-4eae-b48e-955160b064fe.svg"
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={logoutIconSrc}
                               alt=""
-                              width={18}
-                              height={18}
                               className="h-[18px] w-[18px]"
                               aria-hidden="true"
+                              draggable={false}
+                              referrerPolicy="no-referrer"
+                              onError={(event) => {
+                                const target = event.currentTarget;
+                                if (target.src.includes("_white.svg")) {
+                                  target.src = logoutIconBaseSrc;
+                                }
+                              }}
                             />
                           </span>
                           <span>Logout</span>
@@ -1548,7 +1567,7 @@ export default function Sidebar({
               aria-label="Ajuda"
               className={cx(
                 "relative z-[1] w-[min(96vw,520px)] overflow-hidden rounded-2xl border p-5 shadow-[0_26px_70px_rgba(0,0,0,0.35)] sm:p-6",
-                isDarkTheme ? "border-white/14 bg-[#0f1728]" : "border-black/15 bg-[#f3f3f4]"
+                isDarkTheme ? "border-white/14 bg-[#0F0F11]" : "border-black/15 bg-[#f3f3f4]"
               )}
               initial={reduceMotionEnabled ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.985 }}
               animate={reduceMotionEnabled ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}

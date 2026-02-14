@@ -37,15 +37,38 @@ function normalizeIsoDatetime(value?: string | null) {
 const SESSION_DISCONNECT_EVENT_KEY = "wz:session:disconnected";
 const SESSION_CHECK_TIMEOUT_MS = 4500;
 const SESSION_CHECK_MIN_GAP_MS = 1200;
-const DASHBOARD_APPEARANCE_STORAGE_KEY = "wz:dashboard:appearance:v1";
+const DASHBOARD_APPEARANCE_STORAGE_KEY = "wz:dashboard:appearance:v2";
+const DASHBOARD_FONT_CLASSES = [
+  "dashboard-font-inter",
+  "dashboard-font-manrope",
+  "dashboard-font-space-grotesk",
+  "dashboard-font-poppins",
+] as const;
+const DASHBOARD_DENSITY_CLASSES = [
+  "dashboard-density-comfortable",
+  "dashboard-density-compact",
+] as const;
+const DASHBOARD_THEME_CLASSES = ["dashboard-theme-light", "dashboard-theme-dark"] as const;
+const DASHBOARD_MOTION_CLASS = "dashboard-motion-reduced";
 
 const ACCENT_HEX_BY_ID: Record<DashboardAppearanceSettings["accent"], string> = {
+  gray: "#63666f",
   blue: "#2f80ff",
   cyan: "#1bb6d9",
-  green: "#22c55e",
+  green: "#a3e635",
   violet: "#8b5cf6",
   amber: "#f4b61e",
 };
+
+function resolveAccentHex(
+  accent: DashboardAppearanceSettings["accent"],
+  resolvedTheme: "light" | "dark",
+) {
+  if (accent === "green") {
+    return resolvedTheme === "dark" ? "#65a30d" : "#a3e635";
+  }
+  return ACCENT_HEX_BY_ID[accent] || ACCENT_HEX_BY_ID.gray;
+}
 
 function toRgbTuple(hex: string) {
   const clean = String(hex || "").replace(/[^0-9a-f]/gi, "");
@@ -184,10 +207,22 @@ export default function DashboardShell({
   }, [appearanceSettings.themeMode, systemPrefersDark]);
 
   const accentHex = useMemo(
-    () => ACCENT_HEX_BY_ID[appearanceSettings.accent] || ACCENT_HEX_BY_ID.blue,
-    [appearanceSettings.accent]
+    () => resolveAccentHex(appearanceSettings.accent, resolvedTheme),
+    [appearanceSettings.accent, resolvedTheme]
   );
   const accentRgb = useMemo(() => toRgbTuple(accentHex), [accentHex]);
+  const successAccentHex = useMemo(
+    () => (resolvedTheme === "dark" ? "#65a30d" : "#a3e635"),
+    [resolvedTheme]
+  );
+  const successAccentStrongHex = useMemo(
+    () => (resolvedTheme === "dark" ? "#4d7c0f" : "#84cc16"),
+    [resolvedTheme]
+  );
+  const switchOffHex = useMemo(
+    () => (resolvedTheme === "dark" ? "#0F0F11" : "rgba(15,15,17,0.22)"),
+    [resolvedTheme]
+  );
 
   useEffect(() => {
     setProfilePhotoLink(normalizedInitialPhotoLink);
@@ -266,14 +301,46 @@ export default function DashboardShell({
 
   useEffect(() => {
     const html = document.documentElement;
+    const nextFontClass = `dashboard-font-${appearanceSettings.fontStyle}`;
+    const nextDensityClass = `dashboard-density-${appearanceSettings.density}`;
+    const nextThemeClass = `dashboard-theme-${resolvedTheme}`;
+
     html.classList.toggle("dark", resolvedTheme === "dark");
+    html.classList.remove(...DASHBOARD_FONT_CLASSES);
+    html.classList.add(nextFontClass);
+    html.classList.remove(...DASHBOARD_DENSITY_CLASSES);
+    html.classList.add(nextDensityClass);
+    html.classList.remove(...DASHBOARD_THEME_CLASSES);
+    html.classList.add(nextThemeClass);
+    html.classList.toggle(DASHBOARD_MOTION_CLASS, appearanceSettings.reducedMotion);
     html.style.setProperty("--dashboard-accent", accentHex);
     html.style.setProperty("--dashboard-accent-rgb", accentRgb);
+    html.style.setProperty("--dashboard-success-accent", successAccentHex);
+    html.style.setProperty("--dashboard-success-accent-strong", successAccentStrongHex);
+    html.style.setProperty("--dashboard-switch-off", switchOffHex);
+
     return () => {
+      html.classList.remove(nextFontClass);
+      html.classList.remove(nextDensityClass);
+      html.classList.remove(nextThemeClass);
+      html.classList.remove(DASHBOARD_MOTION_CLASS);
       html.style.removeProperty("--dashboard-accent");
       html.style.removeProperty("--dashboard-accent-rgb");
+      html.style.removeProperty("--dashboard-success-accent");
+      html.style.removeProperty("--dashboard-success-accent-strong");
+      html.style.removeProperty("--dashboard-switch-off");
     };
-  }, [resolvedTheme, accentHex, accentRgb]);
+  }, [
+    resolvedTheme,
+    accentHex,
+    accentRgb,
+    appearanceSettings.fontStyle,
+    appearanceSettings.density,
+    appearanceSettings.reducedMotion,
+    successAccentHex,
+    successAccentStrongHex,
+    switchOffHex,
+  ]);
 
   const handleUserEmailChange = useCallback((nextEmail: string, changedAt?: string | null) => {
     const normalized = String(nextEmail || "").trim().toLowerCase();
@@ -501,7 +568,7 @@ export default function DashboardShell({
         `dashboard-density-${appearanceSettings.density}`,
         appearanceSettings.reducedMotion ? "dashboard-motion-reduced" : "",
         appearanceSettings.transparentSidebar ? "dashboard-sidebar-glass-enabled" : "",
-        resolvedTheme === "dark" ? "bg-[#070c17] text-white" : "bg-white text-black",
+        resolvedTheme === "dark" ? "bg-[#0F0F11] text-white" : "bg-white text-black",
       ]
         .filter(Boolean)
         .join(" ")}
