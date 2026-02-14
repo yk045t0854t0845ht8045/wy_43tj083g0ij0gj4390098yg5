@@ -4,6 +4,8 @@ export const config = {
   matcher: ["/((?!api|_next|favicon.ico|robots.txt|sitemap.xml).*)"],
 }
 
+const GOOGLE_STATE_COOKIE_NAME = "wz_google_oauth_state_v1"
+
 function isStaticAssetPath(pathname: string) {
   return /\.(?:png|svg|jpg|jpeg|gif|webp|avif|ico|css|js|mjs|map|txt|xml|json|pdf|mp4|webm|mp3|wav|ogg|woff|woff2|ttf|otf|eot)$/i.test(
     pathname
@@ -69,6 +71,27 @@ function hasLoginSessionCookie(req: NextRequest) {
   return false
 }
 
+function hasGoogleOAuthStateCookie(req: NextRequest) {
+  const token = String(req.cookies.get(GOOGLE_STATE_COOKIE_NAME)?.value || "").trim()
+  return token.includes(".")
+}
+
+function shouldRelayGoogleOAuthToCallback(req: NextRequest, pathname: string) {
+  const isAlreadyCallback =
+    pathname.startsWith("/api/wz_AuthLogin/google/callback") ||
+    pathname.startsWith("/api/wz-auth/google/callback")
+  if (isAlreadyCallback) return false
+
+  const code = String(req.nextUrl.searchParams.get("code") || "").trim()
+  const error = String(req.nextUrl.searchParams.get("error") || "").trim()
+  const errorDescription = String(req.nextUrl.searchParams.get("error_description") || "").trim()
+  const hasOAuthParams = Boolean(code || error || errorDescription)
+  if (!hasOAuthParams) return false
+
+  // Só redireciona quando foi um fluxo iniciado no app (state cookie presente).
+  return hasGoogleOAuthStateCookie(req)
+}
+
 function resolveLoginRedirectTarget(host: string, rawReturnTo: string | null) {
   const dashboardOrigin = getDashboardOriginForHost(host)
   const value = String(rawReturnTo || "").trim()
@@ -108,6 +131,12 @@ export default function proxy(req: NextRequest) {
     url.pathname === "/sitemap.xml"
   ) {
     return NextResponse.next()
+  }
+
+  if (shouldRelayGoogleOAuthToCallback(req, url.pathname)) {
+    const target = req.nextUrl.clone()
+    target.pathname = "/api/wz_AuthLogin/google/callback"
+    return NextResponse.redirect(target, 307)
   }
 
   // -----------------------------
