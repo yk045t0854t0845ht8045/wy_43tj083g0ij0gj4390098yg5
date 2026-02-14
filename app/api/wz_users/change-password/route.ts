@@ -1,7 +1,8 @@
 import crypto from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
-import { gen7, newSalt, sha } from "@/app/api/wz_AuthLogin/_codes";
+import { gen7, isValidE164BRMobile, maskPhoneE164, newSalt, sha } from "@/app/api/wz_AuthLogin/_codes";
 import { sendLoginCodeEmail } from "@/app/api/wz_AuthLogin/_email";
+import { sendAuthSmsCode } from "@/app/api/wz_AuthLogin/_sms";
 import { readActiveSessionFromRequest } from "@/app/api/wz_AuthLogin/_active_session";
 import { supabaseAdmin, supabaseAnon } from "@/app/api/wz_AuthLogin/_supabase";
 import {
@@ -24,6 +25,7 @@ type WzUserRow = {
   id?: string | null;
   email?: string | null;
   full_name?: string | null;
+  phone_e164?: string | null;
   auth_user_id?: string | null;
   user_id?: string | null;
 };
@@ -44,6 +46,24 @@ function normalizeEmail(value?: string | null) {
 function normalizeOptionalText(value?: string | null) {
   const clean = String(value || "").trim();
   return clean || null;
+}
+
+function normalizeE164Phone(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  if (raw.startsWith("+")) {
+    const normalized = `+${onlyDigits(raw)}`;
+    return isValidE164BRMobile(normalized) ? normalized : "";
+  }
+
+  const digits = onlyDigits(raw);
+  if (digits.length === 13 && digits.startsWith("55")) {
+    const normalized = `+${digits}`;
+    return isValidE164BRMobile(normalized) ? normalized : "";
+  }
+
+  return "";
 }
 
 function onlyDigits(value: string) {
@@ -258,6 +278,11 @@ async function queryWzUsersRows(params: {
   mode: "eq" | "ilike";
 }) {
   const columnsToTry = [
+    "id,email,full_name,phone_e164,auth_user_id,user_id",
+    "id,email,full_name,phone_e164,auth_user_id",
+    "id,email,full_name,phone_e164,user_id",
+    "id,email,full_name,phone_e164",
+    "id,email,phone_e164",
     "id,email,full_name,auth_user_id,user_id",
     "id,email,full_name,auth_user_id",
     "id,email,full_name,user_id",
@@ -278,6 +303,7 @@ async function queryWzUsersRows(params: {
         id: normalizeOptionalText(String(row.id || "")),
         email: normalizeOptionalText(String(row.email || "")),
         full_name: normalizeOptionalText(String(row.full_name || "")),
+        phone_e164: normalizeOptionalText(String(row.phone_e164 || "")),
         auth_user_id: normalizeOptionalText(String(row.auth_user_id || "")),
         user_id: normalizeOptionalText(String(row.user_id || "")),
       })) as WzUserRow[];
@@ -458,6 +484,36 @@ async function createEmailChallenge(sb: ReturnType<typeof supabaseAdmin>, email:
   return code;
 }
 
+async function dispatchPasswordChangeCode(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  email: string;
+  phoneE164?: string | null;
+}) {
+  const code = await createEmailChallenge(params.sb, params.email);
+  const normalizedPhone = normalizeE164Phone(params.phoneE164);
+  const phoneMask = normalizedPhone ? maskPhoneE164(normalizedPhone) : null;
+
+  const emailPromise = sendLoginCodeEmail(params.email, code, { heading: "Alterando sua senha" });
+  const smsPromise = normalizedPhone ? sendAuthSmsCode(normalizedPhone, code) : null;
+
+  await emailPromise;
+
+  if (smsPromise) {
+    try {
+      await smsPromise;
+    } catch (error) {
+      console.error("[change-password] sms send error:", {
+        email: params.email,
+        phoneMask,
+        error,
+      });
+      throw new Error("Nao foi possivel enviar o SMS de confirmacao no momento.");
+    }
+  }
+
+  return { phoneMask };
+}
+
 async function verifyEmailChallengeCode(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   email: string;
@@ -612,8 +668,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const code = await createEmailChallenge(base.sb, base.sessionEmail);
-    await sendLoginCodeEmail(base.sessionEmail, code, { heading: "Alterando sua senha" });
+    const dispatchRes = await dispatchPasswordChangeCode({
+      sb: base.sb,
+      email: base.sessionEmail,
+      phoneE164: base.userRow.phone_e164,
+    });
 
     const ticket = createPasswordChangeTicket({
       userId: String(base.userRow.id),
@@ -621,13 +680,17 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json(
-      { ok: true, ticket },
+      { ok: true, ticket, ...(dispatchRes.phoneMask ? { phoneMask: dispatchRes.phoneMask } : {}) },
       { status: 200, headers: NO_STORE_HEADERS },
     );
   } catch (error) {
     console.error("[change-password] start error:", error);
+    const message =
+      error instanceof Error && String(error.message || "").trim()
+        ? String(error.message)
+        : "Erro inesperado ao iniciar alteracao de senha.";
     return NextResponse.json(
-      { ok: false, error: "Erro inesperado ao iniciar alteracao de senha." },
+      { ok: false, error: message },
       { status: 500, headers: NO_STORE_HEADERS },
     );
   }
@@ -651,8 +714,11 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const code = await createEmailChallenge(base.sb, base.sessionEmail);
-    await sendLoginCodeEmail(base.sessionEmail, code, { heading: "Alterando sua senha" });
+    const dispatchRes = await dispatchPasswordChangeCode({
+      sb: base.sb,
+      email: base.sessionEmail,
+      phoneE164: base.userRow.phone_e164,
+    });
 
     const refreshedTicket = createPasswordChangeTicket({
       userId: String(base.userRow.id),
@@ -660,13 +726,17 @@ export async function PATCH(req: NextRequest) {
     });
 
     return NextResponse.json(
-      { ok: true, ticket: refreshedTicket },
+      { ok: true, ticket: refreshedTicket, ...(dispatchRes.phoneMask ? { phoneMask: dispatchRes.phoneMask } : {}) },
       { status: 200, headers: NO_STORE_HEADERS },
     );
   } catch (error) {
     console.error("[change-password] resend error:", error);
+    const message =
+      error instanceof Error && String(error.message || "").trim()
+        ? String(error.message)
+        : "Erro inesperado ao reenviar codigo de senha.";
     return NextResponse.json(
-      { ok: false, error: "Erro inesperado ao reenviar codigo de senha." },
+      { ok: false, error: message },
       { status: 500, headers: NO_STORE_HEADERS },
     );
   }

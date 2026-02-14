@@ -621,6 +621,7 @@ function AccountContent({
   const [newPasswordInput, setNewPasswordInput] = useState("");
   const [confirmNewPasswordInput, setConfirmNewPasswordInput] = useState("");
   const [passwordCode, setPasswordCode] = useState("");
+  const [passwordCodePhoneMask, setPasswordCodePhoneMask] = useState<string | null>(null);
   const [passwordForceTwoFactor, setPasswordForceTwoFactor] = useState(false);
   const [passwordChangeError, setPasswordChangeError] = useState<string | null>(null);
   const [passwordResendCooldown, setPasswordResendCooldown] = useState(0);
@@ -1661,6 +1662,7 @@ function AccountContent({
     setNewPasswordInput("");
     setConfirmNewPasswordInput("");
     setPasswordCode("");
+    setPasswordCodePhoneMask(null);
     setPasswordForceTwoFactor(false);
     setPasswordChangeError(null);
     setPasswordResendCooldown(0);
@@ -1720,6 +1722,7 @@ function AccountContent({
       const payload = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         ticket?: string;
+        phoneMask?: string;
         error?: string;
       };
 
@@ -1728,6 +1731,11 @@ function AccountContent({
       }
 
       setPasswordChangeTicket(payload.ticket);
+      setPasswordCodePhoneMask(
+        typeof payload.phoneMask === "string" && payload.phoneMask.trim()
+          ? payload.phoneMask.trim()
+          : null
+      );
       setPasswordCode("");
       setPasswordForceTwoFactor(false);
       setPasswordStep("confirm-code");
@@ -1759,6 +1767,7 @@ function AccountContent({
       const payload = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         ticket?: string;
+        phoneMask?: string;
         error?: string;
       };
 
@@ -1768,6 +1777,9 @@ function AccountContent({
 
       if (payload.ticket) {
         setPasswordChangeTicket(payload.ticket);
+      }
+      if (typeof payload.phoneMask === "string" && payload.phoneMask.trim()) {
+        setPasswordCodePhoneMask(payload.phoneMask.trim());
       }
       setPasswordResendCooldown(60);
     } catch (err) {
@@ -3397,7 +3409,7 @@ function AccountContent({
           <div className="space-y-6 pt-5">
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">E-mail</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{emailChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedEmailValue}</p></div><button type="button" onClick={() => void openEmailModal()} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar E-mail</button></div>
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Numero de celular</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{phoneChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedPhoneValue}</p></div><button type="button" onClick={() => void openPhoneModal()} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar celular</button></div>
-            <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Senha</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{passwordChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">Atualize sua senha com confirmacao por codigo enviado no e-mail.</p></div><button type="button" onClick={() => void openPasswordModal()} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar Senha</button></div>
+            <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Senha</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{passwordChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">Atualize sua senha com confirmacao por codigo enviado no e-mail e no SMS (quando disponivel).</p></div><button type="button" onClick={() => void openPasswordModal()} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar Senha</button></div>
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -4000,10 +4012,18 @@ function AccountContent({
 
                 {passwordStep === "confirm-code" && (
                   <>
-                    <p className="text-[14px] leading-[1.45] text-black/62">
-                      Enviamos um codigo de 7 digitos para o e-mail{" "}
-                      <span className="break-all font-semibold text-black/78">{maskSecureEmail(localEmail)}</span>.
-                    </p>
+                    {passwordCodePhoneMask ? (
+                      <p className="text-[14px] leading-[1.45] text-black/62">
+                        Enviamos um codigo de 7 digitos para o e-mail{" "}
+                        <span className="break-all font-semibold text-black/78">{maskSecureEmail(localEmail)}</span> e
+                        para o SMS em <span className="font-semibold text-black/78">{passwordCodePhoneMask}</span>.
+                      </p>
+                    ) : (
+                      <p className="text-[14px] leading-[1.45] text-black/62">
+                        Enviamos um codigo de 7 digitos para o e-mail{" "}
+                        <span className="break-all font-semibold text-black/78">{maskSecureEmail(localEmail)}</span>.
+                      </p>
+                    )}
                     <CodeBoxes
                       length={7}
                       value={passwordCode}
