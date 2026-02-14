@@ -1,12 +1,14 @@
+import crypto from "crypto";
 import { NextResponse } from "next/server";
+import { resolveTwoFactorState } from "@/app/api/_twoFactor";
 import { supabaseAdmin, supabaseAnon } from "../_supabase";
 import {
-  sha,
   gen7,
-  newSalt,
-  maskPhoneE164,
-  onlyDigits,
   isValidE164BRMobile,
+  maskPhoneE164,
+  newSalt,
+  onlyDigits,
+  sha,
 } from "../_codes";
 import { sendAuthSmsCode } from "../_sms";
 import { setSessionCookie } from "../_session";
@@ -17,9 +19,7 @@ import {
   hashTrustedLoginToken,
   setTrustedLoginCookie,
 } from "../_trusted_login";
-import crypto from "crypto";
 import { createLoginTwoFactorTicket } from "../_login_two_factor_ticket";
-import { resolveTwoFactorState } from "@/app/api/_twoFactor";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -33,6 +33,15 @@ const NO_STORE_HEADERS = {
 function isValidEmail(v: string) {
   const s = (v || "").trim();
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(s);
+}
+
+function normalizeText(value?: string | null) {
+  const clean = String(value || "").trim();
+  return clean || null;
+}
+
+function normalizeProvider(value?: string | null) {
+  return String(value || "").trim().toLowerCase();
 }
 
 function getEnvBool(name: string, def: boolean) {
@@ -72,6 +81,7 @@ function signTicket(payloadB64: string, secret: string) {
     crypto.createHmac("sha256", secret).update(payloadB64).digest(),
   );
 }
+
 function sanitizeFullName(v?: string | null) {
   const clean = String(v || "")
     .replace(/\s+/g, " ")
@@ -87,9 +97,9 @@ function makeDashboardTicket(params: {
   ttlMs?: number;
 }) {
   const secret = getTicketSecret();
-  if (!secret) throw new Error("SESSION_SECRET/WZ_AUTH_SECRET não configurado.");
+  if (!secret) throw new Error("SESSION_SECRET/WZ_AUTH_SECRET nao configurado.");
 
-  const ttlMs = Number(params.ttlMs ?? 1000 * 60 * 5); // 5 min
+  const ttlMs = Number(params.ttlMs ?? 1000 * 60 * 5);
   const safeFullName = sanitizeFullName(params.fullName);
   const payload = {
     userId: String(params.userId),
@@ -147,7 +157,6 @@ function sanitizeNext(nextRaw: string) {
   try {
     const u = new URL(s);
     const host = u.hostname.toLowerCase();
-
     const ok =
       host === "wyzer.com.br" ||
       host.endsWith(".wyzer.com.br") ||
@@ -155,10 +164,127 @@ function sanitizeNext(nextRaw: string) {
       host.endsWith(".localhost");
 
     if (!ok) return "/";
-
     return u.pathname + u.search + u.hash;
   } catch {
     return "/";
+  }
+}
+
+function isMissingColumnError(error: unknown, column: string) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  const needle = String(column || "").trim().toLowerCase();
+  if (!needle) return false;
+  if (code === "42703" || code === "PGRST204") return true;
+  return (
+    (message.includes(needle) || details.includes(needle)) &&
+    (message.includes("column") || details.includes("column"))
+  );
+}
+
+type WzUserSnapshot = {
+  id: string | null;
+  authUserId: string | null;
+  authProvider: string | null;
+  phoneE164: string | null;
+};
+
+async function getWzUserSnapshotByEmail(
+  sb: ReturnType<typeof supabaseAdmin>,
+  email: string,
+) {
+  const columnsToTry = [
+    "id,auth_user_id,auth_provider,phone_e164",
+    "id,auth_user_id,phone_e164",
+    "id,auth_user_id",
+    "id,phone_e164",
+    "id",
+  ];
+
+  for (const columns of columnsToTry) {
+    const res = await sb
+      .from("wz_users")
+      .select(columns)
+      .ilike("email", email)
+      .maybeSingle();
+
+    if (!res.error) {
+      const row = (res.data || {}) as {
+        id?: string | null;
+        auth_user_id?: string | null;
+        auth_provider?: string | null;
+        phone_e164?: string | null;
+      };
+
+      return {
+        id: normalizeText(row.id),
+        authUserId: normalizeText(row.auth_user_id),
+        authProvider: normalizeProvider(row.auth_provider),
+        phoneE164: normalizeText(row.phone_e164),
+      } as WzUserSnapshot;
+    }
+
+    const hasMissingColumn = ["id", "auth_user_id", "auth_provider", "phone_e164"].some(
+      (column) => isMissingColumnError(res.error, column),
+    );
+    if (!hasMissingColumn) {
+      console.error("[verify-email] wz_users snapshot error:", res.error);
+      break;
+    }
+  }
+
+  return {
+    id: null,
+    authUserId: null,
+    authProvider: null,
+    phoneE164: null,
+  } as WzUserSnapshot;
+}
+
+function hasGoogleIdentity(user: unknown) {
+  const candidate =
+    user && typeof user === "object"
+      ? (user as {
+          app_metadata?: Record<string, unknown> | null;
+          identities?: Array<Record<string, unknown>> | null;
+        })
+      : null;
+  if (!candidate) return false;
+
+  const appProvider = String(candidate.app_metadata?.provider || "")
+    .trim()
+    .toLowerCase();
+  if (appProvider === "google") return true;
+
+  const identities = Array.isArray(candidate.identities)
+    ? candidate.identities
+    : [];
+  return identities.some(
+    (identity) => String(identity?.provider || "").trim().toLowerCase() === "google",
+  );
+}
+
+async function authUserHasGoogleProvider(
+  sb: ReturnType<typeof supabaseAdmin>,
+  authUserId: string,
+) {
+  const cleanAuthUserId = String(authUserId || "").trim();
+  if (!cleanAuthUserId) return false;
+
+  try {
+    const { data, error } = await sb.auth.admin.getUserById(cleanAuthUserId);
+    if (error) {
+      console.error("[verify-email] getUserById error:", error);
+      return false;
+    }
+    return hasGoogleIdentity(data?.user || null);
+  } catch (error) {
+    console.error("[verify-email] authUserHasGoogleProvider error:", error);
+    return false;
   }
 }
 
@@ -188,9 +314,10 @@ async function findAuthUserIdByEmail(sb: ReturnType<typeof supabaseAdmin>, email
 }
 
 function isPasskeySchemaMissing(error: unknown) {
-  const code = typeof (error as { code?: unknown } | null)?.code === "string"
-    ? String((error as { code?: string }).code)
-    : "";
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
   const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
   return code === "42P01" || code === "PGRST205" || message.includes("wz_auth_passkeys");
 }
@@ -224,29 +351,61 @@ export async function POST(req: Request) {
     const email = String(body?.email || "").trim().toLowerCase();
     const code = onlyDigits(String(body?.code || "")).slice(0, 7);
     const password = String(body?.password || "");
-
-    // ✅ onde voltar após login (página original do usuário)
     const nextFromBody = String(body?.next || body?.returnTo || "").trim();
     const nextSafe = sanitizeNext(nextFromBody || "/");
 
     if (!isValidEmail(email)) {
-      return NextResponse.json({ ok: false, error: "E-mail inválido." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json(
+        { ok: false, error: "E-mail invalido." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
     }
     if (code.length !== 7) {
-      return NextResponse.json({ ok: false, error: "Código inválido." }, { status: 400, headers: NO_STORE_HEADERS });
-    }
-    if (!password || password.length < 6) {
-      return NextResponse.json({ ok: false, error: "Senha inválida." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json(
+        { ok: false, error: "Codigo invalido." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
     }
 
     const sb = supabaseAdmin();
 
     const pend = await sb.from("wz_pending_auth").select("*").eq("email", email).maybeSingle();
     if (pend.error || !pend.data) {
-      return NextResponse.json({ ok: false, error: "Sessão inválida. Reinicie." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json(
+        { ok: false, error: "Sessao invalida. Reinicie." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
     }
 
-    const flow = String(pend.data.flow || "login");
+    const flowRaw = String(pend.data.flow || "").trim().toLowerCase();
+    let authUserId = pend.data.auth_user_id ? String(pend.data.auth_user_id).trim() : "";
+    if (!authUserId) {
+      const recovered = await findAuthUserIdByEmail(sb, email);
+      if (recovered) authUserId = recovered;
+    }
+
+    const wzUser = await getWzUserSnapshotByEmail(sb, email);
+    if (!authUserId && wzUser.authUserId) {
+      authUserId = wzUser.authUserId;
+    }
+
+    const googleByProviderColumn = wzUser.authProvider === "google";
+    const googleByAuthUser = authUserId
+      ? await authUserHasGoogleProvider(sb, authUserId)
+      : false;
+    const isGoogleOnboarding =
+      flowRaw === "google" ||
+      ((flowRaw === "register" || !flowRaw) &&
+        (googleByProviderColumn || googleByAuthUser));
+    const flow = flowRaw || (isGoogleOnboarding ? "google" : "login");
+    const requiresPassword = flow === "login" || !isGoogleOnboarding;
+
+    if (requiresPassword && (!password || password.length < 6)) {
+      return NextResponse.json(
+        { ok: false, error: "Senha invalida." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
 
     const { data: ch, error: chErr } = await sb
       .from("wz_auth_challenges")
@@ -259,20 +418,28 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (chErr || !ch) {
-      return NextResponse.json({ ok: false, error: "Código expirado. Reenvie." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json(
+        { ok: false, error: "Codigo expirado. Reenvie." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
     }
 
     if (new Date(ch.expires_at).getTime() < Date.now()) {
       await sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", ch.id);
-      return NextResponse.json({ ok: false, error: "Código expirado. Reenvie." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json(
+        { ok: false, error: "Codigo expirado. Reenvie." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
     }
 
     if (Number(ch.attempts_left) <= 0) {
-      return NextResponse.json({ ok: false, error: "Muitas tentativas. Reenvie o código." }, { status: 429, headers: NO_STORE_HEADERS });
+      return NextResponse.json(
+        { ok: false, error: "Muitas tentativas. Reenvie o codigo." },
+        { status: 429, headers: NO_STORE_HEADERS },
+      );
     }
 
     const hash = sha(code, ch.salt);
-
     if (hash !== ch.code_hash) {
       const nextAttempts = Math.max(0, Number(ch.attempts_left) - 1);
       await sb
@@ -305,13 +472,15 @@ export async function POST(req: Request) {
 
     await sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", ch.id);
 
-    // ✅ LOGIN: valida senha e finaliza
     if (flow === "login") {
       const anon = supabaseAnon();
       const { data: signIn, error: signErr } = await anon.auth.signInWithPassword({ email, password });
 
       if (signErr || !signIn?.user?.id) {
-        return NextResponse.json({ ok: false, error: "Senha incorreta." }, { status: 401, headers: NO_STORE_HEADERS });
+        return NextResponse.json(
+          { ok: false, error: "Senha incorreta." },
+          { status: 401, headers: NO_STORE_HEADERS },
+        );
       }
 
       const { data: userRow, error: uErr } = await sb
@@ -325,7 +494,10 @@ export async function POST(req: Request) {
       const resolvedFullName = sanitizeFullName(userRow?.full_name || authMetaFullName);
 
       if (uErr || !userRow?.id) {
-        return NextResponse.json({ ok: false, error: "Conta não encontrada." }, { status: 404, headers: NO_STORE_HEADERS });
+        return NextResponse.json(
+          { ok: false, error: "Conta nao encontrada." },
+          { status: 404, headers: NO_STORE_HEADERS },
+        );
       }
 
       const resolvedUserId = String(userRow.id || "").trim();
@@ -366,7 +538,6 @@ export async function POST(req: Request) {
 
       const dashboard = getDashboardOrigin();
 
-      // ✅ host-only => seta no login host e usa ticket + exchange no dashboard.
       if (isHostOnlyMode()) {
         const ticket = makeDashboardTicket({
           userId: resolvedUserId,
@@ -393,9 +564,11 @@ export async function POST(req: Request) {
         return res;
       }
 
-      // ✅ Legacy/domain-cookie mode: pode setar cookie direto e ir pro dashboard
       const nextUrl = `${dashboard}${nextSafe.startsWith("/") ? nextSafe : "/"}`;
-      const res = NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
+      const res = NextResponse.json(
+        { ok: true, nextUrl },
+        { status: 200, headers: NO_STORE_HEADERS },
+      );
       const sessionPayload = setSessionCookie(
         res,
         { userId: resolvedUserId, email, fullName: resolvedFullName },
@@ -415,22 +588,20 @@ export async function POST(req: Request) {
       return res;
     }
 
-    // ✅ REGISTER: confirma Auth + garante senha no Auth + gera SMS
-    let authUserId = pend.data.auth_user_id ? String(pend.data.auth_user_id) : "";
-
-    if (!authUserId) {
-      const recovered = await findAuthUserIdByEmail(sb, email);
-      if (recovered) authUserId = recovered;
-    }
-
     if (authUserId) {
       try {
-        await sb.auth.admin.updateUserById(authUserId, {
-          email_confirm: true,
-          password,
-        });
+        if (isGoogleOnboarding) {
+          await sb.auth.admin.updateUserById(authUserId, {
+            email_confirm: true,
+          });
+        } else {
+          await sb.auth.admin.updateUserById(authUserId, {
+            email_confirm: true,
+            password,
+          });
+        }
       } catch (err) {
-        console.error("[verify-email] auth confirm/update password failed:", err);
+        console.error("[verify-email] auth confirm/update failed:", err);
       }
 
       try {
@@ -441,19 +612,43 @@ export async function POST(req: Request) {
       } catch {}
     }
 
-    const phoneE164 = String(pend.data.phone_e164 || "");
-    if (!phoneE164) {
-      return NextResponse.json({ ok: false, error: "Telefone não encontrado para SMS." }, { status: 400, headers: NO_STORE_HEADERS });
-    }
+    const pendingPhone = String(pend.data.phone_e164 || "").trim();
+    const profilePhone = String(wzUser.phoneE164 || "").trim();
+    const phoneE164 = pendingPhone || profilePhone;
 
-    if (!isValidE164BRMobile(phoneE164)) {
+    if (!phoneE164 || !isValidE164BRMobile(phoneE164)) {
+      if (isGoogleOnboarding) {
+        const patch: Record<string, unknown> = {
+          stage: "phone",
+          updated_at: new Date().toISOString(),
+        };
+        if (authUserId) patch.auth_user_id = authUserId;
+        await sb.from("wz_pending_auth").update(patch).eq("email", email);
+
+        return NextResponse.json(
+          { ok: true, next: "collect-phone" },
+          { status: 200, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const missingPhoneMessage = !phoneE164
+        ? "Telefone nao encontrado para SMS."
+        : "Telefone invalido para SMS. Use um celular BR valido com DDD.";
       return NextResponse.json(
-        { ok: false, error: "Telefone inválido para SMS. Use um celular BR válido com DDD." },
-        { status: 400, headers: NO_STORE_HEADERS }
+        { ok: false, error: missingPhoneMessage },
+        { status: 400, headers: NO_STORE_HEADERS },
       );
     }
 
-    await sb.from("wz_pending_auth").update({ stage: "sms" }).eq("email", email);
+    const pendingPatch: Record<string, unknown> = {
+      stage: "sms",
+      updated_at: new Date().toISOString(),
+    };
+    if (authUserId) pendingPatch.auth_user_id = authUserId;
+    if (!pendingPhone || pendingPhone !== phoneE164) {
+      pendingPatch.phone_e164 = phoneE164;
+    }
+    await sb.from("wz_pending_auth").update(pendingPatch).eq("email", email);
 
     await sb
       .from("wz_auth_challenges")
@@ -478,19 +673,24 @@ export async function POST(req: Request) {
     });
 
     if (smsErr) {
-      return NextResponse.json({ ok: false, error: "Falha ao gerar SMS." }, { status: 500, headers: NO_STORE_HEADERS });
+      return NextResponse.json(
+        { ok: false, error: "Falha ao gerar SMS." },
+        { status: 500, headers: NO_STORE_HEADERS },
+      );
     }
 
     await sendAuthSmsCode(phoneE164, smsCode);
 
     return NextResponse.json(
       { ok: true, next: "sms", phoneMask: maskPhoneE164(phoneE164) },
-      { status: 200, headers: NO_STORE_HEADERS }
+      { status: 200, headers: NO_STORE_HEADERS },
     );
   } catch (e: unknown) {
     console.error("[verify-email] error:", e);
     const message = e instanceof Error ? e.message : "Erro inesperado.";
-    return NextResponse.json({ ok: false, error: message }, { status: 500, headers: NO_STORE_HEADERS });
+    return NextResponse.json(
+      { ok: false, error: message },
+      { status: 500, headers: NO_STORE_HEADERS },
+    );
   }
 }
-

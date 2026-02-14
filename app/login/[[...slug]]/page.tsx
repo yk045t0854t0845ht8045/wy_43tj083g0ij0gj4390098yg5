@@ -268,7 +268,13 @@ type EmailCheckState =
   | { state: "new" }
   | { state: "error"; message: string };
 
-type Step = "collect" | "emailCode" | "twoFactorCode" | "emailSuccess" | "smsCode";
+type Step =
+  | "collect"
+  | "emailCode"
+  | "twoFactorCode"
+  | "emailSuccess"
+  | "collectPhone"
+  | "smsCode";
 type LoginAuthMethod = "choose" | "totp" | "passkey";
 type LoginAuthMethodsPayload = { totp?: boolean; passkey?: boolean };
 type PasskeyLoginOptionsPayload = {
@@ -543,6 +549,7 @@ export default function LinkLoginPage() {
   const [twoFactorAllowsPasskey, setTwoFactorAllowsPasskey] = useState(false);
   const [twoFactorMethod, setTwoFactorMethod] = useState<LoginAuthMethod>("totp");
   const [smsCode, setSmsCode] = useState("");
+  const [googleOnboarding, setGoogleOnboarding] = useState(false);
 
   const [emailSuccessOpen, setEmailSuccessOpen] = useState(false);
   const emailSuccessTimerRef = useRef<number | null>(null);
@@ -553,6 +560,8 @@ export default function LinkLoginPage() {
   const [verifyingTwoFactorCodeBusy, setVerifyingTwoFactorCodeBusy] =
     useState(false);
   const [verifyingPasskeyLoginBusy, setVerifyingPasskeyLoginBusy] =
+    useState(false);
+  const [collectingGooglePhoneBusy, setCollectingGooglePhoneBusy] =
     useState(false);
   const [checkingExistingSession, setCheckingExistingSession] = useState(true);
   const [sessionCheckLabel, setSessionCheckLabel] =
@@ -720,6 +729,43 @@ export default function LinkLoginPage() {
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const oauthProvider = String(url.searchParams.get("oauthProvider") || "")
+      .trim()
+      .toLowerCase();
+    const oauthEmail = String(url.searchParams.get("oauthEmail") || "")
+      .trim()
+      .toLowerCase();
+    const oauthStep = String(url.searchParams.get("oauthStep") || "")
+      .trim()
+      .toLowerCase();
+
+    if (oauthProvider !== "google" || !isValidEmail(oauthEmail)) {
+      return;
+    }
+
+    setGoogleOnboarding(true);
+    setEmail(oauthEmail);
+    setEmailLocked(true);
+    setCheck({ state: "exists" });
+    setPassword("");
+    setMsgError(null);
+    setEmailCode("");
+    setSmsCode("");
+
+    if (oauthStep === "email") {
+      setStep("emailCode");
+      setResendCooldown(35);
+    }
+
+    url.searchParams.delete("oauthProvider");
+    url.searchParams.delete("oauthEmail");
+    url.searchParams.delete("oauthStep");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
   // cooldown resend
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -810,6 +856,7 @@ export default function LinkLoginPage() {
     setVerifyingTwoFactorCodeBusy(false);
     setVerifyingPasskeyLoginBusy(false);
     setVerifyingSmsCodeBusy(false);
+    setCollectingGooglePhoneBusy(false);
     setMsgError(null);
     setResendCooldown(0);
     setTwoFactorIslandLoading(false);
@@ -834,6 +881,7 @@ export default function LinkLoginPage() {
     setTwoFactorMethod("totp");
     passkeyAutoStartTicketRef.current = "";
     setSmsCode("");
+    setGoogleOnboarding(false);
 
     // garante URL limpa
     if (typeof window !== "undefined") window.history.replaceState({}, "", "/");
@@ -951,10 +999,14 @@ export default function LinkLoginPage() {
       }
       return "Abra seu aplicativo autenticador para continuar.";
     }
-    if (step === "smsCode") return "Insira o código enviado por SMS.";
+    if (step === "collectPhone")
+      return "Informe seu numero de celular para receber o codigo SMS.";
+    if (step === "smsCode") return "Insira o codigo enviado por SMS.";
     if (check.state === "checking") return "Verificando seu e-mail…";
     if (check.state === "exists")
-      return "Conta encontrada. Vamos confirmar com código.";
+      return googleOnboarding
+        ? "Conta Google conectada. Vamos confirmar com codigo."
+        : "Conta encontrada. Vamos confirmar com codigo.";
     if (check.state === "new")
       return "Novo por aqui? Complete seus dados e confirme o e-mail.";
     if (check.state === "invalid")
@@ -962,7 +1014,13 @@ export default function LinkLoginPage() {
     if (check.state === "error")
       return "Não conseguimos validar agora. Tente novamente.";
     return "Faça login ou registre-se para começar.";
-  }, [check.state, step, twoFactorAllowsTotp, twoFactorAllowsPasskey]);
+  }, [
+    check.state,
+    step,
+    twoFactorAllowsTotp,
+    twoFactorAllowsPasskey,
+    googleOnboarding,
+  ]);
 
   const canStart = useMemo(() => {
     const eok = isValidEmail(email.trim());
@@ -1188,6 +1246,14 @@ export default function LinkLoginPage() {
           if (!openSecondStepChallenge(j, null)) {
             throw new Error("Fluxo de autenticacao em 2 etapas invalido.");
           }
+          return;
+        }
+
+        if (j?.next === "collect-phone") {
+          setGoogleOnboarding(true);
+          setStep("collectPhone");
+          setSmsCode("");
+          setResendCooldown(0);
           return;
         }
 
@@ -1530,6 +1596,56 @@ export default function LinkLoginPage() {
     twoFactorIslandLoading,
     verifyPasskeyLogin,
   ]);
+
+  const saveGooglePhone = useCallback(
+    async (e?: React.FormEvent | React.MouseEvent) => {
+      e?.preventDefault?.();
+
+      const phoneDigits = onlyDigits(phone).slice(0, 11);
+      if (phoneDigits.length !== 11) {
+        setMsgError("Informe um celular BR valido com DDD.");
+        return;
+      }
+      if (busy || collectingGooglePhoneBusy) return;
+
+      setCollectingGooglePhoneBusy(true);
+      setBusy(true);
+      setMsgError(null);
+
+      try {
+        const res = await fetch("/api/wz_AuthLogin/google/phone", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            phone: phoneDigits,
+          }),
+        });
+
+        const j = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        if (!res.ok || !j?.ok) {
+          throw new Error(
+            String(j?.error || "Nao foi possivel salvar o numero para validacao."),
+          );
+        }
+
+        setPhoneMaskFromServer(String(j?.phoneMask || ""));
+        setStep("smsCode");
+        setSmsCode("");
+        setResendCooldown(35);
+      } catch (error: unknown) {
+        setMsgError(
+          error instanceof Error
+            ? error.message
+            : "Erro inesperado ao salvar numero.",
+        );
+      } finally {
+        setBusy(false);
+        setCollectingGooglePhoneBusy(false);
+      }
+    },
+    [phone, busy, collectingGooglePhoneBusy, email],
+  );
 
   const verifySmsCode = useCallback(
     async (code?: string) => {
@@ -2011,6 +2127,7 @@ export default function LinkLoginPage() {
       return <Check className="h-6 w-6 text-black/80" />;
     if (step === "emailSuccess")
       return <Check className="h-6 w-6 text-black/80" />;
+    if (step === "collectPhone") return <Phone className="h-6 w-6 text-black/80" />;
     if (step === "smsCode") return <Phone className="h-6 w-6 text-black/80" />;
     return <Mail className="h-6 w-6 text-black/80" />;
   }, [step]);
@@ -2073,6 +2190,8 @@ export default function LinkLoginPage() {
                           : "Confirme a autenticacao de 2 etapas"
                     : step === "emailSuccess"
                       ? "Codigo validado com sucesso"
+                      : step === "collectPhone"
+                        ? "Informe seu celular para validar"
                       : "Confirme seu numero por SMS"}
               </div>
 
@@ -2095,6 +2214,10 @@ export default function LinkLoginPage() {
                 ) : step === "emailSuccess" ? (
                   <>
                     Verificacao concluida. Vamos confirmar seu numero por SMS.
+                  </>
+                ) : step === "collectPhone" ? (
+                  <>
+                    Digite seu celular com DDD para receber o codigo SMS.
                   </>
                 ) : step === "smsCode" ? (
                   <>
@@ -2529,6 +2652,143 @@ export default function LinkLoginPage() {
                     </motion.div>
                   </div>
                 </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* STEP: COLLECT PHONE (GOOGLE) */}
+            <AnimatePresence mode="sync" initial={false}>
+              {step === "collectPhone" && (
+                <motion.form
+                  key="collectPhone"
+                  onSubmit={saveGooglePhone}
+                  initial={{ opacity: 0, y: 14, filter: "blur(10px)" }}
+                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, y: 10, filter: "blur(10px)" }}
+                  transition={{
+                    duration: prefersReducedMotion ? 0 : DUR.md,
+                    ease: EASE,
+                  }}
+                  className="mt-10"
+                >
+                  <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden">
+                    <input
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(formatPhoneBR(e.target.value))}
+                      placeholder="Numero de telefone"
+                      className="w-full bg-transparent px-6 py-5 text-[15px] sm:text-[16px] text-black placeholder-black/45 focus:outline-none"
+                      autoComplete="tel"
+                      inputMode="tel"
+                    />
+                  </div>
+
+                  <AnimatePresence initial={false}>
+                    {!!msgError && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 8, filter: "blur(8px)" }}
+                        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                        exit={{ opacity: 0, y: 8, filter: "blur(8px)" }}
+                        transition={{
+                          duration: prefersReducedMotion ? 0 : 0.22,
+                          ease: EASE,
+                        }}
+                        className="mt-4 rounded-[16px] bg-black/5 ring-1 ring-black/10 px-4 py-3 text-[13px] text-black/70 text-center"
+                      >
+                        {msgError}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <motion.button
+                    type="submit"
+                    disabled={busy || collectingGooglePhoneBusy || onlyDigits(phone).length !== 11}
+                    whileHover={
+                      prefersReducedMotion ||
+                      busy ||
+                      collectingGooglePhoneBusy ||
+                      onlyDigits(phone).length !== 11
+                        ? undefined
+                        : { y: -2, scale: 1.01 }
+                    }
+                    whileTap={
+                      prefersReducedMotion ||
+                      busy ||
+                      collectingGooglePhoneBusy ||
+                      onlyDigits(phone).length !== 11
+                        ? undefined
+                        : { scale: 0.98 }
+                    }
+                    transition={{
+                      duration: prefersReducedMotion ? 0 : DUR.sm,
+                      ease: EASE,
+                    }}
+                    className={cx(
+                      "group relative w-full mt-7 bg-[#171717] border border-[#454545] border-2 rounded-full px-15 py-5 text-white",
+                      "focus:outline-none transition-all duration-300 ease-out",
+                      "text-[16px] font-semibold shadow-[0_18px_55px_rgba(0,0,0,0.12)] hover:shadow-[0_22px_70px_rgba(0,0,0,0.16)] pr-16 transform-gpu",
+                      busy || collectingGooglePhoneBusy || onlyDigits(phone).length !== 11
+                        ? "opacity-60 cursor-not-allowed select-none pointer-events-none"
+                        : "hover:border-[#6a6a6a] focus:border-lime-400",
+                    )}
+                    style={{ willChange: "transform" }}
+                  >
+                    <span className="relative z-10">
+                      {collectingGooglePhoneBusy ? "Salvando..." : "Continuar"}
+                    </span>
+
+                    <motion.span
+                      whileHover={
+                        prefersReducedMotion ||
+                        busy ||
+                        collectingGooglePhoneBusy ||
+                        onlyDigits(phone).length !== 11
+                          ? undefined
+                          : { scale: 1.06 }
+                      }
+                      whileTap={
+                        prefersReducedMotion ||
+                        busy ||
+                        collectingGooglePhoneBusy ||
+                        onlyDigits(phone).length !== 11
+                          ? undefined
+                          : { scale: 0.96 }
+                      }
+                      transition={{
+                        duration: prefersReducedMotion ? 0 : DUR.sm,
+                        ease: EASE,
+                      }}
+                      className={cx(
+                        "absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-3 transition-all duration-300 ease-out",
+                        busy || collectingGooglePhoneBusy || onlyDigits(phone).length !== 11
+                          ? "bg-transparent"
+                          : "bg-transparent group-hover:bg-white/10 group-hover:translate-x-0.5",
+                      )}
+                    >
+                      {collectingGooglePhoneBusy ? (
+                        <SpinnerMini reduced={!!prefersReducedMotion} />
+                      ) : (
+                        <ArrowRight className="w-5 h-5 text-white transition-transform duration-300 group-hover:translate-x-0.5" />
+                      )}
+                    </motion.span>
+                  </motion.button>
+
+                  <div className="mt-6 flex items-center justify-center">
+                    <button
+                      type="button"
+                      onClick={resetAll}
+                      disabled={busy || collectingGooglePhoneBusy}
+                      className={cx(
+                        "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
+                        busy || collectingGooglePhoneBusy
+                          ? "text-black/35 cursor-not-allowed"
+                          : "text-black/55 hover:text-black/75",
+                      )}
+                    >
+                      <Undo2 className="h-4 w-4" />
+                      Trocar e-mail
+                    </button>
+                  </div>
+                </motion.form>
               )}
             </AnimatePresence>
 
@@ -3041,4 +3301,3 @@ export default function LinkLoginPage() {
     </div>
   );
 }
-

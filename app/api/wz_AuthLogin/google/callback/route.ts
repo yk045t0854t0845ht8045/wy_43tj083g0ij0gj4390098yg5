@@ -1,15 +1,9 @@
 import crypto from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "../../_supabase";
-import { setSessionCookie } from "../../_session";
-import { registerIssuedSession } from "../../_session_devices";
 import { upsertLoginProviderRecord } from "../../_login_providers";
-import {
-  createTrustedLoginToken,
-  getTrustedLoginTtlSeconds,
-  hashTrustedLoginToken,
-  setTrustedLoginCookie,
-} from "../../_trusted_login";
+import { gen7, newSalt, onlyDigits, sha, toE164BRMobile } from "../../_codes";
+import { sendLoginCodeEmail } from "../../_email";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -107,6 +101,78 @@ function normalizeOptionalPhone(value?: string | null) {
   return clean || null;
 }
 
+function normalizeGooglePhoneToE164Br(value?: string | null) {
+  const digits = onlyDigits(String(value || ""));
+  if (!digits) return null;
+
+  if (digits.length === 11) {
+    return toE164BRMobile(digits);
+  }
+
+  if (digits.length === 13 && digits.startsWith("55")) {
+    return toE164BRMobile(digits.slice(2));
+  }
+
+  if (digits.length === 12 && digits.startsWith("55")) {
+    return toE164BRMobile(`9${digits.slice(2)}`);
+  }
+
+  if (digits.length > 13 && digits.startsWith("55")) {
+    return toE164BRMobile(digits.slice(2, 13));
+  }
+
+  return null;
+}
+
+function extractGooglePhoneCandidate(user: Record<string, unknown>) {
+  const candidates: Array<string> = [];
+
+  const pushCandidate = (raw: unknown) => {
+    const value = String(raw || "").trim();
+    if (!value) return;
+    candidates.push(value);
+  };
+
+  pushCandidate(user.phone);
+  pushCandidate(user.phone_number);
+
+  const metadata =
+    user.user_metadata && typeof user.user_metadata === "object"
+      ? (user.user_metadata as Record<string, unknown>)
+      : null;
+
+  if (metadata) {
+    pushCandidate(metadata.phone);
+    pushCandidate(metadata.phone_number);
+    pushCandidate(metadata.phoneNumber);
+    pushCandidate(metadata.mobile);
+    pushCandidate(metadata.mobile_phone);
+  }
+
+  const identities = Array.isArray(user.identities)
+    ? (user.identities as Array<Record<string, unknown>>)
+    : [];
+  for (const identity of identities) {
+    const identityData =
+      identity.identity_data && typeof identity.identity_data === "object"
+        ? (identity.identity_data as Record<string, unknown>)
+        : null;
+    if (!identityData) continue;
+
+    pushCandidate(identityData.phone);
+    pushCandidate(identityData.phone_number);
+    pushCandidate(identityData.phoneNumber);
+    pushCandidate(identityData.mobile);
+  }
+
+  for (const candidate of candidates) {
+    const normalized = normalizeGooglePhoneToE164Br(candidate);
+    if (normalized) return normalized;
+  }
+
+  return null;
+}
+
 function isSafeNextPath(path: string) {
   if (!path) return false;
   if (!path.startsWith("/")) return false;
@@ -137,30 +203,6 @@ function sanitizeNext(raw: string) {
     if (isAllowedReturnToAbsolute(u)) return u.toString();
   } catch {}
   return "/";
-}
-
-function toRedirectTarget(next: string, origin: string) {
-  if (/^https?:\/\//i.test(next)) return next;
-  return new URL(next, origin).toString();
-}
-
-function getEnvBool(name: string, def: boolean) {
-  const v = String(process.env[name] ?? "").trim().toLowerCase();
-  if (!v) return def;
-  if (v === "1" || v === "true" || v === "yes" || v === "on") return true;
-  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
-  return def;
-}
-
-function isHostOnlyMode() {
-  const isProd = process.env.NODE_ENV === "production";
-  return isProd && getEnvBool("SESSION_COOKIE_HOST_ONLY", true);
-}
-
-function getDashboardOrigin() {
-  const env = String(process.env.DASHBOARD_ORIGIN || "").trim();
-  if (env) return env.replace(/\/+$/g, "");
-  return "https://dashboard.wyzer.com.br";
 }
 
 function getConfiguredAuthOrigin() {
@@ -241,31 +283,6 @@ function clearGoogleStateCookie(res: NextResponse, req: NextRequest) {
   }
 }
 
-function makeDashboardTicket(params: {
-  userId: string;
-  email: string;
-  fullName?: string | null;
-  ttlMs?: number;
-}) {
-  const secret = getTicketSecret();
-  if (!secret) throw new Error("SESSION_SECRET/WZ_AUTH_SECRET nao configurado.");
-
-  const ttlMs = Number(params.ttlMs ?? 1000 * 60 * 5);
-  const safeFullName = sanitizeFullName(params.fullName);
-  const payload = {
-    userId: String(params.userId),
-    email: String(params.email).trim().toLowerCase(),
-    ...(safeFullName ? { fullName: safeFullName } : {}),
-    iat: Date.now(),
-    exp: Date.now() + ttlMs,
-    nonce: crypto.randomBytes(8).toString("hex"),
-  };
-
-  const payloadB64 = base64UrlEncode(JSON.stringify(payload));
-  const sig = signTicket(payloadB64, secret);
-  return `${payloadB64}.${sig}`;
-}
-
 function readGoogleStateTicket(ticket: string) {
   const secret = getTicketSecret();
   if (!secret) {
@@ -301,6 +318,36 @@ function readGoogleStateTicket(ticket: string) {
   }
 }
 
+function buildLoginErrorRedirect(params: {
+  origin: string;
+  next: string;
+  error: string;
+}) {
+  const url = new URL("/", params.origin);
+  const safeNext = sanitizeNext(params.next);
+  if (safeNext && safeNext !== "/") {
+    url.searchParams.set("returnTo", safeNext);
+  }
+  url.searchParams.set("oauthError", params.error.slice(0, 220));
+  return url.toString();
+}
+
+function buildGoogleOnboardingRedirect(params: {
+  origin: string;
+  next: string;
+  email: string;
+}) {
+  const url = new URL("/", params.origin);
+  const safeNext = sanitizeNext(params.next);
+  if (safeNext && safeNext !== "/") {
+    url.searchParams.set("returnTo", safeNext);
+  }
+  url.searchParams.set("oauthProvider", "google");
+  url.searchParams.set("oauthEmail", params.email);
+  url.searchParams.set("oauthStep", "email");
+  return url.toString();
+}
+
 function isMissingColumnError(error: unknown, column: string) {
   const code =
     typeof (error as { code?: unknown } | null)?.code === "string"
@@ -324,6 +371,18 @@ function isUniqueViolation(error: unknown) {
       : "";
   const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
   return code === "23505" || message.includes("duplicate key");
+}
+
+function isCheckViolation(error: unknown, contains: string) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  const needle = String(contains || "").trim().toLowerCase();
+  if (!needle) return false;
+  return code === "23514" && (message.includes(needle) || details.includes(needle));
 }
 
 function isPhoneConstraintViolation(error: unknown) {
@@ -422,8 +481,7 @@ async function updateWzUserBestEffort(params: {
   if (!userId) return;
 
   const patch = { ...params.patch };
-  const patchKeys = Object.keys(patch);
-  if (!patchKeys.length) return;
+  if (!Object.keys(patch).length) return;
 
   while (Object.keys(patch).length) {
     const updateRes = await params.sb.from("wz_users").update(patch).eq("id", userId);
@@ -559,6 +617,9 @@ async function findOrCreateGoogleWzUser(params: {
       patch.email = params.email;
     }
     patch.auth_provider = "google";
+    if (existing.must_create_password === null) {
+      patch.must_create_password = true;
+    }
 
     await updateWzUserBestEffort({
       sb: params.sb,
@@ -570,6 +631,8 @@ async function findOrCreateGoogleWzUser(params: {
       userId: existing.id,
       isNew: false as const,
       mustCreatePassword: Boolean(existing.must_create_password),
+      phoneE164: normalizeOptionalPhone(existing.phone_e164),
+      fullName: existing.full_name || params.fullName || null,
     };
   }
 
@@ -585,6 +648,8 @@ async function findOrCreateGoogleWzUser(params: {
       userId: createdId,
       isNew: true as const,
       mustCreatePassword: true as const,
+      phoneE164: null,
+      fullName: params.fullName || null,
     };
   } catch (error) {
     if (isUniqueViolation(error)) {
@@ -602,50 +667,22 @@ async function findOrCreateGoogleWzUser(params: {
           patch: {
             ...(recovered.auth_user_id ? {} : { auth_user_id: params.authUserId }),
             auth_provider: "google",
+            ...(recovered.must_create_password === null
+              ? { must_create_password: true }
+              : {}),
           },
         });
         return {
           userId: recovered.id,
           isNew: false as const,
           mustCreatePassword: Boolean(recovered.must_create_password),
+          phoneE164: normalizeOptionalPhone(recovered.phone_e164),
+          fullName: recovered.full_name || params.fullName || null,
         };
       }
     }
 
     throw error;
-  }
-}
-
-async function issueTrustedLogin(
-  sb: ReturnType<typeof supabaseAdmin>,
-  email: string,
-  res: NextResponse,
-) {
-  try {
-    const token = createTrustedLoginToken();
-    const tokenHash = hashTrustedLoginToken(token);
-    const now = Date.now();
-    const nowIso = new Date(now).toISOString();
-    const expIso = new Date(
-      now + getTrustedLoginTtlSeconds() * 1000,
-    ).toISOString();
-
-    const { error } = await sb.from("wz_auth_trusted_devices").insert({
-      email,
-      token_hash: tokenHash,
-      created_at: nowIso,
-      last_used_at: nowIso,
-      expires_at: expIso,
-    });
-
-    if (error) {
-      console.error("[google-callback] trusted login insert error:", error);
-      return;
-    }
-
-    setTrustedLoginCookie(res, token);
-  } catch (error) {
-    console.error("[google-callback] issueTrustedLogin error:", error);
   }
 }
 
@@ -672,18 +709,119 @@ function parseGoogleProviderUserId(user: Record<string, unknown>) {
   return null;
 }
 
-function buildLoginErrorRedirect(params: {
-  origin: string;
-  next: string;
-  error: string;
+async function upsertPendingGoogleOnboarding(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  email: string;
+  authUserId: string;
+  fullName: string | null;
+  phoneE164: string | null;
+  nowIso: string;
 }) {
-  const url = new URL("/", params.origin);
-  const safeNext = sanitizeNext(params.next);
-  if (safeNext && safeNext !== "/") {
-    url.searchParams.set("returnTo", safeNext);
+  const attempts: Array<Record<string, unknown>> = [
+    {
+      email: params.email,
+      flow: "google",
+      stage: "email",
+      auth_user_id: params.authUserId,
+      full_name: params.fullName,
+      phone_e164: params.phoneE164,
+      updated_at: params.nowIso,
+    },
+    {
+      email: params.email,
+      flow: "register",
+      stage: "email",
+      auth_user_id: params.authUserId,
+      full_name: params.fullName,
+      phone_e164: params.phoneE164,
+      updated_at: params.nowIso,
+    },
+    {
+      email: params.email,
+      flow: "register",
+      stage: "email",
+      auth_user_id: params.authUserId,
+      full_name: params.fullName,
+      updated_at: params.nowIso,
+    },
+    {
+      email: params.email,
+      flow: "register",
+      stage: "email",
+      auth_user_id: params.authUserId,
+      updated_at: params.nowIso,
+    },
+    {
+      email: params.email,
+      stage: "email",
+      auth_user_id: params.authUserId,
+      updated_at: params.nowIso,
+    },
+    {
+      email: params.email,
+      updated_at: params.nowIso,
+    },
+  ];
+
+  let lastError: unknown = null;
+
+  for (const payload of attempts) {
+    const res = await params.sb
+      .from("wz_pending_auth")
+      .upsert(payload, { onConflict: "email" });
+
+    if (!res.error) return;
+
+    lastError = res.error;
+
+    const keys = Object.keys(payload);
+    const hasMissingColumn = keys.some((key) => isMissingColumnError(res.error, key));
+    if (hasMissingColumn) continue;
+
+    const flowCheckViolation =
+      isCheckViolation(res.error, "wz_pending_auth") &&
+      (String((res.error as { message?: unknown } | null)?.message || "")
+        .toLowerCase()
+        .includes("flow") ||
+        String((res.error as { details?: unknown } | null)?.details || "")
+          .toLowerCase()
+          .includes("flow"));
+    if (flowCheckViolation) continue;
+
+    throw res.error;
   }
-  url.searchParams.set("oauthError", params.error.slice(0, 220));
-  return url.toString();
+
+  if (lastError) throw lastError;
+}
+
+async function createEmailChallenge(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  email: string;
+}) {
+  await params.sb
+    .from("wz_auth_challenges")
+    .update({ consumed: true })
+    .eq("email", params.email)
+    .eq("channel", "email")
+    .eq("consumed", false);
+
+  const emailCode = gen7();
+  const salt = newSalt();
+  const hash = sha(emailCode, salt);
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 10).toISOString();
+
+  const { error } = await params.sb.from("wz_auth_challenges").insert({
+    email: params.email,
+    channel: "email",
+    code_hash: hash,
+    salt,
+    expires_at: expiresAt,
+    attempts_left: 7,
+    consumed: false,
+  });
+
+  if (error) throw error;
+  await sendLoginCodeEmail(params.email, emailCode);
 }
 
 type SupabasePkceExchangePayload = {
@@ -852,55 +990,41 @@ export async function GET(req: NextRequest) {
       nowIso,
     });
 
-    const dashboard = getDashboardOrigin();
-    const loginFlow = wzUser.isNew ? "register" : "login";
-    const isAccountCreationSession = Boolean(wzUser.isNew);
+    const googlePhoneCandidate = extractGooglePhoneCandidate(user);
+    const currentPhone = normalizeOptionalPhone(wzUser.phoneE164);
+    const effectivePhone = currentPhone || googlePhoneCandidate || null;
 
-    if (isHostOnlyMode()) {
-      const ticket = makeDashboardTicket({
+    if (!currentPhone && googlePhoneCandidate) {
+      await updateWzUserBestEffort({
+        sb,
         userId: wzUser.userId,
-        email,
-        fullName,
+        patch: {
+          phone_e164: googlePhoneCandidate,
+        },
       });
-      const nextUrl =
-        `${dashboard}/api/wz_AuthLogin/exchange` +
-        `?ticket=${encodeURIComponent(ticket)}` +
-        `&next=${encodeURIComponent(safeNext)}` +
-        `&lm=google` +
-        `&lf=${encodeURIComponent(loginFlow)}` +
-        (isAccountCreationSession ? "&acs=1" : "");
-
-      const res = NextResponse.redirect(nextUrl, 303);
-      clearGoogleStateCookie(res, req);
-      setSessionCookie(
-        res,
-        { userId: wzUser.userId, email, fullName },
-        req.headers,
-      );
-      await issueTrustedLogin(sb, email, res);
-      applyNoStore(res);
-      return res;
     }
 
-    const redirectTarget = toRedirectTarget(safeNext, dashboard);
-    const res = NextResponse.redirect(redirectTarget, 303);
-    clearGoogleStateCookie(res, req);
-    const sessionPayload = setSessionCookie(
-      res,
-      { userId: wzUser.userId, email, fullName },
-      req.headers,
-    );
-    await registerIssuedSession({
-      headers: req.headers,
-      userId: wzUser.userId,
-      authUserId,
+    await upsertPendingGoogleOnboarding({
+      sb,
       email,
-      session: sessionPayload,
-      loginMethod: "google",
-      loginFlow,
-      isAccountCreationSession,
+      authUserId,
+      fullName: wzUser.fullName || fullName,
+      phoneE164: effectivePhone,
+      nowIso,
     });
-    await issueTrustedLogin(sb, email, res);
+
+    await createEmailChallenge({
+      sb,
+      email,
+    });
+
+    const successUrl = buildGoogleOnboardingRedirect({
+      origin: requestOrigin,
+      next: safeNext,
+      email,
+    });
+    const res = NextResponse.redirect(successUrl, 303);
+    clearGoogleStateCookie(res, req);
     applyNoStore(res);
     return res;
   } catch (error) {

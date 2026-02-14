@@ -165,6 +165,9 @@ export async function POST(req: NextRequest) {
     const nextSafe = sanitizeNext(nextRaw || "/");
     const codeVerifier = createPkceCodeVerifier();
     const codeChallenge = createPkceCodeChallenge(codeVerifier);
+    const oauthScopes =
+      String(process.env.GOOGLE_OAUTH_SCOPES || "email profile").trim() ||
+      "email profile";
 
     const stateTicket = createGoogleStateTicket({
       next: nextSafe,
@@ -178,7 +181,7 @@ export async function POST(req: NextRequest) {
       provider: "google",
       options: {
         redirectTo: callback.toString(),
-        scopes: "email profile",
+        scopes: oauthScopes,
         queryParams: {
           code_challenge: codeChallenge,
           code_challenge_method: "s256",

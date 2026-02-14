@@ -1,6 +1,12 @@
+import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../_supabase";
-import { sha, onlyDigits, isValidCPF, isValidE164BRMobile } from "../_codes";
+import {
+  isValidCPF,
+  isValidE164BRMobile,
+  onlyDigits,
+  sha,
+} from "../_codes";
 import { setSessionCookie } from "../_session";
 import { registerIssuedSession } from "../_session_devices";
 import {
@@ -9,7 +15,6 @@ import {
   hashTrustedLoginToken,
   setTrustedLoginCookie,
 } from "../_trusted_login";
-import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -25,6 +30,15 @@ function isValidEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(s);
 }
 
+function normalizeText(value?: string | null) {
+  const clean = String(value || "").trim();
+  return clean || null;
+}
+
+function normalizeProvider(value?: string | null) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function getEnvBool(name: string, def: boolean) {
   const v = String(process.env[name] ?? "").trim().toLowerCase();
   if (!v) return def;
@@ -38,36 +52,12 @@ function isHostOnlyMode() {
   return isProd && getEnvBool("SESSION_COOKIE_HOST_ONLY", true);
 }
 
-async function findAuthUserIdByEmail(sb: ReturnType<typeof supabaseAdmin>, email: string) {
-  const target = String(email || "").trim().toLowerCase();
-  if (!target) return null;
-
-  const PER_PAGE = 200;
-  const MAX_PAGES = 20;
-
-  for (let page = 1; page <= MAX_PAGES; page++) {
-    const { data, error } = await sb.auth.admin.listUsers({ page, perPage: PER_PAGE });
-
-    if (error) {
-      console.error("[verify-sms] listUsers error:", error);
-      return null;
-    }
-
-    const users = (data?.users || []) as Array<{ id?: string | null; email?: string | null }>;
-    const found = users.find((u) => String(u?.email || "").trim().toLowerCase() === target);
-
-    if (found?.id) return String(found.id);
-    if (users.length < PER_PAGE) break;
-  }
-
-  return null;
-}
-
 function getDashboardOrigin() {
   const env = String(process.env.DASHBOARD_ORIGIN || "").trim();
   if (env) return env.replace(/\/+$/g, "");
   return "https://dashboard.wyzer.com.br";
 }
+
 function sanitizeNext(nextRaw: string) {
   const s = String(nextRaw || "").trim();
   if (!s) return "/";
@@ -77,7 +67,6 @@ function sanitizeNext(nextRaw: string) {
   try {
     const u = new URL(s);
     const host = u.hostname.toLowerCase();
-
     const ok =
       host === "wyzer.com.br" ||
       host.endsWith(".wyzer.com.br") ||
@@ -85,7 +74,6 @@ function sanitizeNext(nextRaw: string) {
       host.endsWith(".localhost");
 
     if (!ok) return "/";
-
     return u.pathname + u.search + u.hash;
   } catch {
     return "/";
@@ -126,9 +114,9 @@ function makeDashboardTicket(params: {
   ttlMs?: number;
 }) {
   const secret = getTicketSecret();
-  if (!secret) throw new Error("SESSION_SECRET/WZ_AUTH_SECRET não configurado.");
+  if (!secret) throw new Error("SESSION_SECRET/WZ_AUTH_SECRET nao configurado.");
 
-  const ttlMs = Number(params.ttlMs ?? 1000 * 60 * 5); // 5 min
+  const ttlMs = Number(params.ttlMs ?? 1000 * 60 * 5);
   const safeFullName = sanitizeFullName(params.fullName);
   const payload = {
     userId: String(params.userId),
@@ -177,6 +165,281 @@ async function issueTrustedLogin(
   }
 }
 
+function isMissingColumnError(error: unknown, column: string) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  const needle = String(column || "").trim().toLowerCase();
+  if (!needle) return false;
+  if (code === "42703" || code === "PGRST204") return true;
+  return (
+    (message.includes(needle) || details.includes(needle)) &&
+    (message.includes("column") || details.includes("column"))
+  );
+}
+
+function isPhoneConstraintViolation(error: unknown) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  return (
+    code === "23514" &&
+    (message.includes("wz_users_phone_e164_br_chk") ||
+      details.includes("wz_users_phone_e164_br_chk") ||
+      message.includes("phone_e164") ||
+      details.includes("phone_e164"))
+  );
+}
+
+type WzUserSnapshot = {
+  id: string | null;
+  authUserId: string | null;
+  authProvider: string | null;
+  phoneE164: string | null;
+  fullName: string | null;
+};
+
+async function getWzUserSnapshotByEmail(
+  sb: ReturnType<typeof supabaseAdmin>,
+  email: string,
+) {
+  const columnsToTry = [
+    "id,auth_user_id,auth_provider,phone_e164,full_name",
+    "id,auth_user_id,phone_e164,full_name",
+    "id,auth_user_id,phone_e164",
+    "id,auth_user_id",
+    "id,phone_e164",
+    "id",
+  ];
+
+  for (const columns of columnsToTry) {
+    const res = await sb
+      .from("wz_users")
+      .select(columns)
+      .ilike("email", email)
+      .maybeSingle();
+
+    if (!res.error) {
+      const row = (res.data || {}) as {
+        id?: string | null;
+        auth_user_id?: string | null;
+        auth_provider?: string | null;
+        phone_e164?: string | null;
+        full_name?: string | null;
+      };
+      return {
+        id: normalizeText(row.id),
+        authUserId: normalizeText(row.auth_user_id),
+        authProvider: normalizeProvider(row.auth_provider),
+        phoneE164: normalizeText(row.phone_e164),
+        fullName: normalizeText(row.full_name),
+      } as WzUserSnapshot;
+    }
+
+    const hasMissingColumn = ["id", "auth_user_id", "auth_provider", "phone_e164", "full_name"].some(
+      (column) => isMissingColumnError(res.error, column),
+    );
+    if (!hasMissingColumn) {
+      console.error("[verify-sms] wz_users snapshot error:", res.error);
+      break;
+    }
+  }
+
+  return {
+    id: null,
+    authUserId: null,
+    authProvider: null,
+    phoneE164: null,
+    fullName: null,
+  } as WzUserSnapshot;
+}
+
+function hasGoogleIdentity(user: unknown) {
+  const candidate =
+    user && typeof user === "object"
+      ? (user as {
+          app_metadata?: Record<string, unknown> | null;
+          identities?: Array<Record<string, unknown>> | null;
+        })
+      : null;
+  if (!candidate) return false;
+
+  const appProvider = String(candidate.app_metadata?.provider || "")
+    .trim()
+    .toLowerCase();
+  if (appProvider === "google") return true;
+
+  const identities = Array.isArray(candidate.identities)
+    ? candidate.identities
+    : [];
+  return identities.some(
+    (identity) => String(identity?.provider || "").trim().toLowerCase() === "google",
+  );
+}
+
+async function authUserHasGoogleProvider(
+  sb: ReturnType<typeof supabaseAdmin>,
+  authUserId: string,
+) {
+  const cleanAuthUserId = String(authUserId || "").trim();
+  if (!cleanAuthUserId) return false;
+
+  try {
+    const { data, error } = await sb.auth.admin.getUserById(cleanAuthUserId);
+    if (error) {
+      console.error("[verify-sms] getUserById error:", error);
+      return false;
+    }
+    return hasGoogleIdentity(data?.user || null);
+  } catch (error) {
+    console.error("[verify-sms] authUserHasGoogleProvider error:", error);
+    return false;
+  }
+}
+
+async function findAuthUserIdByEmail(sb: ReturnType<typeof supabaseAdmin>, email: string) {
+  const target = String(email || "").trim().toLowerCase();
+  if (!target) return null;
+
+  const PER_PAGE = 200;
+  const MAX_PAGES = 20;
+
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const { data, error } = await sb.auth.admin.listUsers({ page, perPage: PER_PAGE });
+
+    if (error) {
+      console.error("[verify-sms] listUsers error:", error);
+      return null;
+    }
+
+    const users = (data?.users || []) as Array<{ id?: string | null; email?: string | null }>;
+    const found = users.find((u) => String(u?.email || "").trim().toLowerCase() === target);
+
+    if (found?.id) return String(found.id);
+    if (users.length < PER_PAGE) break;
+  }
+
+  return null;
+}
+
+async function updateWzUserBestEffort(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+  patch: Record<string, unknown>;
+}) {
+  const userId = String(params.userId || "").trim();
+  if (!userId) return;
+
+  const patch = { ...params.patch };
+  if (!Object.keys(patch).length) return;
+
+  while (Object.keys(patch).length) {
+    const updateRes = await params.sb.from("wz_users").update(patch).eq("id", userId);
+    if (!updateRes.error) return;
+
+    if (isPhoneConstraintViolation(updateRes.error)) {
+      if (!Object.prototype.hasOwnProperty.call(patch, "phone_e164")) {
+        patch.phone_e164 = null;
+        continue;
+      }
+    }
+
+    let removedAny = false;
+    for (const key of Object.keys(patch)) {
+      if (isMissingColumnError(updateRes.error, key)) {
+        delete patch[key];
+        removedAny = true;
+      }
+    }
+
+    if (!removedAny) {
+      throw updateRes.error;
+    }
+  }
+}
+
+async function insertGoogleWzUserBestEffort(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  email: string;
+  fullName: string | null;
+  phoneE164: string;
+  authUserId: string;
+}) {
+  const nowIso = new Date().toISOString();
+  const attempts: Array<Record<string, unknown>> = [
+    {
+      email: params.email,
+      full_name: params.fullName,
+      phone_e164: params.phoneE164,
+      auth_user_id: params.authUserId,
+      email_verified: true,
+      phone_verified: true,
+      auth_provider: "google",
+      must_create_password: true,
+      created_at: nowIso,
+    },
+    {
+      email: params.email,
+      full_name: params.fullName,
+      phone_e164: params.phoneE164,
+      auth_user_id: params.authUserId,
+      email_verified: true,
+      phone_verified: true,
+      created_at: nowIso,
+    },
+    {
+      email: params.email,
+      full_name: params.fullName,
+      phone_e164: params.phoneE164,
+      auth_user_id: params.authUserId,
+      created_at: nowIso,
+    },
+    {
+      email: params.email,
+      full_name: params.fullName,
+      phone_e164: params.phoneE164,
+      auth_user_id: params.authUserId,
+    },
+    {
+      email: params.email,
+      full_name: params.fullName,
+      auth_user_id: params.authUserId,
+    },
+  ];
+
+  let lastError: unknown = null;
+
+  for (const payload of attempts) {
+    const res = await params.sb
+      .from("wz_users")
+      .insert(payload)
+      .select("id")
+      .single();
+
+    if (!res.error && res.data?.id) {
+      return String(res.data.id);
+    }
+
+    if (res.error) {
+      lastError = res.error;
+      const hasMissingColumn = Object.keys(payload).some((key) =>
+        isMissingColumnError(res.error, key),
+      );
+      if (hasMissingColumn) continue;
+      throw res.error;
+    }
+  }
+
+  if (lastError) throw lastError;
+  throw new Error("Nao foi possivel inserir usuario Google em wz_users.");
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -186,25 +449,41 @@ export async function POST(req: Request) {
     const nextSafe = sanitizeNext(nextFromBody || "/");
 
     if (!isValidEmail(email)) {
-      return NextResponse.json({ ok: false, error: "E-mail inválido." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json(
+        { ok: false, error: "E-mail invalido." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
     }
     if (code.length !== 7) {
-      return NextResponse.json({ ok: false, error: "Código inválido." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json(
+        { ok: false, error: "Codigo invalido." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
     }
 
     const sb = supabaseAdmin();
 
     const pend = await sb.from("wz_pending_auth").select("*").eq("email", email).maybeSingle();
     if (pend.error || !pend.data) {
-      return NextResponse.json({ ok: false, error: "Sessão inválida. Reinicie." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json(
+        { ok: false, error: "Sessao invalida. Reinicie." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
     }
 
-    if (String(pend.data.flow || "") !== "register") {
-      return NextResponse.json({ ok: false, error: "Etapa inválida. Reinicie o cadastro." }, { status: 400, headers: NO_STORE_HEADERS });
+    const flow = String(pend.data.flow || "register").trim().toLowerCase();
+    if (flow === "login") {
+      return NextResponse.json(
+        { ok: false, error: "Etapa invalida. Reinicie o cadastro." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
     }
 
     if (String(pend.data.stage || "") !== "sms") {
-      return NextResponse.json({ ok: false, error: "Conclua o e-mail primeiro." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json(
+        { ok: false, error: "Conclua o e-mail primeiro." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
     }
 
     const { data: ch, error: chErr } = await sb
@@ -218,20 +497,28 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (chErr || !ch) {
-      return NextResponse.json({ ok: false, error: "Código expirado. Reenvie." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json(
+        { ok: false, error: "Codigo expirado. Reenvie." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
     }
 
     if (new Date(ch.expires_at).getTime() < Date.now()) {
       await sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", ch.id);
-      return NextResponse.json({ ok: false, error: "Código expirado. Reenvie." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json(
+        { ok: false, error: "Codigo expirado. Reenvie." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
     }
 
     if (Number(ch.attempts_left) <= 0) {
-      return NextResponse.json({ ok: false, error: "Muitas tentativas. Reenvie o código." }, { status: 429, headers: NO_STORE_HEADERS });
+      return NextResponse.json(
+        { ok: false, error: "Muitas tentativas. Reenvie o codigo." },
+        { status: 429, headers: NO_STORE_HEADERS },
+      );
     }
 
     const hash = sha(code, ch.salt);
-
     if (hash !== ch.code_hash) {
       const nextAttempts = Math.max(0, Number(ch.attempts_left) - 1);
       await sb
@@ -264,148 +551,182 @@ export async function POST(req: Request) {
 
     await sb.from("wz_auth_challenges").update({ consumed: true }).eq("id", ch.id);
 
-    // dados pending
-    let authUserId = pend.data.auth_user_id ? String(pend.data.auth_user_id) : "";
-    const fullName = String(pend.data.full_name || "");
-    const cpf = String(pend.data.cpf || "");
-    const phoneE164 = String(pend.data.phone_e164 || "");
-
-    // ✅ validações fortes antes de salvar
-    if (!isValidCPF(cpf)) {
-      return NextResponse.json({ ok: false, error: "CPF inválido. Tente novamente." }, { status: 400, headers: NO_STORE_HEADERS });
+    const wzUser = await getWzUserSnapshotByEmail(sb, email);
+    let authUserId = pend.data.auth_user_id ? String(pend.data.auth_user_id).trim() : "";
+    if (!authUserId && wzUser.authUserId) {
+      authUserId = wzUser.authUserId;
     }
+    if (!authUserId) {
+      const recovered = await findAuthUserIdByEmail(sb, email);
+      if (recovered) authUserId = recovered;
+    }
+
+    if (!authUserId) {
+      return NextResponse.json(
+        { ok: false, error: "Nao foi possivel vincular autenticacao. Reinicie e tente novamente." },
+        { status: 500, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const googleByProviderColumn = wzUser.authProvider === "google";
+    const googleByAuthUser = await authUserHasGoogleProvider(sb, authUserId);
+    const isGoogleOnboarding =
+      flow === "google" ||
+      (flow === "register" && (googleByProviderColumn || googleByAuthUser));
+
+    const fullName = String(pend.data.full_name || wzUser.fullName || "").trim();
+    const cpf = String(pend.data.cpf || "").trim();
+    const phoneE164 = String(pend.data.phone_e164 || wzUser.phoneE164 || "").trim();
 
     if (!phoneE164 || !isValidE164BRMobile(phoneE164)) {
       return NextResponse.json(
-        { ok: false, error: "Telefone inválido para SMS. Use um celular BR válido com DDD." },
-        { status: 400, headers: NO_STORE_HEADERS }
+        { ok: false, error: "Telefone invalido para SMS. Use um celular BR valido com DDD." },
+        { status: 400, headers: NO_STORE_HEADERS },
       );
     }
 
-    if (!authUserId) {
-      const recovered = await findAuthUserIdByEmail(sb, email);
-      if (recovered) {
-        authUserId = recovered;
-
-        const { error: upErr } = await sb
-          .from("wz_pending_auth")
-          .update({ auth_user_id: authUserId, updated_at: new Date().toISOString() })
-          .eq("email", email);
-
-        if (upErr) {
-          console.error("[verify-sms] pending update auth_user_id error:", upErr);
-        }
-      }
-    }
-
-    if (!authUserId) {
+    const confPhone = await sb
+      .from("wz_users")
+      .select("id,email")
+      .eq("phone_e164", phoneE164)
+      .maybeSingle();
+    if (confPhone.error) {
+      console.error("[verify-sms] phone duplicate check error:", confPhone.error);
       return NextResponse.json(
-        { ok: false, error: "Não foi possível vincular autenticação. Reinicie o cadastro e tente novamente." },
-        { status: 500, headers: NO_STORE_HEADERS }
+        { ok: false, error: "Falha ao validar cadastro." },
+        { status: 500, headers: NO_STORE_HEADERS },
+      );
+    }
+    if (confPhone.data?.id && String(confPhone.data.email || "").toLowerCase() !== email) {
+      return NextResponse.json(
+        { ok: false, error: "Este numero ja possui uma conta." },
+        { status: 409, headers: NO_STORE_HEADERS },
       );
     }
 
-    // ✅ bloqueia duplicados (cpf/phone) em relação a OUTROS e-mails
-    const [confCpf, confPhone] = await Promise.all([
-      sb.from("wz_users").select("id,email").eq("cpf", cpf).maybeSingle(),
-      sb.from("wz_users").select("id,email").eq("phone_e164", phoneE164).maybeSingle(),
-    ]);
-
-    if (confCpf.error || confPhone.error) {
-      console.error("[verify-sms] duplicate check error:", { cpf: confCpf.error, phone: confPhone.error });
-      return NextResponse.json({ ok: false, error: "Falha ao validar cadastro." }, { status: 500, headers: NO_STORE_HEADERS });
-    }
-
-    if (confCpf.data?.id && String(confCpf.data.email || "").toLowerCase() !== email) {
-      return NextResponse.json({ ok: false, error: "Este CPF já possui uma conta." }, { status: 409, headers: NO_STORE_HEADERS });
-    }
-
-    if (confPhone.data?.id && String(confPhone.data.email || "").toLowerCase() !== email) {
-      return NextResponse.json({ ok: false, error: "Este número já possui uma conta." }, { status: 409, headers: NO_STORE_HEADERS });
-    }
-
-    // upsert wz_users
     let userId: string | null = null;
 
-    const { data: existing, error: exErr } = await sb
-      .from("wz_users")
-      .select("id")
-      .eq("email", email)
-      .maybeSingle();
-
-    if (exErr) {
-      console.error("[verify-sms] wz_users select error:", exErr);
-      return NextResponse.json({ ok: false, error: "Falha ao validar cadastro." }, { status: 500, headers: NO_STORE_HEADERS });
-    }
-
-    if (existing?.id) {
-      userId = String(existing.id);
-
-      const { error: upUserErr } = await sb
-        .from("wz_users")
-        .update({
-          email_verified: true,
-          phone_verified: true,
-          auth_user_id: authUserId,
-          full_name: fullName || null,
-          cpf: cpf || null,
-          phone_e164: phoneE164 || null,
-        })
-        .eq("id", userId);
-
-      if (upUserErr) {
-        console.error("[verify-sms] wz_users update error:", upUserErr);
-        return NextResponse.json({ ok: false, error: "Falha ao atualizar cadastro." }, { status: 500, headers: NO_STORE_HEADERS });
+    if (!isGoogleOnboarding) {
+      if (!isValidCPF(cpf)) {
+        return NextResponse.json(
+          { ok: false, error: "CPF invalido. Tente novamente." },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
       }
-    } else {
-      const { data: createdRow, error: insErr } = await sb
+
+      const confCpf = await sb.from("wz_users").select("id,email").eq("cpf", cpf).maybeSingle();
+      if (confCpf.error) {
+        console.error("[verify-sms] cpf duplicate check error:", confCpf.error);
+        return NextResponse.json(
+          { ok: false, error: "Falha ao validar cadastro." },
+          { status: 500, headers: NO_STORE_HEADERS },
+        );
+      }
+      if (confCpf.data?.id && String(confCpf.data.email || "").toLowerCase() !== email) {
+        return NextResponse.json(
+          { ok: false, error: "Este CPF ja possui uma conta." },
+          { status: 409, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const existing = await sb
         .from("wz_users")
-        .insert({
-          email,
-          full_name: fullName || null,
-          cpf: cpf || null,
-          phone_e164: phoneE164 || null,
-          auth_user_id: authUserId,
-          email_verified: true,
-          phone_verified: true,
-          created_at: new Date().toISOString(),
-        })
         .select("id")
-        .single();
+        .eq("email", email)
+        .maybeSingle();
 
-      if (insErr || !createdRow?.id) {
-        const errCode =
-          typeof (insErr as { code?: unknown } | null)?.code === "string"
-            ? String((insErr as { code?: string }).code)
-            : "";
-        const errMessage = String((insErr as { message?: unknown } | null)?.message || "")
-          .toLowerCase();
-        const isUniqueViolation =
-          errCode === "23505" ||
-          errMessage.includes("duplicate key");
+      if (existing.error) {
+        console.error("[verify-sms] wz_users select error:", existing.error);
+        return NextResponse.json(
+          { ok: false, error: "Falha ao validar cadastro." },
+          { status: 500, headers: NO_STORE_HEADERS },
+        );
+      }
 
-        if (isUniqueViolation) {
+      if (existing.data?.id) {
+        userId = String(existing.data.id);
+        const upUserErr = await sb
+          .from("wz_users")
+          .update({
+            email_verified: true,
+            phone_verified: true,
+            auth_user_id: authUserId,
+            full_name: fullName || null,
+            cpf: cpf || null,
+            phone_e164: phoneE164 || null,
+          })
+          .eq("id", userId);
+
+        if (upUserErr.error) {
+          console.error("[verify-sms] wz_users update error:", upUserErr.error);
           return NextResponse.json(
-            { ok: false, error: "E-mail, telefone ou CPF já possui cadastro." },
-            { status: 409, headers: NO_STORE_HEADERS }
+            { ok: false, error: "Falha ao atualizar cadastro." },
+            { status: 500, headers: NO_STORE_HEADERS },
           );
         }
+      } else {
+        const ins = await sb
+          .from("wz_users")
+          .insert({
+            email,
+            full_name: fullName || null,
+            cpf: cpf || null,
+            phone_e164: phoneE164 || null,
+            auth_user_id: authUserId,
+            email_verified: true,
+            phone_verified: true,
+            created_at: new Date().toISOString(),
+          })
+          .select("id")
+          .single();
 
-        console.error("[verify-sms] wz_users insert error:", insErr);
-        return NextResponse.json({ ok: false, error: "Falha ao salvar cadastro." }, { status: 500, headers: NO_STORE_HEADERS });
+        if (ins.error || !ins.data?.id) {
+          console.error("[verify-sms] wz_users insert error:", ins.error);
+          return NextResponse.json(
+            { ok: false, error: "Falha ao salvar cadastro." },
+            { status: 500, headers: NO_STORE_HEADERS },
+          );
+        }
+        userId = String(ins.data.id);
       }
-
-      userId = String(createdRow.id);
+    } else {
+      if (wzUser.id) {
+        userId = wzUser.id;
+        await updateWzUserBestEffort({
+          sb,
+          userId,
+          patch: {
+            email_verified: true,
+            phone_verified: true,
+            auth_user_id: authUserId,
+            full_name: fullName || null,
+            phone_e164: phoneE164 || null,
+            auth_provider: "google",
+            must_create_password: true,
+          },
+        });
+      } else {
+        userId = await insertGoogleWzUserBestEffort({
+          sb,
+          email,
+          fullName: fullName || null,
+          phoneE164,
+          authUserId,
+        });
+      }
     }
 
     await sb.from("wz_pending_auth").delete().eq("email", email);
 
     const dashboard = getDashboardOrigin();
+    const resolvedUserId = String(userId || "").trim();
+    const loginMethod = isGoogleOnboarding ? "google" : "sms_code";
+    const loginFlow = isGoogleOnboarding ? "login" : "register";
+    const isAccountCreationSession = !isGoogleOnboarding;
 
-    // ✅ host-only => seta no login host e usa ticket + exchange no dashboard
     if (isHostOnlyMode()) {
       const ticket = makeDashboardTicket({
-        userId: String(userId),
+        userId: resolvedUserId,
         email,
         fullName,
       });
@@ -413,9 +734,9 @@ export async function POST(req: Request) {
         `${dashboard}/api/wz_AuthLogin/exchange` +
         `?ticket=${encodeURIComponent(ticket)}` +
         `&next=${encodeURIComponent(nextSafe)}` +
-        `&lm=sms_code` +
-        `&lf=register` +
-        `&acs=1`;
+        `&lm=${encodeURIComponent(loginMethod)}` +
+        `&lf=${encodeURIComponent(loginFlow)}` +
+        (isAccountCreationSession ? "&acs=1" : "");
 
       const res = NextResponse.json(
         { ok: true, nextUrl },
@@ -423,37 +744,41 @@ export async function POST(req: Request) {
       );
       setSessionCookie(
         res,
-        { userId: String(userId), email, fullName },
+        { userId: resolvedUserId, email, fullName },
         req.headers,
       );
       await issueTrustedLogin(sb, email, res);
       return res;
     }
 
-    // ✅ legacy/domain-cookie mode
     const nextUrl = `${dashboard}${nextSafe.startsWith("/") ? nextSafe : "/"}`;
-    const res = NextResponse.json({ ok: true, nextUrl }, { status: 200, headers: NO_STORE_HEADERS });
+    const res = NextResponse.json(
+      { ok: true, nextUrl },
+      { status: 200, headers: NO_STORE_HEADERS },
+    );
     const sessionPayload = setSessionCookie(
       res,
-      { userId: String(userId), email, fullName },
+      { userId: resolvedUserId, email, fullName },
       req.headers,
     );
     await registerIssuedSession({
       headers: req.headers,
-      userId: String(userId),
+      userId: resolvedUserId,
       authUserId: authUserId || null,
       email,
       session: sessionPayload,
-      loginMethod: "sms_code",
-      loginFlow: "register",
-      isAccountCreationSession: true,
+      loginMethod,
+      loginFlow,
+      isAccountCreationSession,
     });
     await issueTrustedLogin(sb, email, res);
     return res;
   } catch (e: unknown) {
     console.error("[verify-sms] error:", e);
     const message = e instanceof Error ? e.message : "Erro inesperado.";
-    return NextResponse.json({ ok: false, error: message }, { status: 500, headers: NO_STORE_HEADERS });
+    return NextResponse.json(
+      { ok: false, error: message },
+      { status: 500, headers: NO_STORE_HEADERS },
+    );
   }
 }
-

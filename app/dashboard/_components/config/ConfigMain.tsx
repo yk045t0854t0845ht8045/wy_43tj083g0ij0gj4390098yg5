@@ -197,6 +197,15 @@ function onlyDigits(value: string) {
   return String(value || "").replace(/\D+/g, "");
 }
 
+function resolveExternalAuthProviderName(provider?: string | null) {
+  const clean = String(provider || "").trim().toLowerCase();
+  if (clean === "google") return "Google";
+  if (clean === "github") return "GitHub";
+  if (clean === "apple") return "Apple";
+  if (clean === "microsoft") return "Microsoft";
+  return null;
+}
+
 const BR_DDD_SET = new Set<string>([
   "11","12","13","14","15","16","17","18","19",
   "21","22","24","27","28",
@@ -3352,11 +3361,12 @@ function AccountContent({
   const passwordChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localPasswordChangedAt || relativeBaseTimestamp, relativeNowMs)}`;
   const passwordStatusBadgeLabel = localMustCreatePassword ? "Pendente" : passwordChangedLabel;
   const passwordActionLabel = localMustCreatePassword ? "Criar Senha" : "Alterar Senha";
+  const externalPrimaryAuthProviderName = resolveExternalAuthProviderName(localPrimaryAuthProvider);
   const passwordDescriptionText = localMustCreatePassword
-    ? localPrimaryAuthProvider === "google"
-      ? "Sua conta foi criada com Google. Crie uma senha agora para liberar também o login por senha."
+    ? externalPrimaryAuthProviderName
+      ? `Sua conta foi criada com ${externalPrimaryAuthProviderName}. Crie uma senha agora para liberar tambem o login por senha.`
       : "Crie sua primeira senha para ativar o login por senha nesta conta."
-    : "Atualize sua senha com confirmação por código enviado no e-mail e no SMS (quando disponível).";
+    : "Atualize sua senha com confirmacao por codigo enviado no e-mail e no SMS (quando disponivel).";
   const buttonShellClass =
     "rounded-xl border px-4 py-2 text-[13px] font-semibold transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)] active:translate-y-[0.6px] active:scale-[0.992]";
   const buttonNeutralClass =
@@ -5621,6 +5631,18 @@ function AuthorizedAppsContent() {
   const [providers, setProviders] = useState<AuthorizedProviderRecord[]>([]);
   const [primaryProvider, setPrimaryProvider] = useState<string>("password");
   const [mustCreatePassword, setMustCreatePassword] = useState(false);
+  const mustCreatePasswordProviderName = useMemo(() => {
+    const byPrimaryProvider = resolveExternalAuthProviderName(primaryProvider);
+    if (byPrimaryProvider) return byPrimaryProvider;
+
+    const externalPrimary = providers.find((provider) => provider.isPrimary && provider.isExternal);
+    if (externalPrimary?.providerLabel) return String(externalPrimary.providerLabel);
+
+    const anyExternal = providers.find((provider) => provider.isExternal);
+    if (anyExternal?.providerLabel) return String(anyExternal.providerLabel);
+
+    return null;
+  }, [primaryProvider, providers]);
 
   const loadAuthorizedApps = useCallback(async (opts?: { signal?: AbortSignal; silent?: boolean }) => {
     const signal = opts?.signal;
@@ -5689,8 +5711,9 @@ function AuthorizedAppsContent() {
       </p>
       {mustCreatePassword && (
         <p className="mt-4 rounded-lg border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-2 text-[13px] font-medium text-[#b2433e]">
-          Sua conta foi criada por provedor externo. Finalize a criacao de senha na secao Minha
-          Conta para liberar login por senha.
+          {mustCreatePasswordProviderName
+            ? `Sua conta foi criada com ${mustCreatePasswordProviderName}. Finalize a criacao de senha na secao Minha Conta para liberar login por senha.`
+            : "Sua conta foi criada com um provedor de login. Finalize a criacao de senha na secao Minha Conta para liberar login por senha."}
         </p>
       )}
       {error ? (
