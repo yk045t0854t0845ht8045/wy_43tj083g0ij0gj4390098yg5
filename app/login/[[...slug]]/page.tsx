@@ -2340,13 +2340,12 @@ export default function LinkLoginPage() {
                     disabled
                     className="mt-3 inline-flex h-[52px] w-full items-center justify-center rounded-[15px] border border-black/10 bg-white text-[15px] font-semibold text-black/45 opacity-65"
                   >
-                    ...
+                    ... 
                   </button>
                 </motion.form>
               )}
             </AnimatePresence>
 
-            {/* STEP: EMAIL CODE */}
             <AnimatePresence mode="sync" initial={false}>
               {step === "emailCode" && (
                 <motion.div
