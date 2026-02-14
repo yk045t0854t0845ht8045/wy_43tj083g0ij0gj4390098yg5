@@ -1136,7 +1136,7 @@ export default function Sidebar({
                       },
                       {
                         id: "drafts",
-                        label: "Historico",
+                        label: "Histórico",
                         onSelect: () => pickSub("drafts"),
                       },
                     ]}
@@ -1221,7 +1221,7 @@ export default function Sidebar({
                               transition={activePillTransition}
                             />
                           )}
-                          <span className="relative z-[1] font-medium">Historico</span>
+                          <span className="relative z-[1] font-medium">Histórico</span>
                         </button>
                       </li>
                       </ul>
@@ -1486,7 +1486,7 @@ export default function Sidebar({
               </button>
 
               <h3 className="pr-10 text-[21px] font-semibold text-black/82">Ajuda</h3>
-              <p className="mt-2 text-[14px] text-black/58">Selecione uma opcao para continuar.</p>
+              <p className="mt-2 text-[14px] text-black/58">Selecione uma opção para continuar.</p>
 
               <div className="mt-5 space-y-2.5">
                 <button
@@ -1494,7 +1494,7 @@ export default function Sidebar({
                   onClick={() => redirectFromHelpModal("documentation")}
                   className="w-full rounded-xl border border-black/12 bg-white/92 px-4 py-3 text-[15px] font-semibold text-black/82 transition-colors hover:bg-white"
                 >
-                  Documentacao
+                  Documentação
                 </button>
                 <button
                   type="button"

@@ -296,7 +296,7 @@ export default function DashboardShell({
           triggerSessionDisconnected();
         }
       } catch {
-        // Ignora erro de rede temporario para nao derrubar sessao por falso positivo.
+        // Ignora erro de rede temporário para não derrubar sessão por falso positivo.
       } finally {
         window.clearTimeout(timeout);
         inFlight = false;
@@ -414,7 +414,7 @@ export default function DashboardShell({
           <div className="w-full max-w-[760px] text-center text-black">
             <h2 className="text-[42px] font-semibold leading-tight">Conta Desconectada</h2>
             <p className="mx-auto mt-4 max-w-[620px] text-[18px] leading-[1.5] text-black/70">
-              Recomendamos que feche Wyzer de todas as guias e fique por 5 segundos.
+              Recomendamos que feche o Wyzer em todas as guias e aguarde 5 segundos.
             </p>
             <p className="mt-8 text-[15px] font-medium text-black/55">
               Redirecionando para o login em {disconnectCountdown}s...

@@ -13,6 +13,7 @@ type SidebarProfile = {
   fullName: string | null;
   photoLink: string | null;
   phoneE164: string | null;
+  accountCreatedAt: string | null;
   emailChangedAt: string | null;
   phoneChangedAt: string | null;
   passwordChangedAt: string | null;
@@ -34,6 +35,7 @@ type WzUserLookupRow = {
   full_name?: string | null;
   photo_link?: string | null;
   phone_e164?: string | null;
+  created_at?: string | null;
   email_changed_at?: string | null;
   phone_changed_at?: string | null;
   password_changed_at?: string | null;
@@ -285,6 +287,8 @@ async function queryWzUsersRows(
   params: WzUserLookupParams,
 ) {
   const columnsToTry = [
+    "full_name,photo_link,phone_e164,created_at,email_changed_at,phone_changed_at,password_changed_at,support_access,two_factor_enabled,two_factor_secret,two_factor_enabled_at,two_factor_disabled_at",
+    "full_name,photo_link,phone_e164,created_at,email_changed_at,phone_changed_at,password_changed_at,support_access",
     "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at,password_changed_at,support_access,two_factor_enabled,two_factor_secret,two_factor_enabled_at,two_factor_disabled_at",
     "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at,password_changed_at,support_access",
     "full_name,photo_link,phone_e164,email_changed_at,phone_changed_at,password_changed_at,two_factor_enabled,two_factor_secret,two_factor_enabled_at,two_factor_disabled_at",
@@ -317,6 +321,7 @@ async function queryWzUsersRows(
         full_name: row.full_name || null,
         photo_link: row.photo_link || null,
         phone_e164: row.phone_e164 || null,
+        created_at: row.created_at || null,
         email_changed_at: row.email_changed_at || null,
         phone_changed_at: row.phone_changed_at || null,
         password_changed_at: row.password_changed_at || null,
@@ -338,6 +343,7 @@ function pickProfileFromRows(
   rows: WzUserLookupRow[],
   fallbackPhotoLink: string | null,
   fallbackPhoneE164: string | null,
+  fallbackAccountCreatedAt: string | null,
   fallbackEmailChangedAt: string | null,
   fallbackPhoneChangedAt: string | null,
   fallbackPasswordChangedAt: string | null,
@@ -349,6 +355,7 @@ function pickProfileFromRows(
 ) {
   let nextFallbackPhoto = fallbackPhotoLink;
   let nextFallbackPhone = fallbackPhoneE164;
+  let nextFallbackAccountCreatedAt = fallbackAccountCreatedAt;
   let nextFallbackEmailChangedAt = fallbackEmailChangedAt;
   let nextFallbackPhoneChangedAt = fallbackPhoneChangedAt;
   let nextFallbackPasswordChangedAt = fallbackPasswordChangedAt;
@@ -360,6 +367,7 @@ function pickProfileFromRows(
   for (const row of rows) {
     const rowPhoto = sanitizePhotoLink(row.photo_link);
     const rowPhone = sanitizePhoneE164(row.phone_e164);
+    const rowCreatedAt = sanitizeIsoDatetime(row.created_at);
     const rowEmailChangedAt = sanitizeIsoDatetime(row.email_changed_at);
     const rowPhoneChangedAt = sanitizeIsoDatetime(row.phone_changed_at);
     const rowPasswordChangedAt = sanitizeIsoDatetime(row.password_changed_at);
@@ -378,6 +386,9 @@ function pickProfileFromRows(
 
     if (!nextFallbackPhoto && rowPhoto) nextFallbackPhoto = rowPhoto;
     if (!nextFallbackPhone && rowPhone) nextFallbackPhone = rowPhone;
+    if (!nextFallbackAccountCreatedAt && rowCreatedAt) {
+      nextFallbackAccountCreatedAt = rowCreatedAt;
+    }
     if (!nextFallbackEmailChangedAt && rowEmailChangedAt) {
       nextFallbackEmailChangedAt = rowEmailChangedAt;
     }
@@ -405,6 +416,7 @@ function pickProfileFromRows(
       firstName ||
       fullName ||
       rowPhone ||
+      rowCreatedAt ||
       rowEmailChangedAt ||
       rowPhoneChangedAt ||
       rowPasswordChangedAt ||
@@ -417,6 +429,7 @@ function pickProfileFromRows(
           fullName: fullName || null,
           photoLink: rowPhoto || nextFallbackPhoto,
           phoneE164: rowPhone || nextFallbackPhone,
+          accountCreatedAt: rowCreatedAt || nextFallbackAccountCreatedAt,
           emailChangedAt: rowEmailChangedAt || nextFallbackEmailChangedAt,
           phoneChangedAt: rowPhoneChangedAt || nextFallbackPhoneChangedAt,
           passwordChangedAt: rowPasswordChangedAt || nextFallbackPasswordChangedAt,
@@ -432,6 +445,7 @@ function pickProfileFromRows(
         } as SidebarProfile,
         fallbackPhotoLink: nextFallbackPhoto,
         fallbackPhoneE164: nextFallbackPhone,
+        fallbackAccountCreatedAt: nextFallbackAccountCreatedAt,
         fallbackEmailChangedAt: nextFallbackEmailChangedAt,
         fallbackPhoneChangedAt: nextFallbackPhoneChangedAt,
         fallbackPasswordChangedAt: nextFallbackPasswordChangedAt,
@@ -447,6 +461,7 @@ function pickProfileFromRows(
     profile: null as SidebarProfile | null,
     fallbackPhotoLink: nextFallbackPhoto,
     fallbackPhoneE164: nextFallbackPhone,
+    fallbackAccountCreatedAt: nextFallbackAccountCreatedAt,
     fallbackEmailChangedAt: nextFallbackEmailChangedAt,
     fallbackPhoneChangedAt: nextFallbackPhoneChangedAt,
     fallbackPasswordChangedAt: nextFallbackPasswordChangedAt,
@@ -472,6 +487,7 @@ async function getSidebarProfile(params: {
       fullName: null,
       photoLink: null,
       phoneE164: null,
+      accountCreatedAt: null,
       emailChangedAt: null,
       phoneChangedAt: null,
       passwordChangedAt: null,
@@ -486,6 +502,7 @@ async function getSidebarProfile(params: {
     const sb = supabaseAdmin();
     let fallbackPhotoLink: string | null = null;
     let fallbackPhoneE164: string | null = null;
+    let fallbackAccountCreatedAt: string | null = null;
     let fallbackEmailChangedAt: string | null = null;
     let fallbackPhoneChangedAt: string | null = null;
     let fallbackPasswordChangedAt: string | null = null;
@@ -515,6 +532,7 @@ async function getSidebarProfile(params: {
         rowsByAuthId,
         fallbackPhotoLink,
         fallbackPhoneE164,
+        fallbackAccountCreatedAt,
         fallbackEmailChangedAt,
         fallbackPhoneChangedAt,
         fallbackPasswordChangedAt,
@@ -526,6 +544,7 @@ async function getSidebarProfile(params: {
       );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
+      fallbackAccountCreatedAt = result.fallbackAccountCreatedAt;
       fallbackEmailChangedAt = result.fallbackEmailChangedAt;
       fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
       fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
@@ -546,6 +565,7 @@ async function getSidebarProfile(params: {
         rowsByUserId,
         fallbackPhotoLink,
         fallbackPhoneE164,
+        fallbackAccountCreatedAt,
         fallbackEmailChangedAt,
         fallbackPhoneChangedAt,
         fallbackPasswordChangedAt,
@@ -557,6 +577,7 @@ async function getSidebarProfile(params: {
       );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
+      fallbackAccountCreatedAt = result.fallbackAccountCreatedAt;
       fallbackEmailChangedAt = result.fallbackEmailChangedAt;
       fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
       fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
@@ -577,6 +598,7 @@ async function getSidebarProfile(params: {
         rowsById,
         fallbackPhotoLink,
         fallbackPhoneE164,
+        fallbackAccountCreatedAt,
         fallbackEmailChangedAt,
         fallbackPhoneChangedAt,
         fallbackPasswordChangedAt,
@@ -588,6 +610,7 @@ async function getSidebarProfile(params: {
       );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
+      fallbackAccountCreatedAt = result.fallbackAccountCreatedAt;
       fallbackEmailChangedAt = result.fallbackEmailChangedAt;
       fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
       fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
@@ -608,6 +631,7 @@ async function getSidebarProfile(params: {
         rowsByEmail,
         fallbackPhotoLink,
         fallbackPhoneE164,
+        fallbackAccountCreatedAt,
         fallbackEmailChangedAt,
         fallbackPhoneChangedAt,
         fallbackPasswordChangedAt,
@@ -619,6 +643,7 @@ async function getSidebarProfile(params: {
       );
       fallbackPhotoLink = result.fallbackPhotoLink;
       fallbackPhoneE164 = result.fallbackPhoneE164;
+      fallbackAccountCreatedAt = result.fallbackAccountCreatedAt;
       fallbackEmailChangedAt = result.fallbackEmailChangedAt;
       fallbackPhoneChangedAt = result.fallbackPhoneChangedAt;
       fallbackPasswordChangedAt = result.fallbackPasswordChangedAt;
@@ -634,6 +659,7 @@ async function getSidebarProfile(params: {
       fullName: null,
       photoLink: fallbackPhotoLink,
       phoneE164: fallbackPhoneE164,
+      accountCreatedAt: fallbackAccountCreatedAt,
       emailChangedAt: fallbackEmailChangedAt,
       phoneChangedAt: fallbackPhoneChangedAt,
       passwordChangedAt: fallbackPasswordChangedAt,
@@ -651,6 +677,7 @@ async function getSidebarProfile(params: {
     fullName: null,
     photoLink: null,
     phoneE164: null,
+    accountCreatedAt: null,
     emailChangedAt: null,
     phoneChangedAt: null,
     passwordChangedAt: null,
@@ -696,6 +723,9 @@ export default async function DashboardHomePage() {
       userId: session.userId,
       email: session.email,
     });
+    if (!sidebarAccountCreatedAt && profile.accountCreatedAt) {
+      sidebarAccountCreatedAt = profile.accountCreatedAt;
+    }
     const fullNameFromSession = sanitizeFullName(session.fullName);
     const firstNameFromSession = pickFirstName(session.fullName);
 
