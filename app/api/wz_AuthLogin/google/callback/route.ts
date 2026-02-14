@@ -34,6 +34,7 @@ type WzUserRow = {
   id?: string | null;
   email?: string | null;
   full_name?: string | null;
+  phone_e164?: string | null;
   auth_user_id?: string | null;
   auth_provider?: string | null;
   must_create_password?: boolean | string | number | null;
@@ -99,6 +100,11 @@ function sanitizeFullName(value?: string | null) {
     .trim();
   if (!clean) return null;
   return clean.slice(0, 120);
+}
+
+function normalizeOptionalPhone(value?: string | null) {
+  const clean = String(value || "").trim();
+  return clean || null;
 }
 
 function isSafeNextPath(path: string) {
@@ -320,6 +326,22 @@ function isUniqueViolation(error: unknown) {
   return code === "23505" || message.includes("duplicate key");
 }
 
+function isPhoneConstraintViolation(error: unknown) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  return (
+    code === "23514" &&
+    (message.includes("wz_users_phone_e164_br_chk") ||
+      details.includes("wz_users_phone_e164_br_chk") ||
+      message.includes("phone_e164") ||
+      details.includes("phone_e164"))
+  );
+}
+
 async function queryWzUsersRows(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   column: string;
@@ -327,8 +349,10 @@ async function queryWzUsersRows(params: {
   mode: "eq" | "ilike";
 }) {
   const columnsToTry = [
-    "id,email,full_name,auth_user_id,auth_provider,must_create_password",
-    "id,email,full_name,auth_user_id,must_create_password",
+    "id,email,full_name,phone_e164,auth_user_id,auth_provider,must_create_password",
+    "id,email,full_name,phone_e164,auth_user_id,must_create_password",
+    "id,email,full_name,phone_e164,auth_user_id",
+    "id,email,full_name,phone_e164",
     "id,email,full_name,auth_user_id",
     "id,email,full_name",
     "id,email",
@@ -347,6 +371,7 @@ async function queryWzUsersRows(params: {
         id: normalizeText(row.id),
         email: normalizeEmail(row.email),
         full_name: sanitizeFullName(row.full_name),
+        phone_e164: normalizeOptionalPhone(row.phone_e164),
         auth_user_id: normalizeText(row.auth_user_id),
         auth_provider: normalizeText(row.auth_provider),
         must_create_password:
@@ -361,6 +386,7 @@ async function queryWzUsersRows(params: {
     id: string | null;
     email: string | null;
     full_name: string | null;
+    phone_e164: string | null;
     auth_user_id: string | null;
     auth_provider: string | null;
     must_create_password: boolean | null;
@@ -372,6 +398,7 @@ function pickBestWzUserRow(
     id: string | null;
     email: string | null;
     full_name: string | null;
+    phone_e164: string | null;
     auth_user_id: string | null;
     auth_provider: string | null;
     must_create_password: boolean | null;
@@ -402,6 +429,13 @@ async function updateWzUserBestEffort(params: {
     const updateRes = await params.sb.from("wz_users").update(patch).eq("id", userId);
     if (!updateRes.error) return;
 
+    if (isPhoneConstraintViolation(updateRes.error)) {
+      if (!Object.prototype.hasOwnProperty.call(patch, "phone_e164")) {
+        patch.phone_e164 = null;
+        continue;
+      }
+    }
+
     let removedAny = false;
     for (const key of Object.keys(patch)) {
       if (isMissingColumnError(updateRes.error, key)) {
@@ -427,6 +461,8 @@ async function insertGoogleWzUser(params: {
     {
       email: params.email,
       full_name: params.fullName,
+      phone_e164: null,
+      phone_verified: false,
       auth_user_id: params.authUserId,
       email_verified: true,
       auth_provider: "google",
@@ -436,6 +472,7 @@ async function insertGoogleWzUser(params: {
     {
       email: params.email,
       full_name: params.fullName,
+      phone_e164: null,
       auth_user_id: params.authUserId,
       email_verified: true,
       created_at: params.nowIso,
@@ -443,8 +480,15 @@ async function insertGoogleWzUser(params: {
     {
       email: params.email,
       full_name: params.fullName,
+      phone_e164: null,
       auth_user_id: params.authUserId,
       created_at: params.nowIso,
+    },
+    {
+      email: params.email,
+      full_name: params.fullName,
+      phone_e164: null,
+      auth_user_id: params.authUserId,
     },
     {
       email: params.email,
@@ -510,6 +554,7 @@ async function findOrCreateGoogleWzUser(params: {
     const patch: Record<string, unknown> = {};
     if (!existing.auth_user_id) patch.auth_user_id = params.authUserId;
     if (!existing.full_name && params.fullName) patch.full_name = params.fullName;
+    if (!normalizeOptionalPhone(existing.phone_e164)) patch.phone_e164 = null;
     if (normalizeEmail(existing.email) !== normalizeEmail(params.email)) {
       patch.email = params.email;
     }
@@ -860,6 +905,11 @@ export async function GET(req: NextRequest) {
     return res;
   } catch (error) {
     console.error("[google-callback] error:", error);
+    if (isPhoneConstraintViolation(error)) {
+      return fail(
+        "Nao foi possivel concluir seu cadastro Google por regra de telefone da conta. Tente novamente em instantes.",
+      );
+    }
     return fail("Erro inesperado no login Google. Tente novamente.");
   }
 }

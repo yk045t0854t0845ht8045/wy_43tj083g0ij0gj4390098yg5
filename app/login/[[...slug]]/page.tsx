@@ -163,7 +163,13 @@ function SpinnerMini({
   );
 }
 
-function LoginSessionLoader({ reduced = false }: { reduced?: boolean }) {
+function LoginSessionLoader({
+  reduced = false,
+  label = "Verificando sessao...",
+}: {
+  reduced?: boolean;
+  label?: string;
+}) {
   return (
     <div
       aria-label="Loading..."
@@ -248,9 +254,7 @@ function LoginSessionLoader({ reduced = false }: { reduced?: boolean }) {
           strokeWidth="24"
         />
       </svg>
-      <span className="text-[13px] font-semibold text-black/58">
-        Verificando sessao...
-      </span>
+      <span className="text-[13px] font-semibold text-black/58">{label}</span>
     </div>
   );
 }
@@ -551,6 +555,8 @@ export default function LinkLoginPage() {
   const [verifyingPasskeyLoginBusy, setVerifyingPasskeyLoginBusy] =
     useState(false);
   const [checkingExistingSession, setCheckingExistingSession] = useState(true);
+  const [sessionCheckLabel, setSessionCheckLabel] =
+    useState("Verificando sessao...");
   const [verifyingSmsCodeBusy, setVerifyingSmsCodeBusy] = useState(false); // ✅ novo (só validação do sms code)
   const [twoFactorIslandLoading, setTwoFactorIslandLoading] = useState(false);
   const [twoFactorShakeTick, setTwoFactorShakeTick] = useState(0);
@@ -597,12 +603,30 @@ export default function LinkLoginPage() {
 
     const url = new URL(window.location.href);
     let cancelled = false;
-    const finishCheck = () => {
+    const startedAt = Date.now();
+    const hasOAuthReturn = Boolean(
+      url.searchParams.get("code") ||
+        url.searchParams.get("error") ||
+        url.searchParams.get("error_description"),
+    );
+    setSessionCheckLabel(
+      hasOAuthReturn
+        ? "Finalizando login com provedor..."
+        : "Verificando sessao...",
+    );
+
+    const minLoaderMs = hasOAuthReturn ? 1800 : 0;
+    const finishCheck = async () => {
+      const elapsed = Date.now() - startedAt;
+      const waitMs = Math.max(0, minLoaderMs - elapsed);
+      if (waitMs > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, waitMs));
+      }
       if (!cancelled) setCheckingExistingSession(false);
     };
 
     if (url.searchParams.get("forceLogin") === "1") {
-      finishCheck();
+      void finishCheck();
       return () => {
         cancelled = true;
       };
@@ -615,7 +639,7 @@ export default function LinkLoginPage() {
       host === "localhost";
     const isLinkHost = host.startsWith("link.");
     if (!isLoginHost && !isLinkHost) {
-      finishCheck();
+      void finishCheck();
       return () => {
         cancelled = true;
       };
@@ -623,16 +647,18 @@ export default function LinkLoginPage() {
 
     (async () => {
       let redirected = false;
-      const maxAttempts = 3;
+      const maxAttempts = hasOAuthReturn ? 20 : 3;
 
       try {
         for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+          let responseStatus = 0;
           try {
             const response = await fetch("/api/wz_AuthLogin/me", {
               method: "GET",
               cache: "no-store",
               credentials: "include",
             });
+            responseStatus = response.status;
             if (cancelled) return;
 
             if (response.ok) {
@@ -647,19 +673,34 @@ export default function LinkLoginPage() {
               }
             }
 
-            if (response.status === 401 || response.status === 403) {
+            if (
+              (response.status === 401 || response.status === 403) &&
+              !hasOAuthReturn
+            ) {
               break;
             }
           } catch {
             // retry for transient network/browser races
           }
 
+          if (
+            (responseStatus === 401 || responseStatus === 403) &&
+            !hasOAuthReturn
+          ) {
+            break;
+          }
+
           if (attempt < maxAttempts) {
-            await new Promise((resolve) => window.setTimeout(resolve, 120 * attempt));
+            const retryDelay = hasOAuthReturn
+              ? Math.min(1200, 220 + attempt * 110)
+              : 120 * attempt;
+            await new Promise((resolve) =>
+              window.setTimeout(resolve, retryDelay),
+            );
           }
         }
       } finally {
-        if (!redirected) finishCheck();
+        if (!redirected) await finishCheck();
       }
     })();
 
@@ -1986,7 +2027,10 @@ export default function LinkLoginPage() {
     return (
       <div className="min-h-screen bg-white relative overflow-hidden">
         <div className="relative z-10 min-h-screen flex items-center justify-center px-4">
-          <LoginSessionLoader reduced={!!prefersReducedMotion} />
+          <LoginSessionLoader
+            reduced={!!prefersReducedMotion}
+            label={sessionCheckLabel}
+          />
         </div>
       </div>
     );
