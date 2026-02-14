@@ -106,6 +106,7 @@ export default function DashboardShell({
   const [sessionDisconnected, setSessionDisconnected] = useState(false);
   const [disconnectCountdown, setDisconnectCountdown] = useState(5);
   const redirectingRef = useRef(false);
+  const oauthConnectHandledRef = useRef(false);
 
   const normalizedInitialPhotoLink = useMemo(() => {
     const clean = String(userPhotoLink || "").trim();
@@ -231,6 +232,20 @@ export default function DashboardShell({
 
   const handleCloseConfig = useCallback(() => {
     setConfigOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (oauthConnectHandledRef.current) return;
+    if (typeof window === "undefined") return;
+
+    const url = new URL(window.location.href);
+    const oauthConnect = String(url.searchParams.get("oauthConnect") || "").trim().toLowerCase();
+    const oauthError = String(url.searchParams.get("oauthError") || "").trim();
+    if (!oauthConnect && !oauthError) return;
+
+    oauthConnectHandledRef.current = true;
+    setConfigSection("authorized-apps");
+    setConfigOpen(true);
   }, []);
 
   useEffect(() => {
