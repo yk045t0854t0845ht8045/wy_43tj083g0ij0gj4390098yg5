@@ -6079,7 +6079,7 @@ function AuthorizedAppsContent() {
             </button>
           </div>
         ) : null}
-        <div className="mt-4 overflow-hidden rounded-xl border border-black/10 bg-white/70">
+        <div className="relative mt-4 overflow-visible rounded-xl border border-black/10 bg-white/70">
           {!orderedProviders.length ? (
             <div className="px-4 py-5 text-[14px] text-black/55">
               {loading ? "Carregando provedores..." : "Nenhum provedor conectado."}
@@ -6102,7 +6102,7 @@ function AuthorizedAppsContent() {
                 <div
                   key={provider.id}
                   className={cx(
-                    "flex items-center gap-4 px-4 py-5",
+                    "relative z-[1] flex items-center gap-4 px-4 py-5 overflow-visible",
                     idx > 0 && "border-t border-black/10",
                   )}
                 >
@@ -6144,7 +6144,7 @@ function AuthorizedAppsContent() {
                         <span
                           role="tooltip"
                           className={cx(
-                            "pointer-events-none absolute left-[calc(100%+8px)] top-1/2 z-[60] w-max max-w-[340px] -translate-y-1/2 rounded-xl border border-black/12 bg-white/98 px-3 py-2 text-[12px] text-black/72 shadow-[0_12px_28px_rgba(0,0,0,0.16)] backdrop-blur-[2px]",
+                            "pointer-events-none absolute left-[calc(100%+8px)] top-1/2 z-[200] w-max max-w-[340px] -translate-y-1/2 rounded-xl border border-black/12 bg-white/98 px-3 py-2 text-[12px] text-black/72 shadow-[0_12px_28px_rgba(0,0,0,0.16)] backdrop-blur-[2px]",
                             "opacity-0 translate-x-1 scale-[0.98] transition-[opacity,transform] duration-180 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
                             "group-hover:opacity-100 group-hover:translate-x-0 group-hover:scale-100",
                             "group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:scale-100",
@@ -6183,12 +6183,7 @@ function AuthorizedAppsContent() {
                         </span>
                       </span>
                     </div>
-                    <p className="mt-1 text-[14px] text-black/58">
-                      Vinculado: {provider.linkedAt ? formatAuthorizedProviderSeen(provider.linkedAt) : "desconhecido"}
-                      {" - "}
-                      Último login: {provider.lastLoginAt ? formatAuthorizedProviderSeen(provider.lastLoginAt) : "indisponível"}
-                    </p>
-                    {provider.provider === "google" ? (
+                    {(provider.provider === "google" || provider.provider === "password") ? (
                       <p className="mt-1 text-[13px] text-black/56">
                         Email vinculado: {maskAuthorizedProviderEmail(provider.linkedEmail) || "indisponível"}
                       </p>
