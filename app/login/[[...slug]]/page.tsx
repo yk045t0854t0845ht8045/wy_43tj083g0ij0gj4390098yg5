@@ -484,6 +484,64 @@ export default function LinkLoginPage() {
     }),
     [],
   );
+  const collectModeVariants = useMemo(
+    () => ({
+      initial: {
+        opacity: 0,
+        y: 12,
+        scale: 0.992,
+        filter: "blur(8px)",
+      },
+      animate: {
+        opacity: 1,
+        y: 0,
+        scale: 1,
+        filter: "blur(0px)",
+        transition: {
+          duration: prefersReducedMotion ? 0 : 0.32,
+          ease: EASE,
+          when: "beforeChildren" as const,
+          staggerChildren: prefersReducedMotion ? 0 : 0.045,
+        },
+      },
+      exit: {
+        opacity: 0,
+        y: -10,
+        scale: 0.992,
+        filter: "blur(8px)",
+        transition: {
+          duration: prefersReducedMotion ? 0 : 0.22,
+          ease: EASE,
+        },
+      },
+    }),
+    [EASE, prefersReducedMotion],
+  );
+  const collectModeItemVariants = useMemo(
+    () => ({
+      initial: {
+        opacity: 0,
+        y: 7,
+      },
+      animate: {
+        opacity: 1,
+        y: 0,
+        transition: {
+          duration: prefersReducedMotion ? 0 : 0.22,
+          ease: EASE,
+        },
+      },
+      exit: {
+        opacity: 0,
+        y: -6,
+        transition: {
+          duration: prefersReducedMotion ? 0 : 0.16,
+          ease: EASE,
+        },
+      },
+    }),
+    [EASE, prefersReducedMotion],
+  );
 
   // ---------- URL token -> email ----------
   const tokenConsumedRef = useRef(false);
@@ -2040,42 +2098,68 @@ export default function LinkLoginPage() {
               </div>
 
               <div className="text-black font-semibold tracking-tight text-[28px] sm:text-[32px] md:text-[36px]">
-                {step === "collect"
-                  ? showMoreProviders
-                    ? "Outras formas de login"
-                    : "Bem Vindo de volta a Wyzer!"
-                  : step === "emailCode"
-                    ? "Confirme seu endereco de e-mail"
-                    : step === "twoFactorCode"
-                      ? twoFactorAllowsTotp && twoFactorAllowsPasskey
-                        ? "Escolha como validar o login"
-                        : twoFactorAllowsPasskey
-                          ? "Continue com Windows Hello"
-                          : "Confirme a autenticacao de 2 etapas"
-                    : "Entrar na Wyzer"}
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.div
+                    key={`login-title:${step}:${showMoreProviders ? "providers" : "default"}:${twoFactorAllowsTotp ? "totp" : "no-totp"}:${twoFactorAllowsPasskey ? "passkey" : "no-passkey"}`}
+                    initial={{ opacity: 0, y: 6, filter: "blur(6px)" }}
+                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                    exit={{ opacity: 0, y: -6, filter: "blur(6px)" }}
+                    transition={{
+                      duration: prefersReducedMotion ? 0 : 0.24,
+                      ease: EASE,
+                    }}
+                  >
+                    {step === "collect"
+                      ? showMoreProviders
+                        ? "Outras formas de login"
+                        : "Bem Vindo de volta a Wyzer!"
+                      : step === "emailCode"
+                        ? "Confirme seu endereco de e-mail"
+                        : step === "twoFactorCode"
+                          ? twoFactorAllowsTotp && twoFactorAllowsPasskey
+                            ? "Escolha como validar o login"
+                            : twoFactorAllowsPasskey
+                              ? "Continue com Windows Hello"
+                              : "Confirme a autenticacao de 2 etapas"
+                        : "Entrar na Wyzer"}
+                  </motion.div>
+                </AnimatePresence>
               </div>
 
               <div className="mt-2 text-black/55 text-[14px] sm:text-[15px] md:text-[16px]">
-                {step === "emailCode" ? (
-                  <>
-                    Insira o codigo enviado para{" "}
-                    <span className="text-black/75">
-                      {maskEmail(email.trim())}
-                    </span>
-                  </>
-                ) : step === "twoFactorCode" ? (
-                  <>
-                    {twoFactorAllowsTotp && twoFactorAllowsPasskey
-                      ? "Escolha entre codigo autenticador ou Windows Hello."
-                      : twoFactorAllowsPasskey
-                        ? "Use o PIN ou biometria do dispositivo para continuar."
-                        : "Abra seu aplicativo autenticador para continuar."}
-                  </>
-                ) : step === "collect" && showMoreProviders ? (
-                  <>Escolha um provedor para continuar.</>
-                ) : (
-                  helperText
-                )}
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.div
+                    key={`login-desc:${step}:${showMoreProviders ? "providers" : "default"}:${twoFactorAllowsTotp ? "totp" : "no-totp"}:${twoFactorAllowsPasskey ? "passkey" : "no-passkey"}`}
+                    initial={{ opacity: 0, y: 5, filter: "blur(6px)" }}
+                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                    exit={{ opacity: 0, y: -5, filter: "blur(6px)" }}
+                    transition={{
+                      duration: prefersReducedMotion ? 0 : 0.22,
+                      ease: EASE,
+                    }}
+                  >
+                    {step === "emailCode" ? (
+                      <>
+                        Insira o codigo enviado para{" "}
+                        <span className="text-black/75">
+                          {maskEmail(email.trim())}
+                        </span>
+                      </>
+                    ) : step === "twoFactorCode" ? (
+                      <>
+                        {twoFactorAllowsTotp && twoFactorAllowsPasskey
+                          ? "Escolha entre codigo autenticador ou Windows Hello."
+                          : twoFactorAllowsPasskey
+                            ? "Use o PIN ou biometria do dispositivo para continuar."
+                            : "Abra seu aplicativo autenticador para continuar."}
+                      </>
+                    ) : step === "collect" && showMoreProviders ? (
+                      <>Escolha um provedor para continuar.</>
+                    ) : (
+                      helperText
+                    )}
+                  </motion.div>
+                </AnimatePresence>
               </div>
             </div>
 
@@ -2091,11 +2175,25 @@ export default function LinkLoginPage() {
                   transition={{
                     duration: prefersReducedMotion ? 0 : DUR.md,
                     ease: EASE,
+                    layout: prefersReducedMotion
+                      ? { duration: 0 }
+                      : { type: "spring", stiffness: 420, damping: 36, mass: 0.9 },
                   }}
+                  layout
                   className="mt-10"
+                  style={{ willChange: "transform, opacity, filter, height" }}
                 >
-                  {showMoreProviders ? (
-                    <>
+                  <AnimatePresence mode="wait" initial={false}>
+                    {showMoreProviders ? (
+                    <motion.div
+                      key="collect-more-providers"
+                      variants={collectModeVariants}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                      layout
+                      className="origin-top"
+                    >
                       <AnimatePresence initial={false}>
                         {!!msgError && (
                           <motion.div
@@ -2113,61 +2211,68 @@ export default function LinkLoginPage() {
                         )}
                       </AnimatePresence>
 
-                      <button
-                        type="button"
-                        onClick={startGoogleLogin}
-                        disabled={busy || startingGoogleLogin || startingDiscordLogin}
-                        className={cx(
-                          "group inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-[15px] border border-black/10 bg-white text-[15px] font-semibold text-black/82",
-                          "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
-                          "hover:border-black/20 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
-                          "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
-                          (busy || startingGoogleLogin || startingDiscordLogin) &&
-                            "cursor-not-allowed opacity-70",
-                        )}
-                      >
-                        {startingGoogleLogin ? (
-                          <SpinnerMini reduced={!!prefersReducedMotion} />
-                        ) : (
-                          <span
-                            aria-hidden
-                            className="h-5 w-5 bg-contain bg-center bg-no-repeat"
-                            style={{ backgroundImage: "url('/cdn/login/google-icon.png')" }}
-                          />
-                        )}
-                        <span>
-                          {startingGoogleLogin ? "Conectando..." : "Continuar com Google"}
-                        </span>
-                      </button>
+                      <motion.div variants={collectModeItemVariants}>
+                        <button
+                          type="button"
+                          onClick={startGoogleLogin}
+                          disabled={busy || startingGoogleLogin || startingDiscordLogin}
+                          className={cx(
+                            "group inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-[15px] border border-black/10 bg-white text-[15px] font-semibold text-black/82",
+                            "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                            "hover:border-black/20 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
+                            "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
+                            (busy || startingGoogleLogin || startingDiscordLogin) &&
+                              "cursor-not-allowed opacity-70",
+                          )}
+                        >
+                          {startingGoogleLogin ? (
+                            <SpinnerMini reduced={!!prefersReducedMotion} />
+                          ) : (
+                            <span
+                              aria-hidden
+                              className="h-5 w-5 bg-contain bg-center bg-no-repeat"
+                              style={{ backgroundImage: "url('/cdn/login/google-icon.png')" }}
+                            />
+                          )}
+                          <span>
+                            {startingGoogleLogin ? "Conectando..." : "Continuar com Google"}
+                          </span>
+                        </button>
+                      </motion.div>
 
-                      <button
-                        type="button"
-                        onClick={startDiscordLogin}
-                        disabled={busy || startingGoogleLogin || startingDiscordLogin}
-                        className={cx(
-                          "group mt-3 inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-[15px] border border-black/10 bg-white text-[15px] font-semibold text-black/82",
-                          "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
-                          "hover:border-black/20 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
-                          "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
-                          (busy || startingGoogleLogin || startingDiscordLogin) &&
-                            "cursor-not-allowed opacity-70",
-                        )}
-                      >
-                        {startingDiscordLogin ? (
-                          <SpinnerMini reduced={!!prefersReducedMotion} />
-                        ) : (
-                          <span
-                            aria-hidden
-                            className="h-5 w-5 bg-contain bg-center bg-no-repeat"
-                            style={{ backgroundImage: "url('/cdn/login/discord-icon.svg')" }}
-                          />
-                        )}
-                        <span>
-                          {startingDiscordLogin ? "Conectando..." : "Continuar com Discord"}
-                        </span>
-                      </button>
+                      <motion.div variants={collectModeItemVariants}>
+                        <button
+                          type="button"
+                          onClick={startDiscordLogin}
+                          disabled={busy || startingGoogleLogin || startingDiscordLogin}
+                          className={cx(
+                            "group mt-3 inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-[15px] border border-black/10 bg-white text-[15px] font-semibold text-black/82",
+                            "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                            "hover:border-black/20 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
+                            "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
+                            (busy || startingGoogleLogin || startingDiscordLogin) &&
+                              "cursor-not-allowed opacity-70",
+                          )}
+                        >
+                          {startingDiscordLogin ? (
+                            <SpinnerMini reduced={!!prefersReducedMotion} />
+                          ) : (
+                            <span
+                              aria-hidden
+                              className="h-5 w-5 bg-contain bg-center bg-no-repeat"
+                              style={{ backgroundImage: "url('/cdn/login/discord-icon.svg')" }}
+                            />
+                          )}
+                          <span>
+                            {startingDiscordLogin ? "Conectando..." : "Continuar com Discord"}
+                          </span>
+                        </button>
+                      </motion.div>
 
-                      <div className="mt-6 flex items-center justify-center">
+                      <motion.div
+                        variants={collectModeItemVariants}
+                        className="mt-6 flex items-center justify-center"
+                      >
                         <button
                           type="button"
                           onClick={resetAll}
@@ -2182,10 +2287,18 @@ export default function LinkLoginPage() {
                           <Undo2 className="h-4 w-4" />
                           Voltar ao inicio
                         </button>
-                      </div>
-                    </>
+                      </motion.div>
+                    </motion.div>
                   ) : (
-                    <>
+                    <motion.div
+                      key="collect-default-auth"
+                      variants={collectModeVariants}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                      layout
+                      className="origin-top"
+                    >
                   {/* EMAIL input */}
                   <div className="rounded-[18px] bg-[#f3f3f3] ring-1 ring-black/5 overflow-hidden relative">
                     <input
@@ -2460,8 +2573,9 @@ export default function LinkLoginPage() {
                   >
                     ...
                   </button>
-                    </>
+                    </motion.div>
                   )}
+                  </AnimatePresence>
                 </motion.form>
               )}
             </AnimatePresence>
