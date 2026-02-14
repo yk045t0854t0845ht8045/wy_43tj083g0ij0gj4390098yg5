@@ -252,6 +252,8 @@ export async function POST(req: NextRequest) {
       getRequestOrigin(req, { preferRequestHost: intent === "connect" }),
     );
     callback.searchParams.set("st", stateTicket);
+    callback.searchParams.set("oi", intent);
+    callback.searchParams.set("rt", nextSafe);
 
     const sb = supabaseAnon();
     const { data, error } = await sb.auth.signInWithOAuth({

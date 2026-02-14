@@ -116,17 +116,22 @@ async function ensureDiscordGuildMemberByBot(params: {
   }
 
   const endpoint = `https://discord.com/api/v10/guilds/${guildId}/members/${discordUserId}`;
-  const response = await fetch(endpoint, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bot ${botToken}`,
-      "Content-Type": "application/json",
-    },
-    cache: "no-store",
-    body: JSON.stringify({
-      access_token: providerAccessToken,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bot ${botToken}`,
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+      body: JSON.stringify({
+        access_token: providerAccessToken,
+      }),
+    });
+  } catch {
+    return { ok: false as const, reason: "network-error" as const };
+  }
 
   if (response.status === 201 || response.status === 204) {
     return { ok: true as const, status: response.status };
@@ -1305,8 +1310,11 @@ export async function GET(req: NextRequest) {
   const stFromCookie = String(req.cookies.get(DISCORD_STATE_COOKIE_NAME)?.value || "").trim();
   const st = stFromQuery || stFromCookie;
   const stateRes = readDiscordStateTicket(st);
-  const safeNext = stateRes.ok ? sanitizeNext(stateRes.payload.next) : "/";
-  const oauthIntent = stateRes.ok ? readDiscordIntent(stateRes.payload) : "login";
+  const hintedNext = sanitizeNext(String(req.nextUrl.searchParams.get("rt") || "").trim() || "/");
+  const hintedIntentRaw = String(req.nextUrl.searchParams.get("oi") || "").trim().toLowerCase();
+  const hintedIntent = hintedIntentRaw === "connect" ? "connect" : "login";
+  const safeNext = stateRes.ok ? sanitizeNext(stateRes.payload.next) : hintedNext;
+  const oauthIntent = stateRes.ok ? readDiscordIntent(stateRes.payload) : hintedIntent;
 
   const fail = (message: string) => {
     const target =
