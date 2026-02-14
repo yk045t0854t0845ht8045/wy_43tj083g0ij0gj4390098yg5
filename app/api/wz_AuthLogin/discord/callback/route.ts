@@ -449,6 +449,27 @@ function readDiscordStateTicket(ticket: string) {
   }
 }
 
+function readCookieValuesFromHeader(cookieHeader: string | null | undefined, name: string) {
+  const target = String(name || "").trim();
+  if (!target) return [] as string[];
+  const raw = String(cookieHeader || "");
+  if (!raw) return [] as string[];
+
+  const values: string[] = [];
+  for (const part of raw.split(";")) {
+    const clean = String(part || "").trim();
+    if (!clean) continue;
+    const eqIdx = clean.indexOf("=");
+    if (eqIdx <= 0) continue;
+    const key = clean.slice(0, eqIdx).trim();
+    if (key !== target) continue;
+    const value = clean.slice(eqIdx + 1).trim();
+    if (!value) continue;
+    values.push(value);
+  }
+  return values;
+}
+
 function buildLoginErrorRedirect(params: {
   origin: string;
   next: string;
@@ -869,10 +890,6 @@ async function findOrCreateDiscordWzUser(params: {
     if (!existing.auth_user_id) patch.auth_user_id = params.authUserId;
     if (!existing.full_name && params.fullName) patch.full_name = params.fullName;
     if (!normalizeOptionalPhone(existing.phone_e164)) patch.phone_e164 = null;
-    const existingProvider = String(existing.auth_provider || "").trim().toLowerCase();
-    if (!existingProvider || existingProvider === "unknown") {
-      patch.auth_provider = "discord";
-    }
     if (existing.must_create_password === null) {
       patch.must_create_password = true;
     }
@@ -924,10 +941,6 @@ async function findOrCreateDiscordWzUser(params: {
           userId: recovered.id,
           patch: {
             ...(recovered.auth_user_id ? {} : { auth_user_id: params.authUserId }),
-            ...(String(recovered.auth_provider || "").trim().toLowerCase() &&
-            String(recovered.auth_provider || "").trim().toLowerCase() !== "unknown"
-              ? {}
-              : { auth_provider: "discord" }),
             ...(recovered.must_create_password === null
               ? { must_create_password: true }
               : {}),
@@ -1306,13 +1319,39 @@ async function exchangeDiscordPkceCode(params: {
 
 export async function GET(req: NextRequest) {
   const requestOrigin = getRequestOrigin(req);
-  const stFromQuery = String(req.nextUrl.searchParams.get("st") || "").trim();
-  const stFromCookie = String(req.cookies.get(DISCORD_STATE_COOKIE_NAME)?.value || "").trim();
-  const st = stFromQuery || stFromCookie;
-  const stateRes = readDiscordStateTicket(st);
-  const hintedNext = sanitizeNext(String(req.nextUrl.searchParams.get("rt") || "").trim() || "/");
+  const cookieHeader = req.headers.get("cookie");
   const hintedIntentRaw = String(req.nextUrl.searchParams.get("oi") || "").trim().toLowerCase();
   const hintedIntent = hintedIntentRaw === "connect" ? "connect" : "login";
+
+  const stFromQuery = String(req.nextUrl.searchParams.get("st") || "").trim();
+  const cookieStateValues = readCookieValuesFromHeader(cookieHeader, DISCORD_STATE_COOKIE_NAME);
+  const cookieStateFromApi = String(req.cookies.get(DISCORD_STATE_COOKIE_NAME)?.value || "").trim();
+  const stateCandidates = [
+    stFromQuery,
+    ...cookieStateValues,
+    cookieStateFromApi,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .filter((value, index, arr) => arr.indexOf(value) === index);
+
+  let stateRes: ReturnType<typeof readDiscordStateTicket> = readDiscordStateTicket("");
+  let fallbackValidState: ReturnType<typeof readDiscordStateTicket> | null = null;
+  for (const candidate of stateCandidates) {
+    const parsed = readDiscordStateTicket(candidate);
+    if (!parsed.ok) continue;
+    if (!fallbackValidState) fallbackValidState = parsed;
+    if (hintedIntent === "connect" && readDiscordIntent(parsed.payload) !== "connect") {
+      continue;
+    }
+    stateRes = parsed;
+    break;
+  }
+  if (!stateRes.ok && fallbackValidState?.ok) {
+    stateRes = fallbackValidState;
+  }
+
+  const hintedNext = sanitizeNext(String(req.nextUrl.searchParams.get("rt") || "").trim() || "/");
   const hintedConnectUserId = normalizeText(
     String(req.nextUrl.searchParams.get("cu") || ""),
   );

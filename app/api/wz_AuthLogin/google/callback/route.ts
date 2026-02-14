@@ -772,10 +772,6 @@ async function findOrCreateGoogleWzUser(params: {
     if (!existing.auth_user_id) patch.auth_user_id = params.authUserId;
     if (!existing.full_name && params.fullName) patch.full_name = params.fullName;
     if (!normalizeOptionalPhone(existing.phone_e164)) patch.phone_e164 = null;
-    const existingProvider = String(existing.auth_provider || "").trim().toLowerCase();
-    if (!existingProvider || existingProvider === "unknown") {
-      patch.auth_provider = "google";
-    }
     if (existing.must_create_password === null) {
       patch.must_create_password = true;
     }
@@ -827,10 +823,6 @@ async function findOrCreateGoogleWzUser(params: {
           userId: recovered.id,
           patch: {
             ...(recovered.auth_user_id ? {} : { auth_user_id: params.authUserId }),
-            ...(String(recovered.auth_provider || "").trim().toLowerCase() &&
-            String(recovered.auth_provider || "").trim().toLowerCase() !== "unknown"
-              ? {}
-              : { auth_provider: "google" }),
             ...(recovered.must_create_password === null
               ? { must_create_password: true }
               : {}),

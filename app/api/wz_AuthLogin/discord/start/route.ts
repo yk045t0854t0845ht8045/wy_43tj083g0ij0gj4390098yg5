@@ -300,8 +300,19 @@ export async function POST(req: NextRequest) {
       sameSite: "lax",
       path: "/",
       maxAge: 60 * 10,
-      ...(cookieDomain ? { domain: cookieDomain } : {}),
     });
+    if (cookieDomain) {
+      response.cookies.set({
+        name: DISCORD_STATE_COOKIE_NAME,
+        value: stateTicket,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 10,
+        domain: cookieDomain,
+      });
+    }
     return response;
   } catch (error) {
     console.error("[discord-start] error:", error);
