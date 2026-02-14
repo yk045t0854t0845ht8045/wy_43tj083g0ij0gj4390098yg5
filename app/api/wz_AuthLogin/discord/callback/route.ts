@@ -2,7 +2,10 @@ import crypto from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { readActiveSessionFromRequest } from "../../_active_session";
 import { supabaseAdmin } from "../../_supabase";
-import { upsertLoginProviderRecord } from "../../_login_providers";
+import {
+  findLinkedUserByProviderIdentity,
+  upsertLoginProviderRecord,
+} from "../../_login_providers";
 import { gen7, newSalt, onlyDigits, sha, toE164BRMobile } from "../../_codes";
 import { sendLoginCodeEmail } from "../../_email";
 import { setSessionCookie } from "../../_session";
@@ -454,27 +457,6 @@ function isMissingColumnError(error: unknown, column: string) {
   );
 }
 
-function isMissingTableError(error: unknown, table: string) {
-  const code =
-    typeof (error as { code?: unknown } | null)?.code === "string"
-      ? String((error as { code?: string }).code)
-      : "";
-  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
-  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
-  const needle = String(table || "").trim().toLowerCase();
-  if (!needle) return false;
-  if (code === "42P01" || code === "PGRST205") return true;
-  return (
-    (message.includes(needle) || details.includes(needle)) &&
-    (message.includes("does not exist") ||
-      details.includes("does not exist") ||
-      message.includes("relation") ||
-      details.includes("relation") ||
-      message.includes("table") ||
-      details.includes("table"))
-  );
-}
-
 function isUniqueViolation(error: unknown) {
   const code =
     typeof (error as { code?: unknown } | null)?.code === "string"
@@ -626,45 +608,6 @@ async function findWzUserById(params: {
   return null;
 }
 
-async function isDiscordLinkedToAnotherUser(params: {
-  sb: ReturnType<typeof supabaseAdmin>;
-  targetUserId: string;
-  authUserId: string;
-  providerUserId: string | null;
-}) {
-  const targetUserId = String(params.targetUserId || "").trim();
-  if (!targetUserId) return false;
-
-  const checkRows = async (column: "auth_user_id" | "provider_user_id", value: string) => {
-    const clean = String(value || "").trim();
-    if (!clean) return false;
-    const res = await params.sb
-      .from("wz_auth_login_providers")
-      .select("user_id")
-      .eq("provider", "discord")
-      .eq(column, clean)
-      .limit(10);
-
-    if (res.error) {
-      if (
-        isMissingTableError(res.error, "wz_auth_login_providers") ||
-        isMissingColumnError(res.error, column) ||
-        isMissingColumnError(res.error, "user_id")
-      ) {
-        return false;
-      }
-      throw res.error;
-    }
-
-    const rows = (res.data || []) as Array<{ user_id?: string | null }>;
-    return rows.some((row) => normalizeText(row.user_id) !== targetUserId);
-  };
-
-  if (await checkRows("auth_user_id", params.authUserId)) return true;
-  if (await checkRows("provider_user_id", String(params.providerUserId || ""))) return true;
-  return false;
-}
-
 function pickBestWzUserRow(
   rows: Array<{
     id: string | null;
@@ -814,24 +757,43 @@ async function findOrCreateDiscordWzUser(params: {
   email: string;
   fullName: string | null;
   authUserId: string;
+  linkedUserId?: string | null;
   nowIso: string;
 }) {
-  const rowsByAuth = await queryWzUsersRows({
-    sb: params.sb,
-    column: "auth_user_id",
-    value: params.authUserId,
-    mode: "eq",
-  });
-  let existing = pickBestWzUserRow(rowsByAuth, params.email);
+  const linkedUserId = normalizeText(params.linkedUserId || null);
+  let existing: ReturnType<typeof pickBestWzUserRow> = null;
 
-  if (!existing) {
-    const rowsByEmail = await queryWzUsersRows({
+  if (linkedUserId) {
+    const rowsByLinkedIdentity = await queryWzUsersRows({
       sb: params.sb,
-      column: "email",
-      value: params.email,
-      mode: "ilike",
+      column: "id",
+      value: linkedUserId,
+      mode: "eq",
     });
-    existing = pickBestWzUserRow(rowsByEmail, params.email);
+    existing = pickBestWzUserRow(rowsByLinkedIdentity, params.email);
+    if (!existing?.id) {
+      const err = new Error("Linked OAuth user not found");
+      (err as Error & { code?: string }).code = "WZ_OAUTH_LINKED_USER_NOT_FOUND";
+      throw err;
+    }
+  } else {
+    const rowsByAuth = await queryWzUsersRows({
+      sb: params.sb,
+      column: "auth_user_id",
+      value: params.authUserId,
+      mode: "eq",
+    });
+    existing = pickBestWzUserRow(rowsByAuth, params.email);
+
+    if (!existing) {
+      const rowsByEmail = await queryWzUsersRows({
+        sb: params.sb,
+        column: "email",
+        value: params.email,
+        mode: "ilike",
+      });
+      existing = pickBestWzUserRow(rowsByEmail, params.email);
+    }
   }
 
   if (existing?.id) {
@@ -839,9 +801,6 @@ async function findOrCreateDiscordWzUser(params: {
     if (!existing.auth_user_id) patch.auth_user_id = params.authUserId;
     if (!existing.full_name && params.fullName) patch.full_name = params.fullName;
     if (!normalizeOptionalPhone(existing.phone_e164)) patch.phone_e164 = null;
-    if (normalizeEmail(existing.email) !== normalizeEmail(params.email)) {
-      patch.email = params.email;
-    }
     const existingProvider = String(existing.auth_provider || "").trim().toLowerCase();
     if (!existingProvider || existingProvider === "unknown") {
       patch.auth_provider = "discord";
@@ -862,6 +821,7 @@ async function findOrCreateDiscordWzUser(params: {
       mustCreatePassword: Boolean(existing.must_create_password),
       phoneE164: normalizeOptionalPhone(existing.phone_e164),
       fullName: existing.full_name || params.fullName || null,
+      email: normalizeEmail(existing.email) || params.email,
     };
   }
 
@@ -879,6 +839,7 @@ async function findOrCreateDiscordWzUser(params: {
       mustCreatePassword: true as const,
       phoneE164: null,
       fullName: params.fullName || null,
+      email: params.email,
     };
   } catch (error) {
     if (isUniqueViolation(error)) {
@@ -910,6 +871,7 @@ async function findOrCreateDiscordWzUser(params: {
           mustCreatePassword: Boolean(recovered.must_create_password),
           phoneE164: normalizeOptionalPhone(recovered.phone_e164),
           fullName: recovered.full_name || params.fullName || null,
+          email: normalizeEmail(recovered.email) || params.email,
         };
       }
     }
@@ -1314,6 +1276,21 @@ export async function GET(req: NextRequest) {
     const sb = supabaseAdmin();
     const nowIso = new Date().toISOString();
     const providerUserId = parseDiscordProviderUserId(user);
+    const identityLookup = await findLinkedUserByProviderIdentity({
+      sb,
+      provider: "discord",
+      authUserId,
+      providerUserId,
+    });
+    if (identityLookup.conflict) {
+      return fail("Conflito de vinculo do Discord detectado. Contate o suporte.");
+    }
+    if (!identityLookup.lookupOk && identityLookup.schemaReady) {
+      return fail(
+        "Nao foi possivel validar o vinculo da conta Discord agora. Tente novamente em instantes.",
+      );
+    }
+    const linkedUserId = identityLookup.lookupOk ? identityLookup.userId : null;
 
     if (oauthIntent === "connect") {
       const activeSession = await readActiveSessionFromRequest(req, {
@@ -1333,13 +1310,7 @@ export async function GET(req: NextRequest) {
         return fail("Conta local nao encontrada para conectar Discord.");
       }
 
-      const linkedElsewhere = await isDiscordLinkedToAnotherUser({
-        sb,
-        targetUserId: targetUser.id,
-        authUserId,
-        providerUserId,
-      });
-      if (linkedElsewhere) {
+      if (linkedUserId && linkedUserId !== targetUser.id) {
         return fail("Esta conta Discord ja esta conectada a outra conta.");
       }
 
@@ -1380,8 +1351,10 @@ export async function GET(req: NextRequest) {
       email,
       fullName,
       authUserId,
+      linkedUserId,
       nowIso,
     });
+    const accountEmail = normalizeEmail(wzUser.email) || email;
 
     const loginUpsert = await upsertLoginProviderRecord({
       sb,
@@ -1423,7 +1396,7 @@ export async function GET(req: NextRequest) {
       const trustedRedirect = await tryTrustedDiscordBypass({
         sb,
         req,
-        email,
+        email: accountEmail,
         userId: wzUser.userId,
         authUserId,
         fullName: wzUser.fullName || fullName,
@@ -1438,7 +1411,7 @@ export async function GET(req: NextRequest) {
 
     await upsertPendingDiscordOnboarding({
       sb,
-      email,
+      email: accountEmail,
       authUserId,
       fullName: wzUser.fullName || fullName,
       phoneE164: effectivePhone,
@@ -1447,13 +1420,13 @@ export async function GET(req: NextRequest) {
 
     await createEmailChallenge({
       sb,
-      email,
+      email: accountEmail,
     });
 
     const successUrl = buildDiscordOnboardingRedirect({
       origin: requestOrigin,
       next: safeNext,
-      email,
+      email: accountEmail,
     });
     const res = NextResponse.redirect(successUrl, 303);
     clearDiscordStateCookie(res, req);
@@ -1461,6 +1434,15 @@ export async function GET(req: NextRequest) {
     return res;
   } catch (error) {
     console.error("[discord-callback] error:", error);
+    const errCode =
+      typeof (error as { code?: unknown } | null)?.code === "string"
+        ? String((error as { code?: string }).code)
+        : "";
+    if (errCode === "WZ_OAUTH_LINKED_USER_NOT_FOUND") {
+      return fail(
+        "Conta Discord vinculada com referencia invalida. Contate o suporte para corrigir o vinculo.",
+      );
+    }
     if (isPhoneConstraintViolation(error)) {
       return fail(
         "Nao foi possivel concluir seu cadastro Discord por regra de telefone da conta. Tente novamente em instantes.",

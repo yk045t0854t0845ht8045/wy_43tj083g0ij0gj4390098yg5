@@ -177,6 +177,134 @@ export async function upsertLoginProviderRecord(params: {
   }
 }
 
+export async function findLinkedUserByProviderIdentity(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  provider: LoginProvider | string;
+  authUserId?: string | null;
+  providerUserId?: string | null;
+}) {
+  const provider = normalizeLoginProvider(params.provider);
+  if (provider === "password" || provider === "unknown") {
+    return {
+      schemaReady: true as const,
+      lookupOk: true as const,
+      userId: null as string | null,
+      matchedBy: null as "auth_user_id" | "provider_user_id" | null,
+      conflict: false as const,
+    };
+  }
+
+  const identities: Array<{
+    column: "auth_user_id" | "provider_user_id";
+    value: string;
+  }> = [];
+
+  const authUserId = normalizeText(params.authUserId || null);
+  if (authUserId) {
+    identities.push({ column: "auth_user_id", value: authUserId });
+  }
+
+  const providerUserId = normalizeText(params.providerUserId || null);
+  if (providerUserId) {
+    identities.push({ column: "provider_user_id", value: providerUserId });
+  }
+
+  if (!identities.length) {
+    return {
+      schemaReady: true as const,
+      lookupOk: true as const,
+      userId: null as string | null,
+      matchedBy: null as "auth_user_id" | "provider_user_id" | null,
+      conflict: false as const,
+    };
+  }
+
+  try {
+    const matches: Array<{
+      userId: string;
+      matchedBy: "auth_user_id" | "provider_user_id";
+    }> = [];
+
+    for (const identity of identities) {
+      const res = await params.sb
+        .from("wz_auth_login_providers")
+        .select("user_id")
+        .eq("provider", provider)
+        .eq(identity.column, identity.value)
+        .limit(20);
+
+      if (res.error) {
+        if (
+          isLoginProvidersSchemaMissing(res.error) ||
+          isMissingColumnError(res.error, identity.column) ||
+          isMissingColumnError(res.error, "user_id")
+        ) {
+          return {
+            schemaReady: false as const,
+            lookupOk: false as const,
+            userId: null as string | null,
+            matchedBy: null as "auth_user_id" | "provider_user_id" | null,
+            conflict: false as const,
+          };
+        }
+        throw res.error;
+      }
+
+      const rows = (res.data || []) as Array<{ user_id?: string | null }>;
+      for (const row of rows) {
+        const userId = normalizeText(row.user_id);
+        if (!userId) continue;
+        matches.push({
+          userId,
+          matchedBy: identity.column,
+        });
+      }
+    }
+
+    if (!matches.length) {
+      return {
+        schemaReady: true as const,
+        lookupOk: true as const,
+        userId: null as string | null,
+        matchedBy: null as "auth_user_id" | "provider_user_id" | null,
+        conflict: false as const,
+      };
+    }
+
+    const uniqueUserIds = Array.from(new Set(matches.map((entry) => entry.userId)));
+    if (uniqueUserIds.length > 1) {
+      console.error("[login-providers] identity conflict for provider:", provider, matches);
+      return {
+        schemaReady: true as const,
+        lookupOk: true as const,
+        userId: null as string | null,
+        matchedBy: null as "auth_user_id" | "provider_user_id" | null,
+        conflict: true as const,
+      };
+    }
+
+    const userId = uniqueUserIds[0] || null;
+    const first = matches.find((entry) => entry.userId === userId) || null;
+
+    return {
+      schemaReady: true as const,
+      lookupOk: true as const,
+      userId,
+      matchedBy: first?.matchedBy || null,
+      conflict: false as const,
+    };
+  } catch (error) {
+    console.error("[login-providers] find identity error:", error);
+    return {
+      schemaReady: true as const,
+      lookupOk: false as const,
+      userId: null as string | null,
+      matchedBy: null as "auth_user_id" | "provider_user_id" | null,
+      conflict: false as const,
+    };
+  }
+}
+
 export async function listLoginProvidersForUser(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   userId: string;

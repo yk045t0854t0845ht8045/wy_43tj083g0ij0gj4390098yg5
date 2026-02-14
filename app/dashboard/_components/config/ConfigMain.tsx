@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import {
@@ -115,7 +115,7 @@ type PasskeyRequestOptionsPayload = {
   }>;
 };
 
-// LINKS DOS ICONES (PNG) DA SIDEBAR DE CONFIGURACOES
+// LINKS DOS ICONES (PNG) DA SIDEBAR DE CONFIGURAÇÕES
 // Edite apenas estes caminhos/URLs para trocar os icones.
 const CONFIG_SIDEBAR_ICON_LINKS = {
   "my-account": "/cdn/dashboard/sidebar-icons/conta.svg",
@@ -137,36 +137,36 @@ const AUTHORIZED_APPS_DISCORD_ICON_URL =
   "https://cdn.brandfetch.io/idM8Hlme1a/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1668075051777";
 
 const menuItems: MenuItem[] = [
-  { id: "my-account", label: "Minhá Conta", iconSrc: CONFIG_SIDEBAR_ICON_LINKS["my-account"], group: "user" },
+  { id: "my-account", label: "Minha Conta", iconSrc: CONFIG_SIDEBAR_ICON_LINKS["my-account"], group: "user" },
   { id: "privacy-data", label: "Dados e Privacidade", iconSrc: CONFIG_SIDEBAR_ICON_LINKS["privacy-data"], group: "user" },
   { id: "authorized-apps", label: "Aplicativos Autorizados", iconSrc: CONFIG_SIDEBAR_ICON_LINKS["authorized-apps"], group: "user" },
   { id: "devices", label: "Dispositivos", iconSrc: CONFIG_SIDEBAR_ICON_LINKS.devices, group: "user" },
   { id: "notifications", label: "Notificações", iconSrc: CONFIG_SIDEBAR_ICON_LINKS.notifications, group: "user" },
   { id: "subscriptions", label: "Assinaturas", iconSrc: CONFIG_SIDEBAR_ICON_LINKS.subscriptions, group: "billing" },
-  { id: "billing", label: "CobranÃ§a", iconSrc: CONFIG_SIDEBAR_ICON_LINKS.billing, group: "billing" },
+  { id: "billing", label: "Cobrança", iconSrc: CONFIG_SIDEBAR_ICON_LINKS.billing, group: "billing" },
   { id: "appearance", label: "Aparência", iconSrc: CONFIG_SIDEBAR_ICON_LINKS.appearance, group: "app" },
   { id: "accessibility", label: "Acessibilidade", iconSrc: CONFIG_SIDEBAR_ICON_LINKS.accessibility, group: "app" },
-  { id: "voice-video", label: "Voz e VÃ­deo", iconSrc: CONFIG_SIDEBAR_ICON_LINKS["voice-video"], group: "app" },
+  { id: "voice-video", label: "Voz e Vídeo", iconSrc: CONFIG_SIDEBAR_ICON_LINKS["voice-video"], group: "app" },
 ];
 
 const sectionTitles: Record<ConfigSectionId, string> = {
-  "my-account": "Minhá Conta",
-  "content-social": "Conteudo e Social",
+  "my-account": "Minha Conta",
+  "content-social": "Conteúdo e Social",
   "privacy-data": "Dados e Privacidade",
   "family-center": "Central da Familia",
   "authorized-apps": "Aplicativos Autorizados",
   devices: "Dispositivos",
-  connections: "ConexÃµes",
-  notifications: "NotificaÃ§Ãµes",
+  connections: "Conexões",
+  notifications: "Notificações",
   clips: "Clipes",
   nitro: "Nitro",
   "server-boost": "Impulso de servidor",
   subscriptions: "Assinaturas",
-  "gift-inventory": "InventÃ¡rio de presentes",
+  "gift-inventory": "Inventário de presentes",
   billing: "Cobrança",
   appearance: "Aparência",
   accessibility: "Acessibilidade",
-  "voice-video": "Voz e VÃ­deo",
+  "voice-video": "Voz e Vídeo",
 };
 
 const AVATAR_ACCEPT = "image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml";
@@ -285,7 +285,7 @@ function maskSecureEmail(value: string) {
 function maskSecurePhone(value?: string | null) {
   const normalized = normalizeE164Phone(value);
   const national = onlyDigits(normalized).replace(/^55/, "");
-  if (national.length !== 11) return "NÃ£o Alterado";
+  if (national.length !== 11) return "Não Alterado";
   return `${national.slice(0, 4)}${"*".repeat(7)}`;
 }
 
@@ -376,7 +376,7 @@ function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("NÃ£o foi possÃ­vel ler o arquivo."));
+    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
     reader.readAsDataURL(file);
   });
 }
@@ -405,7 +405,7 @@ async function cropToBlob(params: {
   const img = await new Promise<HTMLImageElement>((resolve, reject) => {
     const next = new Image();
     next.onload = () => resolve(next);
-    next.onerror = () => reject(new Error("NÃ£o foi possÃ­vel processar a imagem."));
+    next.onerror = () => reject(new Error("Não foi possível processar a imagem."));
     next.src = params.src;
   });
 
@@ -428,7 +428,7 @@ async function cropToBlob(params: {
 
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error("NÃ£o foi possÃ­vel exportar o avatar."))),
+      (blob) => (blob ? resolve(blob) : reject(new Error("Não foi possível exportar o avatar."))),
       "image/png",
       0.95
     );
@@ -891,7 +891,7 @@ function AccountContent({
       if (!file) return;
       const resolvedType = resolveFileType(file);
       if (!AVATAR_ALLOWED_TYPES.has(resolvedType)) {
-        setError("Formato invÃ¡lido. Use PNG, JPG, JPEG, WEBP, GIF ou SVG.");
+        setError("Formato inválido. Use PNG, JPG, JPEG, WEBP, GIF ou SVG.");
         return;
       }
       if (file.size > AVATAR_MAX_SIZE) {
@@ -907,7 +907,7 @@ function AccountContent({
       setEditorOpen(true);
     } catch (err) {
       console.error("[config-account] file pick failed:", err);
-      setError("NÃ£o foi possÃ­vel abrir a imagem.");
+      setError("Não foi possível abrir a imagem.");
     }
   };
 
@@ -981,11 +981,11 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok || !payload.photoLink) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel salvar a foto de perfil.");
+        throw new Error(payload.error || "Não foi possível salvar a foto de perfil.");
       }
 
       const next = normalizePhotoLink(payload.photoLink);
-      if (!next) throw new Error("Resposta invÃ¡lida do servidor.");
+      if (!next) throw new Error("Resposta inválida do servidor.");
       setLocalPhoto(next);
       onUserPhotoChange?.(next);
       closeEditor();
@@ -1011,7 +1011,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel remover a foto de perfil.");
+        throw new Error(payload.error || "Não foi possível remover a foto de perfil.");
       }
 
       setLocalPhoto(null);
@@ -1046,7 +1046,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel atualizar o acesso para suporte.");
+        throw new Error(payload.error || "Não foi possível atualizar o acesso para suporte.");
       }
 
       const normalizedActive = Boolean(payload.active);
@@ -1087,7 +1087,7 @@ function AccountContent({
   const accountActionTwoFactorInvalidError = useMemo(() => {
     const message = String(accountActionTwoFactorError || "").trim();
     if (!message) return null;
-    return /(invÃ¡lido|inv\u00e1lido)/i.test(message) ? message : null;
+    return /(inválido|inv\u00e1lido)/i.test(message) ? message : null;
   }, [accountActionTwoFactorError]);
 
   const setAccountActionTwoFactorFeedback = useCallback((message?: string | null) => {
@@ -1097,7 +1097,7 @@ function AccountContent({
       return;
     }
     setAccountActionTwoFactorError(nextMessage);
-    if (/(invÃ¡lido|inv\u00e1lido)/i.test(nextMessage)) {
+    if (/(inválido|inv\u00e1lido)/i.test(nextMessage)) {
       setAccountActionTwoFactorShakeTick((value) => value + 1);
     }
   }, []);
@@ -1126,7 +1126,7 @@ function AccountContent({
     if (context === "two-factor-disable") {
       setTwoFactorAppCode("");
       if (twoFactorStep === "disable-verify-app") {
-        setTwoFactorError("ConfirmaÃ§Ã£o final da desativaÃ§Ã£o cancelada.");
+        setTwoFactorError("Confirmação final da desativação cancelada.");
         return;
       }
       setTwoFactorStep("disable-intro");
@@ -1140,11 +1140,11 @@ function AccountContent({
       return;
     }
     if (context === "passkey") {
-      setPasskeyError("ValidaÃ§Ã£o em 2 etapas cancelada.");
+      setPasskeyError("Validação em 2 etapas cancelada.");
       return;
     }
     if (context === "passkey-disable") {
-      setPasskeyError("ConfirmaÃ§Ã£o da desativaÃ§Ã£o do Windows Hello cancelada.");
+      setPasskeyError("Confirmação da desativação do Windows Hello cancelada.");
     }
   }, [accountActionTwoFactorContext, resetAccountActionTwoFactorModal, twoFactorStep]);
 
@@ -1253,7 +1253,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok || !payload.ticket) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel enviar o cÃ³digo de verificaÃ§Ã£o.");
+        throw new Error(payload.error || "Não foi possível enviar o código de verificação.");
       }
 
       setEmailChangeTicket(payload.ticket);
@@ -1263,7 +1263,7 @@ function AccountContent({
     } catch (err) {
       console.error("[config-account] start current email confirmation failed:", err);
       setEmailChangeError(
-        err instanceof Error ? err.message : "Erro ao iniciar confirmaÃ§Ã£o do e-mail atual."
+        err instanceof Error ? err.message : "Erro ao iniciar confirmação do e-mail atual."
       );
     } finally {
       setSendingEmailCode(false);
@@ -1272,7 +1272,7 @@ function AccountContent({
 
   const sendNewEmailCode = async () => {
     if (!emailChangeTicket) {
-      setEmailChangeError("SessÃ£o de alteraÃ§Ã£o invÃ¡lida. Reabra o modal.");
+      setEmailChangeError("Sessão de alteração inválida. Reabra o modal.");
       return;
     }
     if (sendingEmailCode || resendingEmailCode || verifyingEmailCode) return;
@@ -1305,7 +1305,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok || !payload.ticket) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel enviar o cÃ³digo para o novo e-mail.");
+        throw new Error(payload.error || "Não foi possível enviar o código para o novo e-mail.");
       }
 
       setEmailChangeTicket(payload.ticket);
@@ -1317,7 +1317,7 @@ function AccountContent({
     } catch (err) {
       console.error("[config-account] send new email code failed:", err);
       setEmailChangeError(
-        err instanceof Error ? err.message : "Erro ao enviar cÃ³digo para o novo e-mail."
+        err instanceof Error ? err.message : "Erro ao enviar código para o novo e-mail."
       );
     } finally {
       setSendingEmailCode(false);
@@ -1345,7 +1345,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel reenviar o cÃ³digo.");
+        throw new Error(payload.error || "Não foi possível reenviar o código.");
       }
 
       if (payload.ticket) {
@@ -1354,7 +1354,7 @@ function AccountContent({
       setEmailResendCooldown(60);
     } catch (err) {
       console.error("[config-account] resend email change code failed:", err);
-      setEmailChangeError(err instanceof Error ? err.message : "Erro ao reenviar cÃ³digo.");
+      setEmailChangeError(err instanceof Error ? err.message : "Erro ao reenviar código.");
     } finally {
       setResendingEmailCode(false);
     }
@@ -1366,7 +1366,7 @@ function AccountContent({
     providedPasskeyProof?: string
   ) => {
     if (!emailChangeTicket) {
-      setEmailChangeError("SessÃ£o de alteraÃ§Ã£o invÃ¡lida. Reabra o modal.");
+      setEmailChangeError("Sessão de alteração inválida. Reabra o modal.");
       return;
     }
     if (sendingEmailCode || resendingEmailCode || verifyingEmailCode) return;
@@ -1406,7 +1406,7 @@ function AccountContent({
           setEmailCode(code);
           setEmailChangeError(null);
           const twoFactorMessage = String(
-            payload.error || "Digite o cÃ³digo de 6 dÃ­gitos do aplicativo autenticador.",
+            payload.error || "Digite o código de 6 dígitos do aplicativo autenticador.",
           );
           openAccountActionTwoFactorModal(
             "email",
@@ -1417,8 +1417,8 @@ function AccountContent({
         }
         const fallback =
           res.status === 429
-            ? "VocÃª atingiu o limite de 7 tentativas. Reenvie o cÃ³digo."
-            : "CÃ³digo invÃ¡lido. Tente novamente.";
+            ? "Você atingiu o limite de 7 tentativas. Reenvie o código."
+            : "Código inválido. Tente novamente.";
         setEmailChangeError(String(payload.error || fallback));
         setEmailCode("");
         if (res.status === 429) {
@@ -1436,7 +1436,7 @@ function AccountContent({
 
       if (payload.next === "set-new") {
         if (!payload.ticket) {
-          throw new Error("Resposta invÃ¡lida do servidor.");
+          throw new Error("Resposta inválida do servidor.");
         }
         setEmailChangeTicket(payload.ticket);
         setEmailCode("");
@@ -1448,7 +1448,7 @@ function AccountContent({
       }
 
       if (!payload.email) {
-        throw new Error("Resposta invÃ¡lida do servidor.");
+        throw new Error("Resposta inválida do servidor.");
       }
 
       const updatedEmail = String(payload.email || "").trim().toLowerCase();
@@ -1462,7 +1462,7 @@ function AccountContent({
     } catch (err) {
       console.error("[config-account] verify email change code failed:", err);
       const message =
-        err instanceof Error ? err.message : "Erro ao validar cÃ³digo de e-mail. Tente novamente.";
+        err instanceof Error ? err.message : "Erro ao validar código de e-mail. Tente novamente.";
       if (usedAccountActionAuth) {
         setAccountActionTwoFactorFeedback(message);
       } else {
@@ -1518,7 +1518,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok || !payload.ticket) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel enviar o cÃ³digo de verificaÃ§Ã£o por SMS.");
+        throw new Error(payload.error || "Não foi possível enviar o código de verificação por SMS.");
       }
 
       setPhoneChangeTicket(payload.ticket);
@@ -1528,7 +1528,7 @@ function AccountContent({
     } catch (err) {
       console.error("[config-account] start current phone confirmation failed:", err);
       setPhoneChangeError(
-        err instanceof Error ? err.message : "Erro ao iniciar confirmaÃ§Ã£o do celular atual."
+        err instanceof Error ? err.message : "Erro ao iniciar confirmação do celular atual."
       );
     } finally {
       setSendingPhoneCode(false);
@@ -1537,7 +1537,7 @@ function AccountContent({
 
   const sendNewPhoneCode = async () => {
     if (!phoneChangeTicket) {
-      setPhoneChangeError("SessÃ£o de alteraÃ§Ã£o invÃ¡lida. Reabra o modal.");
+      setPhoneChangeError("Sessão de alteração inválida. Reabra o modal.");
       return;
     }
     if (sendingPhoneCode || resendingPhoneCode || verifyingPhoneCode) return;
@@ -1569,7 +1569,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok || !payload.ticket) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel enviar o cÃ³digo para o novo celular.");
+        throw new Error(payload.error || "Não foi possível enviar o código para o novo celular.");
       }
 
       setPhoneChangeTicket(payload.ticket);
@@ -1581,7 +1581,7 @@ function AccountContent({
     } catch (err) {
       console.error("[config-account] send new phone code failed:", err);
       setPhoneChangeError(
-        err instanceof Error ? err.message : "Erro ao enviar cÃ³digo para o novo celular."
+        err instanceof Error ? err.message : "Erro ao enviar código para o novo celular."
       );
     } finally {
       setSendingPhoneCode(false);
@@ -1609,7 +1609,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel reenviar o cÃ³digo.");
+        throw new Error(payload.error || "Não foi possível reenviar o código.");
       }
 
       if (payload.ticket) {
@@ -1618,7 +1618,7 @@ function AccountContent({
       setPhoneResendCooldown(60);
     } catch (err) {
       console.error("[config-account] resend phone change code failed:", err);
-      setPhoneChangeError(err instanceof Error ? err.message : "Erro ao reenviar cÃ³digo.");
+      setPhoneChangeError(err instanceof Error ? err.message : "Erro ao reenviar código.");
     } finally {
       setResendingPhoneCode(false);
     }
@@ -1630,7 +1630,7 @@ function AccountContent({
     providedPasskeyProof?: string
   ) => {
     if (!phoneChangeTicket) {
-      setPhoneChangeError("SessÃ£o de alteraÃ§Ã£o invÃ¡lida. Reabra o modal.");
+      setPhoneChangeError("Sessão de alteração inválida. Reabra o modal.");
       return;
     }
     if (sendingPhoneCode || resendingPhoneCode || verifyingPhoneCode) return;
@@ -1670,7 +1670,7 @@ function AccountContent({
           setPhoneCode(code);
           setPhoneChangeError(null);
           const twoFactorMessage = String(
-            payload.error || "Digite o cÃ³digo de 6 dÃ­gitos do aplicativo autenticador.",
+            payload.error || "Digite o código de 6 dígitos do aplicativo autenticador.",
           );
           openAccountActionTwoFactorModal(
             "phone",
@@ -1681,8 +1681,8 @@ function AccountContent({
         }
         const fallback =
           res.status === 429
-            ? "VocÃª atingiu o limite de 7 tentativas. Reenvie o cÃ³digo."
-            : "CÃ³digo invÃ¡lido. Tente novamente.";
+            ? "Você atingiu o limite de 7 tentativas. Reenvie o código."
+            : "Código inválido. Tente novamente.";
         setPhoneChangeError(String(payload.error || fallback));
         setPhoneCode("");
         if (res.status === 429) {
@@ -1700,7 +1700,7 @@ function AccountContent({
 
       if (payload.next === "set-new") {
         if (!payload.ticket) {
-          throw new Error("Resposta invÃ¡lida do servidor.");
+          throw new Error("Resposta inválida do servidor.");
         }
         setPhoneChangeTicket(payload.ticket);
         setPhoneCode("");
@@ -1713,7 +1713,7 @@ function AccountContent({
 
       const updatedPhone = normalizeE164Phone(payload.phone);
       if (!updatedPhone) {
-        throw new Error("Resposta invÃ¡lida do servidor.");
+        throw new Error("Resposta inválida do servidor.");
       }
 
       const nextPhoneChangedAt =
@@ -1726,7 +1726,7 @@ function AccountContent({
     } catch (err) {
       console.error("[config-account] verify phone change code failed:", err);
       const message =
-        err instanceof Error ? err.message : "Erro ao validar cÃ³digo de celular. Tente novamente.";
+        err instanceof Error ? err.message : "Erro ao validar código de celular. Tente novamente.";
       if (usedAccountActionAuth) {
         setAccountActionTwoFactorFeedback(message);
       } else {
@@ -1772,19 +1772,19 @@ function AccountContent({
     const confirmNewPassword = String(confirmNewPasswordInput || "");
 
     if (requiresCurrentPassword && !currentPassword) {
-      setPasswordChangeError("Informe a senhá atual.");
+      setPasswordChangeError("Informe a senha atual.");
       return;
     }
     if (newPassword.length < 6) {
-      setPasswordChangeError("A nova senhá precisa ter pelo menos 6 caracteres.");
+      setPasswordChangeError("A nova senha precisa ter pelo menos 6 caracteres.");
       return;
     }
     if (newPassword !== confirmNewPassword) {
-      setPasswordChangeError("A confirmaÃ§Ã£o da nova senhá nÃ£o confere.");
+      setPasswordChangeError("A confirmação da nova senha não confere.");
       return;
     }
     if (requiresCurrentPassword && newPassword === currentPassword) {
-      setPasswordChangeError("A nova senhá precisa ser diferente da senhá atual.");
+      setPasswordChangeError("A nova senha precisa ser diferente da senha atual.");
       return;
     }
 
@@ -1811,7 +1811,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok || !payload.ticket) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel enviar o cÃ³digo para alterar a senha.");
+        throw new Error(payload.error || "Não foi possível enviar o código para alterar a senha.");
       }
 
       setPasswordChangeTicket(payload.ticket);
@@ -1827,7 +1827,7 @@ function AccountContent({
     } catch (err) {
       console.error("[config-account] start password change failed:", err);
       setPasswordChangeError(
-        err instanceof Error ? err.message : "Erro ao iniciar alteraÃ§Ã£o de senha."
+        err instanceof Error ? err.message : "Erro ao iniciar alteração de senha."
       );
     } finally {
       setSendingPasswordCode(false);
@@ -1856,7 +1856,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel reenviar o cÃ³digo.");
+        throw new Error(payload.error || "Não foi possível reenviar o código.");
       }
 
       if (payload.ticket) {
@@ -1868,7 +1868,7 @@ function AccountContent({
       setPasswordResendCooldown(60);
     } catch (err) {
       console.error("[config-account] resend password change code failed:", err);
-      setPasswordChangeError(err instanceof Error ? err.message : "Erro ao reenviar cÃ³digo.");
+      setPasswordChangeError(err instanceof Error ? err.message : "Erro ao reenviar código.");
     } finally {
       setResendingPasswordCode(false);
     }
@@ -1880,7 +1880,7 @@ function AccountContent({
     providedPasskeyProof?: string
   ) => {
     if (!passwordChangeTicket) {
-      setPasswordChangeError("SessÃ£o de alteraÃ§Ã£o invÃ¡lida. Reabra o modal.");
+      setPasswordChangeError("Sessão de alteração inválida. Reabra o modal.");
       return;
     }
     if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
@@ -1921,7 +1921,7 @@ function AccountContent({
           setPasswordCode(code);
           setPasswordChangeError(null);
           const twoFactorMessage = String(
-            payload.error || "Digite o cÃ³digo de 6 dÃ­gitos do aplicativo autenticador.",
+            payload.error || "Digite o código de 6 dígitos do aplicativo autenticador.",
           );
           openAccountActionTwoFactorModal(
             "password",
@@ -1932,8 +1932,8 @@ function AccountContent({
         }
         const fallback =
           res.status === 429
-            ? "VocÃª atingiu o limite de 7 tentativas. Reenvie o cÃ³digo."
-            : "CÃ³digo invÃ¡lido. Tente novamente.";
+            ? "Você atingiu o limite de 7 tentativas. Reenvie o código."
+            : "Código inválido. Tente novamente.";
         setPasswordChangeError(String(payload.error || fallback));
         setPasswordCode("");
         if (res.status === 429) {
@@ -1958,7 +1958,7 @@ function AccountContent({
       resetPasswordChangeFlow();
     } catch (err) {
       console.error("[config-account] verify password change code failed:", err);
-      const message = err instanceof Error ? err.message : "Erro ao validar cÃ³digo de senha.";
+      const message = err instanceof Error ? err.message : "Erro ao validar código de senha.";
       if (usedAccountActionAuth) {
         setAccountActionTwoFactorFeedback(message);
       } else {
@@ -2039,12 +2039,12 @@ function AccountContent({
 
     const createdAt = new Date().toISOString().replace("T", " ").slice(0, 16);
     const text = [
-      "WYZER - CÃ“DIGOS DE RECUPERAÃ‡ÃƒO (2 ETAPAS)",
+      "WYZER - CÓDIGOS DE RECUPERAÇÃO (2 ETAPAS)",
       `Gerado em: ${createdAt} UTC`,
       "",
       "Guarde este arquivo em local seguro.",
-      "Se vocÃª perder acesso ao e-mail e ao dispositivo autenticador, pode ficar sem acesso a conta.",
-      "Estes cÃ³digos nÃ£o expiram, mas cada cÃ³digo pode ser usado apenas uma vez.",
+      "Se você perder acesso ao e-mail e ao dispositivo autenticador, pode ficar sem acesso a conta.",
+      "Estes códigos não expiram, mas cada código pode ser usado apenas uma vez.",
       "",
       ...twoFactorRecoveryCodes.map((code, index) => `${index + 1}. ${code}`),
       "",
@@ -2055,7 +2055,7 @@ function AccountContent({
     const link = document.createElement("a");
     const datePart = new Date().toISOString().slice(0, 10);
     link.href = href;
-    link.download = `wyzer-cÃ³digos-recuperaÃ§Ã£o-2fa-${datePart}.txt`;
+    link.download = `wyzer-códigos-recuperação-2fa-${datePart}.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -2078,7 +2078,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok) {
-        // Mantem o estado local quando a consulta falhá para evitar "desativar visualmente" sem confirmaÃ§Ã£o.
+        // Mantém o estado local quando a consulta falha para evitar "desativar visualmente" sem confirmação.
         return null as {
           enabled: boolean;
           twoFactorEnabledAt: string | null;
@@ -2149,7 +2149,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok || !payload.ticket || !payload.manualCode || !payload.qrCodeDataUrl) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel iniciar a configuraÃ§Ã£o de 2 etapas.");
+        throw new Error(payload.error || "Não foi possível iniciar a configuração de 2 etapas.");
       }
 
       setTwoFactorStep("enable-verify-app");
@@ -2162,7 +2162,7 @@ function AccountContent({
       setTwoFactorResendCooldown(0);
     } catch (err) {
       console.error("[config-account] start two-factor enable failed:", err);
-      setTwoFactorError(err instanceof Error ? err.message : "Erro ao iniciar configuraÃ§Ã£o de 2 etapas.");
+      setTwoFactorError(err instanceof Error ? err.message : "Erro ao iniciar configuração de 2 etapas.");
     } finally {
       setStartingTwoFactorFlow(false);
     }
@@ -2189,7 +2189,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok || !payload.ticket) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel iniciar a desativaÃ§Ã£o de 2 etapas.");
+        throw new Error(payload.error || "Não foi possível iniciar a desativação de 2 etapas.");
       }
 
       setTwoFactorStep("disable-verify-email");
@@ -2200,7 +2200,7 @@ function AccountContent({
       setTwoFactorResendCooldown(60);
     } catch (err) {
       console.error("[config-account] start two-factor disable failed:", err);
-      setTwoFactorError(err instanceof Error ? err.message : "Erro ao iniciar desativaÃ§Ã£o de 2 etapas.");
+      setTwoFactorError(err instanceof Error ? err.message : "Erro ao iniciar desativação de 2 etapas.");
     } finally {
       setStartingTwoFactorFlow(false);
     }
@@ -2274,7 +2274,7 @@ function AccountContent({
   const continueTwoFactorEnableFlow = () => {
     if (isTwoFactorBusy) return;
     if (!twoFactorTicket || !twoFactorManualCode || !twoFactorQrCodeDataUrl) {
-      setTwoFactorError("NÃ£o foi possÃ­vel carregar a configuraÃ§Ã£o. Gere um novo QR code.");
+      setTwoFactorError("Não foi possível carregar a configuração. Gere um novo QR code.");
       return;
     }
     setTwoFactorError(null);
@@ -2319,7 +2319,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok || !payload.enabled) {
-        throw new Error(payload.error || "CÃ³digo do aplicativo invÃ¡lido.");
+        throw new Error(payload.error || "Código do aplicativo inválido.");
       }
 
       const recoveryCodes = Array.isArray(payload.recoveryCodes)
@@ -2329,7 +2329,7 @@ function AccountContent({
             .slice(0, 20)
         : [];
       if (!recoveryCodes.length) {
-        throw new Error("NÃ£o foi possÃ­vel gerar os cÃ³digos de recuperaÃ§Ã£o. Tente novamente.");
+        throw new Error("Não foi possível gerar os códigos de recuperação. Tente novamente.");
       }
 
       const nextEnabledAt =
@@ -2349,7 +2349,7 @@ function AccountContent({
     } catch (err) {
       console.error("[config-account] verify two-factor enable failed:", err);
       const message =
-        err instanceof Error ? err.message : "Erro ao validar cÃ³digo da autenticaÃ§Ã£o em 2 etapas.";
+        err instanceof Error ? err.message : "Erro ao validar código da autenticação em 2 etapas.";
       if (usingDynamicIslandForEnable) {
         setAccountActionTwoFactorFeedback(message);
         setAccountActionTwoFactorCode("");
@@ -2383,7 +2383,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel reenviar o cÃ³digo.");
+        throw new Error(payload.error || "Não foi possível reenviar o código.");
       }
 
       if (payload.ticket) {
@@ -2392,7 +2392,7 @@ function AccountContent({
       setTwoFactorResendCooldown(60);
     } catch (err) {
       console.error("[config-account] resend two-factor disable email code failed:", err);
-      setTwoFactorError(err instanceof Error ? err.message : "Erro ao reenviar cÃ³digo.");
+      setTwoFactorError(err instanceof Error ? err.message : "Erro ao reenviar código.");
     } finally {
       setResendingTwoFactorCode(false);
     }
@@ -2432,8 +2432,8 @@ function AccountContent({
       ) {
         const fallback =
           res.status === 429
-            ? "VocÃª atingiu o limite de tentativas. Reenvie o cÃ³digo."
-            : "CÃ³digo de e-mail invÃ¡lido.";
+            ? "Você atingiu o limite de tentativas. Reenvie o código."
+            : "Código de e-mail inválido.";
         setTwoFactorError(String(payload.error || fallback));
         setTwoFactorEmailCode("");
         if (res.status === 429) {
@@ -2455,7 +2455,7 @@ function AccountContent({
     } catch (err) {
       console.error("[config-account] verify two-factor disable email code failed:", err);
       setTwoFactorError(
-        err instanceof Error ? err.message : "Erro ao validar cÃ³digo de e-mail."
+        err instanceof Error ? err.message : "Erro ao validar código de e-mail."
       );
       setTwoFactorEmailCode("");
     } finally {
@@ -2501,14 +2501,14 @@ function AccountContent({
       if ((!res.ok || !payload.ok) && payload.requiresTwoFactor && usingDynamicIslandForDisable) {
         openAccountActionTwoFactorModal(
           "two-factor-disable",
-          String(payload.error || "CÃ³digo do aplicativo invÃ¡lido."),
+          String(payload.error || "Código do aplicativo inválido."),
           payload.authMethods,
         );
         return;
       }
 
       if (!res.ok || !payload.ok || payload.enabled !== false) {
-        throw new Error(payload.error || "CÃ³digo do aplicativo invÃ¡lido.");
+        throw new Error(payload.error || "Código do aplicativo inválido.");
       }
 
       const nextDisabledAt =
@@ -2525,7 +2525,7 @@ function AccountContent({
     } catch (err) {
       console.error("[config-account] verify two-factor disable app code failed:", err);
       const message =
-        err instanceof Error ? err.message : "Erro ao validar cÃ³digo do aplicativo para desativar.";
+        err instanceof Error ? err.message : "Erro ao validar código do aplicativo para desativar.";
       if (usingDynamicIslandForDisable) {
         setAccountActionTwoFactorFeedback(message);
         setAccountActionTwoFactorCode("");
@@ -2594,7 +2594,7 @@ function AccountContent({
   ) => {
     if (!isPasskeySupportedInBrowser()) {
       throw new Error(
-        "Seu navegador/dispositivo nÃ£o suporta Windows Hello com passkey neste ambiente."
+        "Seu navegador/dispositivo não suporta Windows Hello com passkey neste ambiente."
       );
     }
 
@@ -2643,7 +2643,7 @@ function AccountContent({
       })) as PublicKeyCredential | null;
 
       if (!created) {
-        throw new Error("NÃ£o foi possÃ­vel criar a credencial do Windows Hello.");
+        throw new Error("Não foi possível criar a credencial do Windows Hello.");
       }
 
       const response =
@@ -2652,7 +2652,7 @@ function AccountContent({
           getAuthenticatorData?: () => ArrayBuffer;
         };
       if (!response?.clientDataJSON || !response?.attestationObject) {
-        throw new Error("Resposta invÃ¡lida do dispositivo ao criar a passkey.");
+        throw new Error("Resposta inválida do dispositivo ao criar a passkey.");
       }
 
       const transports =
@@ -2690,7 +2690,7 @@ function AccountContent({
 
       if (!finishRes.ok || !finishPayload.ok) {
         throw new Error(
-          finishPayload.error || "NÃ£o foi possÃ­vel concluir a ativaÃ§Ã£o do Windows Hello."
+          finishPayload.error || "Não foi possível concluir a ativação do Windows Hello."
         );
       }
 
@@ -2704,7 +2704,7 @@ function AccountContent({
     } catch (err) {
       const domErr = err as DOMException;
       if (domErr?.name === "NotAllowedError") {
-        throw new Error("SolicitaÃ§Ã£o do Windows Hello cancelada.");
+        throw new Error("Solicitação do Windows Hello cancelada.");
       }
       throw err;
     } finally {
@@ -2765,7 +2765,7 @@ function AccountContent({
       ) {
         openAccountActionTwoFactorModal(
           "passkey",
-          String(payload.error || "Digite o cÃ³digo de 6 dÃ­gitos do aplicativo autenticador."),
+          String(payload.error || "Digite o código de 6 dígitos do aplicativo autenticador."),
           payload.authMethods,
         );
         return;
@@ -2774,8 +2774,8 @@ function AccountContent({
       if (!res.ok || !payload.ok || !payload.ticket || !payload.options) {
         const fallback =
           passkeyVerificationMethod === "email"
-            ? "CÃ³digo invÃ¡lido. Tente novamente."
-            : "CÃ³digo de 2 etapas invÃ¡lido. Tente novamente.";
+            ? "Código inválido. Tente novamente."
+            : "Código de 2 etapas inválido. Tente novamente.";
         const message = String(payload.error || fallback);
 
         if (passkeyVerificationMethod === "two-factor") {
@@ -2799,7 +2799,7 @@ function AccountContent({
     } catch (err) {
       console.error("[config-account] verify passkey activation failed:", err);
       const message =
-        err instanceof Error ? err.message : "Erro ao validar ativaÃ§Ã£o do Windows Hello.";
+        err instanceof Error ? err.message : "Erro ao validar ativação do Windows Hello.";
       if (passkeyVerificationMethod === "two-factor") {
         setAccountActionTwoFactorFeedback(message);
       } else {
@@ -2860,8 +2860,8 @@ function AccountContent({
 
       if (!res.ok || !payload.ok) {
         const fallback = passkeyAwaitingDisableAuth
-          ? "NÃ£o foi possÃ­vel confirmar a desativaÃ§Ã£o do Windows Hello."
-          : "CÃ³digo invÃ¡lido. Tente novamente.";
+          ? "Não foi possível confirmar a desativação do Windows Hello."
+          : "Código inválido. Tente novamente.";
         const message = String(payload.error || fallback);
 
         if (payload.requiresTwoFactor && passkeyAwaitingDisableAuth) {
@@ -2886,7 +2886,7 @@ function AccountContent({
 
       if (!passkeyAwaitingDisableAuth) {
         if (!payload.ticket) {
-          throw new Error("Resposta invÃ¡lida do servidor.");
+          throw new Error("Resposta inválida do servidor.");
         }
         setPasskeyTicket(String(payload.ticket));
         setPasskeyAwaitingDisableAuth(true);
@@ -2928,7 +2928,7 @@ function AccountContent({
 
     if (!isPasskeyAssertionSupportedInBrowser()) {
       setAccountActionTwoFactorFeedback(
-        "Seu navegador/dispositivo nÃ£o suporta Windows Hello neste ambiente.",
+        "Seu navegador/dispositivo não suporta Windows Hello neste ambiente.",
       );
       return;
     }
@@ -2952,14 +2952,14 @@ function AccountContent({
 
       if (!startRes.ok || !startPayload.ok) {
         throw new Error(
-          String(startPayload.error || "NÃ£o foi possÃ­vel iniciar a validaÃ§Ã£o do Windows Hello."),
+          String(startPayload.error || "Não foi possível iniciar a validação do Windows Hello."),
         );
       }
 
       const startOptions = (startPayload.options || null) as PasskeyRequestOptionsPayload | null;
       const passkeyAuthTicket = String(startPayload.ticket || "").trim();
       if (!passkeyAuthTicket || !startOptions?.challenge) {
-        throw new Error("Resposta invÃ¡lida do servidor para iniciar o Windows Hello.");
+        throw new Error("Resposta inválida do servidor para iniciar o Windows Hello.");
       }
 
       const transportsAllowed = new Set([
@@ -3015,12 +3015,12 @@ function AccountContent({
       })) as PublicKeyCredential | null;
 
       if (!assertion) {
-        throw new Error("NÃ£o foi possÃ­vel validar com o Windows Hello.");
+        throw new Error("Não foi possível validar com o Windows Hello.");
       }
 
       const response = assertion.response as AuthenticatorAssertionResponse | null;
       if (!response?.clientDataJSON || !response?.authenticatorData || !response?.signature) {
-        throw new Error("Resposta invÃ¡lida do dispositivo ao validar o Windows Hello.");
+        throw new Error("Resposta inválida do dispositivo ao validar o Windows Hello.");
       }
 
       const finishRes = await fetch("/api/wz_users/passkeys-auth", {
@@ -3053,13 +3053,13 @@ function AccountContent({
 
       if (!finishRes.ok || !finishPayload.ok || !finishPayload.passkeyProof) {
         throw new Error(
-          String(finishPayload.error || "NÃ£o foi possÃ­vel concluir a validaÃ§Ã£o com Windows Hello."),
+          String(finishPayload.error || "Não foi possível concluir a validação com Windows Hello."),
         );
       }
 
       const passkeyProof = String(finishPayload.passkeyProof || "").trim();
       if (!passkeyProof) {
-        throw new Error("Resposta invÃ¡lida ao validar Windows Hello.");
+        throw new Error("Resposta inválida ao validar Windows Hello.");
       }
 
       if (accountActionTwoFactorContext === "email") {
@@ -3092,7 +3092,7 @@ function AccountContent({
           clearAccountActionTwoFactorFeedback();
           return;
         }
-        setAccountActionTwoFactorFeedback("SolicitaÃ§Ã£o do Windows Hello cancelada.");
+        setAccountActionTwoFactorFeedback("Solicitação do Windows Hello cancelada.");
         return;
       }
       setAccountActionTwoFactorFeedback(
@@ -3203,7 +3203,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok || !payload.ticket) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel iniciar a ativaÃ§Ã£o do Windows Hello.");
+        throw new Error(payload.error || "Não foi possível iniciar a ativação do Windows Hello.");
       }
 
       const verification = payload.verification === "two-factor" ? "two-factor" : "email";
@@ -3227,7 +3227,7 @@ function AccountContent({
     } catch (err) {
       console.error("[config-account] start passkey activation failed:", err);
       setPasskeyError(
-        err instanceof Error ? err.message : "Erro ao iniciar ativaÃ§Ã£o do Windows Hello."
+        err instanceof Error ? err.message : "Erro ao iniciar ativação do Windows Hello."
       );
     } finally {
       setStartingPasskeyFlow(false);
@@ -3258,7 +3258,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok || !payload.ticket) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel iniciar a desativaÃ§Ã£o do Windows Hello.");
+        throw new Error(payload.error || "Não foi possível iniciar a desativação do Windows Hello.");
       }
 
       setPasskeyTicket(String(payload.ticket));
@@ -3268,7 +3268,7 @@ function AccountContent({
     } catch (err) {
       console.error("[config-account] start passkey disable failed:", err);
       setPasskeyError(
-        err instanceof Error ? err.message : "Erro ao iniciar desativaÃ§Ã£o do Windows Hello."
+        err instanceof Error ? err.message : "Erro ao iniciar desativação do Windows Hello."
       );
     } finally {
       setStartingPasskeyFlow(false);
@@ -3323,7 +3323,7 @@ function AccountContent({
       };
 
       if (!res.ok || !payload.ok) {
-        throw new Error(payload.error || "NÃ£o foi possÃ­vel reenviar o cÃ³digo.");
+        throw new Error(payload.error || "Não foi possível reenviar o código.");
       }
 
       if (payload.ticket) {
@@ -3335,7 +3335,7 @@ function AccountContent({
       setPasskeyResendCooldown(60);
     } catch (err) {
       console.error("[config-account] resend passkey email code failed:", err);
-      setPasskeyError(err instanceof Error ? err.message : "Erro ao reenviar cÃ³digo.");
+      setPasskeyError(err instanceof Error ? err.message : "Erro ao reenviar código.");
     } finally {
       setResendingPasskeyCode(false);
     }
@@ -3364,18 +3364,18 @@ function AccountContent({
   const maskedEmailValue = maskSecureEmail(localEmail);
   const maskedPhoneValue = maskSecurePhone(localPhoneE164);
   const relativeBaseTimestamp = normalizedAccountCreatedAt || relativeFallbackBaseAt;
-  const emailChangedLabel = `Alterado hÃ¡: ${formatElapsedTimeLabel(localEmailChangedAt || relativeBaseTimestamp, relativeNowMs)}`;
-  const phoneChangedLabel = `Alterado hÃ¡: ${formatElapsedTimeLabel(localPhoneChangedAt || relativeBaseTimestamp, relativeNowMs)}`;
-  const passwordChangedLabel = `Alterado hÃ¡: ${formatElapsedTimeLabel(localPasswordChangedAt || relativeBaseTimestamp, relativeNowMs)}`;
+  const emailChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localEmailChangedAt || relativeBaseTimestamp, relativeNowMs)}`;
+  const phoneChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localPhoneChangedAt || relativeBaseTimestamp, relativeNowMs)}`;
+  const passwordChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localPasswordChangedAt || relativeBaseTimestamp, relativeNowMs)}`;
   const passwordStatusBadgeLabel = localMustCreatePassword ? "Pendente" : passwordChangedLabel;
   const passwordActionLabel = localMustCreatePassword ? "Criar Senha" : "Alterar Senha";
   const showPhoneSecuritySection = false;
   const externalPrimaryAuthProviderName = resolveExternalAuthProviderName(localPrimaryAuthProvider);
   const passwordDescriptionText = localMustCreatePassword
     ? externalPrimaryAuthProviderName
-      ? `Sua conta foi criada com ${externalPrimaryAuthProviderName}. Crie uma senhá agora para liberar tambem o login por senha.`
-      : "Crie sua primeira senhá para ativar o login por senhá nesta conta."
-    : "Atualize sua senhá com confirmação por código enviado no e-mail.";
+      ? `Sua conta foi criada com ${externalPrimaryAuthProviderName}. Crie uma senha agora para liberar também o login por senha.`
+      : "Crie sua primeira senha para ativar o login por senha nesta conta."
+    : "Atualize sua senha com confirmação por código enviado no e-mail.";
   const buttonShellClass =
     "rounded-xl border px-4 py-2 text-[13px] font-semibold transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)] active:translate-y-[0.6px] active:scale-[0.992]";
   const buttonNeutralClass =
@@ -3387,15 +3387,15 @@ function AccountContent({
       ? "Inativa"
       : "Carregando...";
   const twoFactorActionLabel = twoFactorEnabled
-    ? "AutenticaÃ§Ã£o de 2 etapas ativa"
-    : "Adicionar um mÃ©todo de verificaÃ§Ã£o";
+    ? "Autenticação de 2 etapas ativa"
+    : "Adicionar um método de verificação";
   const passkeyStatusBadge = passkeyEnabled
     ? "Ativa"
     : passkeyStatusLoaded
       ? "Inativa"
       : "Carregando...";
   const passkeyActionLabel = passkeyEnabled
-    ? "Windows Hello estÃ¡ ativo"
+    ? "Windows Hello está ativo"
     : "Ativar Windows Hello";
   const usingTwoFactorEnableIsland =
     twoFactorStep === "enable-verify-app" &&
@@ -3409,30 +3409,30 @@ function AccountContent({
     accountActionAuthMethod === "passkey" || (!accountActionAllowTotp && accountActionAllowPasskey);
   const accountActionTwoFactorTitle =
     accountActionCanChooseMethod && accountActionAuthMethod === "choose"
-      ? "Escolhá a forma de validaÃ§Ã£o"
+      ? "Escolha a forma de validação"
       : accountActionTwoFactorContext === "two-factor-disable"
-      ? "Desativar autenticaÃ§Ã£o de 2 etapas"
+      ? "Desativar autenticação de 2 etapas"
       : accountActionTwoFactorContext === "two-factor-enable"
-        ? "Ativar autenticaÃ§Ã£o de 2 etapas"
+        ? "Ativar autenticação de 2 etapas"
       : accountActionTwoFactorContext === "passkey-disable"
         ? "Desativar Windows Hello"
       : accountActionTwoFactorContext === "passkey"
         ? "Ativar Windows Hello"
-      : "AutenticaÃ§Ã£o de 2 etapas";
+      : "Autenticação de 2 etapas";
   const accountActionTwoFactorDescription =
     accountActionCanChooseMethod && accountActionAuthMethod === "choose"
-      ? "Escolhá entre cÃ³digo autenticador e Windows Hello."
+      ? "Escolha entre código autenticador e Windows Hello."
       : accountActionShowPasskeyFlow
-        ? "Confirme a validaÃ§Ã£o no prompt do Windows Hello."
+        ? "Confirme a validação no prompt do Windows Hello."
       : accountActionTwoFactorContext === "two-factor-disable"
-      ? "Digite o cÃ³digo de 6 dÃ­gitos do aplicativo autenticador para concluir a desativaÃ§Ã£o."
+      ? "Digite o código de 6 dígitos do aplicativo autenticador para concluir a desativação."
       : accountActionTwoFactorContext === "two-factor-enable"
-        ? "Digite o cÃ³digo de 6 dÃ­gitos gerado no aplicativo para ativar."
+        ? "Digite o código de 6 dígitos gerado no aplicativo para ativar."
       : accountActionTwoFactorContext === "passkey-disable"
-        ? "Confirme com cÃ³digo de 2 etapas ou Windows Hello para desativar."
+        ? "Confirme com código de 2 etapas ou Windows Hello para desativar."
       : accountActionTwoFactorContext === "passkey"
-        ? "Confirme com o cÃ³digo de 6 dÃ­gitos de seu autenticador para ativaÃ§Ã£o do Windows Hello."
-      : "Abra seu aplicativo autenticador para contínuar.";
+        ? "Confirme com o código de 6 dígitos de seu autenticador para ativação do Windows Hello."
+      : "Abra seu aplicativo autenticador para continuar.";
   const twoFactorButtonClass = cx(
     buttonShellClass,
     twoFactorEnabled
@@ -3504,18 +3504,18 @@ function AccountContent({
           <div className="mt-4 border-t border-black/10" />
           <div className="space-y-6 pt-5">
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">E-mail</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{emailChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedEmailValue}</p></div><button type="button" onClick={() => void openEmailModal()} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar E-mail</button></div>
-            {showPhoneSecuritySection && <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">NÃºmero de celular</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{phoneChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedPhoneValue}</p></div><button type="button" onClick={() => void openPhoneModal()} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar celular</button></div>}
+            {showPhoneSecuritySection && <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Número de celular</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{phoneChangedLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{maskedPhoneValue}</p></div><button type="button" onClick={() => void openPhoneModal()} className={cx(buttonClass, "self-start sm:self-auto")}>Alterar celular</button></div>}
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[18px] font-semibold text-black/85">Senha</p><span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">{passwordStatusBadgeLabel}</span></div><p className="mt-1 text-[15px] text-black/58">{passwordDescriptionText}</p></div><button type="button" onClick={() => void openPasswordModal()} className={cx(buttonClass, "self-start sm:self-auto")}>{passwordActionLabel}</button></div>
             <div className="flex flex-col items-start justify-between gap-3 -mx-2 rounded-xl px-2 sm:flex-row sm:gap-4">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-[18px] font-semibold text-black/85">VerificaÃ§Ã£o em duas etapas</p>
+                  <p className="text-[18px] font-semibold text-black/85">Verificação em duas etapas</p>
                   <span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">
                     {twoFactorStatusBadge}
                   </span>
                 </div>
                 <p className="mt-1 text-[15px] text-black/58">
-                  Adicione mais uma camada de seguranÃ§a a sua conta durante o login.
+                  Adicione mais uma camada de segurança à sua conta durante o login.
                 </p>
               </div>
               <button
@@ -3536,7 +3536,7 @@ function AccountContent({
                   </span>
                 </div>
                 <p className="mt-1 text-[15px] text-black/58">
-                  Entre com seguranÃ§a usando biometria ou PIN do dispositivo via Windows Hello.
+                  Entre com segurança usando biometria ou PIN do dispositivo via Windows Hello.
                 </p>
               </div>
               <button
@@ -3555,7 +3555,7 @@ function AccountContent({
           <h4 className="text-[20px] font-semibold text-black/82">Suporte</h4>
           <div className="mt-4 border-t border-black/10" />
           <div className="flex items-center justify-between gap-4 -mx-2 rounded-xl px-2 py-5">
-            <div className="min-w-0"><p className="text-[18px] font-semibold text-black/85">Acesso para suporte</p><p className="mt-1 text-[15px] leading-[1.45] text-black/58">Conceda ao suporte acesso temporÃ¡rio para ajudar a resolver problemas ou recuperar conteÃºdo. VocÃª pode revogar a qualquer momento.</p><p className="mt-1 text-[12px] text-black/45">Nossa equipe nunca pedirÃ¡ senhas ou acessos em nenhum canal de comunicaÃ§Ã£o. Caso aconteÃ§a, reporte imediatamente em nossos canais seguros de comunicaÃ§Ã£o.</p></div>
+            <div className="min-w-0"><p className="text-[18px] font-semibold text-black/85">Acesso para suporte</p><p className="mt-1 text-[15px] leading-[1.45] text-black/58">Conceda ao suporte acesso temporário para ajudar a resolver problemas ou recuperar conteúdo. Você pode revogar a qualquer momento.</p><p className="mt-1 text-[12px] text-black/45">Nossa equipe nunca pedirá senhas ou acessos em nenhum canal de comunicação. Caso aconteça, reporte imediatamente em nossos canais seguros de comunicação.</p></div>
             <button type="button" role="switch" aria-checked={supportAccess} onClick={() => void toggleSupportAccess()} disabled={savingSupportAccess} className={cx("relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-all duration-220 disabled:cursor-not-allowed disabled:opacity-70", supportAccess ? "bg-lime-400/85" : "bg-black/20")}>
               <span className={cx("inline-block h-5 w-5 rounded-full bg-white transition-transform duration-220", supportAccess ? "translate-x-6" : "translate-x-1")} />
             </button>
@@ -3636,7 +3636,7 @@ function AccountContent({
                 {emailStep === "confirm-current-intro" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      Por seguranÃ§a, confirme primeiro o e-mail atual antes de informar o novo.
+                      Por segurança, confirme primeiro o e-mail atual antes de informar o novo.
                     </p>
                     <p className="mt-4 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/72">
                       E-mail atual: <span className="font-semibold text-black/86">{maskSecureEmail(localEmail)}</span>
@@ -3647,7 +3647,7 @@ function AccountContent({
                 {emailStep === "confirm-current-code" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      Digite o cÃ³digo de 7 dÃ­gitos enviado para o seu e-mail atual{" "}
+                      Digite o código de 7 dígitos enviado para o seu e-mail atual{" "}
                       <span className="break-all font-semibold text-black/78">{maskSecureEmail(localEmail)}</span>.
                     </p>
                     <CodeBoxes
@@ -3670,10 +3670,10 @@ function AccountContent({
                         className="text-[13px] font-semibold text-black/72 transition-colors hover:text-black/88 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {emailResendCooldown > 0
-                          ? `Reenviar cÃ³digo (${emailResendCooldown}s)`
+                          ? `Reenviar código (${emailResendCooldown}s)`
                           : resendingEmailCode
                           ? "Reenviando..."
-                          : "Reenviar cÃ³digo"}
+                          : "Reenviar código"}
                       </button>
                     </div>
                   </>
@@ -3682,7 +3682,7 @@ function AccountContent({
                 {emailStep === "new-email-input" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      E-mail atual confirmado. Agora informe o novo e-mail para enviar o cÃ³digo final.
+                      E-mail atual confirmado. Agora informe o novo e-mail para enviar o código final.
                     </p>
                     <label className="mt-5 block text-[13px] font-medium text-black/60">
                       Novo e-mail
@@ -3702,7 +3702,7 @@ function AccountContent({
                 {emailStep === "confirm-new-code" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      Enviamos um cÃ³digo de 7 dÃ­gitos para o novo e-mail{" "}
+                      Enviamos um código de 7 dígitos para o novo e-mail{" "}
                       <span className="break-all font-semibold text-black/78">{maskSecureEmail(pendingEmail)}</span>.
                     </p>
                     <CodeBoxes
@@ -3725,10 +3725,10 @@ function AccountContent({
                         className="text-[13px] font-semibold text-black/72 transition-colors hover:text-black/88 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {emailResendCooldown > 0
-                          ? `Reenviar cÃ³digo (${emailResendCooldown}s)`
+                          ? `Reenviar código (${emailResendCooldown}s)`
                           : resendingEmailCode
                           ? "Reenviando..."
-                          : "Reenviar cÃ³digo"}
+                          : "Reenviar código"}
                       </button>
                     </div>
                   </>
@@ -3780,7 +3780,7 @@ function AccountContent({
                       disabled={sendingEmailCode}
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      {sendingEmailCode ? "Enviando..." : "Enviar cÃ³digo"}
+                      {sendingEmailCode ? "Enviando..." : "Enviar código"}
                     </button>
                   )}
 
@@ -3791,7 +3791,7 @@ function AccountContent({
                       disabled={sendingEmailCode}
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      {sendingEmailCode ? "Enviando..." : "Enviar cÃ³digo"}
+                      {sendingEmailCode ? "Enviando..." : "Enviar código"}
                     </button>
                   )}
 
@@ -3849,7 +3849,7 @@ function AccountContent({
                 {phoneStep === "confirm-current-intro" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      Por seguranÃ§a, confirme primeiro o celular atual antes de informar o novo.
+                      Por segurança, confirme primeiro o celular atual antes de informar o novo.
                     </p>
                     <p className="mt-4 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/72">
                       Celular atual: <span className="font-semibold text-black/86">{maskedPhoneValue}</span>
@@ -3860,7 +3860,7 @@ function AccountContent({
                 {phoneStep === "confirm-current-code" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      Digite o cÃ³digo de 7 dÃ­gitos enviado por SMS para o celular atual{" "}
+                      Digite o código de 7 dígitos enviado por SMS para o celular atual{" "}
                       <span className="font-semibold text-black/78">{maskedPhoneValue}</span>.
                     </p>
                     <CodeBoxes
@@ -3883,10 +3883,10 @@ function AccountContent({
                         className="text-[13px] font-semibold text-black/72 transition-colors hover:text-black/88 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {phoneResendCooldown > 0
-                          ? `Reenviar cÃ³digo (${phoneResendCooldown}s)`
+                          ? `Reenviar código (${phoneResendCooldown}s)`
                           : resendingPhoneCode
                           ? "Reenviando..."
-                          : "Reenviar cÃ³digo"}
+                          : "Reenviar código"}
                       </button>
                     </div>
                   </>
@@ -3895,7 +3895,7 @@ function AccountContent({
                 {phoneStep === "new-phone-input" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      Celular atual confirmado. Agora informe o novo celular para enviar o cÃ³digo final por SMS.
+                      Celular atual confirmado. Agora informe o novo celular para enviar o código final por SMS.
                     </p>
                     <label className="mt-5 block text-[13px] font-medium text-black/60">
                       Novo celular
@@ -3915,7 +3915,7 @@ function AccountContent({
                 {phoneStep === "confirm-new-code" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      Enviamos um cÃ³digo de 7 dÃ­gitos por SMS para o novo celular{" "}
+                      Enviamos um código de 7 dígitos por SMS para o novo celular{" "}
                       <span className="font-semibold text-black/78">{maskSecurePhone(pendingPhone)}</span>.
                     </p>
                     <CodeBoxes
@@ -3938,10 +3938,10 @@ function AccountContent({
                         className="text-[13px] font-semibold text-black/72 transition-colors hover:text-black/88 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {phoneResendCooldown > 0
-                          ? `Reenviar cÃ³digo (${phoneResendCooldown}s)`
+                          ? `Reenviar código (${phoneResendCooldown}s)`
                           : resendingPhoneCode
                           ? "Reenviando..."
-                          : "Reenviar cÃ³digo"}
+                          : "Reenviar código"}
                       </button>
                     </div>
                   </>
@@ -3993,7 +3993,7 @@ function AccountContent({
                       disabled={sendingPhoneCode}
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      {sendingPhoneCode ? "Enviando..." : "Enviar cÃ³digo"}
+                      {sendingPhoneCode ? "Enviando..." : "Enviar código"}
                     </button>
                   )}
 
@@ -4004,7 +4004,7 @@ function AccountContent({
                       disabled={sendingPhoneCode}
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      {sendingPhoneCode ? "Enviando..." : "Enviar cÃ³digo"}
+                      {sendingPhoneCode ? "Enviando..." : "Enviar código"}
                     </button>
                   )}
 
@@ -4065,14 +4065,14 @@ function AccountContent({
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
                       {localMustCreatePassword
-                        ? "Defina uma senhá para habilitar tambÃ©m login por senhá nesta conta."
-                        : "Informe sua senhá atual e a nova senhá para contínuar."}
+                        ? "Defina uma senha para habilitar também login por senha nesta conta."
+                        : "Informe sua senha atual e a nova senha para continuar."}
                     </p>
 
                     {!localMustCreatePassword && (
                       <>
                         <label className="mt-5 block text-[13px] font-medium text-black/60">
-                          Senhá atual
+                          Senha atual
                         </label>
                         <input
                           type="password"
@@ -4081,7 +4081,7 @@ function AccountContent({
                           onChange={(e) => setCurrentPasswordInput(String(e.target.value || ""))}
                           disabled={sendingPasswordCode}
                           className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/80 outline-none transition-[border-color,box-shadow] focus:border-black/30 focus:ring-2 focus:ring-black/10 disabled:cursor-not-allowed disabled:opacity-70"
-                          placeholder="Digite sua senhá atual"
+                          placeholder="Digite sua senha atual"
                         />
                       </>
                     )}
@@ -4118,13 +4118,13 @@ function AccountContent({
                   <>
                     {passwordCodePhoneMask ? (
                       <p className="text-[14px] leading-[1.45] text-black/62">
-                        Enviamos um cÃ³digo de 7 dÃ­gitos para o e-mail{" "}
+                        Enviamos um código de 7 dígitos para o e-mail{" "}
                         <span className="break-all font-semibold text-black/78">{maskSecureEmail(localEmail)}</span> e
                         para o SMS em <span className="font-semibold text-black/78">{passwordCodePhoneMask}</span>.
                       </p>
                     ) : (
                       <p className="text-[14px] leading-[1.45] text-black/62">
-                        Enviamos um cÃ³digo de 7 dÃ­gitos para o e-mail{" "}
+                        Enviamos um código de 7 dígitos para o e-mail{" "}
                         <span className="break-all font-semibold text-black/78">{maskSecureEmail(localEmail)}</span>.
                       </p>
                     )}
@@ -4148,10 +4148,10 @@ function AccountContent({
                         className="text-[13px] font-semibold text-black/72 transition-colors hover:text-black/88 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {passwordResendCooldown > 0
-                          ? `Reenviar cÃ³digo (${passwordResendCooldown}s)`
+                          ? `Reenviar código (${passwordResendCooldown}s)`
                           : resendingPasswordCode
                           ? "Reenviando..."
-                          : "Reenviar cÃ³digo"}
+                          : "Reenviar código"}
                       </button>
                     </div>
                   </>
@@ -4199,7 +4199,7 @@ function AccountContent({
                       disabled={sendingPasswordCode}
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      {sendingPasswordCode ? "Enviando..." : "Enviar cÃ³digo"}
+                      {sendingPasswordCode ? "Enviando..." : "Enviar código"}
                     </button>
                   )}
 
@@ -4258,14 +4258,14 @@ function AccountContent({
                   O Windows Hello esta ativo nesta conta.
                 </p>
                 <p className="mt-3 text-[14px] leading-[1.45] text-black/62">
-                  Para desativar, vocÃª vai confirmar em duas etapas:
+                  Para desativar, você vai confirmar em duas etapas:
                 </p>
                 <ol className="mt-2 list-decimal pl-5 text-[14px] leading-[1.5] text-black/62">
-                  <li>CÃ³digo de 7 dÃ­gitos enviado para seu e-mail.</li>
-                  <li>ConfirmaÃ§Ã£o final com Windows Hello ou cÃ³digo de 2 etapas (se ativo).</li>
+                  <li>Código de 7 dígitos enviado para seu e-mail.</li>
+                  <li>Confirmação final com Windows Hello ou código de 2 etapas (se ativo).</li>
                 </ol>
                 <p className="mt-3 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/72">
-                  E-mail para confirmaÃ§Ã£o:{" "}
+                  E-mail para confirmação:{" "}
                   <span className="font-semibold text-black/86">
                     {passkeyEmailMask || maskSecureEmail(localEmail)}
                   </span>
@@ -4286,7 +4286,7 @@ function AccountContent({
                     disabled={isPasskeyBusy}
                     className="rounded-xl bg-[#e3524b] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#d34942] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                   >
-                    {startingPasskeyFlow ? "Iniciando..." : "Confirmar desativaÃ§Ã£o"}
+                    {startingPasskeyFlow ? "Iniciando..." : "Confirmar desativação"}
                   </button>
                 </div>
               </div>
@@ -4331,14 +4331,14 @@ function AccountContent({
               <div className="px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
                 <p className="text-[14px] leading-[1.45] text-black/62">
                   {passkeyFlowMode === "disable"
-                    ? "Vamos desativar o Windows Hello desta conta com validaÃ§Ã£o de seguranÃ§a."
+                    ? "Vamos desativar o Windows Hello desta conta com validação de segurança."
                     : "Vamos ativar o Windows Hello para login rapido com PIN ou biometria do seu PC."}
                 </p>
 
                 {passkeyVerificationMethod === "none" && (
                   <div className="mt-4 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/70">
                     {startingPasskeyFlow
-                      ? "Preparando validaÃ§Ã£o de seguranÃ§a..."
+                      ? "Preparando validação de segurança..."
                       : passkeyFlowMode === "disable"
                         ? "Inicie o fluxo para validar sua identidade antes de desativar o Windows Hello."
                         : "Inicie o fluxo para validar sua identidade antes de ativar o Windows Hello."}
@@ -4349,12 +4349,12 @@ function AccountContent({
                   !(passkeyFlowMode === "disable" && passkeyAwaitingDisableAuth) && (
                   <>
                     <p className="mt-4 text-[14px] leading-[1.45] text-black/62">
-                      Digite o cÃ³digo de 7 dÃ­gitos enviado para{" "}
+                      Digite o código de 7 dígitos enviado para{" "}
                       <span className="break-all font-semibold text-black/78">
                         {passkeyEmailMask || maskSecureEmail(localEmail)}
                       </span>
                       {passkeyFlowMode === "disable"
-                        ? " para contínuar a desativaÃ§Ã£o do Windows Hello."
+                        ? " para continuar a desativação do Windows Hello."
                         : "."}
                     </p>
                     <CodeBoxes
@@ -4378,10 +4378,10 @@ function AccountContent({
                         className="text-[13px] font-semibold text-black/72 transition-colors hover:text-black/88 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {passkeyResendCooldown > 0
-                          ? `Reenviar cÃ³digo (${passkeyResendCooldown}s)`
+                          ? `Reenviar código (${passkeyResendCooldown}s)`
                           : resendingPasskeyCode
                           ? "Reenviando..."
-                          : "Reenviar cÃ³digo"}
+                          : "Reenviar código"}
                       </button>
                     </div>
                   </>
@@ -4390,11 +4390,11 @@ function AccountContent({
                 {passkeyFlowMode === "activate" && passkeyVerificationMethod === "two-factor" && (
                   <>
                     <p className="mt-4 text-[14px] leading-[1.45] text-black/62">
-                      Sua conta tem autenticaÃ§Ã£o em 2 etapas ativa. Confirme com o cÃ³digo do
+                      Sua conta tem autenticação em 2 etapas ativa. Confirme com o código do
                       aplicativo para autorizar o Windows Hello.
                     </p>
                     <div className="mt-3 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/70">
-                      A validaÃ§Ã£o de 2 etapas acontece na ilhá dinÃ¢mica de seguranÃ§a.
+                      A validação de 2 etapas acontece na ilha dinâmica de segurança.
                     </div>
                   </>
                 )}
@@ -4402,11 +4402,11 @@ function AccountContent({
                 {passkeyFlowMode === "disable" && passkeyAwaitingDisableAuth && (
                   <>
                     <p className="mt-4 text-[14px] leading-[1.45] text-black/62">
-                      CÃ³digo de e-mail confirmado. Agora conclua a desativaÃ§Ã£o usando Windows Hello
-                      ou cÃ³digo de 2 etapas (se estiver ativo).
+                      Código de e-mail confirmado. Agora conclua a desativação usando Windows Hello
+                      ou código de 2 etapas (se estiver ativo).
                     </p>
                     <div className="mt-3 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/70">
-                      A confirmaÃ§Ã£o final acontece na ilhá dinÃ¢mica de seguranÃ§a.
+                      A confirmação final acontece na ilha dinâmica de segurança.
                     </div>
                   </>
                 )}
@@ -4450,8 +4450,8 @@ function AccountContent({
                       {startingPasskeyFlow
                         ? "Iniciando..."
                         : passkeyFlowMode === "disable"
-                          ? "Iniciar desativaÃ§Ã£o"
-                          : "Iniciar validaÃ§Ã£o"}
+                          ? "Iniciar desativação"
+                          : "Iniciar validação"}
                     </button>
                   )}
 
@@ -4473,7 +4473,7 @@ function AccountContent({
                       disabled={isPasskeyBusy}
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      {verifyingPasskeyCode ? "Validando..." : "Confirmar desativaÃ§Ã£o"}
+                      {verifyingPasskeyCode ? "Validando..." : "Confirmar desativação"}
                     </button>
                   )}
 
@@ -4493,7 +4493,7 @@ function AccountContent({
                       {verifyingPasskeyCode || registeringPasskey
                         ? "Validando..."
                         : passkeyFlowMode === "disable"
-                          ? "Validar e contínuar"
+                          ? "Validar e continuar"
                           : "Confirmar e ativar"}
                     </button>
                   )}
@@ -4572,7 +4572,7 @@ function AccountContent({
                               onClick={backToAccountActionAuthMethodChoice}
                               disabled={accountActionTwoFactorBusy}
                               className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                              aria-label="Voltar para opÃ§Ãµes de validaÃ§Ã£o"
+                              aria-label="Voltar para opções de validação"
                             >
                               <Undo2 className="h-4 w-4" />
                             </button>
@@ -4596,7 +4596,7 @@ function AccountContent({
                             disabled={accountActionTwoFactorBusy}
                             className="h-11 w-full rounded-xl border border-white/20 bg-white/[0.04] px-4 text-[12px] font-semibold text-white/78 transition-colors hover:bg-white/[0.1] sm:h-12 sm:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
                           >
-                            CÃ³digo de AutenticaÃ§Ã£o
+                            Código de Autenticação
                           </button>
                           <button
                             type="button"
@@ -4662,7 +4662,7 @@ function AccountContent({
                         }}
                       />
                       <span className="relative inline-flex rounded-full bg-[#e3524b]/14 px-3 py-1 text-[11px] font-medium text-[#ff8b86]">
-                        CÃ³digo de autenticaÃ§Ã£o invÃ¡lido. Tente novamente.
+                        Código de autenticação inválido. Tente novamente.
                       </span>
                     </motion.div>
                   ) : verifyingAccountActionPasskey ? (
@@ -4732,7 +4732,7 @@ function AccountContent({
             >
               <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6">
                 <h3 className="text-[18px] font-semibold text-black/80">
-                  {twoFactorEnabled ? "Desativar autenticaÃ§Ã£o de 2 etapas" : "Ativar autenticaÃ§Ã£o de 2 etapas"}
+                  {twoFactorEnabled ? "Desativar autenticação de 2 etapas" : "Ativar autenticação de 2 etapas"}
                 </h3>
                 <button
                   type="button"
@@ -4751,7 +4751,7 @@ function AccountContent({
                       <>
                         <p className="text-[14px] leading-[1.45] text-black/62">
                           Escaneie o QR code com Google Authenticator, Microsoft Authenticator ou app
-                          equivalente. Se preferir, use o cÃ³digo manual.
+                          equivalente. Se preferir, use o código manual.
                         </p>
 
                         {twoFactorQrCodeDataUrl ? (
@@ -4760,7 +4760,7 @@ function AccountContent({
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
                                 src={twoFactorQrCodeDataUrl}
-                                alt="QR code para autenticaÃ§Ã£o em duas etapas"
+                                alt="QR code para autenticação em duas etapas"
                                 className="h-[220px] w-[220px] object-contain"
                               />
                             </div>
@@ -4774,22 +4774,22 @@ function AccountContent({
                         <div className="mt-4 flex justify-center">
                           <div className="w-full max-w-[360px]">
                             <p className="mb-2 text-center text-[13px] font-medium text-black/62">
-                              CÃ³digo manual
+                              Código manual
                             </p>
                             <div className="relative">
                               <input
                                 type="text"
                                 readOnly
                                 value={twoFactorManualCode || ""}
-                                placeholder="Aguardando cÃ³digo..."
+                                placeholder="Aguardando código..."
                                 className="h-11 w-full rounded-xl border border-black/12 bg-white/92 px-3 pr-12 text-center text-[13px] font-semibold tracking-[0.08em] text-black/80 outline-none"
                               />
                               <button
                                 type="button"
                                 onClick={() => void copyTwoFactorManualCode()}
                                 disabled={!twoFactorManualCode || isTwoFactorBusy}
-                                title="Copiar cÃ³digo manual"
-                                aria-label="Copiar cÃ³digo manual"
+                                title="Copiar código manual"
+                                aria-label="Copiar código manual"
                                 className="absolute right-1.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-black/60 transition-colors hover:bg-black/[0.05] hover:text-black/82 disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 {copyingTwoFactorCode === "copied" ? (
@@ -4803,13 +4803,13 @@ function AccountContent({
                         </div>
 
                         <p className="mt-5 text-[14px] leading-[1.45] text-black/62">
-                          Depois de adicionar no aplicativo, clique em contínuar para validar.
+                          Depois de adicionar no aplicativo, clique em continuar para validar.
                         </p>
                       </>
                     )}
                     {twoFactorEnableSubStep === "verify" && !usingTwoFactorEnableIsland && (
                       <p className="mt-5 text-[14px] leading-[1.45] text-black/62">
-                        Digite o cÃ³digo de 6 dÃ­gitos gerado no aplicativo para ativar.
+                        Digite o código de 6 dígitos gerado no aplicativo para ativar.
                       </p>
                     )}
                     {twoFactorEnableSubStep === "verify" && !usingTwoFactorEnableIsland && (
@@ -4829,17 +4829,17 @@ function AccountContent({
                 {twoFactorStep === "disable-intro" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      A autenticaÃ§Ã£o de 2 etapas estÃ¡ ativa nesta conta.
+                      A autenticação de 2 etapas está ativa nesta conta.
                     </p>
                     <p className="mt-3 text-[14px] leading-[1.45] text-black/62">
-                      Para desativar, vocÃª vai confirmar em duas etapas:
+                      Para desativar, você vai confirmar em duas etapas:
                     </p>
                     <ol className="mt-2 list-decimal pl-5 text-[14px] leading-[1.5] text-black/62">
-                      <li>CÃ³digo de 7 dÃ­gitos enviado para seu e-mail.</li>
-                      <li>ConfirmaÃ§Ã£o final com Windows Hello ou cÃ³digo de 2 etapas (se ativo).</li>
+                      <li>Código de 7 dígitos enviado para seu e-mail.</li>
+                      <li>Confirmação final com Windows Hello ou código de 2 etapas (se ativo).</li>
                     </ol>
                     <p className="mt-3 rounded-xl border border-black/10 bg-white/90 px-3 py-3 text-[14px] text-black/72">
-                      E-mail para confirmaÃ§Ã£o:{" "}
+                      E-mail para confirmação:{" "}
                       <span className="font-semibold text-black/86">
                         {twoFactorEmailMask || maskSecureEmail(localEmail)}
                       </span>
@@ -4850,11 +4850,11 @@ function AccountContent({
                 {twoFactorStep === "disable-verify-email" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      Digite o cÃ³digo de 7 dÃ­gitos enviado para{" "}
+                      Digite o código de 7 dígitos enviado para{" "}
                       <span className="break-all font-semibold text-black/78">
                         {twoFactorEmailMask || maskSecureEmail(localEmail)}
                       </span>{" "}
-                      para contínuar a desativaÃ§Ã£o da autenticaÃ§Ã£o de 2 etapas.
+                      para continuar a desativação da autenticação de 2 etapas.
                     </p>
                     <CodeBoxes
                       length={7}
@@ -4871,10 +4871,10 @@ function AccountContent({
                         className="text-[13px] font-semibold text-black/72 transition-colors hover:text-black/88 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {twoFactorResendCooldown > 0
-                          ? `Reenviar cÃ³digo (${twoFactorResendCooldown}s)`
+                          ? `Reenviar código (${twoFactorResendCooldown}s)`
                           : resendingTwoFactorCode
                           ? "Reenviando..."
-                          : "Reenviar cÃ³digo"}
+                          : "Reenviar código"}
                       </button>
                     </div>
                   </>
@@ -4883,8 +4883,8 @@ function AccountContent({
                 {twoFactorStep === "disable-verify-app" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
-                      CÃ³digo de e-mail confirmado. Agora conclua a desativaÃ§Ã£o com Windows Hello
-                      ou cÃ³digo de 2 etapas na ilhá dinÃ¢mica de seguranÃ§a.
+                      Código de e-mail confirmado. Agora conclua a desativação com Windows Hello
+                      ou código de 2 etapas na ilha dinâmica de segurança.
                     </p>
                     <CodeBoxes
                       length={6}
@@ -4969,7 +4969,7 @@ function AccountContent({
                       disabled={isTwoFactorBusy}
                       className="rounded-xl bg-[#e3524b] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#d34942] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      {startingTwoFactorFlow ? "Iniciando..." : "Confirmar desativaÃ§Ã£o"}
+                      {startingTwoFactorFlow ? "Iniciando..." : "Confirmar desativação"}
                     </button>
                   )}
 
@@ -4980,7 +4980,7 @@ function AccountContent({
                       disabled={isTwoFactorBusy || onlyDigits(twoFactorEmailCode).length !== 7}
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      {verifyingTwoFactorStep ? "Validando..." : "Validar e contínuar"}
+                      {verifyingTwoFactorStep ? "Validando..." : "Validar e continuar"}
                     </button>
                   )}
 
@@ -4991,7 +4991,7 @@ function AccountContent({
                       disabled={isTwoFactorBusy || onlyDigits(twoFactorAppCode).length !== 6}
                       className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      {verifyingTwoFactorStep ? "Validando..." : "Confirmar desativaÃ§Ã£o"}
+                      {verifyingTwoFactorStep ? "Validando..." : "Confirmar desativação"}
                     </button>
                   )}
                 </div>
@@ -5021,7 +5021,7 @@ function AccountContent({
               exit={{ opacity: 0, y: 8, scale: 0.985 }}
             >
               <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6">
-                <h3 className="text-[18px] font-semibold text-black/80">CÃ³digos de recuperaÃ§Ã£o</h3>
+                <h3 className="text-[18px] font-semibold text-black/80">Códigos de recuperação</h3>
                 <button
                   type="button"
                   onClick={closeTwoFactorRecoveryModal}
@@ -5033,15 +5033,15 @@ function AccountContent({
 
               <div className="px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
                 <p className="text-[14px] leading-[1.45] text-black/62">
-                  Sua autenticaÃ§Ã£o em 2 etapas foi ativada. Guarde estes cÃ³digos de recuperaÃ§Ã£o em
+                  Sua autenticação em 2 etapas foi ativada. Guarde estes códigos de recuperação em
                   local seguro.
                 </p>
                 <p className="mt-3 rounded-xl border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-3 text-[13px] font-medium text-[#b2433e]">
-                  Se vocÃª perder acesso ao e-mail e ao dispositivo autenticador, pode ficar sem
+                  Se você perder acesso ao e-mail e ao dispositivo autenticador, pode ficar sem
                   acesso a conta. Recomendamos baixar o arquivo .txt agora.
                 </p>
                 <p className="mt-3 text-[13px] leading-[1.45] text-black/58">
-                  Os cÃ³digos nÃ£o expiram, mas cada cÃ³digo funciona uma Ãºnica vez.
+                  Os códigos não expiram, mas cada código funciona uma única vez.
                 </p>
 
                 <div className="mt-4 grid grid-cols-3 gap-2">
@@ -5053,8 +5053,8 @@ function AccountContent({
                         key={`${cleanCode}-${index}`}
                         type="button"
                         onClick={() => void copyTwoFactorRecoveryCode(cleanCode)}
-                        title={isCopied ? "CÃ³digo copiado" : "Passe o mouse para revelar e clique para copiar"}
-                        aria-label="Revelar e copiar cÃ³digo de recuperaÃ§Ã£o"
+                        title={isCopied ? "Código copiado" : "Passe o mouse para revelar e clique para copiar"}
+                        aria-label="Revelar e copiar código de recuperação"
                         className="group rounded-xl border border-black/12 bg-white/92 px-3 py-2 text-center text-[14px] font-semibold tracking-[0.06em] text-black/78 transition-colors hover:bg-white focus:outline-none focus:ring-2 focus:ring-black/20"
                       >
                         <span
@@ -5298,14 +5298,14 @@ function PrivacyDataContent() {
           key: "legalCompliance" as const,
           title: "Utilizar dados para cumprimento legal e regulatório",
           description:
-            "Armazenamos evidências e logs exigidos por lei, auditoria e obrigações regulatórias aplicaveis ao servico.",
+            "Armazenamos evidências e logs exigidos por lei, auditoria e obrigações regulatórias aplicáveis ao serviço.",
           href: "https://terms.wyzer.com.br/",
         },
         {
           key: "transactionalCommunications" as const,
           title: "Enviar comunicações essenciais da conta",
           description:
-            "Notificações de segurança, códigos de verificação, alertas de acesso e avisos críticos da conta sao obrigatórios.",
+            "Notificações de segurança, códigos de verificação, alertas de acesso e avisos críticos da conta são obrigatórios.",
           href: "https://privacy.wyzer.com.br/",
         },
       ] satisfies Array<{
@@ -5338,7 +5338,7 @@ function PrivacyDataContent() {
           key: "marketingCommunications" as const,
           title: "Receber comunicações de marketing",
           description:
-            "Permite envio de novidades, lançamentos e campanhas da Wyzer por canais como e-mail e notificacoes.",
+            "Permite envio de novidades, lançamentos e campanhas da Wyzer por canais como e-mail e notificações.",
           href: "https://privacy.wyzer.com.br/",
         },
         {
@@ -5479,7 +5479,7 @@ function PrivacyDataContent() {
 
         if (!response.ok || !payload?.ok || !payload.settings) {
           throw new Error(
-            String(payload?.error || "Não foi possível atualizar a preferencia."),
+            String(payload?.error || "Não foi possível atualizar a preferência."),
           );
         }
 
@@ -5497,7 +5497,7 @@ function PrivacyDataContent() {
         setError(
           updateError instanceof Error
             ? updateError.message
-            : "Não foi possível atualizar a preferencia.",
+            : "Não foi possível atualizar a preferência.",
         );
       } finally {
         if (mountedRef.current) {
@@ -5516,7 +5516,7 @@ function PrivacyDataContent() {
   return (
     <div className="mx-auto w-full max-w-[980px] pb-10 text-black/80">
       <p className="text-[15px] leading-[1.45] text-black/58">
-        Controle como seus dados sao usados pela Wyzer. Alguns tratamentos sao obrigatórios para
+        Controle como seus dados são usados pela Wyzer. Alguns tratamentos são obrigatórios para
         segurança, autenticação e conformidade legal.
       </p>
       <p className="mt-3 text-[15px] leading-[1.45] text-black/58">
@@ -5645,6 +5645,24 @@ function formatAuthorizedProviderSeen(value?: string | null) {
   return `há ${base}`;
 }
 
+function formatAuthorizedProviderTooltipTimestamp(value?: string | null) {
+  const clean = String(value || "").trim();
+  if (!clean) return "indisponível";
+  const ms = Date.parse(clean);
+  if (!Number.isFinite(ms)) return "indisponível";
+
+  const relative = formatAuthorizedProviderSeen(clean);
+  const absolute = new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(ms));
+
+  return `${relative} • ${absolute}`;
+}
+
 function resolveAuthorizedProviderLabel(provider: AuthorizedProviderRecord) {
   if (provider.provider === "password") return "Wyzer Login";
   const raw = String(provider.providerLabel || "").trim();
@@ -5686,6 +5704,41 @@ function maskAuthorizedProviderEmail(value?: string | null) {
   const tail = user.length > 4 ? user.slice(-1) : "";
   const starCount = Math.max(4, user.length - head.length - tail.length);
   return `${head}${"*".repeat(starCount)}${tail}@${domain}`;
+}
+
+function buildAuthorizedProviderTooltipData(params: {
+  provider: AuthorizedProviderRecord;
+  isCreationProvider: boolean;
+  mustCreatePassword: boolean;
+}) {
+  const tags: string[] = [];
+  const providerId = String(params.provider.provider || "").trim().toLowerCase();
+
+  if (providerId === "password") {
+    tags.push("Padrão");
+    tags.push(params.mustCreatePassword ? "Senha pendente" : "Senha definida");
+  }
+
+  if (params.provider.isPrimary) {
+    tags.push("Principal");
+  }
+
+  if (params.provider.isExternal) {
+    tags.push("Externo");
+  }
+
+  if (params.isCreationProvider) {
+    tags.push("Criado com este provedor");
+  }
+
+  const note = !params.provider.canRemove
+    ? String(params.provider.removeBlockedReason || "Este provedor não pode ser removido.").trim()
+    : null;
+
+  return {
+    tags: Array.from(new Set(tags)),
+    note: note || null,
+  };
 }
 
 function AuthorizedAppsContent() {
@@ -5959,17 +6012,17 @@ function AuthorizedAppsContent() {
   return (
     <div className="mx-auto w-full max-w-[980px] pb-10 text-black/80">
       <p className="text-[15px] leading-[1.45] text-black/58">
-        Aqui estao os métodos de login vinculados a sua conta. Provedores externos (como Google)
-        podem ser usados para entrar sem senhá local.
+        Aqui estão os métodos de login vinculados à sua conta. Provedores externos (como Google)
+        podem ser usados para entrar sem senha local.
       </p>
       <p className="mt-3 text-[15px] leading-[1.45] text-black/58">
-        Recomendamos manter pelo menos um método interno de senhá para contingência de acesso.
+        Recomendamos manter pelo menos um método interno de senha para contingência de acesso.
       </p>
       {mustCreatePassword && (
         <p className="mt-4 rounded-lg border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-2 text-[13px] font-medium text-[#b2433e]">
           {mustCreatePasswordProviderName
-            ? `Sua conta foi criada com ${mustCreatePasswordProviderName}. Finalize a criação de senhá na seção Minhá Conta para liberar login por senha.`
-            : "Sua conta foi criada com um provedor de login. Finalize a criação de senhá na seção Minhá Conta para liberar login por senha."}
+            ? `Sua conta foi criada com ${mustCreatePasswordProviderName}. Finalize a criação de senha na seção Minha Conta para liberar login por senha.`
+            : "Sua conta foi criada com um provedor de login. Finalize a criação de senha na seção Minha Conta para liberar login por senha."}
         </p>
       )}
       {error ? (
@@ -5982,12 +6035,6 @@ function AuthorizedAppsContent() {
           {actionNotice}
         </p>
       ) : null}
-      {showLowMethodsWarning && !loading ? (
-        <p className="mt-4 rounded-lg border border-[#be8a23]/25 bg-[#f7d58a]/20 px-3 py-2 text-[13px] font-medium text-[#7b540d]">
-          Recomendamos manter pelo menos 2 métodos ativos. Isso reduz suporte futuro.
-        </p>
-      ) : null}
-
       <section className="mt-10">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-[20px] font-semibold text-black/82">Provedores conectados</h3>
@@ -6010,136 +6057,178 @@ function AuthorizedAppsContent() {
           </button>
         </div>
         <div className="mt-4 border-t border-black/10" />
+        {showLowMethodsWarning && !loading ? (
+          <div className="border border-t-0 border-[#be8a23]/25 rounded-b-xl bg-[#f7d58a]/20 px-3 py-2 text-center text-[13px] font-medium text-[#7b540d]">
+            <span>Recomendamos manter pelo menos 2 métodos ativos. </span>
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setActionNotice(null);
+                setConfirmingRemoveProvider(null);
+                setConnectModalOpen(true);
+              }}
+              disabled={Boolean(startingConnectProvider) || Boolean(removingProvider)}
+              className={cx(
+                "underline underline-offset-[2px] decoration-[#7b540d]/55 transition-colors hover:text-[#5f420a] hover:decoration-[#5f420a]/75",
+                (Boolean(startingConnectProvider) || Boolean(removingProvider)) &&
+                  "cursor-not-allowed opacity-60",
+              )}
+            >
+              Ative um método agora mesmo
+            </button>
+          </div>
+        ) : null}
         <div className="mt-4 overflow-hidden rounded-xl border border-black/10 bg-white/70">
           {!orderedProviders.length ? (
             <div className="px-4 py-5 text-[14px] text-black/55">
               {loading ? "Carregando provedores..." : "Nenhum provedor conectado."}
             </div>
           ) : (
-            orderedProviders.map((provider, idx) => (
-              <div
-                key={provider.id}
-                className={cx(
-                  "flex items-center gap-4 px-4 py-5",
-                  idx > 0 && "border-t border-black/10",
-                )}
-              >
-                <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-black/10 bg-black/[0.04] text-[13px] font-semibold text-black/72">
-                  {provider.provider === "google" ? (
-                    <span
-                      aria-hidden
-                      className="h-5 w-5 bg-contain bg-center bg-no-repeat"
-                      style={{ backgroundImage: `url('${AUTHORIZED_APPS_GOOGLE_ICON_URL}')` }}
-                    />
-                  ) : provider.provider === "discord" ? (
-                    <span
-                      aria-hidden
-                      className="h-5 w-5 bg-contain bg-center bg-no-repeat"
-                      style={{ backgroundImage: `url('${AUTHORIZED_APPS_DISCORD_ICON_URL}')` }}
-                    />
-                  ) : provider.provider === "password" ? (
-                    <span
-                      aria-hidden
-                      className="h-5 w-5 bg-contain bg-center bg-no-repeat"
-                      style={{ backgroundImage: `url('${AUTHORIZED_APPS_WYZER_ICON_URL}')` }}
-                    />
-                  ) : (
-                    provider.providerLabel.slice(0, 2).toUpperCase()
+            orderedProviders.map((provider, idx) => {
+              const providerLabel = resolveAuthorizedProviderLabel(provider);
+              const isCreationProvider =
+                String(provider.provider || "").trim().toLowerCase() ===
+                String(creationProvider || "").trim().toLowerCase();
+              const linkedAtTooltipLabel = formatAuthorizedProviderTooltipTimestamp(provider.linkedAt);
+              const lastLoginTooltipLabel = formatAuthorizedProviderTooltipTimestamp(provider.lastLoginAt);
+              const providerTooltip = buildAuthorizedProviderTooltipData({
+                provider,
+                isCreationProvider,
+                mustCreatePassword,
+              });
+
+              return (
+                <div
+                  key={provider.id}
+                  className={cx(
+                    "flex items-center gap-4 px-4 py-5",
+                    idx > 0 && "border-t border-black/10",
                   )}
-                </span>
+                >
+                  <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-black/10 bg-black/[0.04] text-[13px] font-semibold text-black/72">
+                    {provider.provider === "google" ? (
+                      <span
+                        aria-hidden
+                        className="h-5 w-5 bg-contain bg-center bg-no-repeat"
+                        style={{ backgroundImage: `url('${AUTHORIZED_APPS_GOOGLE_ICON_URL}')` }}
+                      />
+                    ) : provider.provider === "discord" ? (
+                      <span
+                        aria-hidden
+                        className="h-5 w-5 bg-contain bg-center bg-no-repeat"
+                        style={{ backgroundImage: `url('${AUTHORIZED_APPS_DISCORD_ICON_URL}')` }}
+                      />
+                    ) : provider.provider === "password" ? (
+                      <span
+                        aria-hidden
+                        className="h-5 w-5 bg-contain bg-center bg-no-repeat"
+                        style={{ backgroundImage: `url('${AUTHORIZED_APPS_WYZER_ICON_URL}')` }}
+                      />
+                    ) : (
+                      provider.providerLabel.slice(0, 2).toUpperCase()
+                    )}
+                  </span>
 
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-[15px] font-semibold text-black/78">{resolveAuthorizedProviderLabel(provider)}</p>
-                    {provider.provider === "password" && (
-                      <span
-                        title="Método interno da Wyzer com senhá local."
-                        className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62"
-                      >
-                        Padrão
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-[15px] font-semibold text-black/78">{providerLabel}</p>
+                      <span className="group relative inline-flex">
+                        <button
+                          type="button"
+                          aria-label={`Detalhes de ${providerLabel}`}
+                          className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-black/14 bg-black/[0.04] text-[11px] font-semibold leading-none text-black/62 transition-colors hover:bg-black/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/25"
+                        >
+                          i
+                        </button>
+                        <span
+                          role="tooltip"
+                          className={cx(
+                            "pointer-events-none absolute left-[calc(100%+8px)] top-1/2 z-[60] w-max max-w-[340px] -translate-y-1/2 rounded-xl border border-black/12 bg-white/98 px-3 py-2 text-[12px] text-black/72 shadow-[0_12px_28px_rgba(0,0,0,0.16)] backdrop-blur-[2px]",
+                            "opacity-0 translate-x-1 scale-[0.98] transition-[opacity,transform] duration-180 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+                            "group-hover:opacity-100 group-hover:translate-x-0 group-hover:scale-100",
+                            "group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:scale-100",
+                          )}
+                        >
+                          {providerTooltip.tags.length > 0 && (
+                            <span className="flex flex-wrap gap-1.5">
+                              {providerTooltip.tags.map((tag) => (
+                                <span
+                                  key={`${provider.id}-${tag}`}
+                                  className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[10px] font-semibold text-black/68"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                          <dl
+                            className={cx(
+                              "grid grid-cols-[auto,1fr] gap-x-2 gap-y-1 text-[11px] leading-[1.35]",
+                              providerTooltip.tags.length > 0
+                                ? "mt-2 border-t border-dashed border-black/14 pt-2"
+                                : "mt-0",
+                            )}
+                          >
+                            <dt className="font-semibold text-black/55">Vinculado</dt>
+                            <dd className="text-black/74">{linkedAtTooltipLabel}</dd>
+                            <dt className="font-semibold text-black/55">Último login</dt>
+                            <dd className="text-black/74">{lastLoginTooltipLabel}</dd>
+                          </dl>
+                          {providerTooltip.note && (
+                            <span className="mt-2 block border-t border-dashed border-black/14 pt-2 leading-[1.4] text-black/66">
+                              {providerTooltip.note}
+                            </span>
+                          )}
+                        </span>
                       </span>
-                    )}
-                    {String(provider.provider || "").trim().toLowerCase() === String(creationProvider || "").trim().toLowerCase() && (
-                      <span className="inline-flex items-center rounded-full border border-[#2f7f4f]/22 bg-[#35a161]/12 px-2 py-0.5 text-[11px] font-semibold text-[#2f7f4f]">
-                        Criado com este provedor
-                      </span>
-                    )}
-                    {provider.isPrimary && provider.provider !== "password" && (
-                      <span className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62">
-                        Principal
-                      </span>
-                    )}
-                    {provider.isExternal && (
-                      <span
-                        title="Login por conta externa, como Google ou Discord."
-                        className="inline-flex items-center rounded-full border border-black/12 bg-black/[0.04] px-2 py-0.5 text-[11px] font-semibold text-black/62"
-                      >
-                        Externo
-                      </span>
-                    )}
-                    {provider.provider === "password" && (
-                      <span
-                        className={cx(
-                          "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
-                          mustCreatePassword
-                            ? "border-[#be8a23]/25 bg-[#f7d58a]/20 text-[#8d6110]"
-                            : "border-[#2f7f4f]/22 bg-[#35a161]/12 text-[#2f7f4f]",
-                        )}
-                      >
-                        {mustCreatePassword ? "Senhá pendente" : "Senhá definida"}
-                      </span>
-                    )}
+                    </div>
+                    <p className="mt-1 text-[14px] text-black/58">
+                      Vinculado: {provider.linkedAt ? formatAuthorizedProviderSeen(provider.linkedAt) : "desconhecido"}
+                      {" - "}
+                      Último login: {provider.lastLoginAt ? formatAuthorizedProviderSeen(provider.lastLoginAt) : "indisponível"}
+                    </p>
+                    {provider.provider === "google" ? (
+                      <p className="mt-1 text-[13px] text-black/56">
+                        Email vinculado: {maskAuthorizedProviderEmail(provider.linkedEmail) || "indisponível"}
+                      </p>
+                    ) : null}
+                    {provider.provider === "discord" ? (
+                      <p className="mt-1 text-[13px] text-black/56">
+                        Nick vinculado: {String(provider.linkedUsername || "").trim() || "indisponível"}
+                      </p>
+                    ) : null}
                   </div>
-                  <p className="mt-1 text-[14px] text-black/58">
-                    Vinculado: {provider.linkedAt ? formatAuthorizedProviderSeen(provider.linkedAt) : "desconhecido"}
-                    {" - "}
-                    Último login: {provider.lastLoginAt ? formatAuthorizedProviderSeen(provider.lastLoginAt) : "indisponível"}
-                  </p>
-                  {provider.provider === "google" ? (
-                    <p className="mt-1 text-[13px] text-black/56">
-                      Email vinculado: {maskAuthorizedProviderEmail(provider.linkedEmail) || "indisponível"}
-                    </p>
-                  ) : null}
-                  {provider.provider === "discord" ? (
-                    <p className="mt-1 text-[13px] text-black/56">
-                      Nick vinculado: {String(provider.linkedUsername || "").trim() || "indisponível"}
-                    </p>
-                  ) : null}
-                  {!provider.canRemove && provider.removeBlockedReason ? (
-                    <p className="mt-1 text-[12px] font-medium text-black/46">
-                      {provider.removeBlockedReason}
-                    </p>
-                  ) : null}
-                </div>
 
-                <div className="shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!provider.canRemove) return;
-                      setError(null);
-                      setActionNotice(null);
-                      setConfirmingRemoveProvider(provider);
-                    }}
-                    disabled={
-                      !provider.canRemove ||
-                      Boolean(removingProvider) ||
-                      Boolean(startingConnectProvider) ||
-                      Boolean(confirmingRemoveProvider)
-                    }
-                    title={provider.removeBlockedReason || ""}
-                    className={cx(
-                      "rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors",
-                      provider.canRemove
-                        ? "border-black/15 bg-white text-black/72 hover:bg-black/[0.03]"
-                        : "border-black/10 bg-black/[0.03] text-black/35 cursor-not-allowed",
-                    )}
-                  >
-                    {removingProvider === provider.provider ? "Removendo..." : "Remover"}
-                  </button>
+                  <div className="shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!provider.canRemove) return;
+                        setError(null);
+                        setActionNotice(null);
+                        setConfirmingRemoveProvider(provider);
+                      }}
+                      disabled={
+                        !provider.canRemove ||
+                        Boolean(removingProvider) ||
+                        Boolean(startingConnectProvider) ||
+                        Boolean(confirmingRemoveProvider)
+                      }
+                      title={provider.removeBlockedReason || ""}
+                      className={cx(
+                        "rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors",
+                        provider.canRemove
+                          ? "border-black/15 bg-white text-black/72 hover:bg-black/[0.03]"
+                          : "border-black/10 bg-black/[0.03] text-black/35 cursor-not-allowed",
+                      )}
+                    >
+                      {removingProvider === provider.provider ? "Removendo..." : "Remover"}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </section>
@@ -6186,7 +6275,7 @@ function AuthorizedAppsContent() {
 
                   {connectableProviders.length === 0 ? (
                     <div className="mt-5 rounded-xl border border-black/12 bg-white/80 px-4 py-3 text-[14px] text-black/62">
-                      Você ja possui todos conectados a sua conta.
+                      Você já possui todos conectados à sua conta.
                     </div>
                   ) : (
                     <div className="mt-5 space-y-3">
@@ -6266,7 +6355,7 @@ function AuthorizedAppsContent() {
                 <button
                   type="button"
                   aria-label="Fechar confirmação de remoção"
-                  className="absolute inset-0 bg-black/60 backdrop-blur-[4px]"
+                  className="absolute inset-0 bg-black/55 backdrop-blur-[4px]"
                   onClick={() => setConfirmingRemoveProvider(null)}
                   disabled={Boolean(removingProvider)}
                 />
@@ -6274,19 +6363,25 @@ function AuthorizedAppsContent() {
                   role="dialog"
                   aria-modal="true"
                   aria-label="Confirmar remoção de provedor"
-                  initial={{ opacity: 0, y: 12, scale: 0.988 }}
+                  initial={{ opacity: 0, y: 14, scale: 0.985 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 10, scale: 0.988 }}
-                  transition={{ type: "spring", stiffness: 330, damping: 32, mass: 0.7 }}
-                  className="relative z-[1] w-full max-w-[470px] rounded-2xl border border-black/12 bg-[#f3f3f4] p-6 shadow-[0_24px_64px_rgba(0,0,0,0.28)]"
+                  exit={{ opacity: 0, y: 10, scale: 0.985 }}
+                  transition={{ type: "spring", stiffness: 320, damping: 30, mass: 0.68 }}
+                  className="relative z-[1] w-full max-w-[520px] rounded-2xl border border-black/12 bg-[#f3f3f4] p-6 shadow-[0_24px_64px_rgba(0,0,0,0.28)]"
                 >
-                  <h3 className="text-[21px] font-semibold text-black/82">Confirmar remoção</h3>
-                  <p className="mt-2 text-[14px] leading-[1.45] text-black/62">
-                    Tem certeza? Você poderá perder acesso.
+                  <h3 className="text-[22px] font-semibold text-black/82">Remover conexão?</h3>
+                  <p className="mt-3 text-[14px] leading-[1.45] text-black/62">
+                    Esta ação remove este método de login da sua conta.
                   </p>
-                  <p className="mt-2 text-[14px] leading-[1.45] text-black/62">
-                    Provedor: <span className="font-semibold text-black/78">{resolveAuthorizedProviderLabel(confirmingRemoveProvider)}</span>
-                  </p>
+
+                  <div className="mt-4 rounded-xl border border-black/12 bg-white/80 px-4 py-3">
+                    <p className="text-[14px] font-semibold text-black/78">
+                      {resolveAuthorizedProviderLabel(confirmingRemoveProvider)}
+                    </p>
+                    <p className="mt-1 text-[14px] text-black/58">
+                      Você pode reconectar depois em Aplicativos Autorizados.
+                    </p>
+                  </div>
 
                   <div className="mt-6 flex items-center justify-end gap-2">
                     <button
@@ -6301,9 +6396,9 @@ function AuthorizedAppsContent() {
                       type="button"
                       onClick={() => void confirmRemoveProvider()}
                       disabled={Boolean(removingProvider)}
-                      className="rounded-xl border border-[#e3524b]/25 bg-[#e3524b]/12 px-4 py-2 text-[13px] font-semibold text-[#b2433e] transition-colors hover:bg-[#e3524b]/18 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-xl bg-[#171717] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-220 hover:bg-[#222222] active:translate-y-[0.6px] active:scale-[0.992] disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      {Boolean(removingProvider) ? "Removendo..." : "Remover"}
+                      {Boolean(removingProvider) ? "Removendo..." : "Confirmar"}
                     </button>
                   </div>
                 </motion.section>
@@ -6377,7 +6472,7 @@ function DevicesContent() {
 
         if (!response.ok || !payload?.ok) {
           throw new Error(
-            String(payload?.error || "NÃ£o foi possÃ­vel carregar os dispositivos."),
+            String(payload?.error || "Não foi possível carregar os dispositivos."),
           );
         }
 
@@ -6394,7 +6489,7 @@ function DevicesContent() {
         setError(
           fetchError instanceof Error
             ? fetchError.message
-            : "NÃ£o foi possÃ­vel carregar os dispositivos.",
+            : "Não foi possível carregar os dispositivos.",
         );
       } finally {
         if (!opts?.silent && !signal?.aborted && mountedRef.current) {
@@ -6477,7 +6572,7 @@ function DevicesContent() {
 
       if (!response.ok || !payload?.ok) {
         throw new Error(
-          String(payload?.error || "NÃ£o foi possÃ­vel deslogar este dispositivo."),
+          String(payload?.error || "Não foi possível deslogar este dispositivo."),
         );
       }
 
@@ -6486,7 +6581,7 @@ function DevicesContent() {
       setError(
         deleteError instanceof Error
           ? deleteError.message
-          : "NÃ£o foi possÃ­vel deslogar este dispositivo.",
+          : "Não foi possível deslogar este dispositivo.",
       );
     } finally {
       setBusySessionId((prev) => (prev === id ? null : prev));
@@ -6514,7 +6609,7 @@ function DevicesContent() {
 
       if (!response.ok || !payload?.ok) {
         throw new Error(
-          String(payload?.error || "NÃ£o foi possÃ­vel deslogar os dispositivos."),
+          String(payload?.error || "Não foi possível deslogar os dispositivos."),
         );
       }
 
@@ -6523,7 +6618,7 @@ function DevicesContent() {
       setError(
         deleteError instanceof Error
           ? deleteError.message
-          : "NÃ£o foi possÃ­vel deslogar os dispositivos.",
+          : "Não foi possível deslogar os dispositivos.",
       );
     } finally {
       setBusyAll(false);
@@ -6556,7 +6651,7 @@ function DevicesContent() {
       return {
         id: "current-fallback",
         label: "DISPOSITIVO ATUAL",
-        location: "LocalizaÃ§Ã£o indisponÃ­vel",
+        location: "Localização indisponível",
         lastSeenAt: null,
         kind: "desktop" as const,
       };
@@ -6567,8 +6662,8 @@ function DevicesContent() {
 
   return (
     <div className="mx-auto w-full max-w-[980px] pb-10 text-black/80">
-      <p className="text-[15px] leading-[1.45] text-black/58">Aqui estÃ£o todos os dispositivos conectados a sua conta. VocÃª pode sair de cada um individualmente ou de todos os outros ao mesmo tempo.</p>
-      <p className="mt-3 text-[15px] leading-[1.45] text-black/58">Se vocÃª nÃ£o reconhecer alguma sessÃ£o ativa, saia do dispositivo e altere sua senhá imediatamente.</p>
+      <p className="text-[15px] leading-[1.45] text-black/58">Aqui estão todos os dispositivos conectados à sua conta. Você pode sair de cada um individualmente ou de todos os outros ao mesmo tempo.</p>
+      <p className="mt-3 text-[15px] leading-[1.45] text-black/58">Se você não reconhecer alguma sessão ativa, saia do dispositivo e altere sua senha imediatamente.</p>
       {error && <p className="mt-4 text-[14px] font-medium text-[#c04b44]">{error}</p>}
 
       <section className="mt-10">
@@ -6576,7 +6671,7 @@ function DevicesContent() {
         <div className="mt-4 border-t border-black/10" />
         {!resolvedCurrentDevice ? (
           <div className="mt-4 rounded-xl border border-black/10 bg-white/70 px-4 py-4 text-[14px] text-black/55">
-            {loading ? "Carregando dispositivo atual..." : "Dispositivo atual indisponÃ­vel."}
+            {loading ? "Carregando dispositivo atual..." : "Dispositivo atual indisponível."}
           </div>
         ) : (
           <div className="mt-4 flex items-center gap-4 -mx-2 rounded-xl px-2 py-2">
@@ -6584,7 +6679,7 @@ function DevicesContent() {
             <div>
               <p className="text-[15px] font-semibold text-black/78">{resolvedCurrentDevice.label}</p>
               <p className="mt-1 text-[15px] text-black/58">
-                {resolvedCurrentDevice.location || "LocalizaÃ§Ã£o indisponÃ­vel"}
+                {resolvedCurrentDevice.location || "Localização indisponível"}
                 {resolvedCurrentDevice.lastSeenAt
                   ? ` - ${formatDeviceSeenLabel(resolvedCurrentDevice.lastSeenAt)}`
                   : ""}
@@ -6609,7 +6704,7 @@ function DevicesContent() {
                 <div className="min-w-0 flex-1">
                   <p className="text-[15px] font-semibold text-black/78">{device.label}</p>
                   <p className="mt-1 truncate text-[15px] text-black/58">
-                    {device.location || "LocalizaÃ§Ã£o indisponÃ­vel"} - {formatDeviceSeenLabel(device.lastSeenAt)}
+                    {device.location || "Localização indisponível"} - {formatDeviceSeenLabel(device.lastSeenAt)}
                   </p>
                 </div>
                 <button
@@ -6649,7 +6744,7 @@ function DevicesContent() {
               >
                 <button
                   type="button"
-                  aria-label="Fechar confirmaÃ§Ã£o"
+                  aria-label="Fechar confirmação"
                   className="absolute inset-0 bg-black/55 backdrop-blur-[4px]"
                   onClick={closeConfirmLogoutModal}
                 />
@@ -6657,22 +6752,22 @@ function DevicesContent() {
                 <motion.section
                   role="dialog"
                   aria-modal="true"
-                  aria-label="Confirmar desconexÃ£o de sessÃ£o"
+                  aria-label="Confirmar desconexão de sessão"
                   initial={{ opacity: 0, y: 14, scale: 0.985 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.985 }}
                   transition={{ type: "spring", stiffness: 320, damping: 30, mass: 0.68 }}
                   className="relative z-[1] w-full max-w-[520px] rounded-2xl border border-black/12 bg-[#f3f3f4] p-6 shadow-[0_24px_64px_rgba(0,0,0,0.28)]"
                 >
-                  <h3 className="text-[22px] font-semibold text-black/82">Desconectar sessÃ£o?</h3>
+                  <h3 className="text-[22px] font-semibold text-black/82">Desconectar sessão?</h3>
                   <p className="mt-3 text-[14px] leading-[1.45] text-black/62">
-                    Esta aÃ§Ã£o vai deslogar este dispositivo em tempo real.
+                    Esta ação vai deslogar este dispositivo em tempo real.
                   </p>
 
                   <div className="mt-4 rounded-xl border border-black/12 bg-white/80 px-4 py-3">
                     <p className="text-[14px] font-semibold text-black/78">{confirmingDevice.label}</p>
                     <p className="mt-1 text-[14px] text-black/58">
-                      {confirmingDevice.location || "LocalizaÃ§Ã£o indisponÃ­vel"}
+                      {confirmingDevice.location || "Localização indisponível"}
                     </p>
                   </div>
 
@@ -6770,7 +6865,7 @@ function PlaceholderSection({ title }: { title: string }) {
     <div className="mx-auto w-full max-w-[900px] pb-10">
       <div className="rounded-2xl border border-dashed border-black/20 bg-white/50 p-6">
         <h3 className="text-[20px] font-semibold text-black/80">{title}</h3>
-        <p className="mt-2 text-[14px] text-black/65">Esta seÃ§Ã£o foi preparada no modal e pode receber seu conteÃºdo especÃ­fico agora.</p>
+        <p className="mt-2 text-[14px] text-black/65">Esta seção foi preparada no modal e pode receber seu conteúdo específico agora.</p>
       </div>
     </div>
   );
@@ -6781,7 +6876,7 @@ export default function ConfigMain({
   onClose,
   activeSection,
   onSectionChange,
-  userNickname = "Usuario",
+  userNickname = "Usuário",
   userFullName,
   userEmail = "conta@wyzer.com.br",
   userPhoneE164 = null,
@@ -6815,7 +6910,7 @@ export default function ConfigMain({
   const tapTransition = useMemo(() => (prefersReducedMotion ? { duration: 0.08 } : ({ type: "spring" as const, stiffness: 1200, damping: 52, mass: 0.24 })), [prefersReducedMotion]);
 
   const nickname = useMemo(
-    () => String(userFullName || "").trim() || String(userNickname || "").trim() || "usuario",
+    () => String(userFullName || "").trim() || String(userNickname || "").trim() || "usuário",
     [userFullName, userNickname]
   );
   const email = useMemo(() => String(userEmail || "").trim().toLowerCase() || "conta@wyzer.com.br", [userEmail]);
@@ -6865,12 +6960,12 @@ export default function ConfigMain({
     <AnimatePresence>
       {open && (
         <motion.div className="fixed inset-0 z-[190] flex items-center justify-center p-4 sm:p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <motion.button type="button" aria-label="Fechar configuraÃ§Ãµes" className="absolute inset-0 bg-black/55 backdrop-blur-[6px]" onClick={onClose} />
+          <motion.button type="button" aria-label="Fechar configurações" className="absolute inset-0 bg-black/55 backdrop-blur-[6px]" onClick={onClose} />
 
           <motion.section
             role="dialog"
             aria-modal="true"
-            aria-label="Configuracoes da conta"
+            aria-label="Configurações da conta"
             initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 20, scale: 0.985 }}
             animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
             exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.985 }}
@@ -6882,8 +6977,8 @@ export default function ConfigMain({
                 <div className="px-4 pb-3"><div className="mt-3 flex h-11 items-center gap-2 rounded-xl border border-black/14 bg-[#e7e7e8] px-3"><Search className="h-[16px] w-[16px] text-black/45" /><input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar" className="h-full w-full bg-transparent text-[14px] text-black/70 outline-none placeholder:text-black/45" /></div></div>
                 <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-5">
                   <LayoutGroup id="config-sidebar-active-pills">
-                    <SidebarGroup title="Configuracoes de usuario" items={userItems} activeSection={activeSection} onSectionChange={onSectionChange} tapFeedback={tapFeedback} tapTransition={tapTransition} activePillTransition={activePillTransition} />
-                    {billingItems.length > 0 && <div className="mt-4"><SidebarGroup title="Configuracoes de cobranca" items={billingItems} activeSection={activeSection} onSectionChange={onSectionChange} tapFeedback={tapFeedback} tapTransition={tapTransition} activePillTransition={activePillTransition} /></div>}
+                    <SidebarGroup title="Configurações de usuário" items={userItems} activeSection={activeSection} onSectionChange={onSectionChange} tapFeedback={tapFeedback} tapTransition={tapTransition} activePillTransition={activePillTransition} />
+                    {billingItems.length > 0 && <div className="mt-4"><SidebarGroup title="Configurações de cobrança" items={billingItems} activeSection={activeSection} onSectionChange={onSectionChange} tapFeedback={tapFeedback} tapTransition={tapTransition} activePillTransition={activePillTransition} /></div>}
                     {appItems.length > 0 && <div className="mt-4"><SidebarGroup title="Config. do aplicativo" items={appItems} activeSection={activeSection} onSectionChange={onSectionChange} tapFeedback={tapFeedback} tapTransition={tapTransition} activePillTransition={activePillTransition} /></div>}
                     {normalizedSearch && filtered.length === 0 && <div className="mt-4 rounded-xl border border-dashed border-black/18 bg-white/50 px-3 py-3 text-[13px] text-black/55">Nenhum item encontrado.</div>}
                   </LayoutGroup>
@@ -6907,3 +7002,4 @@ export default function ConfigMain({
     </AnimatePresence>
   );
 }
+
