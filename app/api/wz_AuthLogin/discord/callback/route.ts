@@ -616,53 +616,6 @@ async function queryWzUsersRows(params: {
   }>;
 }
 
-async function findWzUserById(params: {
-  sb: ReturnType<typeof supabaseAdmin>;
-  userId: string;
-}) {
-  const userId = String(params.userId || "").trim();
-  if (!userId) return null;
-
-  const columnsToTry = [
-    "id,email,full_name",
-    "id,email",
-    "id",
-  ];
-
-  for (const columns of columnsToTry) {
-    const res = await params.sb
-      .from("wz_users")
-      .select(columns)
-      .eq("id", userId)
-      .maybeSingle();
-
-    if (!res.error) {
-      const row = (res.data || {}) as {
-        id?: string | null;
-        email?: string | null;
-        full_name?: string | null;
-      };
-      const id = normalizeText(row.id);
-      if (!id) return null;
-      return {
-        id,
-        email: normalizeEmail(row.email),
-        fullName: sanitizeFullName(row.full_name),
-      };
-    }
-
-    const hasMissingColumn = ["id", "email", "full_name"].some((column) =>
-      isMissingColumnError(res.error, column),
-    );
-    if (!hasMissingColumn) {
-      console.error("[discord-callback] find wz_user by id error:", res.error);
-      break;
-    }
-  }
-
-  return null;
-}
-
 function pickBestWzUserRow(
   rows: Array<{
     id: string | null;
@@ -1409,60 +1362,9 @@ export async function GET(req: NextRequest) {
     const linkedUserId = identityLookup.lookupOk ? identityLookup.userId : null;
 
     if (oauthIntent === "connect") {
-      const expectedUserId = normalizeText(
-        stateRes.ok
-          ? String(stateRes.payload.connect_user_id || "")
-          : String(hintedConnectUserId || ""),
+      return fail(
+        "Conexao manual via Discord foi desativada. Use login com Discord para entrar ou vincular por e-mail.",
       );
-      if (!expectedUserId) {
-        return fail("Sessao invalida para conectar Discord.");
-      }
-      if (activeSessionUserId && activeSessionUserId !== expectedUserId) {
-        return fail("Sessao invalida para conectar Discord.");
-      }
-
-      const targetUser = await findWzUserById({
-        sb,
-        userId: expectedUserId,
-      });
-      if (!targetUser?.id) {
-        return fail("Conta local nao encontrada para conectar Discord.");
-      }
-
-      if (linkedUserId && linkedUserId !== targetUser.id) {
-        return fail("Esta conta Discord ja esta conectada a outra conta.");
-      }
-
-      const connectUpsert = await upsertLoginProviderRecord({
-        sb,
-        userId: targetUser.id,
-        authUserId,
-        email,
-        provider: "discord",
-        providerUserId,
-        metadata: {
-          fullName,
-          username: discordUsername,
-          avatarUrl: normalizeText(String(userMetadata?.avatar_url || userMetadata?.picture || "")),
-        },
-        nowIso,
-      });
-      if (!connectUpsert.ok) {
-        if (!connectUpsert.schemaReady) {
-          return fail("Schema de provedores nao disponivel para conectar Discord.");
-        }
-        return fail("Nao foi possivel conectar Discord nesta conta.");
-      }
-
-      const successUrl = buildDiscordConnectRedirect({
-        origin: requestOrigin,
-        next: safeNext,
-        ok: true,
-      });
-      const res = NextResponse.redirect(successUrl, 303);
-      clearDiscordStateCookie(res, req);
-      applyNoStore(res);
-      return res;
     }
 
     const wzUser = await findOrCreateDiscordWzUser({
