@@ -1262,20 +1262,22 @@ export async function GET(req: NextRequest) {
     .filter(Boolean)
     .filter((value, index, arr) => arr.indexOf(value) === index);
 
+  const validStates = stateCandidates
+    .map((candidate) => readDiscordStateTicket(candidate))
+    .filter(
+      (parsed): parsed is Extract<ReturnType<typeof readDiscordStateTicket>, { ok: true }> =>
+        parsed.ok,
+    )
+    .sort((a, b) => Number(b.payload.iat || 0) - Number(a.payload.iat || 0));
+
   let stateRes: ReturnType<typeof readDiscordStateTicket> = readDiscordStateTicket("");
-  let fallbackValidState: ReturnType<typeof readDiscordStateTicket> | null = null;
-  for (const candidate of stateCandidates) {
-    const parsed = readDiscordStateTicket(candidate);
-    if (!parsed.ok) continue;
-    if (!fallbackValidState) fallbackValidState = parsed;
-    if (hintedIntent === "connect" && readDiscordIntent(parsed.payload) !== "connect") {
-      continue;
-    }
-    stateRes = parsed;
-    break;
-  }
-  if (!stateRes.ok && fallbackValidState?.ok) {
-    stateRes = fallbackValidState;
+  if (validStates.length > 0) {
+    const preferred =
+      hintedIntent === "connect"
+        ? validStates.find((parsed) => readDiscordIntent(parsed.payload) === "connect") ||
+          validStates[0]
+        : validStates[0];
+    stateRes = preferred;
   }
 
   const hintedNext = sanitizeNext(String(req.nextUrl.searchParams.get("rt") || "").trim() || "/");

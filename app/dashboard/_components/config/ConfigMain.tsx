@@ -5891,7 +5891,9 @@ function AuthorizedAppsContent() {
     setStartingConnectProvider(provider);
     try {
       const next =
-        typeof window !== "undefined" ? window.location.href : "/dashboard";
+        typeof window !== "undefined"
+          ? `${window.location.pathname}${window.location.search}${window.location.hash}`
+          : "/dashboard";
       const response = await fetch(`/api/wz_AuthLogin/${provider}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
