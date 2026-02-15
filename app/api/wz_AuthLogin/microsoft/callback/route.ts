@@ -468,7 +468,7 @@ function buildMicrosoftConnectRedirect(params: {
     url.searchParams.set("oauthProvider", "microsoft");
     url.searchParams.set(
       "oauthError",
-      String(params.error || "Falha ao conectar microsoft.").slice(0, 220),
+      String(params.error || "Falha ao conectar Microsoft.").slice(0, 220),
     );
   }
 
@@ -682,7 +682,7 @@ async function updateWzUserBestEffort(params: {
   }
 }
 
-async function insertmicrosoftWzUser(params: {
+async function insertMicrosoftWzUser(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   email: string;
   fullName: string | null;
@@ -838,7 +838,7 @@ async function findOrCreateMicrosoftWzUser(params: {
 
   try {
     const mustCreatePassword = hasPasswordProvider ? false : true;
-    const createdId = await insertmicrosoftWzUser({
+    const createdId = await insertMicrosoftWzUser({
       sb: params.sb,
       email: params.email,
       fullName: params.fullName,
@@ -900,9 +900,10 @@ function parseMicrosoftProviderUserId(user: Record<string, unknown>) {
   const identities = Array.isArray(user?.identities)
     ? (user.identities as Array<Record<string, unknown>>)
     : [];
-  const microsoftIdentity = identities.find(
-    (identity) => String(identity?.provider || "").trim().toLowerCase() === "microsoft",
-  );
+  const microsoftIdentity = identities.find((identity) => {
+    const provider = String(identity?.provider || "").trim().toLowerCase();
+    return provider === "microsoft" || provider === "azure";
+  });
   if (!microsoftIdentity) return null;
 
   const directId = normalizeText(String(microsoftIdentity.id || ""));
@@ -1241,7 +1242,7 @@ export async function GET(req: NextRequest) {
 
   const code = String(req.nextUrl.searchParams.get("code") || "").trim();
   if (!code) {
-    return fail("Codigo OAuth ausente. Reinicie o login com microsoft.");
+    return fail("Codigo OAuth ausente. Reinicie o login com Microsoft.");
   }
 
   try {
@@ -1249,7 +1250,7 @@ export async function GET(req: NextRequest) {
       stateRes.ok ? String(stateRes.payload.cv || "") : "",
     );
     if (!codeVerifier) {
-      return fail("Sessao OAuth invalida. Reinicie o login com microsoft.");
+      return fail("Sessao OAuth invalida. Reinicie o login com Microsoft.");
     }
 
     const exchange = await exchangeMicrosoftPkceCode({
@@ -1259,7 +1260,7 @@ export async function GET(req: NextRequest) {
     if (!exchange.ok) {
       console.error("[microsoft-callback] PKCE exchange error:", exchange.error);
       return fail(
-        "Nao foi possivel validar o retorno do microsoft. Confira as URLs de redirecionamento.",
+        "Nao foi possivel validar o retorno da Microsoft. Confira as URLs de redirecionamento.",
       );
     }
 
@@ -1276,7 +1277,7 @@ export async function GET(req: NextRequest) {
       ) || null;
 
     if (!authUserId || !email) {
-      return fail("Conta microsoft sem e-mail valido. Tente outra conta.");
+      return fail("Conta Microsoft sem e-mail valido. Tente outra conta.");
     }
     const hasPasswordProvider = hasPasswordProviderInAuthUser(user);
 
@@ -1290,11 +1291,11 @@ export async function GET(req: NextRequest) {
       providerUserId,
     });
     if (identityLookup.conflict) {
-      return fail("Conflito de vinculo do microsoft detectado. Contate o suporte.");
+      return fail("Conflito de vinculo da Microsoft detectado. Contate o suporte.");
     }
     if (!identityLookup.lookupOk && identityLookup.schemaReady) {
       return fail(
-        "Nao foi possivel validar o vinculo da conta microsoft agora. Tente novamente em instantes.",
+        "Nao foi possivel validar o vinculo da conta Microsoft agora. Tente novamente em instantes.",
       );
     }
     const linkedUserId = identityLookup.lookupOk ? identityLookup.userId : null;
@@ -1306,7 +1307,7 @@ export async function GET(req: NextRequest) {
       const activeUserId = String(activeSession?.userId || "").trim();
       const expectedUserId = String(stateRes.payload.connect_user_id || "").trim();
       if (!activeUserId || !expectedUserId || activeUserId !== expectedUserId) {
-        return fail("Sessao invalida para conectar microsoft.");
+        return fail("Sessao invalida para conectar Microsoft.");
       }
 
       const targetUser = await findWzUserById({
@@ -1314,11 +1315,11 @@ export async function GET(req: NextRequest) {
         userId: activeUserId,
       });
       if (!targetUser?.id) {
-        return fail("Conta local nao encontrada para conectar microsoft.");
+        return fail("Conta local nao encontrada para conectar Microsoft.");
       }
 
       if (linkedUserId && linkedUserId !== targetUser.id) {
-        return fail("Esta conta microsoft ja esta conectada a outra conta.");
+        return fail("Esta conta Microsoft ja esta conectada a outra conta.");
       }
 
       const connectUpsert = await upsertLoginProviderRecord({
@@ -1336,9 +1337,9 @@ export async function GET(req: NextRequest) {
       });
       if (!connectUpsert.ok) {
         if (!connectUpsert.schemaReady) {
-          return fail("Schema de provedores nao disponivel para conectar microsoft.");
+          return fail("Schema de provedores nao disponivel para conectar Microsoft.");
         }
-        return fail("Nao foi possivel conectar microsoft nesta conta.");
+        return fail("Nao foi possivel conectar Microsoft nesta conta.");
       }
 
       const successUrl = buildMicrosoftConnectRedirect({
@@ -1380,7 +1381,7 @@ export async function GET(req: NextRequest) {
       if (!loginUpsert.schemaReady) {
         console.warn("[microsoft-callback] login provider schema not ready; continuing without provider link");
       } else {
-        console.error("[microsoft-callback] failed to persist microsoft login provider link");
+        console.error("[microsoft-callback] failed to persist Microsoft login provider link");
       }
     }
 
@@ -1446,14 +1447,14 @@ export async function GET(req: NextRequest) {
         : "";
     if (errCode === "WZ_OAUTH_LINKED_USER_NOT_FOUND") {
       return fail(
-        "Conta microsoft vinculada com referencia invalida. Contate o suporte para corrigir o vinculo.",
+        "Conta Microsoft vinculada com referencia invalida. Contate o suporte para corrigir o vinculo.",
       );
     }
     if (isPhoneConstraintViolation(error)) {
       return fail(
-        "Nao foi possivel concluir seu cadastro microsoft por regra de telefone da conta. Tente novamente em instantes.",
+        "Nao foi possivel concluir seu cadastro Microsoft por regra de telefone da conta. Tente novamente em instantes.",
       );
     }
-    return fail("Erro inesperado no login microsoft. Tente novamente.");
+    return fail("Erro inesperado no login Microsoft. Tente novamente.");
   }
 }

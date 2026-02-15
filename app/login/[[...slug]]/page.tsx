@@ -91,6 +91,8 @@ const GOOGLE_PROVIDER_ICON_URL =
   "https://cdn.brandfetch.io/id6O2oGzv-/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1755835725776";
 const DISCORD_PROVIDER_ICON_URL =
   "https://cdn.brandfetch.io/idM8Hlme1a/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1668075051777";
+const MICROSOFT_PROVIDER_ICON_URL =
+  "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/microsoft.svg";
 
 function isAllowedReturnToAbsolute(url: URL) {
   const host = url.hostname.toLowerCase();
@@ -267,7 +269,7 @@ type Step =
   | "collect"
   | "emailCode"
   | "twoFactorCode";
-type OAuthProvider = "google" | "discord";
+type OAuthProvider = "google" | "discord" | "microsoft";
 type LoginAuthMethod = "choose" | "totp" | "passkey";
 type LoginAuthMethodsPayload = { totp?: boolean; passkey?: boolean };
 type PasskeyLoginOptionsPayload = {
@@ -606,6 +608,7 @@ export default function LinkLoginPage() {
   const [twoFactorShakeTick, setTwoFactorShakeTick] = useState(0);
   const [startingGoogleLogin, setStartingGoogleLogin] = useState(false);
   const [startingDiscordLogin, setStartingDiscordLogin] = useState(false);
+  const [startingMicrosoftLogin, setStartingMicrosoftLogin] = useState(false);
   const [msgError, setMsgError] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
 
@@ -778,7 +781,10 @@ export default function LinkLoginPage() {
       .trim()
       .toLowerCase();
 
-    const provider = oauthProvider === "google" || oauthProvider === "discord"
+    const provider =
+      oauthProvider === "google" ||
+      oauthProvider === "discord" ||
+      oauthProvider === "microsoft"
       ? (oauthProvider as OAuthProvider)
       : null;
     if (!provider || !isValidEmail(oauthEmail)) {
@@ -1030,7 +1036,13 @@ export default function LinkLoginPage() {
     if (check.state === "checking") return "Verificando seu e-mail...";
     if (check.state === "exists")
       return oauthOnboardingProvider
-        ? `Conta ${oauthOnboardingProvider === "discord" ? "Discord" : "Google"} conectada. Vamos confirmar com codigo.`
+        ? `Conta ${
+            oauthOnboardingProvider === "discord"
+              ? "Discord"
+              : oauthOnboardingProvider === "microsoft"
+                ? "Microsoft"
+                : "Google"
+          } conectada. Vamos confirmar com codigo.`
         : "Conta encontrada. Vamos confirmar com codigo.";
     if (check.state === "new")
       return "Novo por aqui? Complete seus dados e confirme o e-mail.";
@@ -1137,7 +1149,14 @@ export default function LinkLoginPage() {
   const startGoogleLogin = useCallback(
     async (e?: React.MouseEvent | React.FormEvent) => {
       e?.preventDefault?.();
-      if (startingGoogleLogin || startingDiscordLogin || busy) return;
+      if (
+        startingGoogleLogin ||
+        startingDiscordLogin ||
+        startingMicrosoftLogin ||
+        busy
+      ) {
+        return;
+      }
 
       try {
         setStartingGoogleLogin(true);
@@ -1175,13 +1194,20 @@ export default function LinkLoginPage() {
         setStartingGoogleLogin(false);
       }
     },
-    [busy, startingGoogleLogin, startingDiscordLogin],
+    [busy, startingGoogleLogin, startingDiscordLogin, startingMicrosoftLogin],
   );
 
   const startDiscordLogin = useCallback(
     async (e?: React.MouseEvent | React.FormEvent) => {
       e?.preventDefault?.();
-      if (startingDiscordLogin || startingGoogleLogin || busy) return;
+      if (
+        startingDiscordLogin ||
+        startingGoogleLogin ||
+        startingMicrosoftLogin ||
+        busy
+      ) {
+        return;
+      }
 
       try {
         setStartingDiscordLogin(true);
@@ -1219,7 +1245,58 @@ export default function LinkLoginPage() {
         setStartingDiscordLogin(false);
       }
     },
-    [busy, startingDiscordLogin, startingGoogleLogin],
+    [busy, startingDiscordLogin, startingGoogleLogin, startingMicrosoftLogin],
+  );
+
+  const startMicrosoftLogin = useCallback(
+    async (e?: React.MouseEvent | React.FormEvent) => {
+      e?.preventDefault?.();
+      if (
+        startingMicrosoftLogin ||
+        startingGoogleLogin ||
+        startingDiscordLogin ||
+        busy
+      ) {
+        return;
+      }
+
+      try {
+        setStartingMicrosoftLogin(true);
+        setMsgError(null);
+        const returnToValue =
+          typeof window !== "undefined"
+            ? new URL(window.location.href).searchParams.get("returnTo") || ""
+            : "";
+
+        const res = await fetch("/api/wz_AuthLogin/microsoft/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ next: returnToValue }),
+        });
+        const payload = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          authUrl?: string;
+          error?: string;
+        };
+
+        if (!res.ok || !payload.ok || !payload.authUrl) {
+          throw new Error(
+            payload.error || "Nao foi possivel iniciar o login com Microsoft.",
+          );
+        }
+
+        window.location.assign(String(payload.authUrl));
+      } catch (error) {
+        setMsgError(
+          error instanceof Error
+            ? error.message
+            : "Erro inesperado ao iniciar login com Microsoft.",
+        );
+      } finally {
+        setStartingMicrosoftLogin(false);
+      }
+    },
+    [busy, startingDiscordLogin, startingGoogleLogin, startingMicrosoftLogin],
   );
 
   // Declare returnTo at component level
@@ -2220,13 +2297,21 @@ export default function LinkLoginPage() {
                         <button
                           type="button"
                           onClick={startGoogleLogin}
-                          disabled={busy || startingGoogleLogin || startingDiscordLogin}
+                          disabled={
+                            busy ||
+                            startingGoogleLogin ||
+                            startingDiscordLogin ||
+                            startingMicrosoftLogin
+                          }
                           className={cx(
                             "group inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-[15px] border border-black/10 bg-white text-[15px] font-semibold text-black/82",
                             "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
                             "hover:border-black/20 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
                             "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
-                            (busy || startingGoogleLogin || startingDiscordLogin) &&
+                            (busy ||
+                              startingGoogleLogin ||
+                              startingDiscordLogin ||
+                              startingMicrosoftLogin) &&
                               "cursor-not-allowed opacity-70",
                           )}
                         >
@@ -2249,13 +2334,21 @@ export default function LinkLoginPage() {
                         <button
                           type="button"
                           onClick={startDiscordLogin}
-                          disabled={busy || startingGoogleLogin || startingDiscordLogin}
+                          disabled={
+                            busy ||
+                            startingGoogleLogin ||
+                            startingDiscordLogin ||
+                            startingMicrosoftLogin
+                          }
                           className={cx(
                             "group mt-3 inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-[15px] border border-black/10 bg-white text-[15px] font-semibold text-black/82",
                             "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
                             "hover:border-black/20 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
                             "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
-                            (busy || startingGoogleLogin || startingDiscordLogin) &&
+                            (busy ||
+                              startingGoogleLogin ||
+                              startingDiscordLogin ||
+                              startingMicrosoftLogin) &&
                               "cursor-not-allowed opacity-70",
                           )}
                         >
@@ -2274,6 +2367,43 @@ export default function LinkLoginPage() {
                         </button>
                       </motion.div>
 
+                      <motion.div variants={collectModeItemVariants}>
+                        <button
+                          type="button"
+                          onClick={startMicrosoftLogin}
+                          disabled={
+                            busy ||
+                            startingGoogleLogin ||
+                            startingDiscordLogin ||
+                            startingMicrosoftLogin
+                          }
+                          className={cx(
+                            "group mt-3 inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-[15px] border border-black/10 bg-white text-[15px] font-semibold text-black/82",
+                            "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                            "hover:border-black/20 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
+                            "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
+                            (busy ||
+                              startingGoogleLogin ||
+                              startingDiscordLogin ||
+                              startingMicrosoftLogin) &&
+                              "cursor-not-allowed opacity-70",
+                          )}
+                        >
+                          {startingMicrosoftLogin ? (
+                            <SpinnerMini reduced={!!prefersReducedMotion} />
+                          ) : (
+                            <span
+                              aria-hidden
+                              className="h-5 w-5 bg-contain bg-center bg-no-repeat"
+                              style={{ backgroundImage: `url('${MICROSOFT_PROVIDER_ICON_URL}')` }}
+                            />
+                          )}
+                          <span>
+                            {startingMicrosoftLogin ? "Conectando..." : "Continuar com Microsoft"}
+                          </span>
+                        </button>
+                      </motion.div>
+
                       <motion.div
                         variants={collectModeItemVariants}
                         className="mt-6 flex items-center justify-center"
@@ -2281,10 +2411,18 @@ export default function LinkLoginPage() {
                         <button
                           type="button"
                           onClick={resetAll}
-                          disabled={busy || startingGoogleLogin || startingDiscordLogin}
+                          disabled={
+                            busy ||
+                            startingGoogleLogin ||
+                            startingDiscordLogin ||
+                            startingMicrosoftLogin
+                          }
                           className={cx(
                             "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
-                            busy || startingGoogleLogin || startingDiscordLogin
+                            busy ||
+                            startingGoogleLogin ||
+                            startingDiscordLogin ||
+                            startingMicrosoftLogin
                               ? "text-black/35 cursor-not-allowed"
                               : "text-black/55 hover:text-black/75",
                           )}
@@ -2466,14 +2604,30 @@ export default function LinkLoginPage() {
                     ref={continueBtnRef}
                     type="submit"
                     onClick={startFlow}
-                    disabled={!canStart || busy || startingGoogleLogin || startingDiscordLogin}
+                    disabled={
+                      !canStart ||
+                      busy ||
+                      startingGoogleLogin ||
+                      startingDiscordLogin ||
+                      startingMicrosoftLogin
+                    }
                     whileHover={
-                      prefersReducedMotion || !canStart || busy || startingGoogleLogin || startingDiscordLogin
+                      prefersReducedMotion ||
+                      !canStart ||
+                      busy ||
+                      startingGoogleLogin ||
+                      startingDiscordLogin ||
+                      startingMicrosoftLogin
                         ? undefined
                         : { y: -2, scale: 1.01 }
                     }
                     whileTap={
-                      prefersReducedMotion || !canStart || busy || startingGoogleLogin || startingDiscordLogin
+                      prefersReducedMotion ||
+                      !canStart ||
+                      busy ||
+                      startingGoogleLogin ||
+                      startingDiscordLogin ||
+                      startingMicrosoftLogin
                         ? undefined
                         : { scale: 0.98 }
                     }
@@ -2485,7 +2639,11 @@ export default function LinkLoginPage() {
                       "group relative w-full mt-7 bg-[#171717] border border-[#454545] border-2 rounded-full px-15 py-5 text-white",
                       "focus:outline-none transition-all duration-300 ease-out",
                       "text-[16px] font-semibold shadow-[0_18px_55px_rgba(0,0,0,0.12)] hover:shadow-[0_22px_70px_rgba(0,0,0,0.16)] pr-16 transform-gpu",
-                      !canStart || busy || startingGoogleLogin || startingDiscordLogin
+                      !canStart ||
+                      busy ||
+                      startingGoogleLogin ||
+                      startingDiscordLogin ||
+                      startingMicrosoftLogin
                         ? "opacity-60 cursor-not-allowed select-none pointer-events-none"
                         : "hover:border-[#6a6a6a] focus:border-lime-400",
                     )}
@@ -2497,12 +2655,22 @@ export default function LinkLoginPage() {
 
                     <motion.span
                       whileHover={
-                        prefersReducedMotion || !canStart || busy || startingGoogleLogin || startingDiscordLogin
+                        prefersReducedMotion ||
+                        !canStart ||
+                        busy ||
+                        startingGoogleLogin ||
+                        startingDiscordLogin ||
+                        startingMicrosoftLogin
                           ? undefined
                           : { scale: 1.06 }
                       }
                       whileTap={
-                        prefersReducedMotion || !canStart || busy || startingGoogleLogin || startingDiscordLogin
+                        prefersReducedMotion ||
+                        !canStart ||
+                        busy ||
+                        startingGoogleLogin ||
+                        startingDiscordLogin ||
+                        startingMicrosoftLogin
                           ? undefined
                           : { scale: 0.96 }
                       }
@@ -2512,7 +2680,11 @@ export default function LinkLoginPage() {
                       }}
                       className={cx(
                         "absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-3 transition-all duration-300 ease-out",
-                        !canStart || busy || startingGoogleLogin || startingDiscordLogin
+                        !canStart ||
+                        busy ||
+                        startingGoogleLogin ||
+                        startingDiscordLogin ||
+                        startingMicrosoftLogin
                           ? "bg-transparent"
                           : "bg-transparent group-hover:bg-white/10 group-hover:translate-x-0.5",
                       )}
@@ -2536,13 +2708,21 @@ export default function LinkLoginPage() {
                   <button
                     type="button"
                     onClick={startGoogleLogin}
-                    disabled={busy || startingGoogleLogin || startingDiscordLogin}
+                    disabled={
+                      busy ||
+                      startingGoogleLogin ||
+                      startingDiscordLogin ||
+                      startingMicrosoftLogin
+                    }
                     className={cx(
                       "group mt-4 inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-[15px] border border-black/10 bg-white text-[15px] font-semibold text-black/82",
                       "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
                       "hover:border-black/20 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
                       "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
-                      (busy || startingGoogleLogin || startingDiscordLogin) &&
+                      (busy ||
+                        startingGoogleLogin ||
+                        startingDiscordLogin ||
+                        startingMicrosoftLogin) &&
                         "cursor-not-allowed opacity-70",
                     )}
                   >
@@ -2566,13 +2746,21 @@ export default function LinkLoginPage() {
                       setShowMoreProviders(true);
                       setMsgError(null);
                     }}
-                    disabled={busy || startingGoogleLogin || startingDiscordLogin}
+                    disabled={
+                      busy ||
+                      startingGoogleLogin ||
+                      startingDiscordLogin ||
+                      startingMicrosoftLogin
+                    }
                     className={cx(
                       "mt-3 inline-flex h-[52px] w-full items-center justify-center rounded-[15px] border border-black/10 bg-white text-[15px] font-semibold text-black/82",
                       "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
                       "hover:border-black/20 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
                       "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
-                      (busy || startingGoogleLogin || startingDiscordLogin) &&
+                      (busy ||
+                        startingGoogleLogin ||
+                        startingDiscordLogin ||
+                        startingMicrosoftLogin) &&
                         "cursor-not-allowed opacity-70",
                     )}
                   >

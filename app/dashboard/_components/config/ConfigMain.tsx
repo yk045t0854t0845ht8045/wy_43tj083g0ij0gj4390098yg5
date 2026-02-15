@@ -146,6 +146,8 @@ const AUTHORIZED_APPS_GOOGLE_ICON_URL =
   "https://cdn.brandfetch.io/id6O2oGzv-/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1755835725776";
 const AUTHORIZED_APPS_DISCORD_ICON_URL =
   "https://cdn.brandfetch.io/idM8Hlme1a/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1668075051777";
+const AUTHORIZED_APPS_MICROSOFT_ICON_URL =
+  "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/microsoft.svg";
 const AUTHORIZED_APPS_TOOLTIP_ICON_URL = "https://cdn.lordicon.com/tnapqovl.json";
 
 const menuItems: MenuItem[] = [
@@ -5778,7 +5780,7 @@ function AuthorizedAppsContent() {
   const [creationProvider, setCreationProvider] = useState<string>("password");
   const [mustCreatePassword, setMustCreatePassword] = useState(false);
   const [connectModalOpen, setConnectModalOpen] = useState(false);
-  const [startingConnectProvider, setStartingConnectProvider] = useState<"google" | "discord" | null>(null);
+  const [startingConnectProvider, setStartingConnectProvider] = useState<"google" | "microsoft" | null>(null);
   const [removingProvider, setRemovingProvider] = useState<string | null>(null);
   const [confirmingRemoveProvider, setConfirmingRemoveProvider] = useState<AuthorizedProviderRecord | null>(null);
   const mustCreatePasswordProviderName = useMemo(() => {
@@ -5883,7 +5885,7 @@ function AuthorizedAppsContent() {
     }
   }, []);
 
-  const startConnectProvider = useCallback(async (provider: "google" | "discord") => {
+  const startConnectProvider = useCallback(async (provider: "google" | "microsoft") => {
     if (startingConnectProvider || removingProvider) return;
 
     setError(null);
@@ -6154,6 +6156,12 @@ function AuthorizedAppsContent() {
                         className="h-5 w-5 bg-contain bg-center bg-no-repeat"
                         style={{ backgroundImage: `url('${AUTHORIZED_APPS_GOOGLE_ICON_URL}')` }}
                       />
+                    ) : provider.provider === "microsoft" ? (
+                      <span
+                        aria-hidden
+                        className="h-5 w-5 bg-contain bg-center bg-no-repeat"
+                        style={{ backgroundImage: `url('${AUTHORIZED_APPS_MICROSOFT_ICON_URL}')` }}
+                      />
                     ) : provider.provider === "discord" ? (
                       <span
                         aria-hidden
@@ -6235,7 +6243,9 @@ function AuthorizedAppsContent() {
                         </span>
                       </span>
                     </div>
-                    {(provider.provider === "google" || provider.provider === "password") ? (
+                    {(provider.provider === "google" ||
+                      provider.provider === "microsoft" ||
+                      provider.provider === "password") ? (
                       <p className="mt-1 text-[13px] text-black/56">
                         Email vinculado: {maskAuthorizedProviderEmail(provider.linkedEmail) || "indisponível"}
                       </p>
@@ -6329,10 +6339,11 @@ function AuthorizedAppsContent() {
                       {connectableProviders
                         .filter(
                           (provider) =>
-                            provider.provider === "google" || provider.provider === "discord",
+                            provider.provider === "google" ||
+                            provider.provider === "microsoft",
                         )
                         .map((provider) => {
-                          const connectProvider = provider.provider as "google" | "discord";
+                          const connectProvider = provider.provider as "google" | "microsoft";
                           const isBusy = startingConnectProvider === connectProvider;
                           return (
                             <button
@@ -6358,7 +6369,7 @@ function AuthorizedAppsContent() {
                                     backgroundImage:
                                       connectProvider === "google"
                                         ? `url('${AUTHORIZED_APPS_GOOGLE_ICON_URL}')`
-                                        : `url('${AUTHORIZED_APPS_DISCORD_ICON_URL}')`,
+                                        : `url('${AUTHORIZED_APPS_MICROSOFT_ICON_URL}')`,
                                   }}
                                 />
                               )}

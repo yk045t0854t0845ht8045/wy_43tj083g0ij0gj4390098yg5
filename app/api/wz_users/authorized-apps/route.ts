@@ -16,7 +16,7 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 };
 
-const CONNECTABLE_PROVIDER_ORDER: LoginProvider[] = ["google"];
+const CONNECTABLE_PROVIDER_ORDER: LoginProvider[] = ["google", "microsoft"];
 
 type WzUserRow = {
   id?: string | null;

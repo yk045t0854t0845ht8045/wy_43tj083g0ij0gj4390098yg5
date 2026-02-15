@@ -120,7 +120,8 @@ function normalizeLoginMethod(value?: string | null): SessionLoginMethod | "unkn
     clean === "exchange" ||
     clean === "sync" ||
     clean === "google" ||
-    clean === "discord"
+    clean === "discord" ||
+    clean === "microsoft"
   ) {
     return clean;
   }
