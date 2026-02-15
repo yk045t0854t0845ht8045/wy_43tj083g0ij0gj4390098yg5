@@ -1,6 +1,5 @@
 import crypto from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
-import { readActiveSessionFromRequest } from "../../_active_session";
 import { supabaseAnon } from "../../_supabase";
 
 export const dynamic = "force-dynamic";
@@ -16,8 +15,7 @@ const DISCORD_STATE_COOKIE_NAME = "wz_discord_oauth_state_v1";
 type DiscordStatePayload = {
   typ: "wz-discord-oauth-state";
   next: string;
-  intent?: "login" | "connect";
-  connect_user_id?: string;
+  intent?: "login";
   iat: number;
   exp: number;
   nonce: string;
@@ -174,8 +172,6 @@ function resolveDiscordStateCookieDomain(req: NextRequest) {
 
 function createDiscordStateTicket(params: {
   next: string;
-  intent?: "login" | "connect";
-  connectUserId?: string;
   codeVerifier?: string;
   ttlMs?: number;
 }) {
@@ -187,8 +183,7 @@ function createDiscordStateTicket(params: {
   const payload: DiscordStatePayload = {
     typ: "wz-discord-oauth-state",
     next: sanitizeNext(params.next),
-    intent: params.intent === "connect" ? "connect" : "login",
-    connect_user_id: String(params.connectUserId || "").trim() || undefined,
+    intent: "login",
     iat: now,
     exp: now + ttlMs,
     nonce: crypto.randomBytes(8).toString("hex"),
@@ -208,55 +203,34 @@ export async function POST(req: NextRequest) {
       intent?: string;
     };
     const intentRaw = String(body?.intent || "").trim().toLowerCase();
-    const intent = intentRaw === "connect" ? "connect" : "login";
+    if (intentRaw === "connect") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Conexao manual com Discord foi desativada. Use apenas login com Discord.",
+        },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
     const nextRaw = String(body?.next || body?.returnTo || "").trim();
     const nextSafe = sanitizeNext(nextRaw || "/");
-    let connectUserId = "";
-    if (intent === "connect") {
-      const activeSession = await readActiveSessionFromRequest(req, {
-        seedIfMissing: false,
-      });
-      if (!activeSession?.userId) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "Sessao invalida para conectar provedor.",
-          },
-          { status: 401, headers: NO_STORE_HEADERS },
-        );
-      }
-      connectUserId = String(activeSession.userId).trim();
-      if (!connectUserId) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "Sessao invalida para conectar provedor.",
-          },
-          { status: 401, headers: NO_STORE_HEADERS },
-        );
-      }
-    }
+    const intent = "login" as const;
     const codeVerifier = createPkceCodeVerifier();
     const codeChallenge = createPkceCodeChallenge(codeVerifier);
     const oauthScopes = buildDiscordOauthScopes();
 
     const stateTicket = createDiscordStateTicket({
       next: nextSafe,
-      intent,
-      connectUserId,
       codeVerifier,
     });
 
     const callback = new URL(
       "/api/wz_AuthLogin/discord/callback",
-      getRequestOrigin(req, { preferRequestHost: intent === "connect" }),
+      getRequestOrigin(req),
     );
     callback.searchParams.set("st", stateTicket);
     callback.searchParams.set("oi", intent);
     callback.searchParams.set("rt", nextSafe);
-    if (intent === "connect" && connectUserId) {
-      callback.searchParams.set("cu", connectUserId);
-    }
 
     const sb = supabaseAnon();
     const { data, error } = await sb.auth.signInWithOAuth({
