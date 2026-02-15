@@ -92,7 +92,7 @@ const GOOGLE_PROVIDER_ICON_URL =
 const DISCORD_PROVIDER_ICON_URL =
   "https://cdn.brandfetch.io/idM8Hlme1a/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1668075051777";
 const MICROSOFT_PROVIDER_ICON_URL =
-  "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/microsoft.svg";
+  "https://cdn.brandfetch.io/idchmboHEZ/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1727706673120";
 
 function isAllowedReturnToAbsolute(url: URL) {
   const host = url.hostname.toLowerCase();
