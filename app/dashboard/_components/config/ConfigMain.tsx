@@ -605,6 +605,7 @@ function AccountContent({
     "password" | "google" | "apple" | "github" | "unknown"
   >("password");
   const [localMustCreatePassword, setLocalMustCreatePassword] = useState(false);
+  const [authorizedProvidersLoaded, setAuthorizedProvidersLoaded] = useState(false);
   const normalizedAccountCreatedAt = useMemo(
     () => normalizeIsoDatetime(accountCreatedAt),
     [accountCreatedAt]
@@ -660,6 +661,8 @@ function AccountContent({
   const [sendingPasswordCode, setSendingPasswordCode] = useState(false);
   const [resendingPasswordCode, setResendingPasswordCode] = useState(false);
   const [verifyingPasswordCode, setVerifyingPasswordCode] = useState(false);
+  const [passwordModalAutoSetupFlow, setPasswordModalAutoSetupFlow] = useState(false);
+  const [passwordModalSkeletonLoading, setPasswordModalSkeletonLoading] = useState(false);
   const [accountActionTwoFactorModalOpen, setAccountActionTwoFactorModalOpen] = useState(false);
   const [accountActionTwoFactorContext, setAccountActionTwoFactorContext] =
     useState<AccountActionTwoFactorContext | null>(null);
@@ -734,6 +737,7 @@ function AccountContent({
   const offsetStartRef = useRef({ x: 0, y: 0 });
   const accountActionPasskeyAutoStartRef = useRef("");
   const autoOpenPasswordModalTokenRef = useRef(0);
+  const passwordModalSkeletonStartedAtRef = useRef(0);
 
   useEffect(() => setLocalPhoto(normalizePhotoLink(userPhotoLink)), [userPhotoLink]);
   useEffect(() => setLocalEmail(String(email || "").trim().toLowerCase()), [email]);
@@ -745,6 +749,7 @@ function AccountContent({
 
   useEffect(() => {
     let cancelled = false;
+    setAuthorizedProvidersLoaded(false);
 
     const loadAuthorizedProviders = async () => {
       try {
@@ -775,6 +780,10 @@ function AccountContent({
         if (!cancelled) {
           setLocalPrimaryAuthProvider("password");
           setLocalMustCreatePassword(false);
+        }
+      } finally {
+        if (!cancelled) {
+          setAuthorizedProvidersLoaded(true);
         }
       }
     };
@@ -1764,11 +1773,15 @@ function AccountContent({
   const closePasswordModal = () => {
     if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
     setPasswordModalOpen(false);
+    setPasswordModalAutoSetupFlow(false);
+    setPasswordModalSkeletonLoading(false);
     resetPasswordChangeFlow();
   };
 
   const openPasswordModal = () => {
     if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
+    setPasswordModalAutoSetupFlow(false);
+    setPasswordModalSkeletonLoading(false);
     resetPasswordChangeFlow();
     setPasswordModalOpen(true);
   };
@@ -1781,6 +1794,9 @@ function AccountContent({
     autoOpenPasswordModalTokenRef.current = token;
     if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
 
+    passwordModalSkeletonStartedAtRef.current = Date.now();
+    setPasswordModalAutoSetupFlow(true);
+    setPasswordModalSkeletonLoading(true);
     resetPasswordChangeFlow();
     setPasswordModalOpen(true);
   }, [
@@ -1789,6 +1805,27 @@ function AccountContent({
     resendingPasswordCode,
     sendingPasswordCode,
     verifyingPasswordCode,
+  ]);
+
+  useEffect(() => {
+    if (!passwordModalOpen) return;
+    if (!passwordModalAutoSetupFlow || !passwordModalSkeletonLoading) return;
+    if (!authorizedProvidersLoaded) return;
+
+    const elapsedMs = Date.now() - Number(passwordModalSkeletonStartedAtRef.current || 0);
+    const minSkeletonMs = 280;
+    const waitMs = Math.max(0, minSkeletonMs - elapsedMs);
+    const timer = window.setTimeout(() => {
+      setPasswordModalSkeletonLoading(false);
+      setPasswordModalAutoSetupFlow(false);
+    }, waitMs);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    authorizedProvidersLoaded,
+    passwordModalAutoSetupFlow,
+    passwordModalOpen,
+    passwordModalSkeletonLoading,
   ]);
 
   const startPasswordChange = async () => {
@@ -3397,6 +3434,10 @@ function AccountContent({
   const passwordChangedLabel = `Alterado há: ${formatElapsedTimeLabel(localPasswordChangedAt || relativeBaseTimestamp, relativeNowMs)}`;
   const passwordStatusBadgeLabel = localMustCreatePassword ? "Pendente" : passwordChangedLabel;
   const passwordActionLabel = localMustCreatePassword ? "Criar Senha" : "Alterar Senha";
+  const showPasswordModalSkeleton =
+    passwordModalOpen &&
+    passwordModalAutoSetupFlow &&
+    (passwordModalSkeletonLoading || !authorizedProvidersLoaded);
   const showPhoneSecuritySection = false;
   const externalPrimaryAuthProviderName = resolveExternalAuthProviderName(localPrimaryAuthProvider);
   const passwordDescriptionText = localMustCreatePassword
@@ -4076,7 +4117,11 @@ function AccountContent({
             >
               <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6">
                 <h3 className="text-[18px] font-semibold text-black/80">
-                  {localMustCreatePassword ? "Criar senha" : "Alterar senha"}
+                  {showPasswordModalSkeleton
+                    ? "Preparando senha..."
+                    : localMustCreatePassword
+                    ? "Criar senha"
+                    : "Alterar senha"}
                 </h3>
                 <button
                   type="button"
@@ -4089,7 +4134,20 @@ function AccountContent({
               </div>
 
               <div className="px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
-                {passwordStep === "form" && (
+                {showPasswordModalSkeleton && (
+                  <div className="space-y-4" aria-live="polite" aria-busy="true">
+                    <div className="h-4 w-[82%] animate-pulse rounded-md bg-black/10" />
+                    <div className="h-11 w-full animate-pulse rounded-xl bg-black/[0.07]" />
+                    <div className="h-11 w-full animate-pulse rounded-xl bg-black/[0.07]" />
+                    <div className="h-11 w-full animate-pulse rounded-xl bg-black/[0.07]" />
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <div className="h-9 w-24 animate-pulse rounded-xl bg-black/[0.07]" />
+                      <div className="h-9 w-28 animate-pulse rounded-xl bg-black/[0.12]" />
+                    </div>
+                  </div>
+                )}
+
+                {!showPasswordModalSkeleton && passwordStep === "form" && (
                   <>
                     <p className="text-[14px] leading-[1.45] text-black/62">
                       {localMustCreatePassword
@@ -4142,7 +4200,7 @@ function AccountContent({
                   </>
                 )}
 
-                {passwordStep === "confirm-code" && (
+                {!showPasswordModalSkeleton && passwordStep === "confirm-code" && (
                   <>
                     {passwordCodePhoneMask ? (
                       <p className="text-[14px] leading-[1.45] text-black/62">
@@ -4185,13 +4243,14 @@ function AccountContent({
                   </>
                 )}
 
-                {passwordChangeError && (
+                {!showPasswordModalSkeleton && passwordChangeError && (
                   <p className="mt-4 rounded-lg border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-2 text-[13px] font-medium text-[#b2433e]">
                     {passwordChangeError}
                   </p>
                 )}
 
-                <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                {!showPasswordModalSkeleton && (
+                  <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
                   {passwordStep === "confirm-code" ? (
                     <button
                       type="button"
@@ -4243,7 +4302,8 @@ function AccountContent({
                       {verifyingPasswordCode ? "Validando..." : "Confirmar"}
                     </button>
                   )}
-                </div>
+                  </div>
+                )}
               </div>
             </motion.section>
           </motion.div>
