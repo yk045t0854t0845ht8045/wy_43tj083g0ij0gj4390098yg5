@@ -298,6 +298,17 @@ type StartFlowResponsePayload = {
   ctaLabel?: string;
 };
 
+type EmailCheckResponsePayload = {
+  exists?: boolean;
+  hasPhone?: boolean;
+  passwordSetupRequired?: boolean;
+  provider?: string | null;
+  providerLabel?: string | null;
+  ctaLabel?: string | null;
+  notice?: string | null;
+  error?: string;
+};
+
 function normalizeBase64Url(value: unknown) {
   return String(value || "")
     .trim()
@@ -872,14 +883,41 @@ export default function LinkLoginPage() {
           throw new Error(j?.error || "Falha ao verificar e-mail.");
         }
 
-        const data = (await res.json()) as { exists: boolean };
+        const data = (await res.json()) as EmailCheckResponsePayload;
+        const exists = Boolean(data?.exists);
+        const provider = String(data?.provider || "")
+          .trim()
+          .toLowerCase();
+        const requiresPasswordSetup =
+          exists &&
+          Boolean(data?.passwordSetupRequired) &&
+          provider === "google";
 
         lastCheckedRef.current = value;
 
-        if (data.exists) {
+        if (exists) {
           setCheck({ state: "exists" });
+          if (requiresPasswordSetup) {
+            const message =
+              String(data?.notice || "Voce nao cumpriu os requisitos de senha da conta.")
+                .trim() || "Voce nao cumpriu os requisitos de senha da conta.";
+            setPassword("");
+            setMsgError(message);
+            setPasswordSetupPrompt({
+              message,
+              provider: "google",
+              providerLabel: String(data?.providerLabel || "Google").trim() || "Google",
+              ctaLabel: String(data?.ctaLabel || "Criar agora").trim() || "Criar agora",
+            });
+            setPasswordSetupModalOpen(false);
+          } else {
+            setPasswordSetupPrompt(null);
+            setPasswordSetupModalOpen(false);
+          }
         } else {
           setCheck({ state: "new" });
+          setPasswordSetupPrompt(null);
+          setPasswordSetupModalOpen(false);
         }
 
         // animação + trava o email quando válido (modelo Google)
@@ -1048,6 +1086,8 @@ export default function LinkLoginPage() {
       return "Abra seu aplicativo autenticador para continuar.";
     }
     if (check.state === "checking") return "Verificando seu e-mail...";
+    if (check.state === "exists" && passwordSetupPrompt)
+      return `Conta criada com ${passwordSetupPrompt.providerLabel}. Continue com ${passwordSetupPrompt.providerLabel} para criar sua senha.`;
     if (check.state === "exists")
       return oauthOnboardingProvider
         ? "Conta Google conectada. Vamos confirmar com codigo."
@@ -1065,6 +1105,7 @@ export default function LinkLoginPage() {
     twoFactorAllowsTotp,
     twoFactorAllowsPasskey,
     oauthOnboardingProvider,
+    passwordSetupPrompt,
   ]);
 
   const canStart = useMemo(() => {
@@ -1075,6 +1116,7 @@ export default function LinkLoginPage() {
     const okPass = String(password || "").length >= 6; // ajuste se quiser
 
     if (check.state === "exists") {
+      if (passwordSetupPrompt) return false;
       return okPass;
     }
 
@@ -1086,7 +1128,7 @@ export default function LinkLoginPage() {
     }
 
     return false;
-  }, [email, check.state, fullName, phone, cpf, password]);
+  }, [email, check.state, fullName, phone, cpf, password, passwordSetupPrompt]);
 
   const startFlow = useCallback(
     async (e?: React.FormEvent | React.MouseEvent) => {
@@ -2363,7 +2405,7 @@ export default function LinkLoginPage() {
                   </div>
 
                   <AnimatePresence mode="sync" initial={false}>
-                    {check.state === "exists" && (
+                    {check.state === "exists" && !passwordSetupPrompt && (
                       <motion.div
                         initial={{ opacity: 0, y: 10, filter: "blur(10px)" }}
                         animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
