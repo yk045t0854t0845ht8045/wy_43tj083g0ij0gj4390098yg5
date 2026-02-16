@@ -345,16 +345,14 @@ async function updateWzUserBestEffort(params: {
   }
 }
 
-type OAuthProvider = "google" | "discord" | "apple" | "github" | "microsoft" | "unknown";
+type OAuthProvider = "google" | "apple" | "github" | "unknown";
 
 function normalizeOAuthProvider(value?: string | null): OAuthProvider | null {
   const clean = String(value || "").trim().toLowerCase();
   if (
     clean === "google" ||
-    clean === "discord" ||
     clean === "apple" ||
-    clean === "github" ||
-    clean === "microsoft"
+    clean === "github"
   ) {
     return clean;
   }

@@ -12,8 +12,6 @@ export type SessionLoginMethod =
   | "exchange"
   | "sync"
   | "google"
-  | "discord"
-  | "microsoft"
   | "unknown";
 
 export type SessionLoginFlow = "login" | "register" | "unknown";
@@ -44,9 +42,7 @@ function normalizeLoginMethod(value?: string | null): SessionLoginMethod {
     clean === "trusted" ||
     clean === "exchange" ||
     clean === "sync" ||
-    clean === "google" ||
-    clean === "discord" ||
-    clean === "microsoft"
+    clean === "google"
   ) {
     return clean;
   }

@@ -16,7 +16,6 @@ alter table if exists public.wz_auth_sessions
       'exchange',
       'sync',
       'google',
-      'discord',
       'unknown'
     )
   );

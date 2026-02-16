@@ -16,7 +16,7 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 };
 
-const CONNECTABLE_PROVIDER_ORDER: LoginProvider[] = ["google", "microsoft"];
+const CONNECTABLE_PROVIDER_ORDER: LoginProvider[] = ["google"];
 
 type WzUserRow = {
   id?: string | null;
@@ -28,7 +28,7 @@ type WzUserRow = {
 
 type ProviderPayload = {
   id: string;
-  provider: "password" | "google" | "discord" | "apple" | "github" | "microsoft" | "unknown";
+  provider: LoginProvider;
   providerLabel: string;
   linkedAt: string | null;
   lastLoginAt: string | null;
@@ -42,7 +42,7 @@ type ProviderPayload = {
 };
 
 type ConnectableProviderPayload = {
-  provider: "password" | "google" | "discord" | "apple" | "github" | "microsoft" | "unknown";
+  provider: LoginProvider;
   providerLabel: string;
 };
 
@@ -272,10 +272,8 @@ function providerLabel(provider: string) {
   const p = normalizeLoginProvider(provider);
   if (p === "password") return "Wyzer Login";
   if (p === "google") return "Google";
-  if (p === "discord") return "Discord";
   if (p === "apple") return "Apple";
   if (p === "github") return "GitHub";
-  if (p === "microsoft") return "Microsoft";
   return "Desconhecido";
 }
 
@@ -285,10 +283,8 @@ function pickProviderUsername(provider: LoginProvider, metadata?: Record<string,
   const keysByProvider: Record<LoginProvider, string[]> = {
     password: [],
     google: ["fullName", "name", "displayName", "given_name", "username"],
-    discord: ["username", "global_name", "display_name", "fullName", "name", "nick", "nickname"],
     apple: ["fullName", "name", "displayName"],
     github: ["username", "login", "name", "fullName"],
-    microsoft: ["fullName", "name", "displayName", "username"],
     unknown: ["fullName", "name", "displayName", "username"],
   };
 
@@ -466,10 +462,8 @@ function mapCreationProviderFromSession(loginMethod: unknown, loginFlow: unknown
 
   if (
     method === "google" ||
-    method === "discord" ||
     method === "apple" ||
-    method === "github" ||
-    method === "microsoft"
+    method === "github"
   ) {
     return method as LoginProvider;
   }

@@ -144,10 +144,6 @@ const CONFIG_SIDEBAR_ICON_LINKS = {
 const AUTHORIZED_APPS_WYZER_ICON_URL = "https://www.wyzer.com.br/logo.svg";
 const AUTHORIZED_APPS_GOOGLE_ICON_URL =
   "https://cdn.brandfetch.io/id6O2oGzv-/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1755835725776";
-const AUTHORIZED_APPS_DISCORD_ICON_URL =
-  "https://cdn.brandfetch.io/idM8Hlme1a/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1668075051777";
-const AUTHORIZED_APPS_MICROSOFT_ICON_URL =
-  "https://cdn.brandfetch.io/idchmboHEZ/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1727706673120";
 const AUTHORIZED_APPS_TOOLTIP_ICON_URL = "https://cdn.lordicon.com/tnapqovl.json";
 
 const menuItems: MenuItem[] = [
@@ -220,10 +216,8 @@ function onlyDigits(value: string) {
 function resolveExternalAuthProviderName(provider?: string | null) {
   const clean = String(provider || "").trim().toLowerCase();
   if (clean === "google") return "Google";
-  if (clean === "discord") return "Discord";
   if (clean === "github") return "GitHub";
   if (clean === "apple") return "Apple";
-  if (clean === "microsoft") return "Microsoft";
   return null;
 }
 
@@ -605,7 +599,7 @@ function AccountContent({
     normalizeIsoDatetime(passwordChangedAt)
   );
   const [localPrimaryAuthProvider, setLocalPrimaryAuthProvider] = useState<
-    "password" | "google" | "discord" | "apple" | "github" | "microsoft" | "unknown"
+    "password" | "google" | "apple" | "github" | "unknown"
   >("password");
   const [localMustCreatePassword, setLocalMustCreatePassword] = useState(false);
   const normalizedAccountCreatedAt = useMemo(
@@ -766,10 +760,8 @@ function AccountContent({
         if (
           provider === "password" ||
           provider === "google" ||
-          provider === "discord" ||
           provider === "apple" ||
           provider === "github" ||
-          provider === "microsoft" ||
           provider === "unknown"
         ) {
           setLocalPrimaryAuthProvider(provider);
@@ -4764,7 +4756,7 @@ function AccountContent({
                     {twoFactorEnableSubStep === "setup" && (
                       <>
                         <p className="text-[14px] leading-[1.45] text-black/62">
-                          Escaneie o QR code com Google Authenticator, Microsoft Authenticator ou app
+                          Escaneie o QR code com Google Authenticator ou app
                           equivalente. Se preferir, use o código manual.
                         </p>
 
@@ -5618,7 +5610,7 @@ function PrivacyDataContent() {
 
 type AuthorizedProviderRecord = {
   id: string;
-  provider: "password" | "google" | "discord" | "apple" | "github" | "microsoft" | "unknown";
+  provider: "password" | "google" | "apple" | "github" | "unknown";
   providerLabel: string;
   linkedAt: string | null;
   lastLoginAt: string | null;
@@ -5632,7 +5624,7 @@ type AuthorizedProviderRecord = {
 };
 
 type AuthorizedConnectableProvider = {
-  provider: "password" | "google" | "discord" | "apple" | "github" | "microsoft" | "unknown";
+  provider: "password" | "google" | "apple" | "github" | "unknown";
   providerLabel: string;
 };
 
@@ -5682,10 +5674,8 @@ function resolveAuthorizedProviderLabel(provider: AuthorizedProviderRecord) {
   const raw = String(provider.providerLabel || "").trim();
   if (raw) return raw;
   if (provider.provider === "google") return "Google";
-  if (provider.provider === "discord") return "Discord";
   if (provider.provider === "apple") return "Apple";
   if (provider.provider === "github") return "GitHub";
-  if (provider.provider === "microsoft") return "Microsoft";
   return "Desconhecido";
 }
 
@@ -5697,10 +5687,8 @@ function resolveAuthorizedProviderName(
   const raw = String(providerLabelRaw || "").trim();
   if (clean === "password") return "Wyzer Login";
   if (clean === "google") return "Google";
-  if (clean === "discord") return "Discord";
   if (clean === "apple") return "Apple";
   if (clean === "github") return "GitHub";
-  if (clean === "microsoft") return "Microsoft";
   if (raw) return raw;
   return "Desconhecido";
 }
@@ -5780,7 +5768,7 @@ function AuthorizedAppsContent() {
   const [creationProvider, setCreationProvider] = useState<string>("password");
   const [mustCreatePassword, setMustCreatePassword] = useState(false);
   const [connectModalOpen, setConnectModalOpen] = useState(false);
-  const [startingConnectProvider, setStartingConnectProvider] = useState<"google" | "microsoft" | null>(null);
+  const [startingConnectProvider, setStartingConnectProvider] = useState<"google" | null>(null);
   const [removingProvider, setRemovingProvider] = useState<string | null>(null);
   const [confirmingRemoveProvider, setConfirmingRemoveProvider] = useState<AuthorizedProviderRecord | null>(null);
   const mustCreatePasswordProviderName = useMemo(() => {
@@ -5804,10 +5792,8 @@ function AuthorizedAppsContent() {
     const clean = String(primaryProvider || "").trim().toLowerCase();
     if (clean === "password") return "Wyzer Login";
     if (clean === "google") return "Google";
-    if (clean === "discord") return "Discord";
     if (clean === "apple") return "Apple";
     if (clean === "github") return "GitHub";
-    if (clean === "microsoft") return "Microsoft";
     return "Desconhecido";
   }, [primaryProvider, providers]);
   const orderedProviders = useMemo(() => {
@@ -5885,7 +5871,7 @@ function AuthorizedAppsContent() {
     }
   }, []);
 
-  const startConnectProvider = useCallback(async (provider: "google" | "microsoft") => {
+  const startConnectProvider = useCallback(async (provider: "google") => {
     if (startingConnectProvider || removingProvider) return;
 
     setError(null);
@@ -6156,18 +6142,6 @@ function AuthorizedAppsContent() {
                         className="h-5 w-5 bg-contain bg-center bg-no-repeat"
                         style={{ backgroundImage: `url('${AUTHORIZED_APPS_GOOGLE_ICON_URL}')` }}
                       />
-                    ) : provider.provider === "microsoft" ? (
-                      <span
-                        aria-hidden
-                        className="h-5 w-5 bg-contain bg-center bg-no-repeat"
-                        style={{ backgroundImage: `url('${AUTHORIZED_APPS_MICROSOFT_ICON_URL}')` }}
-                      />
-                    ) : provider.provider === "discord" ? (
-                      <span
-                        aria-hidden
-                        className="h-5 w-5 bg-contain bg-center bg-no-repeat"
-                        style={{ backgroundImage: `url('${AUTHORIZED_APPS_DISCORD_ICON_URL}')` }}
-                      />
                     ) : provider.provider === "password" ? (
                       <span
                         aria-hidden
@@ -6243,16 +6217,9 @@ function AuthorizedAppsContent() {
                         </span>
                       </span>
                     </div>
-                    {(provider.provider === "google" ||
-                      provider.provider === "microsoft" ||
-                      provider.provider === "password") ? (
+                    {(provider.provider === "google" || provider.provider === "password") ? (
                       <p className="mt-1 text-[13px] text-black/56">
                         Email vinculado: {maskAuthorizedProviderEmail(provider.linkedEmail) || "indisponível"}
-                      </p>
-                    ) : null}
-                    {provider.provider === "discord" ? (
-                      <p className="mt-1 text-[13px] text-black/56">
-                        Nick vinculado: {String(provider.linkedUsername || "").trim() || "indisponível"}
                       </p>
                     ) : null}
                   </div>
@@ -6338,12 +6305,10 @@ function AuthorizedAppsContent() {
                     <div className="mt-5 space-y-3">
                       {connectableProviders
                         .filter(
-                          (provider) =>
-                            provider.provider === "google" ||
-                            provider.provider === "microsoft",
+                          (provider) => provider.provider === "google",
                         )
                         .map((provider) => {
-                          const connectProvider = provider.provider as "google" | "microsoft";
+                          const connectProvider = provider.provider as "google";
                           const isBusy = startingConnectProvider === connectProvider;
                           return (
                             <button
@@ -6365,12 +6330,7 @@ function AuthorizedAppsContent() {
                                 <span
                                   aria-hidden
                                   className="h-5 w-5 bg-contain bg-center bg-no-repeat"
-                                  style={{
-                                    backgroundImage:
-                                      connectProvider === "google"
-                                        ? `url('${AUTHORIZED_APPS_GOOGLE_ICON_URL}')`
-                                        : `url('${AUTHORIZED_APPS_MICROSOFT_ICON_URL}')`,
-                                  }}
+                                  style={{ backgroundImage: `url('${AUTHORIZED_APPS_GOOGLE_ICON_URL}')` }}
                                 />
                               )}
                               <span>

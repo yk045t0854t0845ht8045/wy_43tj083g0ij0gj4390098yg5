@@ -40,7 +40,7 @@ $$;
 
 alter table if exists public.wz_pending_auth
   add constraint wz_pending_auth_flow_chk
-  check (flow in ('login', 'register', 'google', 'discord'));
+  check (flow in ('login', 'register', 'google'));
 
 alter table if exists public.wz_pending_auth
   add constraint wz_pending_auth_stage_chk

@@ -55,7 +55,7 @@ begin
   ) then
     alter table public.wz_auth_login_providers
       add constraint wz_auth_login_providers_provider_chk
-      check (provider in ('password', 'google', 'discord', 'apple', 'github', 'microsoft', 'unknown'));
+      check (provider in ('password', 'google', 'apple', 'github', 'unknown'));
   end if;
 end;
 $$;

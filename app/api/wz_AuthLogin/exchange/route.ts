@@ -109,9 +109,7 @@ function normalizeLoginMethod(value?: string | null) {
     clean === "trusted" ||
     clean === "exchange" ||
     clean === "sync" ||
-    clean === "google" ||
-    clean === "discord" ||
-    clean === "microsoft"
+    clean === "google"
   ) {
     return clean;
   }

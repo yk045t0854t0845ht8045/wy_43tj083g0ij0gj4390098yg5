@@ -29,4 +29,4 @@ alter table if exists public.wz_users
 
 alter table if exists public.wz_users
   add constraint wz_users_auth_provider_chk
-  check (auth_provider in ('password', 'google', 'discord', 'apple', 'github', 'microsoft', 'unknown'));
+  check (auth_provider in ('password', 'google', 'apple', 'github', 'unknown'));

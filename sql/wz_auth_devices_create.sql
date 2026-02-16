@@ -170,7 +170,7 @@ begin
   ) then
     alter table public.wz_auth_sessions
       add constraint wz_auth_sessions_login_method_chk
-      check (login_method in ('password', 'email_code', 'sms_code', 'totp', 'passkey', 'trusted', 'exchange', 'sync', 'google', 'discord', 'unknown'));
+      check (login_method in ('password', 'email_code', 'sms_code', 'totp', 'passkey', 'trusted', 'exchange', 'sync', 'google', 'unknown'));
   end if;
 
   if not exists (
