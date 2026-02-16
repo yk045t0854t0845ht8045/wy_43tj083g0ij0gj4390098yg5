@@ -104,6 +104,29 @@ function isSessionDevicesSchemaMissing(error: unknown) {
   );
 }
 
+function isCheckConstraintViolation(error: unknown, needle: string) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  if (code !== "23514") return false;
+
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  const text = String(needle || "").trim().toLowerCase();
+  if (!text) return false;
+  return message.includes(text) || details.includes(text);
+}
+
+function isSessionCompatibilityConstraintError(error: unknown) {
+  return (
+    isCheckConstraintViolation(error, "wz_auth_sessions_login_method_chk") ||
+    isCheckConstraintViolation(error, "wz_auth_sessions_login_flow_chk") ||
+    isCheckConstraintViolation(error, "login_method") ||
+    isCheckConstraintViolation(error, "login_flow")
+  );
+}
+
 function isWzUsersSchemaMissing(error: unknown) {
   return (
     isMissingTableError(error, "wz_users") ||
@@ -375,23 +398,68 @@ export async function registerIssuedSession(params: RegisterIssuedSessionParams)
       deviceId,
     });
 
-    const sessionUpsert = reusableSessionId
-      ? await sb
-          .from("wz_auth_sessions")
-          .update(sessionPayload)
-          .eq("id", reusableSessionId)
-          .select("id")
-          .single()
-      : await sb
-          .from("wz_auth_sessions")
-          .upsert(sessionPayload, {
-            onConflict: "user_id,sid",
-            ignoreDuplicates: false,
-          })
-          .select("id")
-          .single();
+    const persistSession = async (payload: Record<string, unknown>) => {
+      return reusableSessionId
+        ? await sb
+            .from("wz_auth_sessions")
+            .update(payload)
+            .eq("id", reusableSessionId)
+            .select("id")
+            .single()
+        : await sb
+            .from("wz_auth_sessions")
+            .upsert(payload, {
+              onConflict: "user_id,sid",
+              ignoreDuplicates: false,
+            })
+            .select("id")
+            .single();
+    };
 
-    if (sessionUpsert.error) throw sessionUpsert.error;
+    const compatibilityPayload: Record<string, unknown> = { ...sessionPayload };
+    let lastPersistError: unknown = null;
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const sessionUpsert = await persistSession(compatibilityPayload);
+      if (!sessionUpsert.error) {
+        lastPersistError = null;
+        break;
+      }
+
+      lastPersistError = sessionUpsert.error;
+      if (isSessionDevicesSchemaMissing(sessionUpsert.error)) {
+        throw sessionUpsert.error;
+      }
+
+      let patched = false;
+      for (const key of Object.keys(compatibilityPayload)) {
+        if (isMissingColumnError(sessionUpsert.error, key)) {
+          delete compatibilityPayload[key];
+          patched = true;
+        }
+      }
+      if (patched) continue;
+
+      if (isSessionCompatibilityConstraintError(sessionUpsert.error)) {
+        if (
+          String(compatibilityPayload.login_method || "").trim().toLowerCase() !== "unknown"
+        ) {
+          compatibilityPayload.login_method = "unknown";
+          patched = true;
+        }
+        if (String(compatibilityPayload.login_flow || "").trim().toLowerCase() !== "unknown") {
+          compatibilityPayload.login_flow = "unknown";
+          patched = true;
+        }
+      }
+
+      if (patched) continue;
+      throw sessionUpsert.error;
+    }
+
+    if (lastPersistError) {
+      throw lastPersistError;
+    }
   } catch (error) {
     if (isSessionDevicesSchemaMissing(error)) return;
     console.error("[session-devices] registerIssuedSession error:", error);

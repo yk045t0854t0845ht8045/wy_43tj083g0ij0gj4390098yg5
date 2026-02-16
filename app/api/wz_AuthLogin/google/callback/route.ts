@@ -1160,6 +1160,96 @@ async function tryTrustedGoogleBypass(params: {
   return res;
 }
 
+function appendGooglePasswordSetupQuery(nextSafe: string) {
+  const dashboardOrigin = getDashboardOrigin();
+  const raw = String(nextSafe || "").trim() || "/";
+  const isAbsolute = /^https?:\/\//i.test(raw);
+  const target = isAbsolute ? new URL(raw) : new URL(raw, `${dashboardOrigin}/`);
+  target.searchParams.set("openConfig", "my-account");
+  target.searchParams.set("openPasswordModal", "1");
+  target.searchParams.set("passwordSetupFlow", "1");
+  target.searchParams.set("passwordSetupProvider", "google");
+  if (isAbsolute) return target.toString();
+  return `${target.pathname}${target.search}${target.hash}`;
+}
+
+async function issueGoogleLoginRedirect(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  req: NextRequest;
+  userId: string;
+  authUserId: string;
+  email: string;
+  fullName: string | null;
+  nextSafe: string;
+  loginFlow: "login" | "register";
+  isAccountCreationSession: boolean;
+  mustCreatePassword: boolean;
+}) {
+  const dashboard = getDashboardOrigin();
+  const normalizedFullName = sanitizeFullName(params.fullName);
+  const targetNext = params.mustCreatePassword
+    ? appendGooglePasswordSetupQuery(params.nextSafe)
+    : params.nextSafe;
+
+  await params.sb.from("wz_pending_auth").delete().eq("email", params.email);
+  await params.sb
+    .from("wz_auth_challenges")
+    .update({ consumed: true })
+    .eq("email", params.email)
+    .eq("channel", "email")
+    .eq("consumed", false);
+
+  if (isHostOnlyMode()) {
+    const ticket = makeDashboardTicket({
+      userId: params.userId,
+      email: params.email,
+      fullName: normalizedFullName,
+    });
+    const nextUrl =
+      `${dashboard}/api/wz_AuthLogin/exchange` +
+      `?ticket=${encodeURIComponent(ticket)}` +
+      `&next=${encodeURIComponent(targetNext)}` +
+      `&lm=google` +
+      `&lf=${encodeURIComponent(params.loginFlow)}` +
+      (params.isAccountCreationSession ? "&acs=1" : "");
+
+    const res = NextResponse.redirect(nextUrl, 303);
+    setSessionCookie(
+      res,
+      {
+        userId: params.userId,
+        email: params.email,
+        fullName: normalizedFullName || undefined,
+      },
+      params.req.headers,
+    );
+    return res;
+  }
+
+  const nextUrl = toDashboardRedirectTarget(targetNext, dashboard);
+  const res = NextResponse.redirect(nextUrl, 303);
+  const sessionPayload = setSessionCookie(
+    res,
+    {
+      userId: params.userId,
+      email: params.email,
+      fullName: normalizedFullName || undefined,
+    },
+    params.req.headers,
+  );
+  await registerIssuedSession({
+    headers: params.req.headers,
+    userId: params.userId,
+    authUserId: params.authUserId || null,
+    email: params.email,
+    session: sessionPayload,
+    loginMethod: "google",
+    loginFlow: params.loginFlow,
+    isAccountCreationSession: params.isAccountCreationSession,
+  });
+  return res;
+}
+
 type SupabasePkceExchangePayload = {
   user?: Record<string, unknown> | null;
   error?: string;
@@ -1444,6 +1534,29 @@ export async function GET(req: NextRequest) {
         applyNoStore(trustedRedirect);
         return trustedRedirect;
       }
+    }
+
+    try {
+      const directGoogleRedirect = await issueGoogleLoginRedirect({
+        sb,
+        req,
+        userId: wzUser.userId,
+        authUserId,
+        email: accountEmail,
+        fullName: wzUser.fullName || fullName,
+        nextSafe: safeNext,
+        loginFlow: wzUser.isNew ? "register" : "login",
+        isAccountCreationSession: wzUser.isNew,
+        mustCreatePassword: wzUser.mustCreatePassword,
+      });
+      clearGoogleStateCookie(directGoogleRedirect, req);
+      applyNoStore(directGoogleRedirect);
+      return directGoogleRedirect;
+    } catch (directLoginError) {
+      console.error(
+        "[google-callback] direct login failed, falling back to email onboarding:",
+        directLoginError,
+      );
     }
 
     await upsertPendingGoogleOnboarding({
