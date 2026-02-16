@@ -751,9 +751,9 @@ function AccountContent({
     let cancelled = false;
     setAuthorizedProvidersLoaded(false);
 
-    const loadAuthorizedProviders = async () => {
+    const loadPasswordState = async () => {
       try {
-        const res = await fetch("/api/wz_users/authorized-apps", {
+        const res = await fetch("/api/wz_users/password-state", {
           method: "GET",
           cache: "no-store",
           credentials: "include",
@@ -788,7 +788,7 @@ function AccountContent({
       }
     };
 
-    void loadAuthorizedProviders();
+    void loadPasswordState();
     return () => {
       cancelled = true;
     };
@@ -5842,6 +5842,7 @@ function buildAuthorizedProviderTooltipData(params: {
 function AuthorizedAppsContent() {
   const mountedRef = useRef(true);
   const [loading, setLoading] = useState(true);
+  const [passwordStateLoading, setPasswordStateLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [providers, setProviders] = useState<AuthorizedProviderRecord[]>([]);
@@ -5903,6 +5904,59 @@ function AuthorizedAppsContent() {
     return validProviders.every((provider) => !provider.canRemove);
   }, [providers]);
 
+  const loadPasswordState = useCallback(async (opts?: { signal?: AbortSignal; silent?: boolean }) => {
+    const signal = opts?.signal;
+    if (!mountedRef.current) return;
+    if (!opts?.silent) {
+      setPasswordStateLoading(true);
+    }
+
+    try {
+      const response = await fetch("/api/wz_users/password-state", {
+        method: "GET",
+        cache: "no-store",
+        credentials: "include",
+        signal,
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        primaryProvider?: string;
+        mustCreatePassword?: boolean;
+      };
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error("Não foi possível carregar estado de senha.");
+      }
+
+      if (!mountedRef.current) return;
+      const provider = String(payload.primaryProvider || "").trim().toLowerCase();
+      if (
+        provider === "password" ||
+        provider === "google" ||
+        provider === "apple" ||
+        provider === "github" ||
+        provider === "unknown"
+      ) {
+        setPrimaryProvider(provider);
+      }
+      setMustCreatePassword(Boolean(payload.mustCreatePassword));
+    } catch (stateError) {
+      if (!mountedRef.current || signal?.aborted) return;
+      if (!opts?.silent) {
+        setError(
+          stateError instanceof Error
+            ? stateError.message
+            : "Não foi possível carregar estado de senha.",
+        );
+      }
+      setMustCreatePassword(false);
+    } finally {
+      if (mountedRef.current && !signal?.aborted) {
+        setPasswordStateLoading(false);
+      }
+    }
+  }, []);
+
   const loadAuthorizedApps = useCallback(async (opts?: { signal?: AbortSignal; silent?: boolean }) => {
     const signal = opts?.signal;
     if (!mountedRef.current) return;
@@ -5930,7 +5984,6 @@ function AuthorizedAppsContent() {
       if (!mountedRef.current) return;
       setPrimaryProvider(String(payload.primaryProvider || "password").toLowerCase());
       setCreationProvider(String(payload.creationProvider || payload.primaryProvider || "password").toLowerCase());
-      setMustCreatePassword(Boolean(payload.mustCreatePassword));
       setProviders(Array.isArray(payload.providers) ? payload.providers : []);
       setConnectableProviders(
         Array.isArray(payload.connectableProviders) ? payload.connectableProviders : [],
@@ -6038,11 +6091,11 @@ function AuthorizedAppsContent() {
       if (!mountedRef.current) return;
       setPrimaryProvider(String(payload.primaryProvider || "password").toLowerCase());
       setCreationProvider(String(payload.creationProvider || payload.primaryProvider || "password").toLowerCase());
-      setMustCreatePassword(Boolean(payload.mustCreatePassword));
       setProviders(Array.isArray(payload.providers) ? payload.providers : []);
       setConnectableProviders(
         Array.isArray(payload.connectableProviders) ? payload.connectableProviders : [],
       );
+      void loadPasswordState({ silent: true });
       const removedProviderName = resolveAuthorizedProviderName(
         payload.removedProvider || provider.provider,
       );
@@ -6059,7 +6112,7 @@ function AuthorizedAppsContent() {
         setRemovingProvider(null);
       }
     }
-  }, [removingProvider, startingConnectProvider]);
+  }, [loadPasswordState, removingProvider, startingConnectProvider]);
 
   const confirmRemoveProvider = useCallback(async () => {
     if (!confirmingRemoveProvider) return;
@@ -6072,12 +6125,13 @@ function AuthorizedAppsContent() {
     mountedRef.current = true;
     const controller = new AbortController();
     void loadAuthorizedApps({ signal: controller.signal });
+    void loadPasswordState({ signal: controller.signal });
 
     return () => {
       mountedRef.current = false;
       controller.abort();
     };
-  }, [loadAuthorizedApps]);
+  }, [loadAuthorizedApps, loadPasswordState]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -6093,6 +6147,7 @@ function AuthorizedAppsContent() {
       setActionNotice(`${providerName} conectado com sucesso.`);
       setError(null);
       void loadAuthorizedApps({ silent: true });
+      void loadPasswordState({ silent: true });
     } else {
       const fallback =
         oauthError || "Não foi possível conectar o provedor escolhido.";
@@ -6105,7 +6160,7 @@ function AuthorizedAppsContent() {
     const next =
       `${url.pathname}${url.search || ""}${url.hash || ""}` || "/";
     window.history.replaceState({}, "", next);
-  }, [loadAuthorizedApps]);
+  }, [loadAuthorizedApps, loadPasswordState]);
 
   useEffect(() => {
     if (!actionNotice) return;
@@ -6129,7 +6184,10 @@ function AuthorizedAppsContent() {
       <p className="mt-3 text-[15px] leading-[1.45] text-black/58">
         Recomendamos manter pelo menos um método interno de senha para contingência de acesso.
       </p>
-      {mustCreatePassword && (
+      {passwordStateLoading ? (
+        <div className="mt-4 h-[44px] animate-pulse rounded-lg border border-black/10 bg-black/5" />
+      ) : null}
+      {!passwordStateLoading && mustCreatePassword && (
         <p className="mt-4 rounded-lg border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-2 text-[13px] font-medium text-[#b2433e]">
           {mustCreatePasswordProviderName
             ? `Sua conta foi criada com ${mustCreatePasswordProviderName}. Finalize a criação de senha na seção Minha Conta para liberar login por senha.`

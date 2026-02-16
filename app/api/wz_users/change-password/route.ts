@@ -517,18 +517,16 @@ async function findWzUserRow(params: {
   userId: string;
   email: string;
 }) {
-  if (params.email) {
-    const byEmail = await queryWzUsersRows({
-      sb: params.sb,
-      column: "email",
-      value: params.email,
-      mode: "ilike",
-    });
-    const best = pickBestRow(byEmail, params.email);
-    if (best?.id) return best;
-  }
-
   if (params.userId) {
+    const byId = await queryWzUsersRows({
+      sb: params.sb,
+      column: "id",
+      value: params.userId,
+      mode: "eq",
+    });
+    const bestById = pickBestRow(byId, params.email);
+    if (bestById?.id) return bestById;
+
     const byAuthUserId = await queryWzUsersRows({
       sb: params.sb,
       column: "auth_user_id",
@@ -546,15 +544,17 @@ async function findWzUserRow(params: {
     });
     const bestByUserId = pickBestRow(byUserId, params.email);
     if (bestByUserId?.id) return bestByUserId;
+  }
 
-    const byId = await queryWzUsersRows({
+  if (params.email) {
+    const byEmail = await queryWzUsersRows({
       sb: params.sb,
-      column: "id",
-      value: params.userId,
-      mode: "eq",
+      column: "email",
+      value: params.email,
+      mode: "ilike",
     });
-    const bestById = pickBestRow(byId, params.email);
-    if (bestById?.id) return bestById;
+    const best = pickBestRow(byEmail, params.email);
+    if (best?.id) return best;
   }
 
   return null;
@@ -664,11 +664,13 @@ async function resolveRequiresCurrentPassword(params: {
     const { data, error } = await params.sb.auth.admin.getUserById(authUserId);
     if (error) {
       console.error("[change-password] getUserById error:", error);
-      return requiresByProfileFlag;
+      return hasPasswordByProfileFlag;
     }
 
     const hasPasswordProvider = readAuthUserHasPasswordProvider(data?.user || null);
-    if (hasPasswordProvider) {
+    const hasPasswordFingerprint = hasPasswordProvider || hasPasswordByProfileFlag;
+
+    if (hasPasswordFingerprint) {
       if (normalizeBoolean(params.userRow.must_create_password)) {
         await updateWzUserMustCreatePasswordFlagBestEffort({
           sb: params.sb,
@@ -686,19 +688,17 @@ async function resolveRequiresCurrentPassword(params: {
       return true;
     }
 
-    if (!normalizeBoolean(params.userRow.must_create_password)) {
+    if (
+      !hasPasswordByProfileFlag &&
+      !normalizeBoolean(params.userRow.must_create_password)
+    ) {
       await updateWzUserMustCreatePasswordFlagBestEffort({
         sb: params.sb,
         userId: String(params.userRow.id || ""),
         mustCreatePassword: true,
       });
     }
-    if (typeof params.userRow.password_created === "boolean") {
-      return false;
-    }
-    if (hasPasswordByProfileFlag) {
-      return true;
-    }
+
     return false;
   } catch (error) {
     console.error("[change-password] resolveRequiresCurrentPassword error:", error);
