@@ -701,7 +701,7 @@ export default async function DashboardHomePage() {
   const session = await readActiveSessionFromCookie({
     cookieHeader,
     headers: headerLike,
-    seedIfMissing: true,
+    seedIfMissing: false,
   });
   const sidebarEmail = session?.email || (shouldBypassAuth ? "local@localhost" : "");
   let sidebarNickname = shouldBypassAuth ? "Local User" : "Usuario";

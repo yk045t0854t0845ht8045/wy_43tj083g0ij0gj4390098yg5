@@ -45,7 +45,7 @@ export async function POST(req: Request) {
   const session = await readActiveSessionFromCookie({
     cookieHeader,
     headers: headerLike,
-    seedIfMissing: true,
+    seedIfMissing: false,
   })
   if (!session) return json({ error: "unauthorized" }, 401)
 

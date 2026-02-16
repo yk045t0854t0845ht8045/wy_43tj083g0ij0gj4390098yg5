@@ -59,7 +59,7 @@ export default async function DashboardLayout({
     const session = await readActiveSessionFromCookie({
       cookieHeader,
       headers: headerLike,
-      seedIfMissing: true,
+      seedIfMissing: false,
     });
 
     if (!session) {

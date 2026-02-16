@@ -215,7 +215,7 @@ async function queryWzUsersRows(params: {
         : await base.eq(params.column, params.value);
 
     if (!res.error) {
-      const rows = (res.data || []) as Array<Record<string, unknown>>;
+      const rows = ((res.data || []) as unknown) as Array<Record<string, unknown>>;
       return rows.map((row) => ({
         id: normalizeText(String(row.id || "")),
         email: normalizeEmail(String(row.email || "")),

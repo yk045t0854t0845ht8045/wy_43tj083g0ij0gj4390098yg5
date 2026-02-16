@@ -1108,7 +1108,7 @@ export async function POST(req: Request): Promise<Response> {
     const session = await readActiveSessionFromCookie({
       cookieHeader,
       headers: headerLike,
-      seedIfMissing: true,
+      seedIfMissing: false,
     })
     if (!session) {
       return new Response("", {

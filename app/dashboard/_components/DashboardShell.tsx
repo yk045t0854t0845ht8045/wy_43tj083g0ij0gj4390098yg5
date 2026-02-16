@@ -127,7 +127,7 @@ export default function DashboardShell({
   );
   const [autoOpenPasswordModalToken, setAutoOpenPasswordModalToken] = useState(0);
   const [sessionDisconnected, setSessionDisconnected] = useState(false);
-  const [disconnectCountdown, setDisconnectCountdown] = useState(5);
+  const [disconnectCountdown, setDisconnectCountdown] = useState(0);
   const redirectingRef = useRef(false);
   const queryBootstrapHandledRef = useRef(false);
 
@@ -238,7 +238,7 @@ export default function DashboardShell({
 
   const triggerSessionDisconnected = useCallback((opts?: { broadcast?: boolean }) => {
     setSessionDisconnected(true);
-    setDisconnectCountdown(5);
+    setDisconnectCountdown(0);
 
     if (opts?.broadcast === false) return;
     try {
@@ -483,10 +483,10 @@ export default function DashboardShell({
           <div className="w-full max-w-[760px] text-center text-black">
             <h2 className="text-[42px] font-semibold leading-tight">Conta Desconectada</h2>
             <p className="mx-auto mt-4 max-w-[620px] text-[18px] leading-[1.5] text-black/70">
-              Recomendamos que feche o Wyzer em todas as guias e aguarde 5 segundos.
+              Sua sessão foi encerrada por segurança.
             </p>
             <p className="mt-8 text-[15px] font-medium text-black/55">
-              Redirecionando para o login em {disconnectCountdown}s...
+              Redirecionando para o login...
             </p>
           </div>
         </div>

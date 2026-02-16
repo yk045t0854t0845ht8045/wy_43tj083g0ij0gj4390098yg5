@@ -18,7 +18,7 @@ export async function readActiveSessionFromRequest(
     session,
     headers: req.headers,
     touchWindowMs: opts?.touchWindowMs,
-    seedIfMissing: opts?.seedIfMissing,
+    seedIfMissing: opts?.seedIfMissing === true,
   });
 
   if (!validation.active) return null;
@@ -41,7 +41,7 @@ export async function readActiveSessionFromCookie(params: {
     session: session as SessionPayload,
     headers: params.headers || null,
     touchWindowMs: params.touchWindowMs,
-    seedIfMissing: params.seedIfMissing,
+    seedIfMissing: params.seedIfMissing === true,
   });
 
   if (!validation.active) return null;

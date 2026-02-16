@@ -104,9 +104,119 @@ function isSessionDevicesSchemaMissing(error: unknown) {
   );
 }
 
+function isWzUsersSchemaMissing(error: unknown) {
+  return (
+    isMissingTableError(error, "wz_users") ||
+    isMissingColumnError(error, "id") ||
+    isMissingColumnError(error, "auth_user_id") ||
+    isMissingColumnError(error, "email")
+  );
+}
+
 function parseMs(value?: string | null) {
   const ms = Date.parse(String(value || ""));
   return Number.isFinite(ms) ? ms : 0;
+}
+
+async function hasLiveWzUserPrincipal(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+  email: string;
+}) {
+  const userId = String(params.userId || "").trim();
+  const email = normalizeEmail(params.email);
+  if (!userId && !email) return false;
+
+  const queryPresence = async (query: {
+    column: string;
+    value: string;
+    mode: "eq" | "ilike";
+  }) => {
+    const base = params.sb.from("wz_users").select("id").limit(1);
+    const res =
+      query.mode === "ilike"
+        ? await base.ilike(query.column, query.value)
+        : await base.eq(query.column, query.value);
+
+    if (!res.error) {
+      return {
+        ok: true as const,
+        found: Array.isArray(res.data) && res.data.length > 0,
+      };
+    }
+
+    if (isWzUsersSchemaMissing(res.error)) {
+      return { ok: true as const, found: true };
+    }
+
+    return { ok: false as const, found: false, error: res.error };
+  };
+
+  if (userId) {
+    const byId = await queryPresence({
+      column: "id",
+      value: userId,
+      mode: "eq",
+    });
+    if (!byId.ok) {
+      console.error("[session-devices] principal lookup by id error:", byId.error);
+      return true;
+    }
+    if (byId.found) return true;
+
+    const byAuthUserId = await queryPresence({
+      column: "auth_user_id",
+      value: userId,
+      mode: "eq",
+    });
+    if (!byAuthUserId.ok) {
+      console.error(
+        "[session-devices] principal lookup by auth_user_id error:",
+        byAuthUserId.error,
+      );
+      return true;
+    }
+    if (byAuthUserId.found) return true;
+  }
+
+  if (email) {
+    const byEmail = await queryPresence({
+      column: "email",
+      value: email,
+      mode: "ilike",
+    });
+    if (!byEmail.ok) {
+      console.error("[session-devices] principal lookup by email error:", byEmail.error);
+      return true;
+    }
+    if (byEmail.found) return true;
+  }
+
+  return false;
+}
+
+async function revokeSessionBestEffort(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  sessionId: string;
+  reason: string;
+  nowIso: string;
+}) {
+  const sessionId = String(params.sessionId || "").trim();
+  if (!sessionId) return;
+
+  const revokeRes = await params.sb
+    .from("wz_auth_sessions")
+    .update({
+      revoked_at: params.nowIso,
+      revoked_reason: params.reason,
+      updated_at: params.nowIso,
+    })
+    .eq("id", sessionId)
+    .is("revoked_at", null);
+
+  if (!revokeRes.error) return;
+  if (isSessionDevicesSchemaMissing(revokeRes.error)) return;
+  console.error("[session-devices] revokeSessionBestEffort error:", revokeRes.error);
 }
 
 async function resolveOrCreateDevice(params: {
@@ -315,8 +425,17 @@ export async function validateAndTouchSession(params: {
     if (lookup.error) throw lookup.error;
 
     if (!lookup.data) {
-      if (params.seedIfMissing === false) {
-        return { active: true as const, reason: "missing" as const };
+      if (params.seedIfMissing !== true) {
+        return { active: false as const, reason: "missing" as const };
+      }
+
+      const principalActive = await hasLiveWzUserPrincipal({
+        sb,
+        userId,
+        email,
+      });
+      if (!principalActive) {
+        return { active: false as const, reason: "principal-missing" as const };
       }
 
       await registerIssuedSession({
@@ -333,6 +452,21 @@ export async function validateAndTouchSession(params: {
     const revokedAt = String((lookup.data as { revoked_at?: unknown }).revoked_at || "").trim();
     if (revokedAt) {
       return { active: false as const, reason: "revoked" as const };
+    }
+
+    const principalActive = await hasLiveWzUserPrincipal({
+      sb,
+      userId,
+      email,
+    });
+    if (!principalActive) {
+      await revokeSessionBestEffort({
+        sb,
+        sessionId: String((lookup.data as { id?: unknown }).id || ""),
+        reason: "principal_missing",
+        nowIso,
+      });
+      return { active: false as const, reason: "principal-missing" as const };
     }
 
     const touchWindowMs = Math.max(30000, Number(params.touchWindowMs || 120000));
