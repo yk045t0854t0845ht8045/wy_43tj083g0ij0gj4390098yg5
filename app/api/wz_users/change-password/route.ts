@@ -1109,7 +1109,7 @@ export async function PUT(req: NextRequest) {
       console.error("[change-password] wz_users timestamp update error:", userUpdateError);
     }
 
-    await upsertLoginProviderRecord({
+    const upsertPasswordProviderRes = await upsertLoginProviderRecord({
       sb: base.sb,
       userId: String(base.userRow.id),
       authUserId: currentAuthUserId,
@@ -1118,6 +1118,18 @@ export async function PUT(req: NextRequest) {
       metadata: {
         source: requiresCurrentPassword ? "password_change" : "password_setup_first_time",
       },
+    });
+    if (!upsertPasswordProviderRes.ok && upsertPasswordProviderRes.schemaReady) {
+      console.error(
+        "[change-password] failed to persist password login provider link:",
+        upsertPasswordProviderRes.reason,
+      );
+    }
+
+    await updateWzUserMustCreatePasswordFlagBestEffort({
+      sb: base.sb,
+      userId: String(base.userRow.id),
+      mustCreatePassword: false,
     });
 
     return NextResponse.json(

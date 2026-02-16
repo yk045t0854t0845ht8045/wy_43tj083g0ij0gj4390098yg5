@@ -12,7 +12,11 @@ import {
 import { sendLoginCodeEmail } from "../_email";
 import { setSessionCookie } from "../_session";
 import { registerIssuedSession } from "../_session_devices";
-import { listLoginProvidersForUser } from "../_login_providers";
+import {
+  externalProviderLabel,
+  resolvePasswordSetupRequirement,
+  updateMustCreatePasswordBestEffort,
+} from "../_password_setup";
 import {
   hashTrustedLoginToken,
   readTrustedLoginTokenFromCookieHeader,
@@ -65,23 +69,11 @@ function isMissingColumnError(error: unknown, column: string) {
   );
 }
 
-type ExternalLoginProvider = "google";
-
-function normalizeExternalProvider(value: unknown): ExternalLoginProvider | null {
-  const clean = String(value || "").trim().toLowerCase();
-  if (clean === "google") return "google";
-  return null;
-}
-
-function getExternalProviderLabel(provider: ExternalLoginProvider) {
-  if (provider === "google") return "Google";
-  return "Provedor";
-}
-
 type WzUserLoginLookup = {
   id: string | null;
   email: string | null;
   fullName: string | null;
+  authUserId: string | null;
   authProvider: string | null;
   mustCreatePassword: boolean;
 };
@@ -91,6 +83,10 @@ async function getWzUserLoginLookupByEmail(
   email: string,
 ) {
   const columnsToTry = [
+    "id,email,full_name,auth_user_id,auth_provider,must_create_password",
+    "id,email,full_name,auth_user_id,auth_provider",
+    "id,email,full_name,auth_user_id,must_create_password",
+    "id,email,full_name,auth_user_id",
     "id,email,full_name,auth_provider,must_create_password",
     "id,email,full_name,auth_provider",
     "id,email,full_name,must_create_password",
@@ -106,6 +102,7 @@ async function getWzUserLoginLookupByEmail(
         id?: string | null;
         email?: string | null;
         full_name?: string | null;
+        auth_user_id?: string | null;
         auth_provider?: string | null;
         must_create_password?: boolean | number | string | null;
       };
@@ -114,6 +111,7 @@ async function getWzUserLoginLookupByEmail(
         id: normalizeText(row.id),
         email: normalizeText(row.email),
         fullName: normalizeText(row.full_name),
+        authUserId: normalizeText(row.auth_user_id),
         authProvider: normalizeText(row.auth_provider),
         mustCreatePassword:
           typeof row.must_create_password === "undefined"
@@ -123,6 +121,7 @@ async function getWzUserLoginLookupByEmail(
     }
 
     const hasMissingColumn = [
+      "auth_user_id",
       "auth_provider",
       "must_create_password",
       "full_name",
@@ -134,28 +133,6 @@ async function getWzUserLoginLookupByEmail(
       console.error("[start] wz_users select error:", res.error);
       break;
     }
-  }
-
-  return null;
-}
-
-async function resolvePasswordSetupProvider(params: {
-  sb: ReturnType<typeof supabaseAdmin>;
-  userId?: string | null;
-  authProvider?: string | null;
-}) {
-  const byColumn = normalizeExternalProvider(params.authProvider);
-  if (byColumn) return byColumn;
-
-  const userId = normalizeText(params.userId || null);
-  if (!userId) return null;
-
-  const linked = await listLoginProvidersForUser({ sb: params.sb, userId });
-  if (!linked.rows?.length) return null;
-
-  for (const row of linked.rows) {
-    const provider = normalizeExternalProvider(row.provider);
-    if (provider) return provider;
   }
 
   return null;
@@ -332,19 +309,34 @@ export async function POST(req: Request) {
         const msg = String((signErr as { message?: unknown } | null)?.message || "");
         if (!/email not confirmed/i.test(msg)) {
           if (existingWz?.mustCreatePassword) {
-            const provider = await resolvePasswordSetupProvider({
+            const passwordSetupState = await resolvePasswordSetupRequirement({
               sb: admin,
               userId: existingWz.id,
+              email: existingWz.email || email,
+              authUserId: existingWz.authUserId,
               authProvider: existingWz.authProvider,
+              mustCreatePassword: true,
             });
-            if (provider) {
+
+            if (passwordSetupState.shouldAutoClearMustCreatePassword) {
+              await updateMustCreatePasswordBestEffort({
+                sb: admin,
+                userId: existingWz.id,
+                mustCreatePassword: false,
+              });
+            }
+
+            if (
+              passwordSetupState.shouldRequireSetup &&
+              passwordSetupState.providerForSetup
+            ) {
               return NextResponse.json(
                 {
                   ok: false,
                   code: "password_setup_required",
                   error: "Voce nao cumpriu os requisitos de senha da conta.",
-                  provider,
-                  providerLabel: getExternalProviderLabel(provider),
+                  provider: passwordSetupState.providerForSetup,
+                  providerLabel: externalProviderLabel(passwordSetupState.providerForSetup),
                   ctaLabel: "Criar agora",
                 },
                 { status: 409, headers: NO_STORE_HEADERS },

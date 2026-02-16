@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../_supabase";
-import { listLoginProvidersForUser } from "../_login_providers";
+import {
+  externalProviderLabel,
+  resolvePasswordSetupRequirement,
+  updateMustCreatePasswordBestEffort,
+} from "../_password_setup";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -47,23 +51,11 @@ function isMissingColumnError(error: unknown, column: string) {
   );
 }
 
-type ExternalLoginProvider = "google";
-
-function normalizeExternalProvider(value: unknown): ExternalLoginProvider | null {
-  const clean = String(value || "").trim().toLowerCase();
-  if (clean === "google") return "google";
-  return null;
-}
-
-function providerLabel(provider: ExternalLoginProvider) {
-  if (provider === "google") return "Google";
-  return "Provedor";
-}
-
 type EmailCheckUserLookup = {
   id: string | null;
   email: string | null;
   phoneE164: string | null;
+  authUserId: string | null;
   authProvider: string | null;
   mustCreatePassword: boolean;
 };
@@ -73,6 +65,10 @@ async function getWzUserByEmail(
   email: string,
 ) {
   const columnsToTry = [
+    "id,email,phone_e164,auth_user_id,auth_provider,must_create_password",
+    "id,email,phone_e164,auth_user_id,auth_provider",
+    "id,email,phone_e164,auth_user_id,must_create_password",
+    "id,email,phone_e164,auth_user_id",
     "id,email,phone_e164,auth_provider,must_create_password",
     "id,email,phone_e164,auth_provider",
     "id,email,phone_e164,must_create_password",
@@ -88,6 +84,7 @@ async function getWzUserByEmail(
         id?: string | null;
         email?: string | null;
         phone_e164?: string | null;
+        auth_user_id?: string | null;
         auth_provider?: string | null;
         must_create_password?: boolean | number | string | null;
       };
@@ -96,6 +93,7 @@ async function getWzUserByEmail(
         id: normalizeText(row.id),
         email: normalizeText(row.email),
         phoneE164: normalizeText(row.phone_e164),
+        authUserId: normalizeText(row.auth_user_id),
         authProvider: normalizeText(row.auth_provider),
         mustCreatePassword:
           typeof row.must_create_password === "undefined"
@@ -105,6 +103,7 @@ async function getWzUserByEmail(
     }
 
     const hasMissingColumn = [
+      "auth_user_id",
       "auth_provider",
       "must_create_password",
       "phone_e164",
@@ -114,28 +113,6 @@ async function getWzUserByEmail(
     if (!hasMissingColumn) {
       throw res.error;
     }
-  }
-
-  return null;
-}
-
-async function resolvePasswordSetupProvider(params: {
-  sb: ReturnType<typeof supabaseAdmin>;
-  userId?: string | null;
-  authProvider?: string | null;
-}) {
-  const byColumn = normalizeExternalProvider(params.authProvider);
-  if (byColumn) return byColumn;
-
-  const userId = normalizeText(params.userId || null);
-  if (!userId) return null;
-
-  const linked = await listLoginProvidersForUser({ sb: params.sb, userId });
-  if (!linked.rows?.length) return null;
-
-  for (const row of linked.rows) {
-    const provider = normalizeExternalProvider(row.provider);
-    if (provider) return provider;
   }
 
   return null;
@@ -168,23 +145,38 @@ export async function POST(req: Request) {
       );
     }
 
-    let provider: ExternalLoginProvider | null = null;
+    let shouldRequirePasswordSetup = false;
+    let providerForSetup: "google" | null = null;
     if (user.mustCreatePassword) {
-      provider = await resolvePasswordSetupProvider({
+      const passwordSetupState = await resolvePasswordSetupRequirement({
         sb,
         userId: user.id,
+        email: user.email || email,
+        authUserId: user.authUserId,
         authProvider: user.authProvider,
+        mustCreatePassword: true,
       });
+
+      if (passwordSetupState.shouldAutoClearMustCreatePassword) {
+        await updateMustCreatePasswordBestEffort({
+          sb,
+          userId: user.id,
+          mustCreatePassword: false,
+        });
+      }
+
+      shouldRequirePasswordSetup = passwordSetupState.shouldRequireSetup;
+      providerForSetup = passwordSetupState.providerForSetup;
     }
 
     const payload = {
       exists: true,
       hasPhone: Boolean(user.phoneE164),
-      passwordSetupRequired: Boolean(user.mustCreatePassword && provider),
-      provider: provider || null,
-      providerLabel: provider ? providerLabel(provider) : null,
-      ctaLabel: provider ? "Criar agora" : null,
-      notice: provider
+      passwordSetupRequired: shouldRequirePasswordSetup,
+      provider: providerForSetup || null,
+      providerLabel: providerForSetup ? externalProviderLabel(providerForSetup) : null,
+      ctaLabel: providerForSetup ? "Criar agora" : null,
+      notice: providerForSetup
         ? "Voce nao cumpriu os requisitos de senha da conta."
         : null,
     };
