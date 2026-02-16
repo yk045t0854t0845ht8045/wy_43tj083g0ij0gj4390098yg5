@@ -12,6 +12,7 @@ import {
 import { sendLoginCodeEmail } from "../_email";
 import { setSessionCookie } from "../_session";
 import { registerIssuedSession } from "../_session_devices";
+import { listLoginProvidersForUser } from "../_login_providers";
 import {
   hashTrustedLoginToken,
   readTrustedLoginTokenFromCookieHeader,
@@ -31,6 +32,133 @@ const NO_STORE_HEADERS = {
 function isValidEmail(v: string) {
   const s = (v || "").trim();
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(s);
+}
+
+function normalizeText(value?: string | null) {
+  const clean = String(value || "").trim();
+  return clean || null;
+}
+
+function normalizeBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const clean = value.trim().toLowerCase();
+    return clean === "1" || clean === "true" || clean === "t";
+  }
+  return false;
+}
+
+function isMissingColumnError(error: unknown, column: string) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  const needle = String(column || "").trim().toLowerCase();
+  if (!needle) return false;
+  if (code === "42703" || code === "PGRST204") return true;
+  return (
+    (message.includes(needle) || details.includes(needle)) &&
+    (message.includes("column") || details.includes("column"))
+  );
+}
+
+type ExternalLoginProvider = "google";
+
+function normalizeExternalProvider(value: unknown): ExternalLoginProvider | null {
+  const clean = String(value || "").trim().toLowerCase();
+  if (clean === "google") return "google";
+  return null;
+}
+
+function getExternalProviderLabel(provider: ExternalLoginProvider) {
+  if (provider === "google") return "Google";
+  return "Provedor";
+}
+
+type WzUserLoginLookup = {
+  id: string | null;
+  email: string | null;
+  fullName: string | null;
+  authProvider: string | null;
+  mustCreatePassword: boolean;
+};
+
+async function getWzUserLoginLookupByEmail(
+  sb: ReturnType<typeof supabaseAdmin>,
+  email: string,
+) {
+  const columnsToTry = [
+    "id,email,full_name,auth_provider,must_create_password",
+    "id,email,full_name,auth_provider",
+    "id,email,full_name,must_create_password",
+    "id,email,full_name",
+  ];
+
+  for (const columns of columnsToTry) {
+    const res = await sb.from("wz_users").select(columns).eq("email", email).maybeSingle();
+
+    if (!res.error) {
+      if (!res.data) return null;
+      const row = (res.data || {}) as {
+        id?: string | null;
+        email?: string | null;
+        full_name?: string | null;
+        auth_provider?: string | null;
+        must_create_password?: boolean | number | string | null;
+      };
+
+      return {
+        id: normalizeText(row.id),
+        email: normalizeText(row.email),
+        fullName: normalizeText(row.full_name),
+        authProvider: normalizeText(row.auth_provider),
+        mustCreatePassword:
+          typeof row.must_create_password === "undefined"
+            ? false
+            : normalizeBoolean(row.must_create_password),
+      } as WzUserLoginLookup;
+    }
+
+    const hasMissingColumn = [
+      "auth_provider",
+      "must_create_password",
+      "full_name",
+      "email",
+      "id",
+    ].some((column) => isMissingColumnError(res.error, column));
+
+    if (!hasMissingColumn) {
+      console.error("[start] wz_users select error:", res.error);
+      break;
+    }
+  }
+
+  return null;
+}
+
+async function resolvePasswordSetupProvider(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId?: string | null;
+  authProvider?: string | null;
+}) {
+  const byColumn = normalizeExternalProvider(params.authProvider);
+  if (byColumn) return byColumn;
+
+  const userId = normalizeText(params.userId || null);
+  if (!userId) return null;
+
+  const linked = await listLoginProvidersForUser({ sb: params.sb, userId });
+  if (!linked.rows?.length) return null;
+
+  for (const row of linked.rows) {
+    const provider = normalizeExternalProvider(row.provider);
+    if (provider) return provider;
+  }
+
+  return null;
 }
 
 function getEnvBool(name: string, def: boolean) {
@@ -187,13 +315,7 @@ export async function POST(req: Request) {
     const admin = supabaseAdmin();
 
     // existe perfil?
-    const { data: existingWz, error: exErr } = await admin
-      .from("wz_users")
-      .select("id,email,full_name")
-      .eq("email", email)
-      .maybeSingle();
-
-    if (exErr) console.error("[start] wz_users select error:", exErr);
+    const existingWz = await getWzUserLoginLookupByEmail(admin, email);
 
     // ✅ se já existe em wz_users, sempre é login (não deixa “registrar por cima”)
     const flow = existingWz?.id ? "login" : "register";
@@ -209,6 +331,26 @@ export async function POST(req: Request) {
       if (signErr || !signIn?.user?.id) {
         const msg = String((signErr as { message?: unknown } | null)?.message || "");
         if (!/email not confirmed/i.test(msg)) {
+          if (existingWz?.mustCreatePassword) {
+            const provider = await resolvePasswordSetupProvider({
+              sb: admin,
+              userId: existingWz.id,
+              authProvider: existingWz.authProvider,
+            });
+            if (provider) {
+              return NextResponse.json(
+                {
+                  ok: false,
+                  code: "password_setup_required",
+                  error: "Voce nao cumpriu os requisitos de senha da conta.",
+                  provider,
+                  providerLabel: getExternalProviderLabel(provider),
+                  ctaLabel: "Criar agora",
+                },
+                { status: 409, headers: NO_STORE_HEADERS },
+              );
+            }
+          }
           return NextResponse.json(
             { ok: false, error: "Senha incorreta." },
             { status: 401, headers: NO_STORE_HEADERS },
@@ -248,7 +390,7 @@ export async function POST(req: Request) {
             | null;
           const authMetaFullName = String(authMeta?.full_name || "").trim();
           const resolvedFullName = sanitizeFullName(
-            existingWz?.full_name || authMetaFullName,
+            existingWz?.fullName || authMetaFullName,
           );
 
           const dashboard = getDashboardOrigin();

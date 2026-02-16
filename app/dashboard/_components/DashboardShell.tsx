@@ -34,6 +34,28 @@ const SESSION_DISCONNECT_EVENT_KEY = "wz:session:disconnected";
 const SESSION_CHECK_TIMEOUT_MS = 4500;
 const SESSION_CHECK_MIN_GAP_MS = 1200;
 
+function normalizeConfigSectionFromQuery(value: string): ConfigSectionId | null {
+  const clean = String(value || "").trim().toLowerCase();
+  if (!clean) return null;
+
+  if (
+    clean === "my-account" ||
+    clean === "privacy-data" ||
+    clean === "authorized-apps" ||
+    clean === "devices" ||
+    clean === "notifications" ||
+    clean === "subscriptions" ||
+    clean === "billing" ||
+    clean === "appearance" ||
+    clean === "accessibility" ||
+    clean === "voice-video"
+  ) {
+    return clean as ConfigSectionId;
+  }
+
+  return null;
+}
+
 function isLikelyMobileClient() {
   if (typeof navigator === "undefined") return false;
   const ua = String(navigator.userAgent || "").toLowerCase();
@@ -103,10 +125,11 @@ export default function DashboardShell({
   const [profileTwoFactorDisabledAt, setProfileTwoFactorDisabledAt] = useState<string | null>(
     normalizeIsoDatetime(userTwoFactorDisabledAt)
   );
+  const [autoOpenPasswordModalToken, setAutoOpenPasswordModalToken] = useState(0);
   const [sessionDisconnected, setSessionDisconnected] = useState(false);
   const [disconnectCountdown, setDisconnectCountdown] = useState(5);
   const redirectingRef = useRef(false);
-  const oauthConnectHandledRef = useRef(false);
+  const queryBootstrapHandledRef = useRef(false);
 
   const normalizedInitialPhotoLink = useMemo(() => {
     const clean = String(userPhotoLink || "").trim();
@@ -232,20 +255,50 @@ export default function DashboardShell({
 
   const handleCloseConfig = useCallback(() => {
     setConfigOpen(false);
+    setAutoOpenPasswordModalToken(0);
   }, []);
 
   useEffect(() => {
-    if (oauthConnectHandledRef.current) return;
+    if (queryBootstrapHandledRef.current) return;
     if (typeof window === "undefined") return;
 
     const url = new URL(window.location.href);
     const oauthConnect = String(url.searchParams.get("oauthConnect") || "").trim().toLowerCase();
     const oauthError = String(url.searchParams.get("oauthError") || "").trim();
-    if (!oauthConnect && !oauthError) return;
+    const openConfig = normalizeConfigSectionFromQuery(
+      String(url.searchParams.get("openConfig") || ""),
+    );
+    const openPasswordModalRaw = String(url.searchParams.get("openPasswordModal") || "")
+      .trim()
+      .toLowerCase();
+    const shouldOpenPasswordModal =
+      openPasswordModalRaw === "1" ||
+      openPasswordModalRaw === "true" ||
+      openPasswordModalRaw === "yes";
 
-    oauthConnectHandledRef.current = true;
-    setConfigSection("authorized-apps");
+    const hasOauthFeedback = Boolean(oauthConnect || oauthError);
+    const hasQueryBootstrap = Boolean(openConfig) || shouldOpenPasswordModal;
+    if (!hasOauthFeedback && !hasQueryBootstrap) return;
+
+    queryBootstrapHandledRef.current = true;
+
+    let targetSection: ConfigSectionId = hasOauthFeedback ? "authorized-apps" : "my-account";
+    if (openConfig) {
+      targetSection = openConfig;
+    }
+    if (shouldOpenPasswordModal) {
+      targetSection = "my-account";
+      setAutoOpenPasswordModalToken((current) => current + 1);
+    }
+
+    setConfigSection(targetSection);
     setConfigOpen(true);
+
+    url.searchParams.delete("openConfig");
+    url.searchParams.delete("openPasswordModal");
+    url.searchParams.delete("passwordSetupFlow");
+    url.searchParams.delete("passwordSetupProvider");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
 
   useEffect(() => {
@@ -403,6 +456,7 @@ export default function DashboardShell({
         onClose={handleCloseConfig}
         activeSection={configSection}
         onSectionChange={setConfigSection}
+        autoOpenPasswordModalToken={autoOpenPasswordModalToken}
         userNickname={userNickname}
         userFullName={userFullName}
         userEmail={profileEmail}

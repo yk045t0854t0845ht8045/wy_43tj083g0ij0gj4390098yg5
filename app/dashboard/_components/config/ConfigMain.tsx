@@ -49,6 +49,7 @@ type ConfigMainProps = {
   onClose: () => void;
   activeSection: ConfigSectionId;
   onSectionChange: (section: ConfigSectionId) => void;
+  autoOpenPasswordModalToken?: number;
   userNickname?: string;
   userFullName?: string;
   userEmail?: string;
@@ -552,6 +553,7 @@ function AccountContent({
   phoneChangedAt,
   passwordChangedAt,
   accountCreatedAt,
+  autoOpenPasswordModalToken = 0,
   supportAccess: initialSupportAccess = false,
   twoFactorEnabled: initialTwoFactorEnabled,
   twoFactorEnabledAt: initialTwoFactorEnabledAt,
@@ -571,6 +573,7 @@ function AccountContent({
   phoneChangedAt?: string | null;
   passwordChangedAt?: string | null;
   accountCreatedAt?: string | null;
+  autoOpenPasswordModalToken?: number;
   supportAccess?: boolean;
   twoFactorEnabled?: boolean;
   twoFactorEnabledAt?: string | null;
@@ -730,6 +733,7 @@ function AccountContent({
   const pointerStartRef = useRef({ x: 0, y: 0 });
   const offsetStartRef = useRef({ x: 0, y: 0 });
   const accountActionPasskeyAutoStartRef = useRef("");
+  const autoOpenPasswordModalTokenRef = useRef(0);
 
   useEffect(() => setLocalPhoto(normalizePhotoLink(userPhotoLink)), [userPhotoLink]);
   useEffect(() => setLocalEmail(String(email || "").trim().toLowerCase()), [email]);
@@ -1768,6 +1772,24 @@ function AccountContent({
     resetPasswordChangeFlow();
     setPasswordModalOpen(true);
   };
+
+  useEffect(() => {
+    const token = Number(autoOpenPasswordModalToken || 0);
+    if (!Number.isFinite(token) || token <= 0) return;
+    if (token === autoOpenPasswordModalTokenRef.current) return;
+
+    autoOpenPasswordModalTokenRef.current = token;
+    if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
+
+    resetPasswordChangeFlow();
+    setPasswordModalOpen(true);
+  }, [
+    autoOpenPasswordModalToken,
+    resetPasswordChangeFlow,
+    resendingPasswordCode,
+    sendingPasswordCode,
+    verifyingPasswordCode,
+  ]);
 
   const startPasswordChange = async () => {
     if (sendingPasswordCode || resendingPasswordCode || verifyingPasswordCode) return;
@@ -6894,6 +6916,7 @@ export default function ConfigMain({
   onClose,
   activeSection,
   onSectionChange,
+  autoOpenPasswordModalToken = 0,
   userNickname = "Usuário",
   userFullName,
   userEmail = "conta@wyzer.com.br",
@@ -7012,7 +7035,7 @@ export default function ConfigMain({
   const activeTitle = sectionTitles[activeSection];
   const activeSectionContent = (
     <>
-      {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} emailChangedAt={emailChangedAt} phoneChangedAt={phoneChangedAt} passwordChangedAt={passwordChangedAt} supportAccess={supportAccess} accountCreatedAt={accountCreatedAt} twoFactorEnabled={twoFactorEnabled} twoFactorEnabledAt={twoFactorEnabledAt} twoFactorDisabledAt={twoFactorDisabledAt} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} onUserPasswordChange={onUserPasswordChange} onUserSupportAccessChange={onUserSupportAccessChange} onUserTwoFactorChange={onUserTwoFactorChange} />}
+      {activeSection === "my-account" && <AccountContent nickname={nickname} email={email} phoneE164={phone} emailChangedAt={emailChangedAt} phoneChangedAt={phoneChangedAt} passwordChangedAt={passwordChangedAt} supportAccess={supportAccess} accountCreatedAt={accountCreatedAt} autoOpenPasswordModalToken={autoOpenPasswordModalToken} twoFactorEnabled={twoFactorEnabled} twoFactorEnabledAt={twoFactorEnabledAt} twoFactorDisabledAt={twoFactorDisabledAt} userPhotoLink={userPhotoLink} onUserPhotoChange={onUserPhotoChange} onUserEmailChange={onUserEmailChange} onUserPhoneChange={onUserPhoneChange} onUserPasswordChange={onUserPasswordChange} onUserSupportAccessChange={onUserSupportAccessChange} onUserTwoFactorChange={onUserTwoFactorChange} />}
       {activeSection === "privacy-data" && <PrivacyDataContent />}
       {activeSection === "authorized-apps" && <AuthorizedAppsContent />}
       {activeSection === "devices" && <DevicesContent />}

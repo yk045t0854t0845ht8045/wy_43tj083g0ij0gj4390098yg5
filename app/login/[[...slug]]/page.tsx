@@ -280,6 +280,24 @@ type PasskeyLoginOptionsPayload = {
   }>;
 };
 
+type PasswordSetupRequiredPrompt = {
+  message: string;
+  provider: OAuthProvider;
+  providerLabel: string;
+  ctaLabel: string;
+};
+
+type StartFlowResponsePayload = {
+  ok?: boolean;
+  next?: string;
+  nextUrl?: string;
+  error?: string;
+  code?: string;
+  provider?: string;
+  providerLabel?: string;
+  ctaLabel?: string;
+};
+
 function normalizeBase64Url(value: unknown) {
   return String(value || "")
     .trim()
@@ -604,6 +622,9 @@ export default function LinkLoginPage() {
   const [twoFactorShakeTick, setTwoFactorShakeTick] = useState(0);
   const [startingGoogleLogin, setStartingGoogleLogin] = useState(false);
   const [msgError, setMsgError] = useState<string | null>(null);
+  const [passwordSetupPrompt, setPasswordSetupPrompt] =
+    useState<PasswordSetupRequiredPrompt | null>(null);
+  const [passwordSetupModalOpen, setPasswordSetupModalOpen] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
 
   const lastCheckedRef = useRef<string>("");
@@ -787,6 +808,8 @@ export default function LinkLoginPage() {
     setCheck({ state: "exists" });
     setPassword("");
     setMsgError(null);
+    setPasswordSetupPrompt(null);
+    setPasswordSetupModalOpen(false);
     setEmailCode("");
 
     if (oauthStep === "email") {
@@ -881,6 +904,8 @@ export default function LinkLoginPage() {
     setVerifyingTwoFactorCodeBusy(false);
     setVerifyingPasskeyLoginBusy(false);
     setMsgError(null);
+    setPasswordSetupPrompt(null);
+    setPasswordSetupModalOpen(false);
     setResendCooldown(0);
     setTwoFactorIslandLoading(false);
     setTwoFactorShakeTick(0);
@@ -1070,6 +1095,8 @@ export default function LinkLoginPage() {
 
       setBusy(true);
       setMsgError(null);
+      setPasswordSetupPrompt(null);
+      setPasswordSetupModalOpen(false);
 
       try {
         const payload: any = { email: email.trim().toLowerCase() };
@@ -1093,8 +1120,29 @@ export default function LinkLoginPage() {
           body: JSON.stringify(payload),
         });
 
-        const j = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(j?.error || "Falha ao iniciar validacao.");
+        const j = (await res.json().catch(() => ({}))) as StartFlowResponsePayload;
+        if (!res.ok) {
+          const code = String(j?.code || "").trim().toLowerCase();
+          const provider = String(j?.provider || "").trim().toLowerCase();
+          if (code === "password_setup_required" && provider === "google") {
+            const message =
+              String(j?.error || "Voce nao cumpriu os requisitos de senha da conta.").trim() ||
+              "Voce nao cumpriu os requisitos de senha da conta.";
+            setMsgError(message);
+            setPasswordSetupPrompt({
+              message,
+              provider: "google",
+              providerLabel: String(j?.providerLabel || "Google").trim() || "Google",
+              ctaLabel: String(j?.ctaLabel || "Criar agora").trim() || "Criar agora",
+            });
+            setPasswordSetupModalOpen(false);
+            return;
+          }
+          throw new Error(j?.error || "Falha ao iniciar validacao.");
+        }
+
+        setPasswordSetupPrompt(null);
+        setPasswordSetupModalOpen(false);
 
         if (j?.nextUrl) {
           const nextUrl = String(j.nextUrl);
@@ -1130,7 +1178,10 @@ export default function LinkLoginPage() {
   );
 
   const startGoogleLogin = useCallback(
-    async (e?: React.MouseEvent | React.FormEvent) => {
+    async (
+      e?: React.MouseEvent | React.FormEvent,
+      options?: { nextOverride?: string },
+    ) => {
       e?.preventDefault?.();
       if (startingGoogleLogin || busy) {
         return;
@@ -1139,10 +1190,12 @@ export default function LinkLoginPage() {
       try {
         setStartingGoogleLogin(true);
         setMsgError(null);
+        setPasswordSetupModalOpen(false);
         const returnToValue =
-          typeof window !== "undefined"
+          String(options?.nextOverride || "").trim() ||
+          (typeof window !== "undefined"
             ? new URL(window.location.href).searchParams.get("returnTo") || ""
-            : "";
+            : "");
 
         const res = await fetch("/api/wz_AuthLogin/google/start", {
           method: "POST",
@@ -1174,6 +1227,27 @@ export default function LinkLoginPage() {
     },
     [busy, startingGoogleLogin],
   );
+
+  const openPasswordSetupModal = useCallback(() => {
+    if (!passwordSetupPrompt) return;
+    setPasswordSetupModalOpen(true);
+  }, [passwordSetupPrompt]);
+
+  const continuePasswordSetupWithProvider = useCallback(async () => {
+    if (!passwordSetupPrompt) return;
+    if (passwordSetupPrompt.provider !== "google") return;
+
+    const host =
+      typeof window !== "undefined"
+        ? window.location.hostname.toLowerCase()
+        : "login.wyzer.com.br";
+    const next = new URL("/dashboard", `${getDashboardOriginForLoginHost(host)}/`);
+    next.searchParams.set("openConfig", "my-account");
+    next.searchParams.set("openPasswordModal", "1");
+    next.searchParams.set("passwordSetupFlow", "1");
+    next.searchParams.set("passwordSetupProvider", passwordSetupPrompt.provider);
+    await startGoogleLogin(undefined, { nextOverride: next.toString() });
+  }, [passwordSetupPrompt, startGoogleLogin]);
 
   // Declare returnTo at component level
   const url =
@@ -2164,7 +2238,24 @@ export default function LinkLoginPage() {
                             }}
                             className="mb-3 rounded-[16px] bg-black/5 ring-1 ring-black/10 px-4 py-3 text-[13px] text-black/70"
                           >
-                            {msgError}
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span>{msgError}</span>
+                              {passwordSetupPrompt ? (
+                                <button
+                                  type="button"
+                                  onClick={openPasswordSetupModal}
+                                  disabled={busy || startingGoogleLogin}
+                                  className={cx(
+                                    "inline-flex items-center rounded-full border border-black/20 bg-black/[0.04] px-3 py-1 text-[12px] font-semibold text-black/72 transition-colors",
+                                    busy || startingGoogleLogin
+                                      ? "cursor-not-allowed opacity-60"
+                                      : "hover:bg-black/[0.08]",
+                                  )}
+                                >
+                                  {passwordSetupPrompt.ctaLabel}
+                                </button>
+                              ) : null}
+                            </div>
                           </motion.div>
                         )}
                       </AnimatePresence>
@@ -2252,6 +2343,8 @@ export default function LinkLoginPage() {
                         }
 
                         setMsgError(null);
+                        setPasswordSetupPrompt(null);
+                        setPasswordSetupModalOpen(false);
                         setEmail(next);
                       }}
                       placeholder="E-mail"
@@ -2386,7 +2479,24 @@ export default function LinkLoginPage() {
                         }}
                         className="mt-3 rounded-[16px] bg-black/5 ring-1 ring-black/10 px-4 py-3 text-[13px] text-black/70"
                       >
-                        {msgError}
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span>{msgError}</span>
+                          {passwordSetupPrompt ? (
+                            <button
+                              type="button"
+                              onClick={openPasswordSetupModal}
+                              disabled={busy || startingGoogleLogin}
+                              className={cx(
+                                "inline-flex items-center rounded-full border border-black/20 bg-black/[0.04] px-3 py-1 text-[12px] font-semibold text-black/72 transition-colors",
+                                busy || startingGoogleLogin
+                                  ? "cursor-not-allowed opacity-60"
+                                  : "hover:bg-black/[0.08]",
+                              )}
+                            >
+                              {passwordSetupPrompt.ctaLabel}
+                            </button>
+                          ) : null}
+                        </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -2602,6 +2712,103 @@ export default function LinkLoginPage() {
           </div>
         </motion.div>
       </div>
+
+      <AnimatePresence mode="sync" initial={false}>
+        {step === "collect" && passwordSetupPrompt && passwordSetupModalOpen && (
+          <motion.div
+            key="password-setup-required-modal"
+            className="fixed inset-0 z-[236] flex items-center justify-center px-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <button
+              type="button"
+              aria-label="Fechar aviso de criacao de senha"
+              className="absolute inset-0 bg-black/62 backdrop-blur-[4px]"
+              onClick={() => setPasswordSetupModalOpen(false)}
+            />
+
+            <motion.section
+              role="dialog"
+              aria-modal="true"
+              aria-label="Criar senha para continuar"
+              initial={
+                prefersReducedMotion
+                  ? { opacity: 0 }
+                  : { opacity: 0, y: 16, scale: 0.98, filter: "blur(6px)" }
+              }
+              animate={
+                prefersReducedMotion
+                  ? { opacity: 1 }
+                  : { opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }
+              }
+              exit={
+                prefersReducedMotion
+                  ? { opacity: 0 }
+                  : { opacity: 0, y: 10, scale: 0.98, filter: "blur(6px)" }
+              }
+              transition={
+                prefersReducedMotion
+                  ? { duration: 0.1 }
+                  : { type: "spring", stiffness: 360, damping: 34, mass: 0.82 }
+              }
+              className="relative z-[1] w-[min(94vw,560px)] rounded-[24px] border border-white/14 bg-white px-6 py-6 shadow-[0_30px_90px_rgba(0,0,0,0.4)] sm:px-7 sm:py-7"
+            >
+              <button
+                type="button"
+                onClick={() => setPasswordSetupModalOpen(false)}
+                disabled={startingGoogleLogin}
+                className={cx(
+                  "absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-full text-black/52 transition-colors",
+                  startingGoogleLogin
+                    ? "cursor-not-allowed opacity-55"
+                    : "hover:bg-black/6 hover:text-black/75",
+                )}
+                aria-label="Fechar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+
+              <h3 className="pr-10 text-[24px] font-semibold leading-[1.15] text-black/85">
+                Criar senha para continuar
+              </h3>
+              <p className="mt-3 text-[15px] leading-[1.45] text-black/62">
+                Voce precisa criar senha para continuar o login por aqui. Entre com{" "}
+                {passwordSetupPrompt.providerLabel} para abrir as configuracoes e definir sua senha.
+              </p>
+
+              <button
+                type="button"
+                onClick={() => void continuePasswordSetupWithProvider()}
+                disabled={busy || startingGoogleLogin}
+                className={cx(
+                  "group mt-6 inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-[15px] border border-black/12 bg-white text-[15px] font-semibold text-black/82",
+                  "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                  "hover:border-black/22 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
+                  "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
+                  (busy || startingGoogleLogin) && "cursor-not-allowed opacity-70",
+                )}
+              >
+                {startingGoogleLogin ? (
+                  <SpinnerMini reduced={!!prefersReducedMotion} />
+                ) : (
+                  <span
+                    aria-hidden
+                    className="h-5 w-5 bg-contain bg-center bg-no-repeat"
+                    style={{ backgroundImage: `url('${GOOGLE_PROVIDER_ICON_URL}')` }}
+                  />
+                )}
+                <span>
+                  {startingGoogleLogin
+                    ? "Conectando..."
+                    : `Continuar com ${passwordSetupPrompt.providerLabel}`}
+                </span>
+              </button>
+            </motion.section>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* STEP: TWO FACTOR CODE */}
       <AnimatePresence mode="sync" initial={false}>
