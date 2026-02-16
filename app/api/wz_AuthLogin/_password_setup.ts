@@ -180,22 +180,57 @@ function isMissingColumnError(error: unknown, column: string) {
   );
 }
 
+async function updateWzUserFlagsBestEffort(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId?: string | null;
+  patch: Record<string, unknown>;
+}) {
+  const userId = normalizeText(params.userId);
+  if (!userId) return;
+
+  const patch = { ...params.patch };
+  if (!Object.keys(patch).length) return;
+
+  while (Object.keys(patch).length) {
+    const updateRes = await params.sb.from("wz_users").update(patch).eq("id", userId);
+    if (!updateRes.error) return;
+
+    let removedAny = false;
+    for (const key of Object.keys(patch)) {
+      if (isMissingColumnError(updateRes.error, key)) {
+        delete patch[key];
+        removedAny = true;
+      }
+    }
+
+    if (removedAny) continue;
+    console.error("[password-setup] wz_users flag update error:", updateRes.error);
+    return;
+  }
+}
+
 export async function updateMustCreatePasswordBestEffort(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   userId?: string | null;
   mustCreatePassword: boolean;
 }) {
-  const userId = normalizeText(params.userId);
-  if (!userId) return;
+  await updateWzUserFlagsBestEffort({
+    sb: params.sb,
+    userId: params.userId,
+    patch: { must_create_password: params.mustCreatePassword },
+  });
+}
 
-  const updateRes = await params.sb
-    .from("wz_users")
-    .update({ must_create_password: params.mustCreatePassword })
-    .eq("id", userId);
-
-  if (!updateRes.error) return;
-  if (isMissingColumnError(updateRes.error, "must_create_password")) return;
-  console.error("[password-setup] must_create_password update error:", updateRes.error);
+export async function updatePasswordCreatedBestEffort(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId?: string | null;
+  passwordCreated: boolean;
+}) {
+  await updateWzUserFlagsBestEffort({
+    sb: params.sb,
+    userId: params.userId,
+    patch: { password_created: params.passwordCreated },
+  });
 }
 
 export function externalProviderLabel(provider: ExternalLoginProvider) {
@@ -206,7 +241,9 @@ export function externalProviderLabel(provider: ExternalLoginProvider) {
 export type PasswordSetupResolution = {
   shouldRequireSetup: boolean;
   shouldAutoClearMustCreatePassword: boolean;
+  shouldAutoMarkPasswordCreated: boolean;
   hasPasswordProvider: boolean;
+  effectivePasswordCreated: boolean;
   providerForSetup: ExternalLoginProvider | null;
 };
 
@@ -216,11 +253,14 @@ export async function resolvePasswordSetupRequirement(params: {
   email?: string | null;
   authUserId?: string | null;
   authProvider?: string | null;
+  passwordCreated?: boolean | null;
   mustCreatePassword: boolean;
 }): Promise<PasswordSetupResolution> {
   const mustCreatePassword = Boolean(params.mustCreatePassword);
   const userId = normalizeText(params.userId);
   const authProviderByColumn = normalizeExternalProvider(params.authProvider);
+  const passwordCreatedByColumn =
+    typeof params.passwordCreated === "boolean" ? params.passwordCreated : null;
 
   let hasPersistedPasswordProvider = false;
   let providerFromLinkedRows: ExternalLoginProvider | null = null;
@@ -245,8 +285,8 @@ export async function resolvePasswordSetupRequirement(params: {
     }
   }
 
-  let hasPasswordProvider = false;
-  if (mustCreatePassword) {
+  let hasPasswordProvider = passwordCreatedByColumn === true;
+  if (mustCreatePassword || passwordCreatedByColumn !== true) {
     const authSignals = await getAuthUserProviderSignals({
       sb: params.sb,
       authUserId: normalizeText(params.authUserId),
@@ -254,24 +294,32 @@ export async function resolvePasswordSetupRequirement(params: {
     });
 
     if (authSignals.lookupOk) {
-      // Prioriza sinal do Auth, mas aceita o provedor persistido local como fallback
-      // para evitar falso-positivo de "criar senha novamente" após fluxo concluído.
       hasPasswordProvider =
-        authSignals.hasPasswordProvider || hasPersistedPasswordProvider;
+        authSignals.hasPasswordProvider ||
+        hasPersistedPasswordProvider ||
+        passwordCreatedByColumn === true;
     } else {
-      hasPasswordProvider = hasPersistedPasswordProvider;
+      hasPasswordProvider =
+        hasPersistedPasswordProvider || passwordCreatedByColumn === true;
     }
   }
 
+  const effectivePasswordCreated = passwordCreatedByColumn === true || hasPasswordProvider;
   const providerForSetup = authProviderByColumn || providerFromLinkedRows;
-  const shouldAutoClearMustCreatePassword = mustCreatePassword && hasPasswordProvider;
+  const shouldAutoClearMustCreatePassword = mustCreatePassword && effectivePasswordCreated;
+  const shouldAutoMarkPasswordCreated =
+    passwordCreatedByColumn !== true && hasPasswordProvider;
   const shouldRequireSetup =
-    mustCreatePassword && !hasPasswordProvider && Boolean(providerForSetup);
+    (mustCreatePassword || passwordCreatedByColumn === false) &&
+    !hasPasswordProvider &&
+    Boolean(providerForSetup);
 
   return {
     shouldRequireSetup,
     shouldAutoClearMustCreatePassword,
+    shouldAutoMarkPasswordCreated,
     hasPasswordProvider,
+    effectivePasswordCreated,
     providerForSetup,
   };
 }

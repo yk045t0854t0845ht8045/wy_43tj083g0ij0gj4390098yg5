@@ -24,6 +24,7 @@ type WzUserRow = {
   auth_user_id?: string | null;
   auth_provider?: string | null;
   must_create_password?: boolean | string | number | null;
+  password_created?: boolean | string | number | null;
 };
 
 type ProviderPayload = {
@@ -250,22 +251,22 @@ async function updateMustCreatePasswordBestEffort(params: {
   console.error("[authorized-apps] must_create_password update error:", updateRes.error);
 }
 
-async function cleanupStalePasswordProviderRows(params: {
+async function updatePasswordCreatedBestEffort(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   userId: string;
+  passwordCreated: boolean;
 }) {
   const userId = String(params.userId || "").trim();
   if (!userId) return;
 
-  const deleteRes = await params.sb
-    .from("wz_auth_login_providers")
-    .delete()
-    .eq("user_id", userId)
-    .eq("provider", "password");
+  const updateRes = await params.sb
+    .from("wz_users")
+    .update({ password_created: params.passwordCreated })
+    .eq("id", userId);
 
-  if (!deleteRes.error) return;
-  if (isLoginProvidersSchemaMissing(deleteRes.error)) return;
-  console.error("[authorized-apps] stale password provider cleanup error:", deleteRes.error);
+  if (!updateRes.error) return;
+  if (isMissingColumnError(updateRes.error, "password_created")) return;
+  console.error("[authorized-apps] password_created update error:", updateRes.error);
 }
 
 function providerLabel(provider: string) {
@@ -355,6 +356,7 @@ async function queryWzUsersRows(params: {
   mode: "eq" | "ilike";
 }) {
   const columnsToTry = [
+    "id,email,auth_user_id,auth_provider,must_create_password,password_created",
     "id,email,auth_user_id,auth_provider,must_create_password",
     "id,email,auth_user_id,auth_provider",
     "id,email,auth_user_id,must_create_password",
@@ -382,6 +384,10 @@ async function queryWzUsersRows(params: {
           typeof row.must_create_password === "undefined"
             ? null
             : normalizeBoolean(row.must_create_password),
+        password_created:
+          typeof row.password_created === "undefined"
+            ? null
+            : normalizeBoolean(row.password_created),
       }));
     }
   }
@@ -392,6 +398,7 @@ async function queryWzUsersRows(params: {
     auth_user_id: string | null;
     auth_provider: string | null;
     must_create_password: boolean | null;
+    password_created: boolean | null;
   }>;
 }
 
@@ -402,6 +409,7 @@ function pickBestWzUserRow(
     auth_user_id: string | null;
     auth_provider: string | null;
     must_create_password: boolean | null;
+    password_created: boolean | null;
   }>,
   email?: string | null,
 ) {
@@ -572,10 +580,15 @@ async function buildAuthorizedAppsPayload(params: {
     auth_user_id: string | null;
     auth_provider: string | null;
     must_create_password: boolean | null;
+    password_created: boolean | null;
   };
 }): Promise<AuthorizedAppsPayload> {
   const userId = String(params.userRow.id || "").trim();
   let mustCreatePassword = Boolean(params.userRow.must_create_password);
+  const passwordCreatedByProfile =
+    typeof params.userRow.password_created === "boolean"
+      ? normalizeBoolean(params.userRow.password_created)
+      : null;
 
   const providerRows = await listLoginProvidersForUser({
     sb: params.sb,
@@ -589,28 +602,34 @@ async function buildAuthorizedAppsPayload(params: {
     authUserId: params.userRow.auth_user_id,
     email: params.userRow.email,
   });
-  if (authSignals.lookupOk) {
-    if (authSignals.hasPasswordProvider && mustCreatePassword) {
+  const hasPasswordFingerprint = authSignals.lookupOk
+    ? authSignals.hasPasswordProvider ||
+      hasPersistedPasswordProvider ||
+      passwordCreatedByProfile === true
+    : hasPersistedPasswordProvider || passwordCreatedByProfile === true;
+  if (hasPasswordFingerprint) {
+    if (mustCreatePassword) {
       mustCreatePassword = false;
       await updateMustCreatePasswordBestEffort({
         sb: params.sb,
         userId,
         mustCreatePassword: false,
       });
-    } else if (!authSignals.hasPasswordProvider && !mustCreatePassword) {
-      mustCreatePassword = true;
-      await updateMustCreatePasswordBestEffort({
+    }
+    if (passwordCreatedByProfile !== true) {
+      await updatePasswordCreatedBestEffort({
         sb: params.sb,
         userId,
-        mustCreatePassword: true,
+        passwordCreated: true,
       });
     }
-    if (!authSignals.hasPasswordProvider && hasPersistedPasswordProvider) {
-      await cleanupStalePasswordProviderRows({
-        sb: params.sb,
-        userId,
-      });
-    }
+  } else if (passwordCreatedByProfile === false && !mustCreatePassword) {
+    mustCreatePassword = true;
+    await updateMustCreatePasswordBestEffort({
+      sb: params.sb,
+      userId,
+      mustCreatePassword: true,
+    });
   }
   const creationProviderFromSessions = await resolveCreationProviderFromSessions({
     sb: params.sb,
@@ -798,6 +817,7 @@ async function getSessionAndUserRow(req: NextRequest) {
       auth_user_id: userRow.auth_user_id || null,
       auth_provider: userRow.auth_provider || null,
       must_create_password: userRow.must_create_password ?? null,
+      password_created: userRow.password_created ?? null,
     },
   };
 }

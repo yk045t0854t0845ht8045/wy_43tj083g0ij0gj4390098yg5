@@ -198,6 +198,7 @@ type WzUserSnapshot = {
   authUserId: string | null;
   authProvider: string | null;
   mustCreatePassword: boolean | null;
+  passwordCreated: boolean | null;
   phoneE164: string | null;
   fullName: string | null;
 };
@@ -207,6 +208,7 @@ async function getWzUserSnapshotByEmail(
   email: string,
 ) {
   const columnsToTry = [
+    "id,auth_user_id,auth_provider,must_create_password,password_created,phone_e164,full_name",
     "id,auth_user_id,auth_provider,must_create_password,phone_e164,full_name",
     "id,auth_user_id,auth_provider,phone_e164,full_name",
     "id,auth_user_id,must_create_password,phone_e164,full_name",
@@ -228,6 +230,7 @@ async function getWzUserSnapshotByEmail(
         auth_user_id?: string | null;
         auth_provider?: string | null;
         must_create_password?: boolean | number | string | null;
+        password_created?: boolean | number | string | null;
         phone_e164?: string | null;
         full_name?: string | null;
       };
@@ -240,6 +243,10 @@ async function getWzUserSnapshotByEmail(
           typeof row.must_create_password === "undefined"
             ? null
             : normalizeBoolean(row.must_create_password),
+        passwordCreated:
+          typeof row.password_created === "undefined"
+            ? null
+            : normalizeBoolean(row.password_created),
         phoneE164: normalizeText(row.phone_e164),
         fullName: normalizeText(row.full_name),
       } as WzUserSnapshot;
@@ -250,6 +257,7 @@ async function getWzUserSnapshotByEmail(
       "auth_user_id",
       "auth_provider",
       "must_create_password",
+      "password_created",
       "phone_e164",
       "full_name",
     ].some((column) => isMissingColumnError(res.error, column));
@@ -264,6 +272,7 @@ async function getWzUserSnapshotByEmail(
     authUserId: null,
     authProvider: null,
     mustCreatePassword: null,
+    passwordCreated: null,
     phoneE164: null,
     fullName: null,
   } as WzUserSnapshot;
@@ -425,6 +434,7 @@ async function insertOAuthWzUserBestEffort(params: {
   authUserId: string;
   provider: OAuthProvider;
   mustCreatePassword: boolean;
+  passwordCreated: boolean;
 }) {
   const nowIso = new Date().toISOString();
   const attempts: Array<Record<string, unknown>> = [
@@ -437,6 +447,7 @@ async function insertOAuthWzUserBestEffort(params: {
       phone_verified: false,
       auth_provider: params.provider,
       must_create_password: params.mustCreatePassword,
+      password_created: params.passwordCreated,
       created_at: nowIso,
     },
     {
@@ -982,8 +993,24 @@ export async function POST(req: Request) {
         }
         userId = String(ins.data.id);
       }
+
+      if (userId) {
+        await updateWzUserBestEffort({
+          sb,
+          userId,
+          patch: {
+            must_create_password: false,
+            password_created: true,
+          },
+        });
+      }
     } else {
-      const resolvedMustCreatePassword = authUserHasPasswordProvider
+      const resolvedPasswordCreated = authUserHasPasswordProvider
+        ? true
+        : typeof wzUser.passwordCreated === "boolean"
+          ? wzUser.passwordCreated
+          : false;
+      const resolvedMustCreatePassword = resolvedPasswordCreated
         ? false
         : typeof wzUser.mustCreatePassword === "boolean"
           ? wzUser.mustCreatePassword
@@ -1003,6 +1030,7 @@ export async function POST(req: Request) {
               ? { auth_provider: oauthProvider || "unknown" }
               : {}),
             must_create_password: resolvedMustCreatePassword,
+            password_created: resolvedPasswordCreated,
           },
         });
       } else {
@@ -1014,6 +1042,7 @@ export async function POST(req: Request) {
           authUserId,
           provider: oauthProvider || "unknown",
           mustCreatePassword: resolvedMustCreatePassword,
+          passwordCreated: resolvedPasswordCreated,
         });
       }
     }

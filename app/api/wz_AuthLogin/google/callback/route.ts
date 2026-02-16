@@ -45,6 +45,7 @@ type WzUserRow = {
   auth_user_id?: string | null;
   auth_provider?: string | null;
   must_create_password?: boolean | string | number | null;
+  password_created?: boolean | string | number | null;
 };
 
 function base64UrlEncode(input: Buffer | string) {
@@ -535,6 +536,7 @@ async function queryWzUsersRows(params: {
   mode: "eq" | "ilike";
 }) {
   const columnsToTry = [
+    "id,email,full_name,phone_e164,auth_user_id,auth_provider,must_create_password,password_created",
     "id,email,full_name,phone_e164,auth_user_id,auth_provider,must_create_password",
     "id,email,full_name,phone_e164,auth_user_id,must_create_password",
     "id,email,full_name,phone_e164,auth_user_id",
@@ -564,6 +566,10 @@ async function queryWzUsersRows(params: {
           typeof row.must_create_password === "undefined"
             ? null
             : normalizeBoolean(row.must_create_password),
+        password_created:
+          typeof row.password_created === "undefined"
+            ? null
+            : normalizeBoolean(row.password_created),
       }));
     }
   }
@@ -576,6 +582,7 @@ async function queryWzUsersRows(params: {
     auth_user_id: string | null;
     auth_provider: string | null;
     must_create_password: boolean | null;
+    password_created: boolean | null;
   }>;
 }
 
@@ -635,6 +642,7 @@ function pickBestWzUserRow(
     auth_user_id: string | null;
     auth_provider: string | null;
     must_create_password: boolean | null;
+    password_created: boolean | null;
   }>,
   email?: string | null,
 ) {
@@ -689,6 +697,7 @@ async function insertGoogleWzUser(params: {
   authUserId: string;
   nowIso: string;
   mustCreatePassword: boolean;
+  passwordCreated: boolean;
 }) {
   const attempts: Array<Record<string, unknown>> = [
     {
@@ -700,6 +709,7 @@ async function insertGoogleWzUser(params: {
       email_verified: true,
       auth_provider: "google",
       must_create_password: params.mustCreatePassword,
+      password_created: params.passwordCreated,
       created_at: params.nowIso,
     },
     {
@@ -809,15 +819,25 @@ async function findOrCreateGoogleWzUser(params: {
     if (!existing.auth_user_id) patch.auth_user_id = params.authUserId;
     if (!existing.full_name && params.fullName) patch.full_name = params.fullName;
     if (!normalizeOptionalPhone(existing.phone_e164)) patch.phone_e164 = null;
+    const existingPasswordCreated =
+      typeof existing.password_created === "boolean"
+        ? existing.password_created
+        : null;
+    const resolvedPasswordCreated = hasPasswordProvider
+      ? true
+      : existingPasswordCreated ?? false;
     const existingMustCreatePassword =
       typeof existing.must_create_password === "boolean"
         ? existing.must_create_password
         : null;
-    const resolvedMustCreatePassword = hasPasswordProvider
+    const resolvedMustCreatePassword = resolvedPasswordCreated
       ? false
       : existingMustCreatePassword ?? true;
     if (existingMustCreatePassword !== resolvedMustCreatePassword) {
       patch.must_create_password = resolvedMustCreatePassword;
+    }
+    if (existingPasswordCreated !== resolvedPasswordCreated) {
+      patch.password_created = resolvedPasswordCreated;
     }
 
     await updateWzUserBestEffort({
@@ -837,7 +857,8 @@ async function findOrCreateGoogleWzUser(params: {
   }
 
   try {
-    const mustCreatePassword = hasPasswordProvider ? false : true;
+    const passwordCreated = hasPasswordProvider ? true : false;
+    const mustCreatePassword = passwordCreated ? false : true;
     const createdId = await insertGoogleWzUser({
       sb: params.sb,
       email: params.email,
@@ -845,6 +866,7 @@ async function findOrCreateGoogleWzUser(params: {
       authUserId: params.authUserId,
       nowIso: params.nowIso,
       mustCreatePassword,
+      passwordCreated,
     });
     return {
       userId: createdId,
@@ -864,8 +886,13 @@ async function findOrCreateGoogleWzUser(params: {
       });
       const recovered = pickBestWzUserRow(rowsByEmail, params.email);
       if (recovered?.id) {
+        const recoveredPasswordCreated = hasPasswordProvider
+          ? true
+          : typeof recovered.password_created === "boolean"
+            ? recovered.password_created
+            : false;
         const recoveredMustCreatePassword =
-          hasPasswordProvider
+          recoveredPasswordCreated
             ? false
             : typeof recovered.must_create_password === "boolean"
               ? recovered.must_create_password
@@ -879,6 +906,10 @@ async function findOrCreateGoogleWzUser(params: {
             recovered.must_create_password === recoveredMustCreatePassword
               ? {}
               : { must_create_password: recoveredMustCreatePassword }),
+            ...(typeof recovered.password_created === "boolean" &&
+            recovered.password_created === recoveredPasswordCreated
+              ? {}
+              : { password_created: recoveredPasswordCreated }),
           },
         });
         return {

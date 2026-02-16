@@ -7,6 +7,7 @@ do $$
 declare
   has_wz_users boolean;
   has_must_create_password boolean;
+  has_password_created boolean;
   has_password_changed_at boolean;
   has_login_providers boolean;
   has_auth_users boolean;
@@ -22,6 +23,15 @@ begin
   if not has_wz_users then
     return;
   end if;
+
+  select exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'wz_users'
+      and column_name = 'password_created'
+  )
+  into has_password_created;
 
   select exists (
     select 1
@@ -87,7 +97,7 @@ begin
     set must_create_password = false
     from public.wz_auth_login_providers p
     where u.must_create_password is distinct from false
-      and p.user_id = u.id
+      and p.user_id::text = btrim(u.id::text)
       and lower(coalesce(p.provider, '')) = 'password';
   end if;
 
@@ -96,7 +106,7 @@ begin
   if has_login_providers and has_auth_users then
     delete from public.wz_auth_login_providers p
     using public.wz_users u, auth.users au
-    where p.user_id = u.id
+    where p.user_id::text = btrim(u.id::text)
       and lower(coalesce(p.provider, '')) = 'password'
       and coalesce(btrim(u.auth_user_id), '') <> ''
       and au.id::text = btrim(u.auth_user_id)
@@ -118,6 +128,14 @@ begin
     set must_create_password = false
     where must_create_password is distinct from false
       and password_changed_at is not null;
+  end if;
+
+  -- 4) Sincroniza com password_created quando a coluna existe.
+  if has_password_created then
+    update public.wz_users
+    set password_created = true
+    where password_created is distinct from true
+      and must_create_password is false;
   end if;
 end;
 $$;

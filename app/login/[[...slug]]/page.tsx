@@ -915,6 +915,16 @@ export default function LinkLoginPage() {
           } else {
             setPasswordSetupPrompt(null);
             setPasswordSetupModalOpen(false);
+            setMsgError((prev) => {
+              const normalized = String(prev || "").trim().toLowerCase();
+              if (
+                normalized === "voce nao cumpriu os requisitos de senha da conta." ||
+                normalized === "voce nao cumpriu os requisitos de senha da conta"
+              ) {
+                return null;
+              }
+              return prev;
+            });
           }
         } else {
           setCheck({ state: "new" });

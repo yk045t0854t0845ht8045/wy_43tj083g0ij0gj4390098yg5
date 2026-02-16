@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../_supabase";
 import {
   externalProviderLabel,
   resolvePasswordSetupRequirement,
+  updatePasswordCreatedBestEffort,
   updateMustCreatePasswordBestEffort,
 } from "../_password_setup";
 
@@ -58,6 +59,7 @@ type EmailCheckUserLookup = {
   authUserId: string | null;
   authProvider: string | null;
   mustCreatePassword: boolean;
+  passwordCreated: boolean | null;
 };
 
 async function getWzUserByEmail(
@@ -65,6 +67,7 @@ async function getWzUserByEmail(
   email: string,
 ) {
   const columnsToTry = [
+    "id,email,phone_e164,auth_user_id,auth_provider,must_create_password,password_created",
     "id,email,phone_e164,auth_user_id,auth_provider,must_create_password",
     "id,email,phone_e164,auth_user_id,auth_provider",
     "id,email,phone_e164,auth_user_id,must_create_password",
@@ -87,6 +90,7 @@ async function getWzUserByEmail(
         auth_user_id?: string | null;
         auth_provider?: string | null;
         must_create_password?: boolean | number | string | null;
+        password_created?: boolean | number | string | null;
       };
 
       return {
@@ -99,6 +103,10 @@ async function getWzUserByEmail(
           typeof row.must_create_password === "undefined"
             ? false
             : normalizeBoolean(row.must_create_password),
+        passwordCreated:
+          typeof row.password_created === "undefined"
+            ? null
+            : normalizeBoolean(row.password_created),
       } as EmailCheckUserLookup;
     }
 
@@ -106,6 +114,7 @@ async function getWzUserByEmail(
       "auth_user_id",
       "auth_provider",
       "must_create_password",
+      "password_created",
       "phone_e164",
       "email",
       "id",
@@ -147,14 +156,15 @@ export async function POST(req: Request) {
 
     let shouldRequirePasswordSetup = false;
     let providerForSetup: "google" | null = null;
-    if (user.mustCreatePassword) {
+    if (user.mustCreatePassword || user.passwordCreated === false) {
       const passwordSetupState = await resolvePasswordSetupRequirement({
         sb,
         userId: user.id,
         email: user.email || email,
         authUserId: user.authUserId,
         authProvider: user.authProvider,
-        mustCreatePassword: true,
+        passwordCreated: user.passwordCreated,
+        mustCreatePassword: user.mustCreatePassword,
       });
 
       if (passwordSetupState.shouldAutoClearMustCreatePassword) {
@@ -162,6 +172,13 @@ export async function POST(req: Request) {
           sb,
           userId: user.id,
           mustCreatePassword: false,
+        });
+      }
+      if (passwordSetupState.shouldAutoMarkPasswordCreated) {
+        await updatePasswordCreatedBestEffort({
+          sb,
+          userId: user.id,
+          passwordCreated: true,
         });
       }
 

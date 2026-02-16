@@ -15,6 +15,7 @@ import { registerIssuedSession } from "../_session_devices";
 import {
   externalProviderLabel,
   resolvePasswordSetupRequirement,
+  updatePasswordCreatedBestEffort,
   updateMustCreatePasswordBestEffort,
 } from "../_password_setup";
 import {
@@ -76,6 +77,7 @@ type WzUserLoginLookup = {
   authUserId: string | null;
   authProvider: string | null;
   mustCreatePassword: boolean;
+  passwordCreated: boolean | null;
 };
 
 async function getWzUserLoginLookupByEmail(
@@ -83,6 +85,7 @@ async function getWzUserLoginLookupByEmail(
   email: string,
 ) {
   const columnsToTry = [
+    "id,email,full_name,auth_user_id,auth_provider,must_create_password,password_created",
     "id,email,full_name,auth_user_id,auth_provider,must_create_password",
     "id,email,full_name,auth_user_id,auth_provider",
     "id,email,full_name,auth_user_id,must_create_password",
@@ -105,6 +108,7 @@ async function getWzUserLoginLookupByEmail(
         auth_user_id?: string | null;
         auth_provider?: string | null;
         must_create_password?: boolean | number | string | null;
+        password_created?: boolean | number | string | null;
       };
 
       return {
@@ -117,6 +121,10 @@ async function getWzUserLoginLookupByEmail(
           typeof row.must_create_password === "undefined"
             ? false
             : normalizeBoolean(row.must_create_password),
+        passwordCreated:
+          typeof row.password_created === "undefined"
+            ? null
+            : normalizeBoolean(row.password_created),
       } as WzUserLoginLookup;
     }
 
@@ -124,6 +132,7 @@ async function getWzUserLoginLookupByEmail(
       "auth_user_id",
       "auth_provider",
       "must_create_password",
+      "password_created",
       "full_name",
       "email",
       "id",
@@ -308,14 +317,15 @@ export async function POST(req: Request) {
       if (signErr || !signIn?.user?.id) {
         const msg = String((signErr as { message?: unknown } | null)?.message || "");
         if (!/email not confirmed/i.test(msg)) {
-          if (existingWz?.mustCreatePassword) {
+          if (existingWz?.mustCreatePassword || existingWz?.passwordCreated === false) {
             const passwordSetupState = await resolvePasswordSetupRequirement({
               sb: admin,
               userId: existingWz.id,
               email: existingWz.email || email,
               authUserId: existingWz.authUserId,
               authProvider: existingWz.authProvider,
-              mustCreatePassword: true,
+              passwordCreated: existingWz.passwordCreated,
+              mustCreatePassword: existingWz.mustCreatePassword,
             });
 
             if (passwordSetupState.shouldAutoClearMustCreatePassword) {
@@ -323,6 +333,13 @@ export async function POST(req: Request) {
                 sb: admin,
                 userId: existingWz.id,
                 mustCreatePassword: false,
+              });
+            }
+            if (passwordSetupState.shouldAutoMarkPasswordCreated) {
+              await updatePasswordCreatedBestEffort({
+                sb: admin,
+                userId: existingWz.id,
+                passwordCreated: true,
               });
             }
 

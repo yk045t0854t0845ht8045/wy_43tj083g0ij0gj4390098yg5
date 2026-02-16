@@ -2,7 +2,8 @@
 
 alter table if exists public.wz_users
   add column if not exists auth_provider text,
-  add column if not exists must_create_password boolean not null default false;
+  add column if not exists must_create_password boolean not null default false,
+  add column if not exists password_created boolean not null default false;
 
 do $$
 begin
@@ -18,6 +19,19 @@ begin
       where coalesce(trim(auth_provider), '') = ''
     $sql$;
   end if;
+end;
+$$;
+
+do $$
+begin
+  if to_regclass('public.wz_users') is null then
+    return;
+  end if;
+
+  update public.wz_users
+  set password_created = true
+  where password_created is distinct from true
+    and must_create_password is false;
 end;
 $$;
 

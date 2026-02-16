@@ -30,6 +30,7 @@ type WzUserRow = {
   auth_user_id?: string | null;
   auth_provider?: string | null;
   must_create_password?: boolean | number | string | null;
+  password_created?: boolean | number | string | null;
   user_id?: string | null;
 };
 
@@ -313,7 +314,25 @@ async function updateWzUserPasswordSecurityState(params: {
     includesPasswordChangedAt: boolean;
   }> = [
     {
-      patch: { password_changed_at: passwordChangedAt, must_create_password: false },
+      patch: {
+        password_changed_at: passwordChangedAt,
+        must_create_password: false,
+        password_created: true,
+      },
+      includesPasswordChangedAt: true,
+    },
+    {
+      patch: {
+        password_changed_at: passwordChangedAt,
+        must_create_password: false,
+      },
+      includesPasswordChangedAt: true,
+    },
+    {
+      patch: {
+        password_changed_at: passwordChangedAt,
+        password_created: true,
+      },
       includesPasswordChangedAt: true,
     },
     {
@@ -321,7 +340,18 @@ async function updateWzUserPasswordSecurityState(params: {
       includesPasswordChangedAt: true,
     },
     {
+      patch: {
+        must_create_password: false,
+        password_created: true,
+      },
+      includesPasswordChangedAt: false,
+    },
+    {
       patch: { must_create_password: false },
+      includesPasswordChangedAt: false,
+    },
+    {
+      patch: { password_created: true },
       includesPasswordChangedAt: false,
     },
   ];
@@ -371,6 +401,24 @@ async function updateWzUserMustCreatePasswordFlagBestEffort(params: {
   console.error("[change-password] must_create_password update error:", updateRes.error);
 }
 
+async function updateWzUserPasswordCreatedFlagBestEffort(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+  passwordCreated: boolean;
+}) {
+  const userId = String(params.userId || "").trim();
+  if (!userId) return;
+
+  const updateRes = await params.sb
+    .from("wz_users")
+    .update({ password_created: params.passwordCreated })
+    .eq("id", userId);
+
+  if (!updateRes.error) return;
+  if (isMissingColumnError(updateRes.error, "password_created")) return;
+  console.error("[change-password] password_created update error:", updateRes.error);
+}
+
 async function queryWzUsersRows(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   column: string;
@@ -378,6 +426,8 @@ async function queryWzUsersRows(params: {
   mode: "eq" | "ilike";
 }) {
   const columnsToTry = [
+    "id,email,full_name,phone_e164,auth_user_id,auth_provider,must_create_password,password_created,user_id",
+    "id,email,full_name,phone_e164,auth_user_id,auth_provider,must_create_password,password_created",
     "id,email,full_name,phone_e164,auth_user_id,auth_provider,must_create_password,user_id",
     "id,email,full_name,phone_e164,auth_user_id,auth_provider,must_create_password",
     "id,email,full_name,phone_e164,auth_user_id,must_create_password,user_id",
@@ -437,6 +487,10 @@ async function queryWzUsersRows(params: {
           typeof row.must_create_password === "undefined"
             ? null
             : normalizeBoolean(row.must_create_password),
+        password_created:
+          typeof row.password_created === "undefined"
+            ? null
+            : normalizeBoolean(row.password_created),
         user_id: normalizeOptionalText(String(row.user_id || "")),
       })) as WzUserRow[];
     }
@@ -593,14 +647,17 @@ async function resolveRequiresCurrentPassword(params: {
   userRow: WzUserRow;
   sessionEmail: string;
 }) {
-  const requiresByProfileFlag = !normalizeBoolean(params.userRow.must_create_password);
+  const hasPasswordByProfileFlag =
+    typeof params.userRow.password_created === "boolean"
+      ? normalizeBoolean(params.userRow.password_created)
+      : !normalizeBoolean(params.userRow.must_create_password);
   const authUserId = await resolveCurrentAuthUserId({
     sb: params.sb,
     userRow: params.userRow,
     sessionEmail: params.sessionEmail,
   });
   if (!authUserId) {
-    return requiresByProfileFlag;
+    return hasPasswordByProfileFlag;
   }
 
   try {
@@ -612,27 +669,40 @@ async function resolveRequiresCurrentPassword(params: {
 
     const hasPasswordProvider = readAuthUserHasPasswordProvider(data?.user || null);
     if (hasPasswordProvider) {
-      if (!requiresByProfileFlag) {
+      if (normalizeBoolean(params.userRow.must_create_password)) {
         await updateWzUserMustCreatePasswordFlagBestEffort({
           sb: params.sb,
           userId: String(params.userRow.id || ""),
           mustCreatePassword: false,
         });
       }
+      if (!normalizeBoolean(params.userRow.password_created)) {
+        await updateWzUserPasswordCreatedFlagBestEffort({
+          sb: params.sb,
+          userId: String(params.userRow.id || ""),
+          passwordCreated: true,
+        });
+      }
       return true;
     }
 
-    if (requiresByProfileFlag) {
+    if (!normalizeBoolean(params.userRow.must_create_password)) {
       await updateWzUserMustCreatePasswordFlagBestEffort({
         sb: params.sb,
         userId: String(params.userRow.id || ""),
         mustCreatePassword: true,
       });
     }
+    if (typeof params.userRow.password_created === "boolean") {
+      return false;
+    }
+    if (hasPasswordByProfileFlag) {
+      return true;
+    }
     return false;
   } catch (error) {
     console.error("[change-password] resolveRequiresCurrentPassword error:", error);
-    return requiresByProfileFlag;
+    return hasPasswordByProfileFlag;
   }
 }
 
@@ -1130,6 +1200,11 @@ export async function PUT(req: NextRequest) {
       sb: base.sb,
       userId: String(base.userRow.id),
       mustCreatePassword: false,
+    });
+    await updateWzUserPasswordCreatedFlagBestEffort({
+      sb: base.sb,
+      userId: String(base.userRow.id),
+      passwordCreated: true,
     });
 
     return NextResponse.json(
