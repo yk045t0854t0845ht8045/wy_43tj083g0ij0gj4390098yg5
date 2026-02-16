@@ -847,6 +847,8 @@ export default function LinkLoginPage() {
   // email check debounce
   useEffect(() => {
     const value = email.trim().toLowerCase();
+    const shouldHandlePasswordSetupPrompt =
+      step === "collect" && !oauthOnboardingProvider;
 
     // se estiver locked, ainda assim queremos checar (ex: veio da URL)
     if (value.length === 0) {
@@ -897,7 +899,7 @@ export default function LinkLoginPage() {
 
         if (exists) {
           setCheck({ state: "exists" });
-          if (requiresPasswordSetup) {
+          if (requiresPasswordSetup && shouldHandlePasswordSetupPrompt) {
             const message =
               String(data?.notice || "Voce nao cumpriu os requisitos de senha da conta.")
                 .trim() || "Voce nao cumpriu os requisitos de senha da conta.";
@@ -932,7 +934,7 @@ export default function LinkLoginPage() {
     }, 520);
 
     return () => window.clearTimeout(t);
-  }, [email]);
+  }, [email, oauthOnboardingProvider, step]);
 
   // reset flow
   const resetAll = useCallback(() => {
