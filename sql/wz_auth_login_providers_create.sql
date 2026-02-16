@@ -45,6 +45,30 @@ create index if not exists wz_auth_login_providers_email_idx
 create index if not exists wz_auth_login_providers_last_login_idx
   on public.wz_auth_login_providers (last_login_at desc);
 
+-- Normaliza provedores legados para evitar falha ao adicionar a constraint.
+update public.wz_auth_login_providers
+set provider = case
+  when coalesce(nullif(btrim(lower(provider)), ''), 'unknown') in (
+    'password',
+    'google',
+    'apple',
+    'github',
+    'unknown'
+  ) then coalesce(nullif(btrim(lower(provider)), ''), 'unknown')
+  else 'unknown'
+end
+where
+  provider is null
+  or provider <> btrim(lower(provider))
+  or btrim(lower(provider)) = ''
+  or btrim(lower(provider)) not in (
+    'password',
+    'google',
+    'apple',
+    'github',
+    'unknown'
+  );
+
 do $$
 begin
   if not exists (

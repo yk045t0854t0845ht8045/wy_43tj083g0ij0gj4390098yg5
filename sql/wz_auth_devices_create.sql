@@ -128,6 +128,52 @@ create index if not exists wz_auth_sessions_device_id_idx
 create index if not exists wz_auth_sessions_email_idx
   on public.wz_auth_sessions (email);
 
+-- Normaliza valores legados para evitar falha ao recriar constraints.
+update public.wz_auth_sessions
+set login_method = case
+  when coalesce(nullif(btrim(lower(login_method)), ''), 'unknown') in (
+    'password',
+    'email_code',
+    'sms_code',
+    'totp',
+    'passkey',
+    'trusted',
+    'exchange',
+    'sync',
+    'google',
+    'unknown'
+  ) then coalesce(nullif(btrim(lower(login_method)), ''), 'unknown')
+  else 'unknown'
+end,
+login_flow = case
+  when coalesce(nullif(btrim(lower(login_flow)), ''), 'unknown') in (
+    'login',
+    'register',
+    'unknown'
+  ) then coalesce(nullif(btrim(lower(login_flow)), ''), 'unknown')
+  else 'unknown'
+end
+where
+  login_method is null
+  or login_method <> btrim(lower(login_method))
+  or btrim(lower(login_method)) = ''
+  or btrim(lower(login_method)) not in (
+    'password',
+    'email_code',
+    'sms_code',
+    'totp',
+    'passkey',
+    'trusted',
+    'exchange',
+    'sync',
+    'google',
+    'unknown'
+  )
+  or login_flow is null
+  or login_flow <> btrim(lower(login_flow))
+  or btrim(lower(login_flow)) = ''
+  or btrim(lower(login_flow)) not in ('login', 'register', 'unknown');
+
 do $$
 begin
   if not exists (

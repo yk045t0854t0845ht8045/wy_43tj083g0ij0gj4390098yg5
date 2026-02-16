@@ -27,6 +27,38 @@ alter table if exists public.wz_users
 alter table if exists public.wz_users
   drop constraint if exists wz_users_auth_provider_chk;
 
+-- Normaliza provedores legados para evitar falha ao recriar a constraint.
+do $$
+begin
+  if to_regclass('public.wz_users') is null then
+    return;
+  end if;
+
+  update public.wz_users
+  set auth_provider = case
+    when coalesce(nullif(btrim(lower(auth_provider)), ''), 'password') in (
+      'password',
+      'google',
+      'apple',
+      'github',
+      'unknown'
+    ) then coalesce(nullif(btrim(lower(auth_provider)), ''), 'password')
+    else 'unknown'
+  end
+  where
+    auth_provider is null
+    or auth_provider <> btrim(lower(auth_provider))
+    or btrim(lower(auth_provider)) = ''
+    or btrim(lower(auth_provider)) not in (
+      'password',
+      'google',
+      'apple',
+      'github',
+      'unknown'
+    );
+end;
+$$;
+
 alter table if exists public.wz_users
   add constraint wz_users_auth_provider_chk
   check (auth_provider in ('password', 'google', 'apple', 'github', 'unknown'));
