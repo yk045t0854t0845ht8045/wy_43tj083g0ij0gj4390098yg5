@@ -178,6 +178,7 @@ export async function findLinkedUserByProviderIdentity(params: {
   provider: LoginProvider | string;
   authUserId?: string | null;
   providerUserId?: string | null;
+  email?: string | null;
 }) {
   const provider = normalizeLoginProvider(params.provider);
   if (provider === "password" || provider === "unknown") {
@@ -185,13 +186,13 @@ export async function findLinkedUserByProviderIdentity(params: {
       schemaReady: true as const,
       lookupOk: true as const,
       userId: null as string | null,
-      matchedBy: null as "auth_user_id" | "provider_user_id" | null,
+      matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
       conflict: false as const,
     };
   }
 
   const identities: Array<{
-    column: "auth_user_id" | "provider_user_id";
+    column: "auth_user_id" | "provider_user_id" | "email";
     value: string;
   }> = [];
 
@@ -205,12 +206,17 @@ export async function findLinkedUserByProviderIdentity(params: {
     identities.push({ column: "provider_user_id", value: providerUserId });
   }
 
+  const email = normalizeEmail(params.email || null);
+  if (email) {
+    identities.push({ column: "email", value: email });
+  }
+
   if (!identities.length) {
     return {
       schemaReady: true as const,
       lookupOk: true as const,
       userId: null as string | null,
-      matchedBy: null as "auth_user_id" | "provider_user_id" | null,
+      matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
       conflict: false as const,
     };
   }
@@ -218,7 +224,7 @@ export async function findLinkedUserByProviderIdentity(params: {
   try {
     const matches: Array<{
       userId: string;
-      matchedBy: "auth_user_id" | "provider_user_id";
+      matchedBy: "auth_user_id" | "provider_user_id" | "email";
     }> = [];
 
     for (const identity of identities) {
@@ -239,7 +245,7 @@ export async function findLinkedUserByProviderIdentity(params: {
             schemaReady: false as const,
             lookupOk: false as const,
             userId: null as string | null,
-            matchedBy: null as "auth_user_id" | "provider_user_id" | null,
+            matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
             conflict: false as const,
           };
         }
@@ -262,7 +268,7 @@ export async function findLinkedUserByProviderIdentity(params: {
         schemaReady: true as const,
         lookupOk: true as const,
         userId: null as string | null,
-        matchedBy: null as "auth_user_id" | "provider_user_id" | null,
+        matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
         conflict: false as const,
       };
     }
@@ -274,7 +280,7 @@ export async function findLinkedUserByProviderIdentity(params: {
         schemaReady: true as const,
         lookupOk: true as const,
         userId: null as string | null,
-        matchedBy: null as "auth_user_id" | "provider_user_id" | null,
+        matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
         conflict: true as const,
       };
     }
@@ -295,7 +301,7 @@ export async function findLinkedUserByProviderIdentity(params: {
       schemaReady: true as const,
       lookupOk: false as const,
       userId: null as string | null,
-      matchedBy: null as "auth_user_id" | "provider_user_id" | null,
+      matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
       conflict: false as const,
     };
   }

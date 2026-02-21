@@ -633,6 +633,62 @@ async function findWzUserById(params: {
   return null;
 }
 
+function mapWzRowToConnectTarget(
+  row: {
+    id: string | null;
+    email: string | null;
+    full_name: string | null;
+  } | null,
+) {
+  if (!row?.id) return null;
+  return {
+    id: row.id,
+    email: normalizeEmail(row.email),
+    fullName: sanitizeFullName(row.full_name),
+  };
+}
+
+async function findConnectTargetWzUser(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  sessionUserId?: string | null;
+  sessionEmail?: string | null;
+}) {
+  const sessionUserId = normalizeText(params.sessionUserId || null);
+  const sessionEmail = normalizeEmail(params.sessionEmail || null);
+
+  if (sessionUserId) {
+    const byId = await findWzUserById({
+      sb: params.sb,
+      userId: sessionUserId,
+    });
+    if (byId?.id) return byId;
+
+    const rowsByAuth = await queryWzUsersRows({
+      sb: params.sb,
+      column: "auth_user_id",
+      value: sessionUserId,
+      mode: "eq",
+    });
+    const byAuth = pickBestWzUserRow(rowsByAuth, sessionEmail);
+    const mappedByAuth = mapWzRowToConnectTarget(byAuth);
+    if (mappedByAuth?.id) return mappedByAuth;
+  }
+
+  if (sessionEmail) {
+    const rowsByEmail = await queryWzUsersRows({
+      sb: params.sb,
+      column: "email",
+      value: sessionEmail,
+      mode: "ilike",
+    });
+    const byEmail = pickBestWzUserRow(rowsByEmail, sessionEmail);
+    const mappedByEmail = mapWzRowToConnectTarget(byEmail);
+    if (mappedByEmail?.id) return mappedByEmail;
+  }
+
+  return null;
+}
+
 function pickBestWzUserRow(
   rows: Array<{
     id: string | null;
@@ -789,6 +845,27 @@ async function findOrCreateGoogleWzUser(params: {
       mode: "eq",
     });
     existing = pickBestWzUserRow(rowsByLinkedIdentity, params.email);
+
+    if (!existing?.id) {
+      const rowsByAuthFallback = await queryWzUsersRows({
+        sb: params.sb,
+        column: "auth_user_id",
+        value: params.authUserId,
+        mode: "eq",
+      });
+      existing = pickBestWzUserRow(rowsByAuthFallback, params.email);
+    }
+
+    if (!existing?.id) {
+      const rowsByEmailFallback = await queryWzUsersRows({
+        sb: params.sb,
+        column: "email",
+        value: params.email,
+        mode: "ilike",
+      });
+      existing = pickBestWzUserRow(rowsByEmailFallback, params.email);
+    }
+
     if (!existing?.id) {
       const err = new Error("Linked OAuth user not found");
       (err as Error & { code?: string }).code = "WZ_OAUTH_LINKED_USER_NOT_FOUND";
@@ -1409,6 +1486,7 @@ export async function GET(req: NextRequest) {
       provider: "google",
       authUserId,
       providerUserId,
+      email,
     });
     if (identityLookup.conflict) {
       return fail("Conflito de vinculo do Google detectado. Contate o suporte.");
@@ -1424,15 +1502,17 @@ export async function GET(req: NextRequest) {
       const activeSession = await readActiveSessionFromRequest(req, {
         seedIfMissing: false,
       });
-      const activeUserId = String(activeSession?.userId || "").trim();
-      const expectedUserId = String(stateRes.payload.connect_user_id || "").trim();
+      const activeUserId = normalizeText(String(activeSession?.userId || ""));
+      const activeEmail = normalizeEmail(String(activeSession?.email || ""));
+      const expectedUserId = normalizeText(String(stateRes.payload.connect_user_id || ""));
       if (!activeUserId || !expectedUserId || activeUserId !== expectedUserId) {
         return fail("Sessao invalida para conectar Google.");
       }
 
-      const targetUser = await findWzUserById({
+      const targetUser = await findConnectTargetWzUser({
         sb,
-        userId: activeUserId,
+        sessionUserId: activeUserId,
+        sessionEmail: activeEmail,
       });
       if (!targetUser?.id) {
         return fail("Conta local nao encontrada para conectar Google.");
