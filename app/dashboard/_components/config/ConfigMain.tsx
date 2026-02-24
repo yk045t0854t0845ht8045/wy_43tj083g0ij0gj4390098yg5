@@ -3636,7 +3636,7 @@ function AccountContent({
           )}
 
           <button type="button" className="group -mx-2 flex w-[calc(100%+16px)] items-center justify-between gap-4 rounded-xl px-2 py-5 text-left transition-[transform,background-color] duration-220 active:translate-y-[0.6px] active:scale-[0.998] cursor-pointer">
-            <span className="min-w-0"><p className="text-[18px] font-semibold text-[#e3524b]">Excluir minhá conta</p><p className="mt-1 text-[15px] text-black/58">Exclua permanentemente a conta e remova o acesso de todos os espacos de trabalho.</p></span>
+            <span className="min-w-0"><p className="text-[18px] font-semibold text-[#e3524b]">Excluir minha conta</p><p className="mt-1 text-[15px] text-black/58">Exclua permanentemente a conta e remova o acesso de todos os espacos de trabalho.</p></span>
             <ChevronRight className="h-5 w-5 shrink-0 text-black/35 transition-all duration-220 group-hover:translate-x-[1px] group-hover:text-black/65" />
           </button>
         </section>

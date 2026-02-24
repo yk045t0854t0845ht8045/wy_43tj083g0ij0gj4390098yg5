@@ -31,6 +31,7 @@ type GoogleStatePayload = {
   next: string;
   intent?: "login" | "connect";
   connect_user_id?: string;
+  connect_sid?: string;
   iat: number;
   exp: number;
   nonce: string;
@@ -847,26 +848,6 @@ async function findOrCreateGoogleWzUser(params: {
     existing = pickBestWzUserRow(rowsByLinkedIdentity, params.email);
 
     if (!existing?.id) {
-      const rowsByAuthFallback = await queryWzUsersRows({
-        sb: params.sb,
-        column: "auth_user_id",
-        value: params.authUserId,
-        mode: "eq",
-      });
-      existing = pickBestWzUserRow(rowsByAuthFallback, params.email);
-    }
-
-    if (!existing?.id) {
-      const rowsByEmailFallback = await queryWzUsersRows({
-        sb: params.sb,
-        column: "email",
-        value: params.email,
-        mode: "ilike",
-      });
-      existing = pickBestWzUserRow(rowsByEmailFallback, params.email);
-    }
-
-    if (!existing?.id) {
       const err = new Error("Linked OAuth user not found");
       (err as Error & { code?: string }).code = "WZ_OAUTH_LINKED_USER_NOT_FOUND";
       throw err;
@@ -1487,25 +1468,35 @@ export async function GET(req: NextRequest) {
       authUserId,
       providerUserId,
       email,
+      allowEmailFallback: oauthIntent !== "connect",
+      emailFallbackMode: "legacy-only",
     });
-    if (identityLookup.conflict) {
-      return fail("Conflito de vinculo do Google detectado. Contate o suporte.");
-    }
-    if (!identityLookup.lookupOk && identityLookup.schemaReady) {
+    if (!identityLookup.lookupOk) {
+      if (!identityLookup.schemaReady) {
+        return fail("Schema de provedores nao disponivel para validar vinculo Google.");
+      }
       return fail(
         "Nao foi possivel validar o vinculo da conta Google agora. Tente novamente em instantes.",
       );
     }
-    const linkedUserId = identityLookup.lookupOk ? identityLookup.userId : null;
+    if (identityLookup.conflict) {
+      return fail("Conflito de vinculo do Google detectado. Contate o suporte.");
+    }
+    const linkedUserId = identityLookup.userId;
 
     if (oauthIntent === "connect") {
       const activeSession = await readActiveSessionFromRequest(req, {
         seedIfMissing: false,
       });
       const activeUserId = normalizeText(String(activeSession?.userId || ""));
+      const activeSessionSid = normalizeText(String(activeSession?.sid || ""));
       const activeEmail = normalizeEmail(String(activeSession?.email || ""));
       const expectedUserId = normalizeText(String(stateRes.payload.connect_user_id || ""));
+      const expectedSessionSid = normalizeText(String(stateRes.payload.connect_sid || ""));
       if (!activeUserId || !expectedUserId || activeUserId !== expectedUserId) {
+        return fail("Sessao invalida para conectar Google.");
+      }
+      if (expectedSessionSid && (!activeSessionSid || activeSessionSid !== expectedSessionSid)) {
         return fail("Sessao invalida para conectar Google.");
       }
 
@@ -1538,6 +1529,9 @@ export async function GET(req: NextRequest) {
       if (!connectUpsert.ok) {
         if (!connectUpsert.schemaReady) {
           return fail("Schema de provedores nao disponivel para conectar Google.");
+        }
+        if (connectUpsert.reason === "identity-conflict") {
+          return fail("Esta conta Google ja esta conectada a outra conta.");
         }
         return fail("Nao foi possivel conectar Google nesta conta.");
       }
@@ -1579,10 +1573,13 @@ export async function GET(req: NextRequest) {
     });
     if (!loginUpsert.ok) {
       if (!loginUpsert.schemaReady) {
-        console.warn("[google-callback] login provider schema not ready; continuing without provider link");
-      } else {
-        console.error("[google-callback] failed to persist Google login provider link");
+        return fail("Schema de provedores nao disponivel para concluir login Google.");
       }
+      if (loginUpsert.reason === "identity-conflict") {
+        return fail("Esta conta Google ja esta conectada a outra conta.");
+      }
+      console.error("[google-callback] failed to persist Google login provider link");
+      return fail("Nao foi possivel concluir o login Google agora. Tente novamente.");
     }
 
     const googlePhoneCandidate = extractGooglePhoneCandidate(user);

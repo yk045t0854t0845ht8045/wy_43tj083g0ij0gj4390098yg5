@@ -100,6 +100,10 @@ export function isLoginProvidersSchemaMissingError(error: unknown) {
   return isLoginProvidersSchemaMissing(error);
 }
 
+function isExternalOAuthProvider(provider: LoginProvider) {
+  return provider === "google" || provider === "apple" || provider === "github";
+}
+
 export async function upsertLoginProviderRecord(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   userId: string;
@@ -114,9 +118,54 @@ export async function upsertLoginProviderRecord(params: {
   const email = normalizeEmail(params.email);
   const provider = normalizeLoginProvider(params.provider);
   const nowIso = normalizeIso(params.nowIso) || new Date().toISOString();
+  const authUserId = normalizeText(params.authUserId || null);
+  const providerUserId = normalizeText(params.providerUserId || null);
 
   if (!userId || !email) {
     return { ok: false as const, schemaReady: true as const, reason: "invalid" as const };
+  }
+
+  if (isExternalOAuthProvider(provider)) {
+    const identityLookup = await findLinkedUserByProviderIdentity({
+      sb: params.sb,
+      provider,
+      authUserId,
+      providerUserId,
+      allowEmailFallback: false,
+    });
+
+    if (!identityLookup.lookupOk) {
+      if (!identityLookup.schemaReady) {
+        return {
+          ok: false as const,
+          schemaReady: false as const,
+          reason: "schema-missing" as const,
+        };
+      }
+      return {
+        ok: false as const,
+        schemaReady: true as const,
+        reason: "lookup-failed" as const,
+      };
+    }
+
+    if (identityLookup.conflict) {
+      return {
+        ok: false as const,
+        schemaReady: true as const,
+        reason: "identity-conflict" as const,
+        conflictUserId: null as string | null,
+      };
+    }
+
+    if (identityLookup.userId && identityLookup.userId !== userId) {
+      return {
+        ok: false as const,
+        schemaReady: true as const,
+        reason: "identity-conflict" as const,
+        conflictUserId: identityLookup.userId,
+      };
+    }
   }
 
   try {
@@ -130,9 +179,9 @@ export async function upsertLoginProviderRecord(params: {
     if (lookup.error) throw lookup.error;
 
     const basePayload = {
-      auth_user_id: normalizeText(params.authUserId || null),
+      auth_user_id: authUserId,
       email,
-      provider_user_id: normalizeText(params.providerUserId || null),
+      provider_user_id: providerUserId,
       last_login_at: nowIso,
       metadata: params.metadata || {},
       updated_at: nowIso,
@@ -179,6 +228,8 @@ export async function findLinkedUserByProviderIdentity(params: {
   authUserId?: string | null;
   providerUserId?: string | null;
   email?: string | null;
+  allowEmailFallback?: boolean;
+  emailFallbackMode?: "legacy-only" | "always";
 }) {
   const provider = normalizeLoginProvider(params.provider);
   if (provider === "password" || provider === "unknown") {
@@ -187,47 +238,48 @@ export async function findLinkedUserByProviderIdentity(params: {
       lookupOk: true as const,
       userId: null as string | null,
       matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
+      usedEmailFallback: false as const,
       conflict: false as const,
     };
   }
 
-  const identities: Array<{
-    column: "auth_user_id" | "provider_user_id" | "email";
+  const strictIdentities: Array<{
+    column: "auth_user_id" | "provider_user_id";
     value: string;
   }> = [];
 
   const authUserId = normalizeText(params.authUserId || null);
   if (authUserId) {
-    identities.push({ column: "auth_user_id", value: authUserId });
+    strictIdentities.push({ column: "auth_user_id", value: authUserId });
   }
 
   const providerUserId = normalizeText(params.providerUserId || null);
   if (providerUserId) {
-    identities.push({ column: "provider_user_id", value: providerUserId });
+    strictIdentities.push({ column: "provider_user_id", value: providerUserId });
   }
 
   const email = normalizeEmail(params.email || null);
-  if (email) {
-    identities.push({ column: "email", value: email });
-  }
+  const allowEmailFallback = params.allowEmailFallback === true;
+  const emailFallbackMode = params.emailFallbackMode || "legacy-only";
 
-  if (!identities.length) {
+  if (!strictIdentities.length && (!allowEmailFallback || !email)) {
     return {
       schemaReady: true as const,
       lookupOk: true as const,
       userId: null as string | null,
       matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
+      usedEmailFallback: false as const,
       conflict: false as const,
     };
   }
 
   try {
-    const matches: Array<{
+    const strictMatches: Array<{
       userId: string;
-      matchedBy: "auth_user_id" | "provider_user_id" | "email";
+      matchedBy: "auth_user_id" | "provider_user_id";
     }> = [];
 
-    for (const identity of identities) {
+    for (const identity of strictIdentities) {
       const res = await params.sb
         .from("wz_auth_login_providers")
         .select("user_id")
@@ -236,18 +288,22 @@ export async function findLinkedUserByProviderIdentity(params: {
         .limit(20);
 
       if (res.error) {
-        if (
-          isLoginProvidersSchemaMissing(res.error) ||
-          isMissingColumnError(res.error, identity.column) ||
-          isMissingColumnError(res.error, "user_id")
-        ) {
+        if (isMissingTableError(res.error, "wz_auth_login_providers")) {
           return {
             schemaReady: false as const,
             lookupOk: false as const,
             userId: null as string | null,
             matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
+            usedEmailFallback: false as const,
             conflict: false as const,
           };
+        }
+
+        if (
+          isMissingColumnError(res.error, identity.column) ||
+          isMissingColumnError(res.error, "user_id")
+        ) {
+          continue;
         }
         throw res.error;
       }
@@ -256,43 +312,182 @@ export async function findLinkedUserByProviderIdentity(params: {
       for (const row of rows) {
         const userId = normalizeText(row.user_id);
         if (!userId) continue;
-        matches.push({
+        strictMatches.push({
           userId,
           matchedBy: identity.column,
         });
       }
     }
 
-    if (!matches.length) {
+    if (strictMatches.length) {
+      const uniqueStrictUserIds = Array.from(
+        new Set(strictMatches.map((entry) => entry.userId)),
+      );
+      if (uniqueStrictUserIds.length > 1) {
+        console.error(
+          "[login-providers] strict identity conflict for provider:",
+          provider,
+          strictMatches,
+        );
+        return {
+          schemaReady: true as const,
+          lookupOk: true as const,
+          userId: null as string | null,
+          matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
+          usedEmailFallback: false as const,
+          conflict: true as const,
+        };
+      }
+
+      const strictUserId = uniqueStrictUserIds[0] || null;
+      const firstStrict =
+        strictMatches.find((entry) => entry.userId === strictUserId) || null;
+
       return {
         schemaReady: true as const,
         lookupOk: true as const,
-        userId: null as string | null,
-        matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
+        userId: strictUserId,
+        matchedBy: firstStrict?.matchedBy || null,
+        usedEmailFallback: false as const,
         conflict: false as const,
       };
     }
 
-    const uniqueUserIds = Array.from(new Set(matches.map((entry) => entry.userId)));
-    if (uniqueUserIds.length > 1) {
-      console.error("[login-providers] identity conflict for provider:", provider, matches);
+    if (!allowEmailFallback || !email) {
       return {
         schemaReady: true as const,
         lookupOk: true as const,
         userId: null as string | null,
         matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
+        usedEmailFallback: false as const,
+        conflict: false as const,
+      };
+    }
+
+    const fallbackColumns = [
+      "user_id,auth_user_id,provider_user_id",
+      "user_id,auth_user_id",
+      "user_id,provider_user_id",
+      "user_id",
+    ];
+
+    let fallbackRows: Array<{
+      userId: string | null;
+      authUserId: string | null;
+      providerUserId: string | null;
+    }> = [];
+    let fallbackQueryOk = false;
+
+    for (const columns of fallbackColumns) {
+      const res = await params.sb
+        .from("wz_auth_login_providers")
+        .select(columns)
+        .eq("provider", provider)
+        .eq("email", email)
+        .limit(20);
+
+      if (!res.error) {
+        fallbackRows = ((res.data || []) as Array<{
+          user_id?: string | null;
+          auth_user_id?: string | null;
+          provider_user_id?: string | null;
+        }>).map((row) => ({
+          userId: normalizeText(row.user_id || null),
+          authUserId: normalizeText(row.auth_user_id || null),
+          providerUserId: normalizeText(row.provider_user_id || null),
+        }));
+        fallbackQueryOk = true;
+        break;
+      }
+
+      if (isMissingTableError(res.error, "wz_auth_login_providers")) {
+        return {
+          schemaReady: false as const,
+          lookupOk: false as const,
+          userId: null as string | null,
+          matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
+          usedEmailFallback: false as const,
+          conflict: false as const,
+        };
+      }
+
+      if (
+        isMissingColumnError(res.error, "email") ||
+        isMissingColumnError(res.error, "user_id") ||
+        isMissingColumnError(res.error, "auth_user_id") ||
+        isMissingColumnError(res.error, "provider_user_id")
+      ) {
+        continue;
+      }
+
+      throw res.error;
+    }
+
+    if (!fallbackQueryOk) {
+      return {
+        schemaReady: false as const,
+        lookupOk: false as const,
+        userId: null as string | null,
+        matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
+        usedEmailFallback: false as const,
+        conflict: false as const,
+      };
+    }
+
+    const fallbackCandidates = fallbackRows.filter((row) => {
+      if (!row.userId) return false;
+      if (emailFallbackMode !== "legacy-only") return true;
+      return !row.authUserId && !row.providerUserId;
+    });
+
+    if (!fallbackCandidates.length) {
+      return {
+        schemaReady: true as const,
+        lookupOk: true as const,
+        userId: null as string | null,
+        matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
+        usedEmailFallback: false as const,
+        conflict: false as const,
+      };
+    }
+
+    const uniqueFallbackUserIds = Array.from(
+      new Set(fallbackCandidates.map((entry) => String(entry.userId || ""))),
+    ).filter(Boolean);
+    if (uniqueFallbackUserIds.length > 1) {
+      console.error(
+        "[login-providers] email fallback conflict for provider:",
+        provider,
+        fallbackCandidates,
+      );
+      return {
+        schemaReady: true as const,
+        lookupOk: true as const,
+        userId: null as string | null,
+        matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
+        usedEmailFallback: false as const,
         conflict: true as const,
       };
     }
 
-    const userId = uniqueUserIds[0] || null;
-    const first = matches.find((entry) => entry.userId === userId) || null;
+    const fallbackUserId = uniqueFallbackUserIds[0] || null;
+    if (!fallbackUserId) {
+      return {
+        schemaReady: true as const,
+        lookupOk: true as const,
+        userId: null as string | null,
+        matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
+        usedEmailFallback: false as const,
+        conflict: false as const,
+      };
+    }
 
     return {
       schemaReady: true as const,
       lookupOk: true as const,
-      userId,
-      matchedBy: first?.matchedBy || null,
+      userId: fallbackUserId,
+      matchedBy: "email" as const,
+      usedEmailFallback: true as const,
       conflict: false as const,
     };
   } catch (error) {
@@ -302,6 +497,7 @@ export async function findLinkedUserByProviderIdentity(params: {
       lookupOk: false as const,
       userId: null as string | null,
       matchedBy: null as "auth_user_id" | "provider_user_id" | "email" | null,
+      usedEmailFallback: false as const,
       conflict: false as const,
     };
   }

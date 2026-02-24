@@ -18,6 +18,7 @@ type GoogleStatePayload = {
   next: string;
   intent?: "login" | "connect";
   connect_user_id?: string;
+  connect_sid?: string;
   iat: number;
   exp: number;
   nonce: string;
@@ -157,6 +158,7 @@ function createGoogleStateTicket(params: {
   next: string;
   intent?: "login" | "connect";
   connectUserId?: string;
+  connectSid?: string;
   codeVerifier?: string;
   ttlMs?: number;
 }) {
@@ -170,6 +172,7 @@ function createGoogleStateTicket(params: {
     next: sanitizeNext(params.next),
     intent: params.intent === "connect" ? "connect" : "login",
     connect_user_id: String(params.connectUserId || "").trim() || undefined,
+    connect_sid: String(params.connectSid || "").trim() || undefined,
     iat: now,
     exp: now + ttlMs,
     nonce: crypto.randomBytes(8).toString("hex"),
@@ -193,6 +196,7 @@ export async function POST(req: NextRequest) {
     const nextRaw = String(body?.next || body?.returnTo || "").trim();
     const nextSafe = sanitizeNext(nextRaw || "/");
     let connectUserId = "";
+    let connectSid = "";
     if (intent === "connect") {
       const activeSession = await readActiveSessionFromRequest(req, {
         seedIfMissing: false,
@@ -207,6 +211,7 @@ export async function POST(req: NextRequest) {
         );
       }
       connectUserId = String(activeSession.userId).trim();
+      connectSid = String(activeSession.sid || "").trim();
       if (!connectUserId) {
         return NextResponse.json(
           {
@@ -227,6 +232,7 @@ export async function POST(req: NextRequest) {
       next: nextSafe,
       intent,
       connectUserId,
+      connectSid,
       codeVerifier,
     });
 
