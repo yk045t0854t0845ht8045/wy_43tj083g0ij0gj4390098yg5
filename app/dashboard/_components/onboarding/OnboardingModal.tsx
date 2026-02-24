@@ -1012,7 +1012,7 @@ export default function OnboardingModal({
                                 </div>
                                 {!providerConfigured && (
                                   <div className="mt-2 text-[11px] text-[#b2433e]">
-                                    Provider nao configurado no servidor. Defina EVOLUTION_API_BASE_URL e EVOLUTION_API_KEY.
+                                    Provider proprio desativado no servidor. Defina WHATSAPP_SELF_HOSTED_ENABLED=true.
                                   </div>
                                 )}
                                 {pairingUrl && <div className="mt-2 break-all text-[11px] text-black/48">Ref tecnica: {pairingUrl}</div>}

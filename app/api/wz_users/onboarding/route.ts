@@ -1,5 +1,4 @@
-import crypto from "crypto";
-import QRCode from "qrcode";
+﻿import QRCode from "qrcode";
 import { NextResponse, type NextRequest } from "next/server";
 import { readActiveSessionFromRequest } from "@/app/api/wz_AuthLogin/_active_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
@@ -14,9 +13,17 @@ import {
   type OnboardingRecord,
   type OnboardingUiStep,
 } from "@/app/api/wz_users/_onboarding";
+import {
+  buildOwnWhatsAppInstanceName,
+  ensureOwnWhatsAppInstance,
+  getOwnWhatsAppSnapshot,
+  isOwnWhatsAppProviderConfigured,
+  waitForOwnWhatsAppQr,
+} from "@/app/api/wz_users/_whatsapp_provider";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const runtime = "nodejs";
 
 const NO_STORE_HEADERS = {
   "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
@@ -25,8 +32,7 @@ const NO_STORE_HEADERS = {
 };
 
 const WHATSAPP_PAIRING_TTL_MS = 1000 * 60 * 2;
-const EVOLUTION_REQUEST_TIMEOUT_MS = 12000;
-const WHATSAPP_PROVIDER_NAME = "evolution";
+const WHATSAPP_PROVIDER_NAME = "self-hosted-baileys";
 
 type OnboardingAction =
   | "save-company"
@@ -35,39 +41,6 @@ type OnboardingAction =
   | "generate-whatsapp-qr"
   | "confirm-whatsapp"
   | "finish";
-
-type EvolutionRequestResult = {
-  ok: boolean;
-  status: number;
-  data: unknown;
-  error: string | null;
-};
-
-type EvolutionStateResult =
-  | {
-      ok: true;
-      exists: boolean;
-      state: string;
-      data: unknown;
-    }
-  | {
-      ok: false;
-      status: number;
-      error: string;
-    };
-
-type EvolutionConnectResult =
-  | {
-      ok: true;
-      code: string | null;
-      pairingCode: string | null;
-      data: unknown;
-    }
-  | {
-      ok: false;
-      status: number;
-      error: string;
-    };
 
 type ResolvedOnboardingContext = {
   sb: ReturnType<typeof supabaseAdmin>;
@@ -141,328 +114,18 @@ function normalizeIndustry(value: unknown) {
   return clean.slice(0, 120);
 }
 
-function resolveEvolutionApiBaseUrl() {
-  const configured = String(
-    process.env.EVOLUTION_API_BASE_URL || process.env.WHATSAPP_PROVIDER_BASE_URL || "",
-  ).trim();
-  if (!configured) return "";
-  return configured.replace(/\/+$/, "");
-}
-
-function resolveEvolutionApiKey() {
-  return String(process.env.EVOLUTION_API_KEY || process.env.WHATSAPP_PROVIDER_API_KEY || "").trim();
-}
-
-function resolveEvolutionIntegration() {
-  const configured = String(process.env.EVOLUTION_INTEGRATION || "").trim();
-  if (!configured) return "WHATSAPP-BAILEYS";
-  return configured;
-}
-
-function resolveEvolutionInstancePrefix() {
-  const configured = String(process.env.EVOLUTION_INSTANCE_PREFIX || "").trim().toLowerCase();
-  if (!configured) return "wyzer";
-  return configured.replace(/[^a-z0-9-_]/g, "") || "wyzer";
-}
-
-function resolveEvolutionWebhookUrl() {
-  const configured = String(process.env.EVOLUTION_WEBHOOK_URL || "").trim();
-  return configured || "";
-}
-
-function isEvolutionProviderConfigured() {
-  return Boolean(resolveEvolutionApiBaseUrl() && resolveEvolutionApiKey());
-}
-
-function buildEvolutionInstanceName(userId: string) {
-  const prefix = resolveEvolutionInstancePrefix();
-  const cleanUserId = String(userId || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-_]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  const base = `${prefix}-${cleanUserId || "unknown"}`;
-  return base.slice(0, 60);
-}
-
-function toJsonSafe(raw: string) {
-  const text = String(raw || "").trim();
-  if (!text) return null;
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return { raw: text };
+function normalizeProviderState(value: string) {
+  const clean = String(value || "").trim().toLowerCase();
+  if (!clean) return "unknown";
+  if (clean === "starting" || clean === "connecting" || clean === "idle") {
+    return "connecting";
   }
-}
-
-function normalizeEvolutionError(data: unknown, fallback: string) {
-  const payload = data as Record<string, unknown> | null;
-  const msg =
-    normalizeOptionalText(String(payload?.message || "")) ||
-    normalizeOptionalText(String(payload?.error || "")) ||
-    normalizeOptionalText(String(payload?.response || "")) ||
-    normalizeOptionalText(String(payload?.raw || ""));
-  return msg || fallback;
-}
-
-function pickEvolutionState(data: unknown) {
-  const payload = data as Record<string, unknown> | null;
-  const instance = (payload?.instance || null) as Record<string, unknown> | null;
-  const response = (payload?.response || null) as Record<string, unknown> | null;
-  const responseInstance = (response?.instance || null) as Record<string, unknown> | null;
-
-  const candidates = [
-    instance?.state,
-    instance?.status,
-    responseInstance?.state,
-    response?.state,
-    payload?.state,
-    payload?.status,
-  ];
-
-  for (const candidate of candidates) {
-    const state = String(candidate || "").trim().toLowerCase();
-    if (!state) continue;
-    if (state === "connected") return "open";
-    if (state === "closed") return "close";
-    return state;
-  }
-
-  return "unknown";
-}
-
-function isEvolutionInstanceAlreadyExists(status: number, data: unknown) {
-  if (status === 409) return true;
-  const text = String(
-    (data as Record<string, unknown> | null)?.message ||
-      (data as Record<string, unknown> | null)?.error ||
-      (data as Record<string, unknown> | null)?.raw ||
-      "",
-  )
-    .trim()
-    .toLowerCase();
-  if (!text) return false;
-  return (
-    (text.includes("already") && text.includes("exist")) ||
-    text.includes("ja existe") ||
-    text.includes("existente") ||
-    text.includes("in use")
-  );
-}
-
-function extractEvolutionConnectCode(data: unknown) {
-  const payload = data as Record<string, unknown> | null;
-  const response = (payload?.response || null) as Record<string, unknown> | null;
-
-  const codeCandidates = [
-    payload?.code,
-    payload?.qrcode,
-    payload?.qr,
-    payload?.base64,
-    response?.code,
-    response?.qrcode,
-    response?.qr,
-    response?.base64,
-  ];
-
-  const pairingCandidates = [
-    payload?.pairingCode,
-    payload?.pairingcode,
-    payload?.pairing_code,
-    response?.pairingCode,
-    response?.pairingcode,
-    response?.pairing_code,
-  ];
-
-  let code: string | null = null;
-  for (const candidate of codeCandidates) {
-    const normalized = normalizeOptionalText(String(candidate || ""));
-    if (!normalized) continue;
-    code = normalized;
-    break;
-  }
-
-  let pairingCode: string | null = null;
-  for (const candidate of pairingCandidates) {
-    const normalized = normalizeOptionalText(String(candidate || ""));
-    if (!normalized) continue;
-    pairingCode = normalized;
-    break;
-  }
-
-  return { code, pairingCode };
-}
-
-function looksLikeBase64Image(value: string) {
-  const clean = String(value || "").trim();
-  if (!clean) return false;
-  if (clean.startsWith("data:image/")) return true;
-  if (clean.length < 180) return false;
-  if (clean.includes("@")) return false;
-  return /^[A-Za-z0-9+/=\r\n]+$/.test(clean);
-}
-
-async function evolutionRequest(params: {
-  path: string;
-  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-  body?: Record<string, unknown>;
-}) {
-  const baseUrl = resolveEvolutionApiBaseUrl();
-  const apiKey = resolveEvolutionApiKey();
-  if (!baseUrl || !apiKey) {
-    return {
-      ok: false,
-      status: 0,
-      data: null,
-      error: "Provider WhatsApp nao configurado no ambiente.",
-    } as EvolutionRequestResult;
-  }
-
-  const url = `${baseUrl}${params.path.startsWith("/") ? "" : "/"}${params.path}`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => {
-    controller.abort();
-  }, EVOLUTION_REQUEST_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(url, {
-      method: params.method || "GET",
-      cache: "no-store",
-      signal: controller.signal,
-      headers: {
-        apikey: apiKey,
-        ...(params.body ? { "Content-Type": "application/json" } : {}),
-      },
-      body: params.body ? JSON.stringify(params.body) : undefined,
-    });
-
-    const raw = await res.text();
-    const data = toJsonSafe(raw);
-
-    if (res.ok) {
-      return {
-        ok: true,
-        status: res.status,
-        data,
-        error: null,
-      } as EvolutionRequestResult;
-    }
-
-    return {
-      ok: false,
-      status: res.status,
-      data,
-      error: normalizeEvolutionError(data, "Falha ao comunicar com provider WhatsApp."),
-    } as EvolutionRequestResult;
-  } catch (error) {
-    const errMessage =
-      error instanceof Error
-        ? error.name === "AbortError"
-          ? "Tempo limite atingido ao consultar provider WhatsApp."
-          : error.message
-        : "Erro inesperado ao consultar provider WhatsApp.";
-    return {
-      ok: false,
-      status: 0,
-      data: null,
-      error: errMessage,
-    } as EvolutionRequestResult;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function ensureEvolutionInstance(instanceName: string) {
-  const webhookUrl = resolveEvolutionWebhookUrl();
-  const body: Record<string, unknown> = {
-    instanceName,
-    integration: resolveEvolutionIntegration(),
-    qrcode: true,
-    token: crypto.randomBytes(12).toString("hex"),
-  };
-
-  if (webhookUrl) {
-    body.webhook = {
-      url: webhookUrl,
-      byEvents: true,
-      base64: true,
-      events: ["CONNECTION_UPDATE"],
-    };
-  }
-
-  const created = await evolutionRequest({
-    path: "/instance/create",
-    method: "POST",
-    body,
-  });
-
-  if (created.ok) {
-    return { ok: true as const };
-  }
-
-  if (isEvolutionInstanceAlreadyExists(created.status, created.data)) {
-    return { ok: true as const };
-  }
-
-  return {
-    ok: false as const,
-    error: created.error || "Nao foi possivel preparar instancia do WhatsApp.",
-  };
-}
-
-async function getEvolutionConnectionState(instanceName: string): Promise<EvolutionStateResult> {
-  const stateRes = await evolutionRequest({
-    path: `/instance/connectionState/${encodeURIComponent(instanceName)}`,
-    method: "GET",
-  });
-
-  if (!stateRes.ok && stateRes.status === 404) {
-    return {
-      ok: true,
-      exists: false,
-      state: "not-found",
-      data: stateRes.data,
-    };
-  }
-
-  if (!stateRes.ok) {
-    return {
-      ok: false,
-      status: stateRes.status,
-      error: stateRes.error || "Nao foi possivel consultar status de conexao do WhatsApp.",
-    };
-  }
-
-  return {
-    ok: true,
-    exists: true,
-    state: pickEvolutionState(stateRes.data),
-    data: stateRes.data,
-  };
-}
-
-async function getEvolutionConnectCode(instanceName: string): Promise<EvolutionConnectResult> {
-  const res = await evolutionRequest({
-    path: `/instance/connect/${encodeURIComponent(instanceName)}`,
-    method: "GET",
-  });
-
-  if (!res.ok) {
-    return {
-      ok: false,
-      status: res.status,
-      error: res.error || "Nao foi possivel gerar QR Code no provider WhatsApp.",
-    };
-  }
-
-  const extracted = extractEvolutionConnectCode(res.data);
-  return {
-    ok: true,
-    code: extracted.code,
-    pairingCode: extracted.pairingCode,
-    data: res.data,
-  };
+  if (clean === "qr") return "qr";
+  if (clean === "open") return "open";
+  if (clean === "close") return "close";
+  if (clean === "logged_out") return "logged_out";
+  if (clean === "error") return "error";
+  return clean;
 }
 
 async function refreshOnboarding(params: ResolvedOnboardingContext) {
@@ -530,57 +193,39 @@ async function syncWhatsAppWithProvider(params: {
   ctx: ResolvedOnboardingContext;
   requireQr: boolean;
 }): Promise<WhatsAppProviderSyncResult> {
-  if (!isEvolutionProviderConfigured()) {
+  if (!isOwnWhatsAppProviderConfigured()) {
     return {
       ok: false,
       response: NextResponse.json(
         {
           ok: false,
           error:
-            "Provider WhatsApp nao configurado. Defina EVOLUTION_API_BASE_URL e EVOLUTION_API_KEY no ambiente.",
+            "Provider proprio de WhatsApp desativado. Defina WHATSAPP_SELF_HOSTED_ENABLED=true no ambiente.",
         },
         { status: 500, headers: NO_STORE_HEADERS },
       ),
     };
   }
 
-  const instanceName = buildEvolutionInstanceName(params.ctx.onboarding.userId);
-  let stateResult = await getEvolutionConnectionState(instanceName);
-  if (!stateResult.ok) {
+  const instanceName = buildOwnWhatsAppInstanceName(params.ctx.onboarding.userId);
+  const ensured = await ensureOwnWhatsAppInstance(instanceName);
+  if (!ensured.ok) {
     return {
       ok: false,
       response: NextResponse.json(
-        { ok: false, error: stateResult.error },
+        { ok: false, error: ensured.error },
         { status: 502, headers: NO_STORE_HEADERS },
       ),
     };
   }
 
-  if (!stateResult.exists) {
-    const ensured = await ensureEvolutionInstance(instanceName);
-    if (!ensured.ok) {
-      return {
-        ok: false,
-        response: NextResponse.json(
-          { ok: false, error: ensured.error },
-          { status: 502, headers: NO_STORE_HEADERS },
-        ),
-      };
-    }
+  const providerSnapshot = params.requireQr
+    ? await waitForOwnWhatsAppQr(instanceName)
+    : getOwnWhatsAppSnapshot(instanceName);
 
-    stateResult = await getEvolutionConnectionState(instanceName);
-    if (!stateResult.ok) {
-      return {
-        ok: false,
-        response: NextResponse.json(
-          { ok: false, error: stateResult.error },
-          { status: 502, headers: NO_STORE_HEADERS },
-        ),
-      };
-    }
-  }
+  const providerState = normalizeProviderState(providerSnapshot.state);
 
-  if (stateResult.state === "open") {
+  if (providerState === "open") {
     let onboarding = params.ctx.onboarding;
     const patch: Record<string, unknown> = {};
     const nowIso = new Date().toISOString();
@@ -640,62 +285,28 @@ async function syncWhatsAppWithProvider(params: {
     return {
       ok: true,
       onboarding,
-      whatsappState: stateResult.state,
+      whatsappState: providerState,
     };
   }
 
-  let connectResult = await getEvolutionConnectCode(instanceName);
-  if (!connectResult.ok && connectResult.status === 404) {
-    const ensured = await ensureEvolutionInstance(instanceName);
-    if (ensured.ok) {
-      connectResult = await getEvolutionConnectCode(instanceName);
-    }
+  let qrCodeDataUrl: string | undefined;
+  let pairingExpiresAt: string | undefined;
+
+  if (providerSnapshot.qr) {
+    qrCodeDataUrl = await QRCode.toDataURL(providerSnapshot.qr, {
+      width: 320,
+      margin: 1,
+      errorCorrectionLevel: "M",
+    });
+    pairingExpiresAt = new Date(Date.now() + WHATSAPP_PAIRING_TTL_MS).toISOString();
   }
-
-  if (!connectResult.ok) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { ok: false, error: connectResult.error },
-        { status: 502, headers: NO_STORE_HEADERS },
-      ),
-    };
-  }
-
-  if (!connectResult.code) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        {
-          ok: false,
-          error: "Provider WhatsApp nao retornou QR Code valido. Tente novamente em alguns segundos.",
-        },
-        { status: 502, headers: NO_STORE_HEADERS },
-      ),
-    };
-  }
-
-  const codeValue = String(connectResult.code || "").trim();
-  const qrCodeDataUrl = codeValue.startsWith("data:image/")
-    ? codeValue
-    : looksLikeBase64Image(codeValue)
-      ? `data:image/png;base64,${codeValue}`
-      : await QRCode.toDataURL(codeValue, {
-          width: 320,
-          margin: 1,
-          errorCorrectionLevel: "M",
-        });
-
-  const pairingCode =
-    normalizeOptionalText(connectResult.pairingCode || params.ctx.onboarding.whatsappPairingCode || "") || null;
-  const pairingExpiresAt = new Date(Date.now() + WHATSAPP_PAIRING_TTL_MS).toISOString();
 
   const patched = await patchOnboardingAndRefresh({
     ctx: params.ctx,
     patch: {
       ui_step: "whatsapp",
-      whatsapp_pairing_code: pairingCode,
-      whatsapp_pairing_expires_at: pairingExpiresAt,
+      whatsapp_pairing_code: null,
+      whatsapp_pairing_expires_at: pairingExpiresAt || null,
       whatsapp_connected: false,
       whatsapp_connected_at: null,
       completed: false,
@@ -708,9 +319,8 @@ async function syncWhatsAppWithProvider(params: {
   return {
     ok: true,
     onboarding: patched.onboarding,
-    whatsappState: stateResult.state,
+    whatsappState: providerState,
     qrCodeDataUrl,
-    pairingCode: pairingCode || undefined,
     pairingExpiresAt,
   };
 }
@@ -814,7 +424,7 @@ export async function GET(req: NextRequest) {
         pairingExpiresAt,
         whatsappState,
         whatsappProvider: WHATSAPP_PROVIDER_NAME,
-        providerConfigured: isEvolutionProviderConfigured(),
+        providerConfigured: isOwnWhatsAppProviderConfigured(),
       },
       { status: 200, headers: NO_STORE_HEADERS },
     );
@@ -935,7 +545,7 @@ export async function POST(req: NextRequest) {
           pairingExpiresAt: sync.pairingExpiresAt,
           whatsappState: sync.whatsappState,
           whatsappProvider: WHATSAPP_PROVIDER_NAME,
-          providerConfigured: isEvolutionProviderConfigured(),
+          providerConfigured: isOwnWhatsAppProviderConfigured(),
         },
         { status: 200, headers: NO_STORE_HEADERS },
       );
@@ -981,7 +591,7 @@ export async function POST(req: NextRequest) {
           pairingExpiresAt: sync.pairingExpiresAt,
           whatsappState: sync.whatsappState,
           whatsappProvider: WHATSAPP_PROVIDER_NAME,
-          providerConfigured: isEvolutionProviderConfigured(),
+          providerConfigured: isOwnWhatsAppProviderConfigured(),
         },
         { status: 200, headers: NO_STORE_HEADERS },
       );
@@ -1010,7 +620,7 @@ export async function POST(req: NextRequest) {
           onboarding: sync.onboarding,
           whatsappState: sync.whatsappState,
           whatsappProvider: WHATSAPP_PROVIDER_NAME,
-          providerConfigured: isEvolutionProviderConfigured(),
+          providerConfigured: isOwnWhatsAppProviderConfigured(),
         },
         { status: 200, headers: NO_STORE_HEADERS },
       );
