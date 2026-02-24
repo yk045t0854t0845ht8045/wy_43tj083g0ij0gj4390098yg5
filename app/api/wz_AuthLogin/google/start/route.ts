@@ -92,19 +92,6 @@ function getConfiguredAuthOrigin() {
   }
 }
 
-function getConfiguredDashboardOrigin() {
-  const raw = String(process.env.DASHBOARD_ORIGIN || "").trim();
-  if (!raw) return "";
-
-  try {
-    const parsed = new URL(raw);
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
-    return `${parsed.protocol}//${parsed.host}`;
-  } catch {
-    return "";
-  }
-}
-
 function sanitizeNext(raw: string) {
   if (!raw) return "/";
 
@@ -153,28 +140,34 @@ function getRequestOrigin(req: NextRequest, opts?: { preferRequestHost?: boolean
   return `${proto}://${hostHeader}`;
 }
 
-function resolveConnectCallbackOrigin(req: NextRequest, nextSafe: string) {
-  if (/^https?:\/\//i.test(nextSafe)) {
-    try {
-      const absolute = new URL(nextSafe);
-      if (isAllowedReturnToAbsolute(absolute)) {
-        return `${absolute.protocol}//${absolute.host}`;
-      }
-    } catch {}
+function resolveConnectCallbackOrigin(req: NextRequest) {
+  const configuredAuth = getConfiguredAuthOrigin();
+  if (configuredAuth) return configuredAuth;
+
+  const reqHostRaw = String(pickRequestHost(req) || req.nextUrl.host || "")
+    .split(",")[0]
+    .trim();
+  const reqHost = reqHostRaw.split(":")[0].trim().toLowerCase();
+  const protoHeader =
+    req.headers.get("x-forwarded-proto") ||
+    req.nextUrl.protocol.replace(":", "") ||
+    "https";
+  const proto = protoHeader === "http" ? "http" : "https";
+
+  if (reqHost === "dashboard.wyzer.com.br") {
+    return `${proto}://login.wyzer.com.br`;
+  }
+  if (reqHost === "dashboard.localhost") {
+    return "http://login.localhost:3000";
+  }
+  if (reqHost.startsWith("dashboard.") && !reqHost.endsWith(".localhost")) {
+    return `${proto}://${reqHostRaw.replace(/^dashboard\./i, "login.")}`;
+  }
+  if (reqHost.startsWith("dashboard-") && reqHost.endsWith(".vercel.app")) {
+    return `${proto}://${reqHostRaw.replace(/^dashboard-/i, "login-")}`;
   }
 
-  const configuredDashboard = getConfiguredDashboardOrigin();
-  if (configuredDashboard) return configuredDashboard;
-
-  const reqHost = String(pickRequestHost(req) || req.nextUrl.host || "")
-    .split(":")[0]
-    .trim()
-    .toLowerCase();
-  if (reqHost.endsWith(".localhost") || reqHost === "localhost") {
-    return "http://dashboard.localhost:3000";
-  }
-
-  return "https://dashboard.wyzer.com.br";
+  return getRequestOrigin(req, { preferRequestHost: false });
 }
 
 function resolveGoogleStateCookieDomain(req: NextRequest) {
@@ -276,7 +269,7 @@ export async function POST(req: NextRequest) {
 
     const callbackOrigin =
       intent === "connect"
-        ? resolveConnectCallbackOrigin(req, nextSafe)
+        ? resolveConnectCallbackOrigin(req)
         : getRequestOrigin(req, { preferRequestHost: false });
     const callback = new URL(
       "/api/wz_AuthLogin/google/callback",

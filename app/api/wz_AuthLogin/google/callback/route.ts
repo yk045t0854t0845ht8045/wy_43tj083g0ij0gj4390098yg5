@@ -268,10 +268,66 @@ function isHostOnlyMode() {
   return isProd && getEnvBool("SESSION_COOKIE_HOST_ONLY", true);
 }
 
+function getConfiguredDashboardOrigin() {
+  const raw = String(process.env.DASHBOARD_ORIGIN || "").trim();
+  if (!raw) return "";
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return "";
+  }
+}
+
 function getDashboardOrigin() {
-  const env = String(process.env.DASHBOARD_ORIGIN || "").trim();
-  if (env) return env.replace(/\/+$/g, "");
+  const configured = getConfiguredDashboardOrigin();
+  if (configured) return configured;
   return "https://dashboard.wyzer.com.br";
+}
+
+function resolveDashboardOriginFromRequest(req: NextRequest) {
+  const configured = getConfiguredDashboardOrigin();
+  if (configured) return configured;
+
+  const reqHostRaw = String(
+    req.headers.get("x-forwarded-host") || req.headers.get("host") || req.nextUrl.host || "",
+  )
+    .split(",")[0]
+    .trim();
+  const reqHost = reqHostRaw.split(":")[0].trim().toLowerCase();
+  const protoHeader =
+    req.headers.get("x-forwarded-proto") ||
+    req.nextUrl.protocol.replace(":", "") ||
+    "https";
+  const proto = protoHeader === "http" ? "http" : "https";
+
+  if (!reqHost) return getDashboardOrigin();
+
+  if (reqHost === "login.wyzer.com.br") {
+    return `${proto}://dashboard.wyzer.com.br`;
+  }
+  if (reqHost === "login.localhost") {
+    return "http://dashboard.localhost:3000";
+  }
+  if (reqHost.startsWith("login.") && !reqHost.endsWith(".localhost")) {
+    return `${proto}://${reqHostRaw.replace(/^login\./i, "dashboard.")}`;
+  }
+  if (reqHost.startsWith("login-") && reqHost.endsWith(".vercel.app")) {
+    return `${proto}://${reqHostRaw.replace(/^login-/i, "dashboard-")}`;
+  }
+
+  if (reqHost === "dashboard.wyzer.com.br") {
+    return `${proto}://dashboard.wyzer.com.br`;
+  }
+  if (reqHost === "dashboard.localhost") {
+    return "http://dashboard.localhost:3000";
+  }
+  if (reqHost === "localhost" || reqHost.endsWith(".localhost")) {
+    return "http://dashboard.localhost:3000";
+  }
+
+  return getDashboardOrigin();
 }
 
 function makeDashboardTicket(params: {
@@ -1373,6 +1429,7 @@ async function exchangeGooglePkceCode(params: {
 
 export async function GET(req: NextRequest) {
   const requestOrigin = getRequestOrigin(req);
+  const dashboardOrigin = resolveDashboardOriginFromRequest(req);
   const stFromQuery = String(req.nextUrl.searchParams.get("st") || "").trim();
   const stFromCookie = String(req.cookies.get(GOOGLE_STATE_COOKIE_NAME)?.value || "").trim();
   const connectStateFromCookie = String(
@@ -1403,7 +1460,7 @@ export async function GET(req: NextRequest) {
     const target =
       oauthIntent === "connect"
         ? buildGoogleConnectRedirect({
-            origin: requestOrigin,
+            origin: dashboardOrigin,
             next: safeNext,
             ok: false,
             error: message,
@@ -1510,16 +1567,24 @@ export async function GET(req: NextRequest) {
       const activeEmail = normalizeEmail(String(activeSession?.email || ""));
       const expectedUserId = normalizeText(String(stateRes.payload.connect_user_id || ""));
       const expectedSessionSid = normalizeText(String(stateRes.payload.connect_sid || ""));
-      if (!activeUserId || !expectedUserId || activeUserId !== expectedUserId) {
+
+      if (!expectedUserId) {
         return fail("Sessao invalida para conectar Google.");
       }
-      if (expectedSessionSid && (!activeSessionSid || activeSessionSid !== expectedSessionSid)) {
+      if (activeUserId && activeUserId !== expectedUserId) {
+        return fail("Sessao invalida para conectar Google.");
+      }
+      if (
+        expectedSessionSid &&
+        activeUserId &&
+        (!activeSessionSid || activeSessionSid !== expectedSessionSid)
+      ) {
         return fail("Sessao invalida para conectar Google.");
       }
 
       const targetUser = await findConnectTargetWzUser({
         sb,
-        sessionUserId: activeUserId,
+        sessionUserId: activeUserId || expectedUserId,
         sessionEmail: activeEmail,
       });
       if (!targetUser?.id) {
@@ -1554,7 +1619,7 @@ export async function GET(req: NextRequest) {
       }
 
       const successUrl = buildGoogleConnectRedirect({
-        origin: requestOrigin,
+        origin: dashboardOrigin,
         next: safeNext,
         ok: true,
       });

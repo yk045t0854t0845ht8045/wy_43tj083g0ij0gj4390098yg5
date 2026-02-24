@@ -5,6 +5,7 @@ export const config = {
 }
 
 const GOOGLE_STATE_COOKIE_NAME = "wz_google_oauth_state_v1"
+const GOOGLE_CONNECT_STATE_COOKIE_NAME = "wz_google_oauth_connect_state_v1"
 
 function isStaticAssetPath(pathname: string) {
   return /\.(?:png|svg|jpg|jpeg|gif|webp|avif|ico|css|js|mjs|map|txt|xml|json|pdf|mp4|webm|mp3|wav|ogg|woff|woff2|ttf|otf|eot)$/i.test(
@@ -73,7 +74,15 @@ function hasLoginSessionCookie(req: NextRequest) {
 
 function hasGoogleOAuthStateCookie(req: NextRequest) {
   const token = String(req.cookies.get(GOOGLE_STATE_COOKIE_NAME)?.value || "").trim()
-  return token.includes(".")
+  if (token.includes(".")) return true
+
+  const connectToken = String(req.cookies.get(GOOGLE_CONNECT_STATE_COOKIE_NAME)?.value || "").trim()
+  return connectToken.includes(".")
+}
+
+function hasGoogleOAuthStateQuery(req: NextRequest) {
+  const ticket = String(req.nextUrl.searchParams.get("st") || "").trim()
+  return ticket.includes(".")
 }
 
 function shouldRelayGoogleOAuthToCallback(req: NextRequest, pathname: string) {
@@ -88,8 +97,8 @@ function shouldRelayGoogleOAuthToCallback(req: NextRequest, pathname: string) {
   const hasOAuthParams = Boolean(code || error || errorDescription)
   if (!hasOAuthParams) return false
 
-  // Só redireciona quando foi um fluxo iniciado no app (state cookie presente).
-  return hasGoogleOAuthStateCookie(req)
+  // Só redireciona quando foi um fluxo iniciado no app (state em cookie ou query).
+  return hasGoogleOAuthStateCookie(req) || hasGoogleOAuthStateQuery(req)
 }
 
 function resolveLoginRedirectTarget(host: string, rawReturnTo: string | null) {
