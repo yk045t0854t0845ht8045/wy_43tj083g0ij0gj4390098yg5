@@ -26,8 +26,15 @@ export type OnboardingState = {
   companyLogoUrl: string | null;
   companyCnpj: string | null;
   industry: string | null;
+  isOnlineBusiness: boolean;
+  companyAddress: string | null;
+  companyCity: string | null;
+  companyState: string | null;
+  companyPostalCode: string | null;
   welcomeConfirmed: boolean;
   teamAgentsCount: number | null;
+  onboardingGoal: string | null;
+  monthlyConversationsTier: string | null;
   whatsappConnected: boolean;
   whatsappConnectedAt: string | null;
   whatsappPairingCode: string | null;
@@ -106,16 +113,34 @@ function isValidCompanyForm(params: {
   industry: string;
   companyLogoUrl: string;
   companyCnpj: string;
+  isOnlineBusiness: boolean;
+  companyAddress: string;
+  companyCity: string;
+  companyState: string;
+  companyPostalCode: string;
 }) {
   const companyName = String(params.companyName || "").trim();
   const industry = String(params.industry || "").trim();
   const logoUrl = String(params.companyLogoUrl || "").trim();
   const cnpjDigits = normalizeCnpjDigits(params.companyCnpj);
+  const address = String(params.companyAddress || "").trim();
+  const city = String(params.companyCity || "").trim();
+  const state = String(params.companyState || "")
+    .replace(/[^a-zA-Z]/g, "")
+    .trim()
+    .toUpperCase();
+  const postalCode = String(params.companyPostalCode || "").replace(/\D+/g, "");
 
   if (!companyName) return "Informe o nome da empresa.";
   if (!industry) return "Informe a area de atuacao da empresa.";
   if (!logoUrl) return "Envie a logo da empresa para continuar.";
   if (cnpjDigits && cnpjDigits.length !== 14) return "CNPJ invalido. Use 14 digitos.";
+  if (!params.isOnlineBusiness) {
+    if (!address) return "Informe o endereco da empresa.";
+    if (!city) return "Informe a cidade da empresa.";
+    if (state.length !== 2) return "Informe o estado (UF) com 2 letras.";
+    if (postalCode.length !== 8) return "Informe um CEP valido com 8 digitos.";
+  }
   return null;
 }
 
@@ -123,6 +148,18 @@ function isValidTeamCount(value: string) {
   const clean = String(value || "").trim();
   if (!clean) return false;
   return TEAM_SIZE_OPTIONS.some((option) => option.value === clean);
+}
+
+function isValidOnboardingGoal(value: string) {
+  const clean = String(value || "").trim();
+  if (!clean) return false;
+  return ONBOARDING_GOAL_OPTIONS.some((option) => option.value === clean);
+}
+
+function isValidMonthlyConversationTier(value: string) {
+  const clean = String(value || "").trim();
+  if (!clean) return false;
+  return MONTHLY_CONVERSATION_TIER_OPTIONS.some((option) => option.value === clean);
 }
 
 function maskEmail(value?: string | null) {
@@ -281,6 +318,29 @@ const TEAM_SIZE_OPTIONS: SelectOption[] = [
   { value: "5000", label: "2001 a 5000 funcionarios" },
 ];
 
+const ONBOARDING_GOAL_OPTIONS: SelectOption[] = [
+  { value: "support", label: "Suporte e atendimento" },
+  { value: "sales", label: "Vendas e conversao" },
+  { value: "scheduling", label: "Agendamentos" },
+  { value: "billing", label: "Cobranca e financeiro" },
+  { value: "mixed", label: "Uso misto" },
+];
+
+const MONTHLY_CONVERSATION_TIER_OPTIONS: SelectOption[] = [
+  { value: "up_to_300", label: "Ate 300 conversas/mes" },
+  { value: "301_1000", label: "301 a 1.000 conversas/mes" },
+  { value: "1001_3000", label: "1.001 a 3.000 conversas/mes" },
+  { value: "3001_10000", label: "3.001 a 10.000 conversas/mes" },
+  { value: "10001_plus", label: "Mais de 10.000 conversas/mes" },
+];
+
+function formatPostalCode(value?: string | null) {
+  const digits = String(value || "").replace(/\D+/g, "").slice(0, 8);
+  if (!digits) return "";
+  if (digits.length <= 5) return digits;
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+}
+
 function normalizeTeamBucketFromCount(count?: number | null) {
   const parsed = typeof count === "number" ? count : Number.parseInt(String(count || ""), 10);
   if (!Number.isFinite(parsed) || parsed < 1) return "";
@@ -295,6 +355,18 @@ function normalizeTeamBucketFromCount(count?: number | null) {
 function resolveTeamLabelFromCount(count?: number | null) {
   const bucket = normalizeTeamBucketFromCount(count);
   const option = TEAM_SIZE_OPTIONS.find((item) => item.value === bucket);
+  return option?.label || "nao informado";
+}
+
+function resolveOnboardingGoalLabel(value?: string | null) {
+  const clean = String(value || "").trim();
+  const option = ONBOARDING_GOAL_OPTIONS.find((item) => item.value === clean);
+  return option?.label || "nao informado";
+}
+
+function resolveMonthlyConversationsLabel(value?: string | null) {
+  const clean = String(value || "").trim();
+  const option = MONTHLY_CONVERSATION_TIER_OPTIONS.find((item) => item.value === clean);
   return option?.label || "nao informado";
 }
 
@@ -420,6 +492,8 @@ export default function OnboardingModal({
 }: OnboardingModalProps) {
   const prefersReducedMotion = useReducedMotion();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const latestFetchRequestIdRef = useRef(0);
+  const silentFetchInFlightRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -430,7 +504,16 @@ export default function OnboardingModal({
   const [companyLogoUrl, setCompanyLogoUrl] = useState(String(initialData?.companyLogoUrl || ""));
   const [companyCnpj, setCompanyCnpj] = useState(formatCnpj(initialData?.companyCnpj || ""));
   const [industry, setIndustry] = useState(String(initialData?.industry || ""));
+  const [isOnlineBusiness, setIsOnlineBusiness] = useState(Boolean(initialData?.isOnlineBusiness));
+  const [companyAddress, setCompanyAddress] = useState(String(initialData?.companyAddress || ""));
+  const [companyCity, setCompanyCity] = useState(String(initialData?.companyCity || ""));
+  const [companyState, setCompanyState] = useState(String(initialData?.companyState || ""));
+  const [companyPostalCode, setCompanyPostalCode] = useState(formatPostalCode(initialData?.companyPostalCode || ""));
   const [teamAgentsCount, setTeamAgentsCount] = useState(normalizeTeamBucketFromCount(initialData?.teamAgentsCount));
+  const [onboardingGoal, setOnboardingGoal] = useState(String(initialData?.onboardingGoal || ""));
+  const [monthlyConversationsTier, setMonthlyConversationsTier] = useState(
+    String(initialData?.monthlyConversationsTier || ""),
+  );
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>("");
   const [pairingCode, setPairingCode] = useState<string>("");
   const [pairingExpiresAt, setPairingExpiresAt] = useState<string | null>(null);
@@ -454,7 +537,7 @@ export default function OnboardingModal({
   const leftSteps = useMemo(() => {
     return [
       { id: "company" as WizardStep, title: "Dados da empresa", subtitle: "Logo, nome, CNPJ e atuacao", icon: Building2 },
-      { id: "team" as WizardStep, title: "Estrutura de atendimento", subtitle: "Quantidade de funcionarios", icon: Users },
+      { id: "team" as WizardStep, title: "Estrutura de atendimento", subtitle: "Equipe, objetivo e volume", icon: Users },
       { id: "whatsapp" as WizardStep, title: "Conectar WhatsApp", subtitle: "Conexao automatica em tempo real", icon: MessageCircle },
       { id: "final" as WizardStep, title: "Tudo pronto", subtitle: "Revisar e concluir", icon: CheckCircle2 },
     ];
@@ -475,7 +558,14 @@ export default function OnboardingModal({
       setCompanyLogoUrl(String(next.companyLogoUrl || ""));
       setCompanyCnpj(formatCnpj(next.companyCnpj || ""));
       setIndustry(String(next.industry || ""));
+      setIsOnlineBusiness(Boolean(next.isOnlineBusiness));
+      setCompanyAddress(String(next.companyAddress || ""));
+      setCompanyCity(String(next.companyCity || ""));
+      setCompanyState(String(next.companyState || ""));
+      setCompanyPostalCode(formatPostalCode(next.companyPostalCode || ""));
       setTeamAgentsCount(normalizeTeamBucketFromCount(next.teamAgentsCount));
+      setOnboardingGoal(String(next.onboardingGoal || ""));
+      setMonthlyConversationsTier(String(next.monthlyConversationsTier || ""));
       setActiveStep(normalizeStepFromOnboarding(next));
       setPairingCode(String(next.whatsappPairingCode || ""));
       setPairingExpiresAt(next.whatsappPairingExpiresAt || null);
@@ -488,6 +578,14 @@ export default function OnboardingModal({
   const fetchOnboarding = useCallback(
     async (opts?: { silent?: boolean }) => {
       const silent = Boolean(opts?.silent);
+      if (silent && silentFetchInFlightRef.current) {
+        return;
+      }
+
+      const requestId = ++latestFetchRequestIdRef.current;
+      if (silent) {
+        silentFetchInFlightRef.current = true;
+      }
       if (!silent) {
         setLoading(true);
         setError(null);
@@ -502,18 +600,32 @@ export default function OnboardingModal({
         if (!res.ok || !payload?.ok || !payload.onboarding) {
           throw new Error(String(payload?.error || "Nao foi possivel carregar onboarding."));
         }
+        if (requestId !== latestFetchRequestIdRef.current) {
+          return;
+        }
         applyOnboardingUpdate(payload.onboarding);
-        setQrCodeDataUrl(String(payload.qrCodeDataUrl || ""));
+        if (payload.qrCodeDataUrl) {
+          setQrCodeDataUrl(String(payload.qrCodeDataUrl));
+        } else if (payload.onboarding.whatsappConnected || payload.onboarding.uiStep !== "whatsapp") {
+          setQrCodeDataUrl("");
+        }
         setPairingCode(String(payload.pairingCode || payload.onboarding.whatsappPairingCode || ""));
         setPairingExpiresAt(String(payload.pairingExpiresAt || payload.onboarding.whatsappPairingExpiresAt || "") || null);
         setPairingUrl(String(payload.pairingUrl || ""));
         setWhatsappState(String(payload.whatsappState || (payload.onboarding.whatsappConnected ? "open" : "close")));
         setProviderConfigured(payload.providerConfigured !== false);
       } catch (fetchError) {
-        setError(fetchError instanceof Error ? fetchError.message : "Falha ao carregar onboarding.");
+        if (requestId === latestFetchRequestIdRef.current) {
+          setError(fetchError instanceof Error ? fetchError.message : "Falha ao carregar onboarding.");
+        }
       } finally {
+        if (silent) {
+          silentFetchInFlightRef.current = false;
+        }
         if (!silent) {
-          setLoading(false);
+          if (requestId === latestFetchRequestIdRef.current) {
+            setLoading(false);
+          }
         }
       }
     },
@@ -614,6 +726,11 @@ export default function OnboardingModal({
       industry,
       companyLogoUrl,
       companyCnpj,
+      isOnlineBusiness,
+      companyAddress,
+      companyCity,
+      companyState,
+      companyPostalCode,
     });
     if (validationError) {
       setError(validationError);
@@ -628,6 +745,11 @@ export default function OnboardingModal({
         industry,
         companyLogoUrl,
         companyCnpj: normalizeCnpjDigits(companyCnpj),
+        isOnlineBusiness,
+        companyAddress: isOnlineBusiness ? null : String(companyAddress || "").trim(),
+        companyCity: isOnlineBusiness ? null : String(companyCity || "").trim(),
+        companyState: isOnlineBusiness ? null : String(companyState || "").trim().toUpperCase(),
+        companyPostalCode: isOnlineBusiness ? null : String(companyPostalCode || "").replace(/\D+/g, ""),
       });
       setActiveStep(normalizeStepFromOnboarding(payload.onboarding));
     } catch (saveError) {
@@ -635,12 +757,31 @@ export default function OnboardingModal({
     } finally {
       setSaving(false);
     }
-  }, [companyCnpj, companyLogoUrl, companyName, industry, postAction]);
+  }, [
+    companyAddress,
+    companyCity,
+    companyCnpj,
+    companyLogoUrl,
+    companyName,
+    companyPostalCode,
+    companyState,
+    industry,
+    isOnlineBusiness,
+    postAction,
+  ]);
 
   const handleTeamContinue = useCallback(async () => {
     setError(null);
     if (!isValidTeamCount(teamAgentsCount)) {
       setError("Selecione uma faixa valida de quantidade de funcionarios.");
+      return;
+    }
+    if (!isValidOnboardingGoal(onboardingGoal)) {
+      setError("Selecione o principal objetivo da sua operacao.");
+      return;
+    }
+    if (!isValidMonthlyConversationTier(monthlyConversationsTier)) {
+      setError("Selecione uma estimativa de conversas por mes.");
       return;
     }
 
@@ -650,6 +791,8 @@ export default function OnboardingModal({
       const payload = await postAction({
         action: "save-team",
         teamAgentsCount: teamCountValue,
+        onboardingGoal,
+        monthlyConversationsTier,
       });
       setActiveStep(normalizeStepFromOnboarding(payload.onboarding));
     } catch (saveError) {
@@ -657,7 +800,7 @@ export default function OnboardingModal({
     } finally {
       setSaving(false);
     }
-  }, [postAction, teamAgentsCount]);
+  }, [monthlyConversationsTier, onboardingGoal, postAction, teamAgentsCount]);
 
   const handleRefreshWhatsApp = useCallback(async () => {
     setError(null);
@@ -761,7 +904,7 @@ export default function OnboardingModal({
           animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
           exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.985 }}
           transition={prefersReducedMotion ? { duration: 0.12 } : { type: "spring", stiffness: 300, damping: 34, mass: 0.78 }}
-          className="relative z-[1] h-[min(88vh,920px)] w-[min(96vw,980px)] max-h-[88vh] overflow-hidden rounded-[24px] bg-[#ececef] shadow-[0_28px_90px_rgba(0,0,0,0.45)]"
+          className="relative z-[1] h-[min(84vh,860px)] w-[min(96vw,980px)] max-h-[84vh] overflow-hidden rounded-[24px] bg-[#ececef] shadow-[0_28px_90px_rgba(0,0,0,0.45)]"
         >
           <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[320px_1fr]">
             <aside className="relative overflow-hidden bg-[#151618] px-5 py-6 text-white sm:px-6">
@@ -944,6 +1087,116 @@ export default function OnboardingModal({
                               onChange={setIndustry}
                             />
                           </label>
+
+                          <div className="block md:col-span-2">
+                            <span className="text-[13px] font-medium text-black/62">
+                              Modelo da empresa <span className="text-[#d54f4f]">*</span>
+                            </span>
+                            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsOnlineBusiness(false);
+                                }}
+                                className={cx(
+                                  "rounded-xl border px-3 py-2.5 text-left text-[13px] transition-colors",
+                                  !isOnlineBusiness
+                                    ? "border-black/25 bg-white text-black/84"
+                                    : "border-black/12 bg-white/70 text-black/62 hover:bg-white",
+                                )}
+                              >
+                                <p className="font-semibold">Possui endereco fisico</p>
+                                <p className="mt-0.5 text-[12px] text-black/58">
+                                  Loja, escritorio, clinica ou unidade presencial.
+                                </p>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsOnlineBusiness(true);
+                                  setCompanyAddress("");
+                                  setCompanyCity("");
+                                  setCompanyState("");
+                                  setCompanyPostalCode("");
+                                }}
+                                className={cx(
+                                  "rounded-xl border px-3 py-2.5 text-left text-[13px] transition-colors",
+                                  isOnlineBusiness
+                                    ? "border-black/25 bg-white text-black/84"
+                                    : "border-black/12 bg-white/70 text-black/62 hover:bg-white",
+                                )}
+                              >
+                                <p className="font-semibold">100% online</p>
+                                <p className="mt-0.5 text-[12px] text-black/58">
+                                  Opera sem endereco fisico para atendimento.
+                                </p>
+                              </button>
+                            </div>
+                          </div>
+
+                          {!isOnlineBusiness && (
+                            <>
+                              <label className="block md:col-span-2">
+                                <span className="text-[13px] font-medium text-black/62">
+                                  Endereco da empresa <span className="text-[#d54f4f]">*</span>
+                                </span>
+                                <input
+                                  type="text"
+                                  value={companyAddress}
+                                  onChange={(event) => setCompanyAddress(event.target.value)}
+                                  placeholder="Rua, numero e complemento"
+                                  className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/82 outline-none transition-[border-color,box-shadow] focus:border-black/25 focus:ring-2 focus:ring-black/8"
+                                />
+                              </label>
+
+                              <label className="block">
+                                <span className="text-[13px] font-medium text-black/62">
+                                  Cidade <span className="text-[#d54f4f]">*</span>
+                                </span>
+                                <input
+                                  type="text"
+                                  value={companyCity}
+                                  onChange={(event) => setCompanyCity(event.target.value)}
+                                  placeholder="Ex.: Sao Paulo"
+                                  className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/82 outline-none transition-[border-color,box-shadow] focus:border-black/25 focus:ring-2 focus:ring-black/8"
+                                />
+                              </label>
+
+                              <label className="block">
+                                <span className="text-[13px] font-medium text-black/62">
+                                  Estado (UF) <span className="text-[#d54f4f]">*</span>
+                                </span>
+                                <input
+                                  type="text"
+                                  value={companyState}
+                                  onChange={(event) =>
+                                    setCompanyState(
+                                      String(event.target.value || "")
+                                        .replace(/[^a-zA-Z]/g, "")
+                                        .slice(0, 2)
+                                        .toUpperCase(),
+                                    )
+                                  }
+                                  placeholder="SP"
+                                  className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/82 uppercase outline-none transition-[border-color,box-shadow] focus:border-black/25 focus:ring-2 focus:ring-black/8"
+                                />
+                              </label>
+
+                              <label className="block">
+                                <span className="text-[13px] font-medium text-black/62">
+                                  CEP <span className="text-[#d54f4f]">*</span>
+                                </span>
+                                <input
+                                  type="text"
+                                  value={companyPostalCode}
+                                  onChange={(event) => setCompanyPostalCode(formatPostalCode(event.target.value))}
+                                  placeholder="00000-000"
+                                  inputMode="numeric"
+                                  className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/82 outline-none transition-[border-color,box-shadow] focus:border-black/25 focus:ring-2 focus:ring-black/8"
+                                />
+                              </label>
+                            </>
+                          )}
                         </div>
                       </div>
                     )}
@@ -951,9 +1204,9 @@ export default function OnboardingModal({
                     {activeStep === "team" && (
                       <div>
                         <p className="text-[14px] text-black/62">
-                          Isso ajuda a configurar o volume inicial e o fluxo de fila dos atendimentos.
+                          Isso ajuda a configurar volume inicial, automacoes e fila de atendimento sem te pedir dados demais.
                         </p>
-                        <div className="mt-4 rounded-2xl border border-black/10 bg-white/80 p-4">
+                        <div className="mt-4 space-y-3 rounded-2xl border border-black/10 bg-white/80 p-4">
                           <label className="block">
                             <span className="text-[13px] font-medium text-black/62">
                               Quantidade de funcionarios <span className="text-[#d54f4f]">*</span>
@@ -964,6 +1217,32 @@ export default function OnboardingModal({
                               placeholder="Selecione a faixa"
                               searchPlaceholder="Buscar faixa..."
                               onChange={setTeamAgentsCount}
+                            />
+                          </label>
+
+                          <label className="block">
+                            <span className="text-[13px] font-medium text-black/62">
+                              Principal objetivo no WhatsApp <span className="text-[#d54f4f]">*</span>
+                            </span>
+                            <SelectMenu
+                              value={onboardingGoal}
+                              options={ONBOARDING_GOAL_OPTIONS}
+                              placeholder="Selecione o objetivo principal"
+                              searchPlaceholder="Buscar objetivo..."
+                              onChange={setOnboardingGoal}
+                            />
+                          </label>
+
+                          <label className="block">
+                            <span className="text-[13px] font-medium text-black/62">
+                              Volume esperado de conversas/mes <span className="text-[#d54f4f]">*</span>
+                            </span>
+                            <SelectMenu
+                              value={monthlyConversationsTier}
+                              options={MONTHLY_CONVERSATION_TIER_OPTIONS}
+                              placeholder="Selecione uma estimativa"
+                              searchPlaceholder="Buscar volume..."
+                              onChange={setMonthlyConversationsTier}
                             />
                           </label>
                         </div>
@@ -1021,9 +1300,18 @@ export default function OnboardingModal({
                           ) : (
                             <div className="flex h-[240px] items-center justify-center rounded-2xl border border-dashed border-black/16 bg-white/80">
                               <div className="text-center">
-                                <Loader2 className="mx-auto h-7 w-7 animate-spin text-black/46" />
+                                <Loader2
+                                  className={cx(
+                                    "mx-auto h-7 w-7 text-black/46",
+                                    whatsappState === "error" ? "" : "animate-spin",
+                                  )}
+                                />
                                 <p className="mt-3 text-[14px] font-medium text-black/72">
-                                  Gerando QR Code valido no provider...
+                                  {whatsappState === "error"
+                                    ? "Falha no provider ao gerar QR. Atualize o status para tentar novamente."
+                                    : whatsappState === "logged_out"
+                                      ? "Sessao desconectada. Aguarde a regeneracao automatica do QR."
+                                      : "Gerando QR Code valido no provider..."}
                                 </p>
                               </div>
                             </div>
@@ -1042,7 +1330,24 @@ export default function OnboardingModal({
                         <div className="mt-4 space-y-2 rounded-2xl border border-black/10 bg-white/86 p-4 text-[13px] text-black/70">
                           <p><span className="font-semibold text-black/82">Empresa:</span> {onboarding?.companyName || "nao informada"}</p>
                           <p><span className="font-semibold text-black/82">Atuacao:</span> {onboarding?.industry || "nao informada"}</p>
+                          <p>
+                            <span className="font-semibold text-black/82">Modelo:</span>{" "}
+                            {onboarding?.isOnlineBusiness ? "100% online" : "Com endereco fisico"}
+                          </p>
+                          {!onboarding?.isOnlineBusiness && (
+                            <p>
+                              <span className="font-semibold text-black/82">Endereco:</span>{" "}
+                              {onboarding?.companyAddress
+                                ? `${onboarding.companyAddress}, ${onboarding.companyCity || "-"} - ${onboarding.companyState || "-"}, ${formatPostalCode(onboarding.companyPostalCode || "") || "-"}`
+                                : "nao informado"}
+                            </p>
+                          )}
                           <p><span className="font-semibold text-black/82">Funcionarios:</span> {resolveTeamLabelFromCount(onboarding?.teamAgentsCount)}</p>
+                          <p><span className="font-semibold text-black/82">Objetivo:</span> {resolveOnboardingGoalLabel(onboarding?.onboardingGoal)}</p>
+                          <p>
+                            <span className="font-semibold text-black/82">Volume mensal:</span>{" "}
+                            {resolveMonthlyConversationsLabel(onboarding?.monthlyConversationsTier)}
+                          </p>
                           <p><span className="font-semibold text-black/82">WhatsApp:</span> {onboarding?.whatsappConnected ? "Conectado" : "Pendente"}</p>
                         </div>
                       </div>

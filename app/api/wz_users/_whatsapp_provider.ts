@@ -52,12 +52,16 @@ type EnsureLocalInstanceResult =
       error: string;
     };
 
+type EnsureOwnWhatsAppInstanceOptions = {
+  forceRestart?: boolean;
+};
+
 declare global {
   var __wzLocalWhatsAppInstances: Map<string, LocalWhatsAppInstance> | undefined;
 }
 
 const RECONNECT_DELAY_MS = 1800;
-const WAIT_QR_TIMEOUT_MS = 9000;
+const WAIT_QR_TIMEOUT_MS = 14000;
 const DISABLED_VALUES = new Set(["0", "false", "off", "no", "disabled"]);
 
 const localInstances =
@@ -203,6 +207,18 @@ function scheduleReconnect(instance: LocalWhatsAppInstance) {
   }, RECONNECT_DELAY_MS);
 }
 
+function safeCloseSocket(instance: LocalWhatsAppInstance) {
+  const current = instance.socket as { end?: (error?: Error) => void } | null;
+  if (!current) return;
+  try {
+    current.end?.(new Error("Socket restart requested."));
+  } catch {
+    // Ignore manual close failure.
+  } finally {
+    instance.socket = null;
+  }
+}
+
 async function waitForSnapshot(
   instance: LocalWhatsAppInstance,
   predicate: (snapshot: LocalWhatsAppSnapshot) => boolean,
@@ -269,9 +285,11 @@ async function startInstance(instance: LocalWhatsAppInstance) {
       }
 
       if (update.connection === "connecting") {
-        setInstanceState(instance, "connecting", {
-          lastError: null,
-        });
+        if (!instance.qr) {
+          setInstanceState(instance, "connecting", {
+            lastError: null,
+          });
+        }
       }
 
       if (update.connection === "open") {
@@ -293,7 +311,9 @@ async function startInstance(instance: LocalWhatsAppInstance) {
             pairingCode: null,
             lastError: "Sessao desconectada no WhatsApp. Escaneie novamente o QR Code.",
           });
-          void resetAuthDirectory(instance);
+          void resetAuthDirectory(instance).finally(() => {
+            scheduleReconnect(instance);
+          });
           return;
         }
 
@@ -305,21 +325,22 @@ async function startInstance(instance: LocalWhatsAppInstance) {
         scheduleReconnect(instance);
       }
     });
-  })()
-    .catch((error) => {
-      instance.socket = null;
-      setInstanceState(instance, "error", {
-        qr: null,
-        pairingCode: null,
-        lastError: normalizeError(error, "Falha ao iniciar sessao WhatsApp."),
-      });
-      scheduleReconnect(instance);
-    })
-    .finally(() => {
-      instance.connectPromise = null;
-    });
+  })();
 
-  await instance.connectPromise;
+  try {
+    await instance.connectPromise;
+  } catch (error) {
+    instance.socket = null;
+    setInstanceState(instance, "error", {
+      qr: null,
+      pairingCode: null,
+      lastError: normalizeError(error, "Falha ao iniciar sessao WhatsApp."),
+    });
+    scheduleReconnect(instance);
+    throw error;
+  } finally {
+    instance.connectPromise = null;
+  }
 }
 
 export function isOwnWhatsAppProviderConfigured() {
@@ -332,7 +353,10 @@ export function buildOwnWhatsAppInstanceName(userId: string) {
   return `${prefix}-${userToken}`.slice(0, 64);
 }
 
-export async function ensureOwnWhatsAppInstance(instanceName: string): Promise<EnsureLocalInstanceResult> {
+export async function ensureOwnWhatsAppInstance(
+  instanceName: string,
+  options: EnsureOwnWhatsAppInstanceOptions = {},
+): Promise<EnsureLocalInstanceResult> {
   if (!isOwnWhatsAppProviderConfigured()) {
     return {
       ok: false,
@@ -342,9 +366,28 @@ export async function ensureOwnWhatsAppInstance(instanceName: string): Promise<E
 
   const instance = getOrCreateInstance(instanceName);
   try {
+    if (options.forceRestart) {
+      clearReconnectTimer(instance);
+      safeCloseSocket(instance);
+      setInstanceState(instance, "idle", {
+        qr: null,
+        pairingCode: null,
+        lastError: null,
+      });
+    }
+
     if (!instance.socket && !instance.connectPromise) {
       await startInstance(instance);
     }
+
+    const snapshot = toSnapshot(instance);
+    if (snapshot.state === "error" || snapshot.state === "logged_out") {
+      return {
+        ok: false,
+        error: snapshot.lastError || "Falha ao iniciar sessao do WhatsApp.",
+      };
+    }
+
     return { ok: true };
   } catch (error) {
     return {

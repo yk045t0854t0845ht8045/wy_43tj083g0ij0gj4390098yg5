@@ -19,8 +19,15 @@ export type OnboardingRecord = {
   companyLogoUrl: string | null;
   companyCnpj: string | null;
   industry: string | null;
+  isOnlineBusiness: boolean;
+  companyAddress: string | null;
+  companyCity: string | null;
+  companyState: string | null;
+  companyPostalCode: string | null;
   welcomeConfirmed: boolean;
   teamAgentsCount: number | null;
+  onboardingGoal: string | null;
+  monthlyConversationsTier: string | null;
   whatsappConnected: boolean;
   whatsappConnectedAt: string | null;
   whatsappPairingCode: string | null;
@@ -48,8 +55,15 @@ type WzOnboardingRow = {
   company_logo_url?: string | null;
   company_cnpj?: string | null;
   industry?: string | null;
+  is_online_business?: boolean | string | number | null;
+  company_address?: string | null;
+  company_city?: string | null;
+  company_state?: string | null;
+  company_postal_code?: string | null;
   welcome_confirmed?: boolean | string | number | null;
   team_agents_count?: number | string | null;
+  onboarding_goal?: string | null;
+  monthly_conversations_tier?: string | null;
   whatsapp_connected?: boolean | string | number | null;
   whatsapp_connected_at?: string | null;
   whatsapp_pairing_code?: string | null;
@@ -283,7 +297,7 @@ async function findWzUserRow(params: {
 }
 
 const ONBOARDING_COLUMNS_TO_TRY = [
-  "id,user_id,auth_user_id,email,company_name,company_logo_url,company_cnpj,industry,welcome_confirmed,team_agents_count,whatsapp_connected,whatsapp_connected_at,whatsapp_pairing_code,whatsapp_pairing_expires_at,ui_step,completed,completed_at,created_at,updated_at",
+  "id,user_id,auth_user_id,email,company_name,company_logo_url,company_cnpj,industry,is_online_business,company_address,company_city,company_state,company_postal_code,welcome_confirmed,team_agents_count,onboarding_goal,monthly_conversations_tier,whatsapp_connected,whatsapp_connected_at,whatsapp_pairing_code,whatsapp_pairing_expires_at,ui_step,completed,completed_at,created_at,updated_at",
   "id,user_id,auth_user_id,email,welcome_confirmed,team_agents_count,whatsapp_connected,whatsapp_connected_at,ui_step,created_at,updated_at",
   "id,user_id,auth_user_id,email,whatsapp_connected,ui_step,created_at,updated_at",
 ];
@@ -350,8 +364,15 @@ function mapOnboardingRow(
     companyLogoUrl: normalizeOptionalText(row.company_logo_url),
     companyCnpj: normalizeCnpjDigits(row.company_cnpj),
     industry: normalizeOptionalText(row.industry),
+    isOnlineBusiness: normalizeBoolean(row.is_online_business),
+    companyAddress: normalizeOptionalText(row.company_address),
+    companyCity: normalizeOptionalText(row.company_city),
+    companyState: normalizeOptionalText(row.company_state),
+    companyPostalCode: normalizeOptionalText(row.company_postal_code),
     welcomeConfirmed: normalizeBoolean(row.welcome_confirmed),
     teamAgentsCount: normalizeInteger(row.team_agents_count),
+    onboardingGoal: normalizeOptionalText(row.onboarding_goal),
+    monthlyConversationsTier: normalizeOptionalText(row.monthly_conversations_tier),
     whatsappConnected: normalizeBoolean(row.whatsapp_connected),
     whatsappConnectedAt: normalizeIsoDatetime(row.whatsapp_connected_at),
     whatsappPairingCode: normalizeOptionalText(row.whatsapp_pairing_code),
@@ -572,4 +593,3 @@ export async function patchOnboardingRecord(params: {
     error,
   };
 }
-

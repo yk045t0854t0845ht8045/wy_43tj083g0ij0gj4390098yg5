@@ -12,8 +12,15 @@ create table if not exists public.wz_onboarding (
   company_logo_url text,
   company_cnpj text,
   industry text,
+  is_online_business boolean not null default false,
+  company_address text,
+  company_city text,
+  company_state text,
+  company_postal_code text,
   welcome_confirmed boolean not null default false,
   team_agents_count integer,
+  onboarding_goal text,
+  monthly_conversations_tier text,
   operation_days text[],
   operation_start_time text,
   operation_end_time text,
@@ -38,8 +45,15 @@ alter table if exists public.wz_onboarding
   add column if not exists company_logo_url text,
   add column if not exists company_cnpj text,
   add column if not exists industry text,
+  add column if not exists is_online_business boolean not null default false,
+  add column if not exists company_address text,
+  add column if not exists company_city text,
+  add column if not exists company_state text,
+  add column if not exists company_postal_code text,
   add column if not exists welcome_confirmed boolean not null default false,
   add column if not exists team_agents_count integer,
+  add column if not exists onboarding_goal text,
+  add column if not exists monthly_conversations_tier text,
   add column if not exists operation_days text[],
   add column if not exists operation_start_time text,
   add column if not exists operation_end_time text,
@@ -102,6 +116,28 @@ $$;
 -- Normaliza CNPJ (apenas digitos) e UI step.
 update public.wz_onboarding
 set company_cnpj = nullif(regexp_replace(coalesce(company_cnpj, ''), '\D', '', 'g'), ''),
+    company_postal_code = nullif(regexp_replace(coalesce(company_postal_code, ''), '\D', '', 'g'), ''),
+    company_state = nullif(upper(regexp_replace(coalesce(company_state, ''), '[^A-Za-z]', '', 'g')), ''),
+    onboarding_goal = case
+      when coalesce(nullif(btrim(lower(onboarding_goal)), ''), '') in (
+        'support',
+        'sales',
+        'scheduling',
+        'billing',
+        'mixed'
+      ) then nullif(btrim(lower(onboarding_goal)), '')
+      else null
+    end,
+    monthly_conversations_tier = case
+      when coalesce(nullif(btrim(lower(monthly_conversations_tier)), ''), '') in (
+        'up_to_300',
+        '301_1000',
+        '1001_3000',
+        '3001_10000',
+        '10001_plus'
+      ) then nullif(btrim(lower(monthly_conversations_tier)), '')
+      else null
+    end,
     ui_step = case
       when coalesce(nullif(btrim(lower(ui_step)), ''), 'company') in (
         'welcome',
@@ -117,6 +153,10 @@ set company_cnpj = nullif(regexp_replace(coalesce(company_cnpj, ''), '\D', '', '
     end
 where
   company_cnpj is not null
+  or company_postal_code is not null
+  or company_state is not null
+  or onboarding_goal is not null
+  or monthly_conversations_tier is not null
   or ui_step is null
   or ui_step <> btrim(lower(ui_step))
   or btrim(lower(ui_step)) not in (
@@ -128,6 +168,19 @@ where
     'whatsapp',
     'improve',
     'final'
+  );
+
+update public.wz_onboarding
+set company_address = null,
+    company_city = null,
+    company_state = null,
+    company_postal_code = null
+where is_online_business = true
+  and (
+    company_address is not null
+    or company_city is not null
+    or company_state is not null
+    or company_postal_code is not null
   );
 
 update public.wz_onboarding
@@ -148,6 +201,61 @@ alter table if exists public.wz_onboarding
 alter table if exists public.wz_onboarding
   add constraint wz_onboarding_company_cnpj_check
   check (company_cnpj is null or company_cnpj ~ '^[0-9]{14}$');
+
+alter table if exists public.wz_onboarding
+  drop constraint if exists wz_onboarding_company_postal_code_check;
+
+alter table if exists public.wz_onboarding
+  add constraint wz_onboarding_company_postal_code_check
+  check (company_postal_code is null or company_postal_code ~ '^[0-9]{8}$');
+
+alter table if exists public.wz_onboarding
+  drop constraint if exists wz_onboarding_company_state_check;
+
+alter table if exists public.wz_onboarding
+  add constraint wz_onboarding_company_state_check
+  check (company_state is null or company_state ~ '^[A-Z]{2}$');
+
+alter table if exists public.wz_onboarding
+  drop constraint if exists wz_onboarding_online_address_check;
+
+alter table if exists public.wz_onboarding
+  add constraint wz_onboarding_online_address_check
+  check (
+    is_online_business = false
+    or (
+      company_address is null
+      and company_city is null
+      and company_state is null
+      and company_postal_code is null
+    )
+  );
+
+alter table if exists public.wz_onboarding
+  drop constraint if exists wz_onboarding_goal_check;
+
+alter table if exists public.wz_onboarding
+  add constraint wz_onboarding_goal_check
+  check (
+    onboarding_goal is null
+    or onboarding_goal in ('support', 'sales', 'scheduling', 'billing', 'mixed')
+  );
+
+alter table if exists public.wz_onboarding
+  drop constraint if exists wz_onboarding_monthly_conversations_tier_check;
+
+alter table if exists public.wz_onboarding
+  add constraint wz_onboarding_monthly_conversations_tier_check
+  check (
+    monthly_conversations_tier is null
+    or monthly_conversations_tier in (
+      'up_to_300',
+      '301_1000',
+      '1001_3000',
+      '3001_10000',
+      '10001_plus'
+    )
+  );
 
 alter table if exists public.wz_onboarding
   drop constraint if exists wz_onboarding_ui_step_check;
@@ -182,4 +290,3 @@ create trigger trg_wz_onboarding_set_updated_at
 before update on public.wz_onboarding
 for each row
 execute function public.wz_onboarding_set_updated_at();
-

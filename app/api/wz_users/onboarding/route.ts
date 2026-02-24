@@ -33,6 +33,14 @@ const NO_STORE_HEADERS = {
 
 const WHATSAPP_PAIRING_TTL_MS = 1000 * 60 * 2;
 const WHATSAPP_PROVIDER_NAME = "self-hosted-baileys";
+const ONBOARDING_GOAL_OPTIONS = new Set(["support", "sales", "scheduling", "billing", "mixed"]);
+const MONTHLY_CONVERSATION_OPTIONS = new Set([
+  "up_to_300",
+  "301_1000",
+  "1001_3000",
+  "3001_10000",
+  "10001_plus",
+]);
 
 type OnboardingAction =
   | "save-company"
@@ -114,6 +122,50 @@ function normalizeIndustry(value: unknown) {
   return clean.slice(0, 120);
 }
 
+function normalizeBooleanInput(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const clean = value.trim().toLowerCase();
+    return clean === "1" || clean === "true" || clean === "t" || clean === "yes" || clean === "sim";
+  }
+  return false;
+}
+
+function normalizeAddressText(value: unknown, maxLength = 180) {
+  const clean = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return null;
+  return clean.slice(0, maxLength);
+}
+
+function normalizeStateCode(value: unknown) {
+  const clean = String(value || "")
+    .replace(/[^a-zA-Z]/g, "")
+    .trim()
+    .toUpperCase();
+  if (!clean) return null;
+  return clean.slice(0, 2);
+}
+
+function normalizePostalCodeDigits(value: unknown) {
+  const digits = String(value || "").replace(/\D+/g, "");
+  return digits || null;
+}
+
+function normalizeOnboardingGoal(value: unknown) {
+  const clean = String(value || "").trim().toLowerCase();
+  if (!clean) return null;
+  return ONBOARDING_GOAL_OPTIONS.has(clean) ? clean : null;
+}
+
+function normalizeMonthlyConversationsTier(value: unknown) {
+  const clean = String(value || "").trim().toLowerCase();
+  if (!clean) return null;
+  return MONTHLY_CONVERSATION_OPTIONS.has(clean) ? clean : null;
+}
+
 function normalizeProviderState(value: string) {
   const clean = String(value || "").trim().toLowerCase();
   if (!clean) return "unknown";
@@ -126,6 +178,12 @@ function normalizeProviderState(value: string) {
   if (clean === "logged_out") return "logged_out";
   if (clean === "error") return "error";
   return clean;
+}
+
+function snapshotAgeMs(updatedAt?: string | null) {
+  const parsed = Date.parse(String(updatedAt || ""));
+  if (!Number.isFinite(parsed)) return 0;
+  return Date.now() - parsed;
 }
 
 async function refreshOnboarding(params: ResolvedOnboardingContext) {
@@ -219,11 +277,33 @@ async function syncWhatsAppWithProvider(params: {
     };
   }
 
-  const providerSnapshot = params.requireQr
+  let providerSnapshot = params.requireQr
     ? await waitForOwnWhatsAppQr(instanceName)
     : getOwnWhatsAppSnapshot(instanceName);
+  let providerState = normalizeProviderState(providerSnapshot.state);
 
-  const providerState = normalizeProviderState(providerSnapshot.state);
+  const shouldRestartNow =
+    !providerSnapshot.qr &&
+    (providerState === "close" ||
+      providerState === "logged_out" ||
+      providerState === "error" ||
+      (providerState === "connecting" && snapshotAgeMs(providerSnapshot.updatedAt) > 25000));
+
+  if (params.requireQr && shouldRestartNow) {
+    const restarted = await ensureOwnWhatsAppInstance(instanceName, { forceRestart: true });
+    if (!restarted.ok) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          { ok: false, error: restarted.error },
+          { status: 502, headers: NO_STORE_HEADERS },
+        ),
+      };
+    }
+
+    providerSnapshot = await waitForOwnWhatsAppQr(instanceName);
+    providerState = normalizeProviderState(providerSnapshot.state);
+  }
 
   if (providerState === "open") {
     let onboarding = params.ctx.onboarding;
@@ -286,6 +366,21 @@ async function syncWhatsAppWithProvider(params: {
       ok: true,
       onboarding,
       whatsappState: providerState,
+    };
+  }
+
+  if (!providerSnapshot.qr && (providerState === "error" || providerState === "logged_out")) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        {
+          ok: false,
+          error:
+            providerSnapshot.lastError ||
+            "Falha no provider de WhatsApp. Reinicie a sessao e tente novamente.",
+        },
+        { status: 502, headers: NO_STORE_HEADERS },
+      ),
     };
   }
 
@@ -458,6 +553,11 @@ export async function POST(req: NextRequest) {
       const industry = normalizeIndustry(body?.industry);
       const companyLogoUrl = normalizeOptionalText(String(body?.companyLogoUrl || ""));
       const cnpjDigits = normalizeCnpjDigits(String(body?.companyCnpj || ""));
+      const isOnlineBusiness = normalizeBooleanInput(body?.isOnlineBusiness);
+      const companyAddress = normalizeAddressText(body?.companyAddress, 180);
+      const companyCity = normalizeAddressText(body?.companyCity, 120);
+      const companyState = normalizeStateCode(body?.companyState);
+      const companyPostalCode = normalizePostalCodeDigits(body?.companyPostalCode);
 
       if (!companyName) {
         return NextResponse.json(
@@ -483,6 +583,32 @@ export async function POST(req: NextRequest) {
           { status: 400, headers: NO_STORE_HEADERS },
         );
       }
+      if (!isOnlineBusiness) {
+        if (!companyAddress) {
+          return NextResponse.json(
+            { ok: false, error: "Informe o endereco da empresa." },
+            { status: 400, headers: NO_STORE_HEADERS },
+          );
+        }
+        if (!companyCity) {
+          return NextResponse.json(
+            { ok: false, error: "Informe a cidade da empresa." },
+            { status: 400, headers: NO_STORE_HEADERS },
+          );
+        }
+        if (!companyState || companyState.length !== 2) {
+          return NextResponse.json(
+            { ok: false, error: "Informe o estado (UF) com 2 letras." },
+            { status: 400, headers: NO_STORE_HEADERS },
+          );
+        }
+        if (!companyPostalCode || companyPostalCode.length !== 8) {
+          return NextResponse.json(
+            { ok: false, error: "Informe um CEP valido com 8 digitos." },
+            { status: 400, headers: NO_STORE_HEADERS },
+          );
+        }
+      }
 
       const patched = await patchOnboardingAndRefresh({
         ctx,
@@ -491,6 +617,11 @@ export async function POST(req: NextRequest) {
           industry,
           company_logo_url: companyLogoUrl,
           company_cnpj: cnpjDigits,
+          is_online_business: isOnlineBusiness,
+          company_address: isOnlineBusiness ? null : companyAddress,
+          company_city: isOnlineBusiness ? null : companyCity,
+          company_state: isOnlineBusiness ? null : companyState,
+          company_postal_code: isOnlineBusiness ? null : companyPostalCode,
           welcome_confirmed: true,
           ui_step: "team",
           completed: false,
@@ -508,9 +639,23 @@ export async function POST(req: NextRequest) {
 
     if (action === "save-team") {
       const teamAgentsCount = normalizeTeamAgentsCount(body?.teamAgentsCount);
+      const onboardingGoal = normalizeOnboardingGoal(body?.onboardingGoal);
+      const monthlyConversationsTier = normalizeMonthlyConversationsTier(body?.monthlyConversationsTier);
       if (!teamAgentsCount || teamAgentsCount < 1 || teamAgentsCount > 5000) {
         return NextResponse.json(
           { ok: false, error: "Quantidade de funcionarios invalida." },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+      if (!onboardingGoal) {
+        return NextResponse.json(
+          { ok: false, error: "Selecione o principal objetivo com o WhatsApp." },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+      if (!monthlyConversationsTier) {
+        return NextResponse.json(
+          { ok: false, error: "Selecione uma estimativa de conversas por mes." },
           { status: 400, headers: NO_STORE_HEADERS },
         );
       }
@@ -519,6 +664,8 @@ export async function POST(req: NextRequest) {
         ctx,
         patch: {
           team_agents_count: teamAgentsCount,
+          onboarding_goal: onboardingGoal,
+          monthly_conversations_tier: monthlyConversationsTier,
           ui_step: "whatsapp",
           completed: false,
           completed_at: null,
