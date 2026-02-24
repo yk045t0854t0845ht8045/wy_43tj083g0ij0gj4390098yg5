@@ -584,6 +584,7 @@ async function buildAuthorizedAppsPayload(params: {
   };
 }): Promise<AuthorizedAppsPayload> {
   const userId = String(params.userRow.id || "").trim();
+  const passwordLinkedEmailFallback = normalizeEmail(params.userRow.email);
   let mustCreatePassword = Boolean(params.userRow.must_create_password);
   const passwordCreatedByProfile =
     typeof params.userRow.password_created === "boolean"
@@ -689,7 +690,10 @@ async function buildAuthorizedAppsPayload(params: {
       providerLabel: providerLabel(provider),
       linkedAt: normalizeIso(row.linkedAt),
       lastLoginAt: normalizeIso(row.lastLoginAt),
-      linkedEmail: normalizeEmail(row.email),
+      linkedEmail:
+        provider === "password"
+          ? normalizeEmail(row.email) || passwordLinkedEmailFallback
+          : normalizeEmail(row.email),
       linkedUsername: pickProviderUsername(provider, row.metadata),
       isPassword: provider === "password",
       isExternal: provider !== "password",
@@ -712,7 +716,8 @@ async function buildAuthorizedAppsPayload(params: {
       providerLabel: providerLabel(primaryProvider),
       linkedAt: null,
       lastLoginAt: null,
-      linkedEmail: null,
+      linkedEmail:
+        primaryProvider === "password" ? passwordLinkedEmailFallback : null,
       linkedUsername: null,
       isPassword: primaryProvider === "password",
       isExternal: primaryProvider !== "password",
@@ -735,7 +740,7 @@ async function buildAuthorizedAppsPayload(params: {
       providerLabel: "Wyzer Login",
       linkedAt: null,
       lastLoginAt: null,
-      linkedEmail: null,
+      linkedEmail: passwordLinkedEmailFallback,
       linkedUsername: null,
       isPassword: true,
       isExternal: false,
@@ -813,7 +818,7 @@ async function getSessionAndUserRow(req: NextRequest) {
     sb,
     userRow: {
       id: String(userRow.id),
-      email: userRow.email || null,
+      email: userRow.email || email,
       auth_user_id: userRow.auth_user_id || null,
       auth_provider: userRow.auth_provider || null,
       must_create_password: userRow.must_create_password ?? null,
