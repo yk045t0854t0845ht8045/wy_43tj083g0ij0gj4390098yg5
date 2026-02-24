@@ -5,6 +5,7 @@ import { WyzerAIWidget } from "@/app/wyzerai/page";
 import LoadingBase from "./LoadingBase";
 import Sidebar from "./sidebar";
 import ConfigMain, { type ConfigSectionId } from "./config/ConfigMain";
+import OnboardingModal, { type OnboardingState } from "./onboarding/OnboardingModal";
 
 type DashboardShellProps = {
   userNickname: string;
@@ -128,6 +129,8 @@ export default function DashboardShell({
   const [autoOpenPasswordModalToken, setAutoOpenPasswordModalToken] = useState(0);
   const [sessionDisconnected, setSessionDisconnected] = useState(false);
   const [disconnectCountdown, setDisconnectCountdown] = useState(0);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [onboardingData, setOnboardingData] = useState<OnboardingState | null>(null);
   const redirectingRef = useRef(false);
   const queryBootstrapHandledRef = useRef(false);
 
@@ -258,6 +261,47 @@ export default function DashboardShell({
     setAutoOpenPasswordModalToken(0);
   }, []);
 
+  const getOnboardingDismissKey = useCallback(
+    (userId?: string | null) => {
+      const base = String(userId || "").trim() || String(profileEmail || "").trim().toLowerCase();
+      return `wz:onboarding:dismissed:${base || "unknown"}`;
+    },
+    [profileEmail],
+  );
+
+  const handleCloseOnboarding = useCallback(() => {
+    if (onboardingData && !onboardingData.completed) {
+      try {
+        window.sessionStorage.setItem(getOnboardingDismissKey(onboardingData.userId), "1");
+      } catch {
+        // noop
+      }
+    }
+    setOnboardingOpen(false);
+  }, [getOnboardingDismissKey, onboardingData]);
+
+  const handleOnboardingUpdated = useCallback((next: OnboardingState) => {
+    setOnboardingData(next);
+    if (next.completed) {
+      setOnboardingOpen(false);
+      try {
+        window.sessionStorage.removeItem(`wz:onboarding:dismissed:${next.userId}`);
+      } catch {
+        // noop
+      }
+    }
+  }, []);
+
+  const handleOnboardingCompleted = useCallback((next: OnboardingState) => {
+    setOnboardingData(next);
+    setOnboardingOpen(false);
+    try {
+      window.sessionStorage.removeItem(`wz:onboarding:dismissed:${next.userId}`);
+    } catch {
+      // noop
+    }
+  }, []);
+
   useEffect(() => {
     if (queryBootstrapHandledRef.current) return;
     if (typeof window === "undefined") return;
@@ -300,6 +344,55 @@ export default function DashboardShell({
     url.searchParams.delete("passwordSetupProvider");
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const checkOnboarding = async () => {
+      try {
+        const res = await fetch("/api/wz_users/onboarding", {
+          method: "GET",
+          cache: "no-store",
+          credentials: "include",
+          headers: {
+            "Cache-Control": "no-store",
+            Pragma: "no-cache",
+          },
+        });
+        if (!res.ok) return;
+
+        const payload = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          onboarding?: OnboardingState;
+        } | null;
+        if (!payload?.ok || !payload.onboarding || cancelled) return;
+
+        setOnboardingData(payload.onboarding);
+        if (payload.onboarding.completed) return;
+
+        const dismissKey = getOnboardingDismissKey(payload.onboarding.userId);
+        const dismissed = (() => {
+          try {
+            return window.sessionStorage.getItem(dismissKey) === "1";
+          } catch {
+            return false;
+          }
+        })();
+
+        if (!dismissed) {
+          setOnboardingOpen(true);
+        }
+      } catch {
+        // noop
+      }
+    };
+
+    void checkOnboarding();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getOnboardingDismissKey]);
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
@@ -476,6 +569,15 @@ export default function DashboardShell({
         userAccountCreatedAt={userAccountCreatedAt}
         onUserSupportAccessChange={handleUserSupportAccessChange}
         onUserTwoFactorChange={handleUserTwoFactorChange}
+      />
+
+      <OnboardingModal
+        open={onboardingOpen}
+        userEmail={profileEmail}
+        initialData={onboardingData}
+        onClose={handleCloseOnboarding}
+        onUpdated={handleOnboardingUpdated}
+        onCompleted={handleOnboardingCompleted}
       />
 
       {sessionDisconnected && (
