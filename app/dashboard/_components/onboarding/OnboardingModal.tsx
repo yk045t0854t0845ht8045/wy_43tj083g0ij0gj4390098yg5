@@ -123,6 +123,70 @@ type PostalCodeLookupResult = {
   neighborhood: string;
 };
 
+function normalizeAddressNumber(value?: string | null) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 20);
+}
+
+function splitAddressAndNumber(value?: string | null) {
+  const clean = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) {
+    return { street: "", number: "" };
+  }
+
+  const matched = clean.match(/^(.*?)[,\-]\s*([0-9A-Za-z/-]{1,20})$/);
+  if (!matched) {
+    return { street: clean, number: "" };
+  }
+
+  return {
+    street: String(matched[1] || "").trim(),
+    number: normalizeAddressNumber(matched[2] || ""),
+  };
+}
+
+function composeAddressWithNumber(address: string, number: string) {
+  const street = String(address || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const normalizedNumber = normalizeAddressNumber(number);
+  if (!street) return "";
+  if (!normalizedNumber) return street;
+  return `${street}, ${normalizedNumber}`;
+}
+
+function normalizeComparableText(value?: string | null) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function toDraftStep(step: string): WizardStep {
+  if (step === "team" || step === "whatsapp" || step === "final") return step;
+  return "company";
+}
+
+type OnboardingDraft = {
+  companyName: string;
+  companyCnpj: string;
+  industry: string;
+  isOnlineBusiness: boolean;
+  companyAddress: string;
+  companyAddressNumber: string;
+  companyCity: string;
+  companyState: string;
+  companyPostalCode: string;
+  teamAgentsCount: string;
+  onboardingGoal: string;
+  monthlyConversationsTier: string;
+  activeStep: WizardStep;
+  updatedAt: string;
+};
+
 function normalizeStepFromOnboarding(onboarding?: OnboardingState | null): WizardStep {
   if (!onboarding) return "company";
   if (onboarding.completed || onboarding.uiStep === "final") return "final";
@@ -145,6 +209,7 @@ function isValidCompanyForm(params: {
   companyCnpj: string;
   isOnlineBusiness: boolean;
   companyAddress: string;
+  companyAddressNumber: string;
   companyCity: string;
   companyState: string;
   companyPostalCode: string;
@@ -154,6 +219,7 @@ function isValidCompanyForm(params: {
   const logoUrl = String(params.companyLogoUrl || "").trim();
   const cnpjDigits = normalizeCnpjDigits(params.companyCnpj);
   const address = String(params.companyAddress || "").trim();
+  const addressNumber = normalizeAddressNumber(params.companyAddressNumber);
   const city = String(params.companyCity || "").trim();
   const state = String(params.companyState || "")
     .replace(/[^a-zA-Z]/g, "")
@@ -167,6 +233,7 @@ function isValidCompanyForm(params: {
   if (cnpjDigits && !isValidCnpjDigits(cnpjDigits)) return "CNPJ invalido. Verifique os digitos.";
   if (!params.isOnlineBusiness) {
     if (!address) return "Informe o endereco da empresa.";
+    if (!addressNumber) return "Informe o numero do endereco.";
     if (!city) return "Informe a cidade da empresa.";
     if (state.length !== 2) return "Informe o estado (UF) com 2 letras.";
     if (postalCode.length !== 8) return "Informe um CEP valido com 8 digitos.";
@@ -588,6 +655,7 @@ export default function OnboardingModal({
   const prefersReducedMotion = useReducedMotion();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lastResolvedPostalCodeRef = useRef("");
+  const loadedDraftKeyRef = useRef<string | null>(null);
   const latestFetchRequestIdRef = useRef(0);
   const silentFetchInFlightRef = useRef(false);
   const [loading, setLoading] = useState(false);
@@ -603,7 +671,12 @@ export default function OnboardingModal({
   const [companyCnpj, setCompanyCnpj] = useState(formatCnpj(initialData?.companyCnpj || ""));
   const [industry, setIndustry] = useState(String(initialData?.industry || ""));
   const [isOnlineBusiness, setIsOnlineBusiness] = useState(Boolean(initialData?.isOnlineBusiness));
-  const [companyAddress, setCompanyAddress] = useState(String(initialData?.companyAddress || ""));
+  const initialAddressParts = useMemo(
+    () => splitAddressAndNumber(initialData?.companyAddress || ""),
+    [initialData?.companyAddress],
+  );
+  const [companyAddress, setCompanyAddress] = useState(String(initialAddressParts.street || ""));
+  const [companyAddressNumber, setCompanyAddressNumber] = useState(String(initialAddressParts.number || ""));
   const [companyCity, setCompanyCity] = useState(String(initialData?.companyCity || ""));
   const [companyState, setCompanyState] = useState(String(initialData?.companyState || ""));
   const [companyPostalCode, setCompanyPostalCode] = useState(formatPostalCode(initialData?.companyPostalCode || ""));
@@ -648,28 +721,104 @@ export default function OnboardingModal({
     return [{ value: current, label: `${current} (atual)` }, ...INDUSTRY_OPTIONS];
   }, [industry]);
 
+  const draftStorageKey = useMemo(() => {
+    const base = String(onboarding?.userId || onboarding?.email || userEmail || "")
+      .trim()
+      .toLowerCase();
+    if (!base) return null;
+    return `wz:onboarding:draft:${base}`;
+  }, [onboarding?.email, onboarding?.userId, userEmail]);
+
+  const companyFormDirty = useMemo(() => {
+    const baseAddressParts = splitAddressAndNumber(onboarding?.companyAddress || "");
+    const basePostalCode = normalizePostalCodeDigits(onboarding?.companyPostalCode || "");
+    const currentPostalCode = normalizePostalCodeDigits(companyPostalCode);
+    const baseState = normalizeStateCode(onboarding?.companyState || "");
+    const currentState = normalizeStateCode(companyState);
+    const baseCnpj = normalizeCnpjDigits(onboarding?.companyCnpj || "");
+    const currentCnpj = normalizeCnpjDigits(companyCnpj);
+
+    return (
+      normalizeComparableText(companyName) !== normalizeComparableText(onboarding?.companyName || "") ||
+      normalizeComparableText(industry) !== normalizeComparableText(onboarding?.industry || "") ||
+      currentCnpj !== baseCnpj ||
+      Boolean(isOnlineBusiness) !== Boolean(onboarding?.isOnlineBusiness) ||
+      normalizeComparableText(companyAddress) !== normalizeComparableText(baseAddressParts.street) ||
+      normalizeComparableText(companyAddressNumber) !== normalizeComparableText(baseAddressParts.number) ||
+      normalizeComparableText(companyCity) !== normalizeComparableText(onboarding?.companyCity || "") ||
+      currentState !== baseState ||
+      currentPostalCode !== basePostalCode
+    );
+  }, [
+    companyAddress,
+    companyAddressNumber,
+    companyCity,
+    companyCnpj,
+    companyName,
+    companyPostalCode,
+    companyState,
+    industry,
+    isOnlineBusiness,
+    onboarding?.companyAddress,
+    onboarding?.companyCity,
+    onboarding?.companyCnpj,
+    onboarding?.companyName,
+    onboarding?.companyPostalCode,
+    onboarding?.companyState,
+    onboarding?.industry,
+    onboarding?.isOnlineBusiness,
+  ]);
+
+  const teamFormDirty = useMemo(() => {
+    const baseTeam = normalizeTeamBucketFromCount(onboarding?.teamAgentsCount);
+    return (
+      String(teamAgentsCount || "") !== String(baseTeam || "") ||
+      normalizeComparableText(onboardingGoal) !== normalizeComparableText(onboarding?.onboardingGoal || "") ||
+      normalizeComparableText(monthlyConversationsTier) !==
+        normalizeComparableText(onboarding?.monthlyConversationsTier || "")
+    );
+  }, [
+    monthlyConversationsTier,
+    onboarding?.monthlyConversationsTier,
+    onboarding?.onboardingGoal,
+    onboarding?.teamAgentsCount,
+    onboardingGoal,
+    teamAgentsCount,
+  ]);
+
+  const hasUnsavedChanges = companyFormDirty || teamFormDirty;
+
   const applyOnboardingUpdate = useCallback(
-    (next: OnboardingState) => {
+    (next: OnboardingState, opts?: { respectDirty?: boolean }) => {
+      const respectDirty = opts?.respectDirty !== false;
+      const allowCompanySync = !respectDirty || !companyFormDirty;
+      const allowTeamSync = !respectDirty || !teamFormDirty;
+      const addressParts = splitAddressAndNumber(next.companyAddress || "");
       setOnboarding(next);
-      setCompanyName(String(next.companyName || ""));
       setCompanyLogoUrl(String(next.companyLogoUrl || ""));
-      setCompanyCnpj(formatCnpj(next.companyCnpj || ""));
-      setIndustry(String(next.industry || ""));
-      setIsOnlineBusiness(Boolean(next.isOnlineBusiness));
-      setCompanyAddress(String(next.companyAddress || ""));
-      setCompanyCity(String(next.companyCity || ""));
-      setCompanyState(String(next.companyState || ""));
-      setCompanyPostalCode(formatPostalCode(next.companyPostalCode || ""));
-      lastResolvedPostalCodeRef.current = normalizePostalCodeDigits(next.companyPostalCode || "");
-      setTeamAgentsCount(normalizeTeamBucketFromCount(next.teamAgentsCount));
-      setOnboardingGoal(String(next.onboardingGoal || ""));
-      setMonthlyConversationsTier(String(next.monthlyConversationsTier || ""));
+      if (allowCompanySync) {
+        setCompanyName(String(next.companyName || ""));
+        setCompanyCnpj(formatCnpj(next.companyCnpj || ""));
+        setIndustry(String(next.industry || ""));
+        setIsOnlineBusiness(Boolean(next.isOnlineBusiness));
+        setCompanyAddress(String(addressParts.street || ""));
+        setCompanyAddressNumber(String(addressParts.number || ""));
+        setCompanyCity(String(next.companyCity || ""));
+        setCompanyState(String(next.companyState || ""));
+        setCompanyPostalCode(formatPostalCode(next.companyPostalCode || ""));
+        lastResolvedPostalCodeRef.current = normalizePostalCodeDigits(next.companyPostalCode || "");
+      }
+      if (allowTeamSync) {
+        setTeamAgentsCount(normalizeTeamBucketFromCount(next.teamAgentsCount));
+        setOnboardingGoal(String(next.onboardingGoal || ""));
+        setMonthlyConversationsTier(String(next.monthlyConversationsTier || ""));
+      }
       setActiveStep(normalizeStepFromOnboarding(next));
       setPairingExpiresAt(next.whatsappPairingExpiresAt || null);
       setWhatsappState(next.whatsappConnected ? "open" : "close");
       onUpdated?.(next);
     },
-    [onUpdated],
+    [companyFormDirty, onUpdated, teamFormDirty],
   );
 
   const fetchOnboarding = useCallback(
@@ -737,6 +886,96 @@ export default function OnboardingModal({
     if (!open) return;
     void fetchOnboarding();
   }, [fetchOnboarding, open]);
+
+  useEffect(() => {
+    if (open) return;
+    loadedDraftKeyRef.current = null;
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!draftStorageKey) return;
+    if (loadedDraftKeyRef.current === draftStorageKey) return;
+    if (typeof window === "undefined") return;
+
+    loadedDraftKeyRef.current = draftStorageKey;
+    try {
+      const raw = window.localStorage.getItem(draftStorageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<OnboardingDraft>;
+
+      setCompanyName(String(parsed.companyName || ""));
+      setCompanyCnpj(formatCnpj(parsed.companyCnpj || ""));
+      setIndustry(String(parsed.industry || ""));
+      setIsOnlineBusiness(Boolean(parsed.isOnlineBusiness));
+      setCompanyAddress(String(parsed.companyAddress || ""));
+      setCompanyAddressNumber(String(parsed.companyAddressNumber || ""));
+      setCompanyCity(String(parsed.companyCity || ""));
+      setCompanyState(normalizeStateCode(parsed.companyState || ""));
+      setCompanyPostalCode(formatPostalCode(parsed.companyPostalCode || ""));
+      setTeamAgentsCount(String(parsed.teamAgentsCount || ""));
+      setOnboardingGoal(String(parsed.onboardingGoal || ""));
+      setMonthlyConversationsTier(String(parsed.monthlyConversationsTier || ""));
+
+      const nextStep = toDraftStep(String(parsed.activeStep || "company"));
+      if (nextStep === "company" || nextStep === "team") {
+        setActiveStep(nextStep);
+      }
+    } catch {
+      // Ignore corrupted draft.
+    }
+  }, [draftStorageKey, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!draftStorageKey) return;
+    if (typeof window === "undefined") return;
+
+    try {
+      if (!hasUnsavedChanges) {
+        window.localStorage.removeItem(draftStorageKey);
+        return;
+      }
+
+      const draft: OnboardingDraft = {
+        companyName: String(companyName || ""),
+        companyCnpj: normalizeCnpjDigits(companyCnpj),
+        industry: String(industry || ""),
+        isOnlineBusiness: Boolean(isOnlineBusiness),
+        companyAddress: String(companyAddress || ""),
+        companyAddressNumber: String(companyAddressNumber || ""),
+        companyCity: String(companyCity || ""),
+        companyState: normalizeStateCode(companyState || ""),
+        companyPostalCode: normalizePostalCodeDigits(companyPostalCode),
+        teamAgentsCount: String(teamAgentsCount || ""),
+        onboardingGoal: String(onboardingGoal || ""),
+        monthlyConversationsTier: String(monthlyConversationsTier || ""),
+        activeStep,
+        updatedAt: new Date().toISOString(),
+      };
+
+      window.localStorage.setItem(draftStorageKey, JSON.stringify(draft));
+    } catch {
+      // Ignore storage failures.
+    }
+  }, [
+    activeStep,
+    companyAddress,
+    companyAddressNumber,
+    companyCity,
+    companyCnpj,
+    companyName,
+    companyPostalCode,
+    companyState,
+    draftStorageKey,
+    hasUnsavedChanges,
+    industry,
+    isOnlineBusiness,
+    monthlyConversationsTier,
+    onboardingGoal,
+    open,
+    teamAgentsCount,
+  ]);
 
   useEffect(() => {
     if (!open) return;
@@ -843,8 +1082,21 @@ export default function OnboardingModal({
     };
   }, [canDismiss, onClose, open]);
 
+  useEffect(() => {
+    if (!open) return;
+    if (!hasUnsavedChanges) return;
+
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [hasUnsavedChanges, open]);
+
   const postAction = useCallback(
-    async (body: Record<string, unknown>) => {
+    async (body: Record<string, unknown>, opts?: { respectDirty?: boolean }) => {
       const res = await fetch("/api/wz_users/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -857,7 +1109,7 @@ export default function OnboardingModal({
         throw new Error(String(payload?.error || "Falha ao salvar onboarding."));
       }
 
-      applyOnboardingUpdate(payload.onboarding);
+      applyOnboardingUpdate(payload.onboarding, { respectDirty: opts?.respectDirty });
       if (payload.qrCodeDataUrl) setQrCodeDataUrl(String(payload.qrCodeDataUrl));
       if (payload.pairingExpiresAt) setPairingExpiresAt(String(payload.pairingExpiresAt));
       if (payload.pairingUrl) setPairingUrl(String(payload.pairingUrl));
@@ -880,6 +1132,7 @@ export default function OnboardingModal({
       companyCnpj,
       isOnlineBusiness,
       companyAddress,
+      companyAddressNumber,
       companyCity,
       companyState,
       companyPostalCode,
@@ -898,11 +1151,13 @@ export default function OnboardingModal({
         companyLogoUrl,
         companyCnpj: normalizeCnpjDigits(companyCnpj),
         isOnlineBusiness,
-        companyAddress: isOnlineBusiness ? null : String(companyAddress || "").trim(),
+        companyAddress: isOnlineBusiness
+          ? null
+          : composeAddressWithNumber(String(companyAddress || ""), String(companyAddressNumber || "")),
         companyCity: isOnlineBusiness ? null : String(companyCity || "").trim(),
         companyState: isOnlineBusiness ? null : String(companyState || "").trim().toUpperCase(),
         companyPostalCode: isOnlineBusiness ? null : String(companyPostalCode || "").replace(/\D+/g, ""),
-      });
+      }, { respectDirty: false });
       setActiveStep(normalizeStepFromOnboarding(payload.onboarding));
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Nao foi possivel salvar dados da empresa.");
@@ -911,6 +1166,7 @@ export default function OnboardingModal({
     }
   }, [
     companyAddress,
+    companyAddressNumber,
     companyCity,
     companyCnpj,
     companyLogoUrl,
@@ -945,7 +1201,7 @@ export default function OnboardingModal({
         teamAgentsCount: teamCountValue,
         onboardingGoal,
         monthlyConversationsTier,
-      });
+      }, { respectDirty: false });
       setActiveStep(normalizeStepFromOnboarding(payload.onboarding));
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Nao foi possivel salvar os dados do time.");
@@ -963,7 +1219,7 @@ export default function OnboardingModal({
     setError(null);
     try {
       setSaving(true);
-      await postAction({ action: "finish" });
+      await postAction({ action: "finish" }, { respectDirty: false });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Nao foi possivel concluir onboarding.");
     } finally {
@@ -1007,15 +1263,31 @@ export default function OnboardingModal({
         throw new Error(String(payload?.error || "Nao foi possivel enviar a logo."));
       }
       setCompanyLogoUrl(String(payload.companyLogoUrl));
-      if (payload.onboarding) {
-        applyOnboardingUpdate(payload.onboarding);
-      }
+      setOnboarding((current) => {
+        const fallback = payload.onboarding || null;
+        const next = current
+          ? {
+              ...current,
+              companyLogoUrl: String(payload.companyLogoUrl),
+              updatedAt: payload.onboarding?.updatedAt || current.updatedAt,
+            }
+          : fallback
+            ? {
+                ...fallback,
+                companyLogoUrl: String(payload.companyLogoUrl),
+              }
+            : null;
+        if (next) {
+          onUpdated?.(next);
+        }
+        return next;
+      });
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Falha ao enviar logo.");
     } finally {
       setUploadingLogo(false);
     }
-  }, [applyOnboardingUpdate]);
+  }, [onUpdated]);
 
   const openLogoPicker = useCallback(() => {
     fileInputRef.current?.click();
@@ -1284,6 +1556,7 @@ export default function OnboardingModal({
                                 onClick={() => {
                                   setIsOnlineBusiness(true);
                                   setCompanyAddress("");
+                                  setCompanyAddressNumber("");
                                   setCompanyCity("");
                                   setCompanyState("");
                                   setCompanyPostalCode("");
@@ -1373,6 +1646,19 @@ export default function OnboardingModal({
                                   value={companyCity}
                                   onChange={(event) => setCompanyCity(event.target.value)}
                                   placeholder="Ex.: Sao Paulo"
+                                  className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/82 outline-none transition-[border-color,box-shadow] focus:border-black/25 focus:ring-2 focus:ring-black/8"
+                                />
+                              </label>
+
+                              <label className="block">
+                                <span className="text-[13px] font-medium text-black/62">
+                                  Numero <span className="text-[#d54f4f]">*</span>
+                                </span>
+                                <input
+                                  type="text"
+                                  value={companyAddressNumber}
+                                  onChange={(event) => setCompanyAddressNumber(normalizeAddressNumber(event.target.value))}
+                                  placeholder="Ex.: 120A"
                                   className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/82 outline-none transition-[border-color,box-shadow] focus:border-black/25 focus:ring-2 focus:ring-black/8"
                                 />
                               </label>

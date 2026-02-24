@@ -187,6 +187,38 @@ function normalizeMonthlyConversationsTier(value: unknown) {
   return MONTHLY_CONVERSATION_OPTIONS.has(clean) ? clean : null;
 }
 
+function hasCompleteCompanyData(onboarding: OnboardingRecord) {
+  const companyName = normalizeCompanyName(onboarding.companyName || "");
+  const industry = normalizeIndustry(onboarding.industry || "");
+  const logo = normalizeOptionalText(onboarding.companyLogoUrl || "");
+  const cnpjDigits = normalizeCnpjDigits(onboarding.companyCnpj || "");
+  const isOnlineBusiness = Boolean(onboarding.isOnlineBusiness);
+  const companyAddress = normalizeAddressText(onboarding.companyAddress || "", 180);
+  const companyCity = normalizeAddressText(onboarding.companyCity || "", 120);
+  const companyState = normalizeStateCode(onboarding.companyState || "");
+  const companyPostalCode = normalizePostalCodeDigits(onboarding.companyPostalCode || "");
+
+  if (!companyName || !industry || !logo) return false;
+  if (cnpjDigits && !isValidCnpjDigits(cnpjDigits)) return false;
+  if (isOnlineBusiness) return true;
+
+  return Boolean(
+    companyAddress &&
+      companyCity &&
+      companyState &&
+      companyState.length === 2 &&
+      companyPostalCode &&
+      companyPostalCode.length === 8,
+  );
+}
+
+function hasCompleteTeamData(onboarding: OnboardingRecord) {
+  const team = Number(onboarding.teamAgentsCount || 0);
+  const goal = normalizeOnboardingGoal(onboarding.onboardingGoal || "");
+  const volume = normalizeMonthlyConversationsTier(onboarding.monthlyConversationsTier || "");
+  return Number.isFinite(team) && team >= 1 && team <= 5000 && Boolean(goal) && Boolean(volume);
+}
+
 function normalizeProviderState(value: string) {
   const clean = String(value || "").trim().toLowerCase();
   if (!clean) return "unknown";
@@ -665,6 +697,13 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "save-team") {
+      if (!hasCompleteCompanyData(ctx.onboarding)) {
+        return NextResponse.json(
+          { ok: false, error: "Conclua os dados da empresa antes de avancar para o time." },
+          { status: 409, headers: NO_STORE_HEADERS },
+        );
+      }
+
       const teamAgentsCount = normalizeTeamAgentsCount(body?.teamAgentsCount);
       const onboardingGoal = normalizeOnboardingGoal(body?.onboardingGoal);
       const monthlyConversationsTier = normalizeMonthlyConversationsTier(body?.monthlyConversationsTier);
@@ -731,6 +770,25 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           { ok: false, error: "Etapa de onboarding invalida." },
           { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      if (uiStep === "team" && !hasCompleteCompanyData(ctx.onboarding)) {
+        return NextResponse.json(
+          { ok: false, error: "Preencha os dados da empresa antes de seguir para o time." },
+          { status: 409, headers: NO_STORE_HEADERS },
+        );
+      }
+      if (uiStep === "whatsapp" && (!hasCompleteCompanyData(ctx.onboarding) || !hasCompleteTeamData(ctx.onboarding))) {
+        return NextResponse.json(
+          { ok: false, error: "Complete os dados da empresa e do time antes de ir ao WhatsApp." },
+          { status: 409, headers: NO_STORE_HEADERS },
+        );
+      }
+      if (uiStep === "final" && !ctx.onboarding.whatsappConnected) {
+        return NextResponse.json(
+          { ok: false, error: "Conecte o WhatsApp antes de acessar a etapa final." },
+          { status: 409, headers: NO_STORE_HEADERS },
         );
       }
 
@@ -801,6 +859,18 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "finish") {
+      if (!hasCompleteCompanyData(ctx.onboarding)) {
+        return NextResponse.json(
+          { ok: false, error: "Dados da empresa incompletos. Revise antes de finalizar." },
+          { status: 409, headers: NO_STORE_HEADERS },
+        );
+      }
+      if (!hasCompleteTeamData(ctx.onboarding)) {
+        return NextResponse.json(
+          { ok: false, error: "Dados do time incompletos. Revise antes de finalizar." },
+          { status: 409, headers: NO_STORE_HEADERS },
+        );
+      }
       if (!ctx.onboarding.whatsappConnected) {
         return NextResponse.json(
           { ok: false, error: "Conecte o WhatsApp antes de finalizar." },
