@@ -1,4 +1,5 @@
 import fs from "fs/promises";
+import os from "os";
 import path from "path";
 import makeWASocket, {
   Browsers,
@@ -63,6 +64,7 @@ declare global {
 const RECONNECT_DELAY_MS = 1800;
 const WAIT_QR_TIMEOUT_MS = 14000;
 const DISABLED_VALUES = new Set(["0", "false", "off", "no", "disabled"]);
+const WRITABLE_FS_ERROR_CODES = new Set(["ENOENT", "EACCES", "EPERM", "EROFS"]);
 
 const localInstances =
   globalThis.__wzLocalWhatsAppInstances || (globalThis.__wzLocalWhatsAppInstances = new Map());
@@ -89,10 +91,26 @@ function resolveLocalInstancePrefix() {
   return sanitized || "wyzer";
 }
 
+function isServerlessRuntime() {
+  return Boolean(
+    process.env.VERCEL ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.LAMBDA_TASK_ROOT ||
+      process.env.K_SERVICE,
+  );
+}
+
+function resolveDefaultAuthRootDir() {
+  if (isServerlessRuntime()) {
+    return path.join(os.tmpdir(), "wz-whatsapp-auth");
+  }
+  return path.join(process.cwd(), ".wz-whatsapp-auth");
+}
+
 function resolveAuthRootDir() {
   const configured = String(process.env.WHATSAPP_AUTH_DIR || "").trim();
   if (!configured) {
-    return path.join(process.cwd(), ".wz-whatsapp-auth");
+    return resolveDefaultAuthRootDir();
   }
   return path.isAbsolute(configured) ? configured : path.join(process.cwd(), configured);
 }
@@ -160,7 +178,23 @@ function readDisconnectStatusCode(update: Partial<ConnectionState>) {
 }
 
 async function ensureAuthDirectory(instance: LocalWhatsAppInstance) {
-  await fs.mkdir(instance.authDir, { recursive: true });
+  try {
+    await fs.mkdir(instance.authDir, { recursive: true });
+  } catch (error) {
+    const code = String((error as { code?: unknown } | null)?.code || "").trim().toUpperCase();
+    if (!WRITABLE_FS_ERROR_CODES.has(code)) {
+      throw error;
+    }
+
+    const fallbackDir = path.join(os.tmpdir(), "wz-whatsapp-auth", instance.instanceName);
+    if (instance.authDir !== fallbackDir) {
+      instance.authDir = fallbackDir;
+      await fs.mkdir(instance.authDir, { recursive: true });
+      return;
+    }
+
+    throw error;
+  }
 }
 
 async function resetAuthDirectory(instance: LocalWhatsAppInstance) {
