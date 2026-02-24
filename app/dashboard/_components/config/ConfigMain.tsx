@@ -5417,7 +5417,7 @@ function PrivacyDataContent() {
         },
         {
           key: "personalizedExperience" as const,
-          title: "Personalizar minhá experiência no Wyzer",
+          title: "Personalizar minha experiência no Wyzer",
           description:
             "Permite ajustar conteúdo, sugestões e organização da interface com base no seu contexto de uso.",
           href: "https://privacy.wyzer.com.br/",

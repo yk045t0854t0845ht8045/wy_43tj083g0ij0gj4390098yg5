@@ -551,6 +551,83 @@ async function resolveCreationProviderFromSessions(params: {
   return null;
 }
 
+async function resolveLatestProviderLoginFromSessions(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+}) {
+  const userId = String(params.userId || "").trim();
+  if (!userId) return {} as Partial<Record<LoginProvider, string>>;
+
+  const attempts: Array<{
+    select: string;
+    filterRevoked: boolean;
+  }> = [
+    {
+      select: "login_method,login_flow,issued_at,last_seen_at,revoked_at",
+      filterRevoked: true,
+    },
+    {
+      select: "login_method,login_flow,issued_at,last_seen_at",
+      filterRevoked: false,
+    },
+    {
+      select: "login_method,login_flow,issued_at",
+      filterRevoked: false,
+    },
+    {
+      select: "login_method,issued_at",
+      filterRevoked: false,
+    },
+  ];
+
+  for (const attempt of attempts) {
+    const base = params.sb
+      .from("wz_auth_sessions")
+      .select(attempt.select)
+      .eq("user_id", userId)
+      .order("issued_at", { ascending: false })
+      .limit(200);
+    const res = attempt.filterRevoked ? await base.is("revoked_at", null) : await base;
+
+    if (!res.error) {
+      const out: Partial<Record<LoginProvider, string>> = {};
+      const rows = (res.data || []) as Array<{
+        login_method?: string | null;
+        login_flow?: string | null;
+        issued_at?: string | null;
+        last_seen_at?: string | null;
+        revoked_at?: string | null;
+      }>;
+
+      for (const row of rows) {
+        if (normalizeText(row.revoked_at)) continue;
+        const provider = mapCreationProviderFromSession(row.login_method, row.login_flow);
+        if (!provider) continue;
+        if (out[provider]) continue;
+
+        const loginAt = normalizeIso(row.issued_at) || normalizeIso(row.last_seen_at);
+        if (!loginAt) continue;
+        out[provider] = loginAt;
+      }
+
+      return out;
+    }
+
+    if (isMissingTableError(res.error, "wz_auth_sessions")) {
+      return {} as Partial<Record<LoginProvider, string>>;
+    }
+
+    const hasMissingColumn = ["login_method", "login_flow", "issued_at", "last_seen_at", "revoked_at"]
+      .some((column) => isMissingColumnError(res.error, column));
+    if (hasMissingColumn) continue;
+
+    console.error("[authorized-apps] latest-session lookup error:", res.error);
+    return {} as Partial<Record<LoginProvider, string>>;
+  }
+
+  return {} as Partial<Record<LoginProvider, string>>;
+}
+
 function resolveRemoveBlockedReason(params: {
   provider: LoginProvider;
   creationProvider: LoginProvider;
@@ -592,6 +669,10 @@ async function buildAuthorizedAppsPayload(params: {
       : null;
 
   const providerRows = await listLoginProvidersForUser({
+    sb: params.sb,
+    userId,
+  });
+  const latestSessionLoginAtByProvider = await resolveLatestProviderLoginFromSessions({
     sb: params.sb,
     userId,
   });
@@ -689,7 +770,7 @@ async function buildAuthorizedAppsPayload(params: {
       provider,
       providerLabel: providerLabel(provider),
       linkedAt: normalizeIso(row.linkedAt),
-      lastLoginAt: normalizeIso(row.lastLoginAt),
+      lastLoginAt: normalizeIso(row.lastLoginAt) || latestSessionLoginAtByProvider[provider] || null,
       linkedEmail:
         provider === "password"
           ? normalizeEmail(row.email) || passwordLinkedEmailFallback
@@ -715,7 +796,7 @@ async function buildAuthorizedAppsPayload(params: {
       provider: primaryProvider,
       providerLabel: providerLabel(primaryProvider),
       linkedAt: null,
-      lastLoginAt: null,
+      lastLoginAt: latestSessionLoginAtByProvider[primaryProvider] || null,
       linkedEmail:
         primaryProvider === "password" ? passwordLinkedEmailFallback : null,
       linkedUsername: null,
@@ -739,7 +820,7 @@ async function buildAuthorizedAppsPayload(params: {
       provider: "password",
       providerLabel: "Wyzer Login",
       linkedAt: null,
-      lastLoginAt: null,
+      lastLoginAt: latestSessionLoginAtByProvider.password || null,
       linkedEmail: passwordLinkedEmailFallback,
       linkedUsername: null,
       isPassword: true,
