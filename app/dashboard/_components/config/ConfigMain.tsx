@@ -145,7 +145,8 @@ const CONFIG_SIDEBAR_ICON_LINKS = {
 const AUTHORIZED_APPS_WYZER_ICON_URL = "https://www.wyzer.com.br/logo.svg";
 const AUTHORIZED_APPS_GOOGLE_ICON_URL =
   "https://cdn.brandfetch.io/id6O2oGzv-/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1755835725776";
-const AUTHORIZED_APPS_MICROSOFT_ICON_URL = "https://cdn.simpleicons.org/microsoft/00A4EF";
+const AUTHORIZED_APPS_MICROSOFT_ICON_URL =
+  "https://cdn.brandfetch.io/idchmboHEZ/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1727706673120";
 const AUTHORIZED_APPS_TOOLTIP_ICON_URL = "https://cdn.lordicon.com/tnapqovl.json";
 
 const menuItems: MenuItem[] = [

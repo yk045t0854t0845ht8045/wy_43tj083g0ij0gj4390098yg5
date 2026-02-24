@@ -89,7 +89,8 @@ function getDashboardOriginForLoginHost(host: string) {
 
 const GOOGLE_PROVIDER_ICON_URL =
   "https://cdn.brandfetch.io/id6O2oGzv-/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1755835725776";
-const MICROSOFT_PROVIDER_ICON_URL = "https://cdn.simpleicons.org/microsoft/00A4EF";
+const MICROSOFT_PROVIDER_ICON_URL =
+  "https://cdn.brandfetch.io/idchmboHEZ/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1727706673120";
 
 function oauthProviderLabel(provider: "google" | "azure") {
   if (provider === "google") return "Google";
