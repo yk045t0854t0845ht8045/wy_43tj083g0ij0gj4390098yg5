@@ -4,6 +4,7 @@ import { gen7, newSalt, sha } from "@/app/api/wz_AuthLogin/_codes";
 import { sendLoginCodeEmail } from "@/app/api/wz_AuthLogin/_email";
 import { setSessionCookie } from "@/app/api/wz_AuthLogin/_session";
 import { readActiveSessionFromRequest } from "@/app/api/wz_AuthLogin/_active_session";
+import { registerIssuedSession } from "@/app/api/wz_AuthLogin/_session_devices";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import {
   normalizeTotpCode,
@@ -976,7 +977,7 @@ export async function PUT(req: NextRequest) {
         { ok: true, email: nextEmail, emailChangedAt: null },
         { status: 200, headers: NO_STORE_HEADERS },
       );
-      setSessionCookie(
+      const sessionPayload = setSessionCookie(
         okRes,
         {
           userId: String(base.userRow.id),
@@ -985,6 +986,16 @@ export async function PUT(req: NextRequest) {
         },
         req.headers,
       );
+      await registerIssuedSession({
+        headers: req.headers,
+        userId: String(base.userRow.id),
+        authUserId: normalizeOptionalText(base.userRow.auth_user_id),
+        email: nextEmail,
+        session: sessionPayload,
+        loginMethod: "sync",
+        loginFlow: "unknown",
+        isAccountCreationSession: false,
+      });
       return okRes;
     }
 
@@ -1088,7 +1099,7 @@ export async function PUT(req: NextRequest) {
       { ok: true, email: nextEmail, emailChangedAt },
       { status: 200, headers: NO_STORE_HEADERS },
     );
-    setSessionCookie(
+    const sessionPayload = setSessionCookie(
       res,
       {
         userId: String(base.userRow.id),
@@ -1097,6 +1108,16 @@ export async function PUT(req: NextRequest) {
       },
       req.headers,
     );
+    await registerIssuedSession({
+      headers: req.headers,
+      userId: String(base.userRow.id),
+      authUserId: currentAuthUserId,
+      email: nextEmail,
+      session: sessionPayload,
+      loginMethod: "sync",
+      loginFlow: "unknown",
+      isAccountCreationSession: false,
+    });
     return res;
   } catch (error) {
     console.error("[change-email] verify error:", error);

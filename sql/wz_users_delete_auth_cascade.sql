@@ -1,6 +1,8 @@
 -- Exclusao robusta de conta:
 -- ao remover um registro de public.wz_users, remove tambem dados de autenticacao
 -- vinculados (incluindo auth.users no Supabase) para evitar conta/senha orfa.
+-- IMPORTANTE: TRUNCATE em public.wz_users nao dispara este trigger.
+-- Para reset total use delete from public.wz_users ou sql/wz_auth_full_reset.sql.
 
 create or replace function public.wz_users_cleanup_on_delete()
 returns trigger
@@ -104,13 +106,17 @@ begin
     end;
   end if;
 
-  if v_auth_user_uuid is not null and to_regclass('auth.users') is not null then
+  if to_regclass('auth.users') is not null then
     begin
-      delete from auth.users where id = v_auth_user_uuid;
+      delete from auth.users
+      where
+        (v_auth_user_uuid is not null and id = v_auth_user_uuid)
+        or (v_email is not null and lower(email) = v_email);
     exception
       when others then
-        raise warning '[wz_users_cleanup_on_delete] falha ao excluir auth.users id=%: %',
+        raise warning '[wz_users_cleanup_on_delete] falha ao excluir auth.users (id=% email=%): %',
           v_auth_user_uuid,
+          coalesce(v_email, '<null>'),
           sqlerrm;
     end;
   end if;
