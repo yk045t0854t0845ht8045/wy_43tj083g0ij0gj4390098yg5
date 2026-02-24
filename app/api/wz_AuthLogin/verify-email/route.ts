@@ -1047,8 +1047,6 @@ export async function POST(req: Request) {
       }
     }
 
-    await sb.from("wz_pending_auth").delete().eq("email", email);
-
     const resolvedUserId = String(userId || "").trim();
     if (!resolvedUserId) {
       return NextResponse.json(
@@ -1056,6 +1054,41 @@ export async function POST(req: Request) {
         { status: 500, headers: NO_STORE_HEADERS },
       );
     }
+
+    if (isOAuthOnboarding) {
+      const twoFactorState = await resolveTwoFactorState({
+        sb,
+        sessionUserId: resolvedUserId,
+        wzUserId: resolvedUserId,
+      });
+      const hasTotp = Boolean(twoFactorState.enabled && twoFactorState.secret);
+      const hasPasskey = await hasWindowsHelloPasskey(sb, resolvedUserId);
+
+      if (hasTotp || hasPasskey) {
+        const twoFactorTicket = createLoginTwoFactorTicket({
+          userId: resolvedUserId,
+          email,
+          fullName: sanitizeFullName(fullName),
+        });
+        return NextResponse.json(
+          {
+            ok: true,
+            next: "two-factor",
+            requiresTwoFactor: hasTotp,
+            requiresPasskey: hasPasskey,
+            authMethods: {
+              totp: hasTotp,
+              passkey: hasPasskey,
+            },
+            preferredAuthMethod: !hasTotp && hasPasskey ? "passkey" : "totp",
+            twoFactorTicket,
+          },
+          { status: 200, headers: NO_STORE_HEADERS },
+        );
+      }
+    }
+
+    await sb.from("wz_pending_auth").delete().eq("email", email);
 
     const dashboard = getDashboardOrigin();
     const loginMethod = isOAuthOnboarding ? String(oauthProvider || "unknown") : "email_code";
