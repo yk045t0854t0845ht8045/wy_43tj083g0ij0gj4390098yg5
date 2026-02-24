@@ -122,6 +122,27 @@ function normalizeIndustry(value: unknown) {
   return clean.slice(0, 120);
 }
 
+function isValidCnpjDigits(value: string) {
+  const digits = String(value || "").replace(/\D+/g, "");
+  if (digits.length !== 14) return false;
+  if (/^(\d)\1{13}$/.test(digits)) return false;
+
+  const numbers = digits.split("").map((digit) => Number.parseInt(digit, 10));
+  const calcDigit = (sliceLength: number) => {
+    let factor = sliceLength - 7;
+    const total = numbers.slice(0, sliceLength).reduce((acc, num) => {
+      const next = acc + num * factor;
+      factor -= 1;
+      if (factor < 2) factor = 9;
+      return next;
+    }, 0);
+    const mod = total % 11;
+    return mod < 2 ? 0 : 11 - mod;
+  };
+
+  return numbers[12] === calcDigit(12) && numbers[13] === calcDigit(13);
+}
+
 function normalizeBooleanInput(value: unknown) {
   if (typeof value === "boolean") return value;
   if (typeof value === "number") return value === 1;
@@ -579,7 +600,13 @@ export async function POST(req: NextRequest) {
       }
       if (cnpjDigits && cnpjDigits.length !== 14) {
         return NextResponse.json(
-          { ok: false, error: "CNPJ invalido. Use 14 digitos." },
+          { ok: false, error: "CNPJ invalido. Verifique os digitos informados." },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+      if (cnpjDigits && !isValidCnpjDigits(cnpjDigits)) {
+        return NextResponse.json(
+          { ok: false, error: "CNPJ invalido. Verifique os digitos informados." },
           { status: 400, headers: NO_STORE_HEADERS },
         );
       }

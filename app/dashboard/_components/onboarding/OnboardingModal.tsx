@@ -93,6 +93,36 @@ function formatCnpj(value?: string | null) {
   return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
 }
 
+function isValidCnpjDigits(value?: string | null) {
+  const digits = normalizeCnpjDigits(value);
+  if (digits.length !== 14) return false;
+  if (/^(\d)\1{13}$/.test(digits)) return false;
+
+  const numbers = digits.split("").map((digit) => Number.parseInt(digit, 10));
+  const calcDigit = (sliceLength: number) => {
+    let factor = sliceLength - 7;
+    const total = numbers.slice(0, sliceLength).reduce((acc, num) => {
+      const next = acc + num * factor;
+      factor -= 1;
+      if (factor < 2) factor = 9;
+      return next;
+    }, 0);
+    const mod = total % 11;
+    return mod < 2 ? 0 : 11 - mod;
+  };
+
+  const digit1 = calcDigit(12);
+  const digit2 = calcDigit(13);
+  return numbers[12] === digit1 && numbers[13] === digit2;
+}
+
+type PostalCodeLookupResult = {
+  street: string;
+  city: string;
+  state: string;
+  neighborhood: string;
+};
+
 function normalizeStepFromOnboarding(onboarding?: OnboardingState | null): WizardStep {
   if (!onboarding) return "company";
   if (onboarding.completed || onboarding.uiStep === "final") return "final";
@@ -134,7 +164,7 @@ function isValidCompanyForm(params: {
   if (!companyName) return "Informe o nome da empresa.";
   if (!industry) return "Informe a area de atuacao da empresa.";
   if (!logoUrl) return "Envie a logo da empresa para continuar.";
-  if (cnpjDigits && cnpjDigits.length !== 14) return "CNPJ invalido. Use 14 digitos.";
+  if (cnpjDigits && !isValidCnpjDigits(cnpjDigits)) return "CNPJ invalido. Verifique os digitos.";
   if (!params.isOnlineBusiness) {
     if (!address) return "Informe o endereco da empresa.";
     if (!city) return "Informe a cidade da empresa.";
@@ -341,6 +371,71 @@ function formatPostalCode(value?: string | null) {
   return `${digits.slice(0, 5)}-${digits.slice(5)}`;
 }
 
+function normalizePostalCodeDigits(value?: string | null) {
+  return String(value || "").replace(/\D+/g, "").slice(0, 8);
+}
+
+function normalizeStateCode(value?: string | null) {
+  return String(value || "")
+    .replace(/[^a-zA-Z]/g, "")
+    .trim()
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+async function lookupPostalCode(cepDigits: string): Promise<PostalCodeLookupResult | null> {
+  const normalizedCep = normalizePostalCodeDigits(cepDigits);
+  if (normalizedCep.length !== 8) return null;
+
+  try {
+    const viaCepRes = await fetch(`https://viacep.com.br/ws/${normalizedCep}/json/`, {
+      method: "GET",
+      cache: "no-store",
+    });
+    if (viaCepRes.ok) {
+      const viaCep = (await viaCepRes.json().catch(() => ({}))) as {
+        erro?: boolean;
+        logradouro?: string;
+        bairro?: string;
+        localidade?: string;
+        uf?: string;
+      };
+      if (!viaCep.erro) {
+        return {
+          street: String(viaCep.logradouro || "").trim(),
+          neighborhood: String(viaCep.bairro || "").trim(),
+          city: String(viaCep.localidade || "").trim(),
+          state: normalizeStateCode(viaCep.uf || ""),
+        };
+      }
+    }
+  } catch {
+    // Fallback below.
+  }
+
+  try {
+    const brasilApiRes = await fetch(`https://brasilapi.com.br/api/cep/v1/${normalizedCep}`, {
+      method: "GET",
+      cache: "no-store",
+    });
+    if (!brasilApiRes.ok) return null;
+    const brasilApi = (await brasilApiRes.json().catch(() => ({}))) as {
+      street?: string;
+      neighborhood?: string;
+      city?: string;
+      state?: string;
+    };
+    return {
+      street: String(brasilApi.street || "").trim(),
+      neighborhood: String(brasilApi.neighborhood || "").trim(),
+      city: String(brasilApi.city || "").trim(),
+      state: normalizeStateCode(brasilApi.state || ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function normalizeTeamBucketFromCount(count?: number | null) {
   const parsed = typeof count === "number" ? count : Number.parseInt(String(count || ""), 10);
   if (!Number.isFinite(parsed) || parsed < 1) return "";
@@ -492,11 +587,14 @@ export default function OnboardingModal({
 }: OnboardingModalProps) {
   const prefersReducedMotion = useReducedMotion();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const lastResolvedPostalCodeRef = useRef("");
   const latestFetchRequestIdRef = useRef(0);
   const silentFetchInFlightRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [postalLookupLoading, setPostalLookupLoading] = useState(false);
+  const [postalLookupMessage, setPostalLookupMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(initialData);
   const [activeStep, setActiveStep] = useState<WizardStep>(normalizeStepFromOnboarding(initialData));
@@ -515,7 +613,6 @@ export default function OnboardingModal({
     String(initialData?.monthlyConversationsTier || ""),
   );
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>("");
-  const [pairingCode, setPairingCode] = useState<string>("");
   const [pairingExpiresAt, setPairingExpiresAt] = useState<string | null>(null);
   const [pairingUrl, setPairingUrl] = useState<string>("");
   const [whatsappState, setWhatsappState] = useState<string>("");
@@ -563,11 +660,11 @@ export default function OnboardingModal({
       setCompanyCity(String(next.companyCity || ""));
       setCompanyState(String(next.companyState || ""));
       setCompanyPostalCode(formatPostalCode(next.companyPostalCode || ""));
+      lastResolvedPostalCodeRef.current = normalizePostalCodeDigits(next.companyPostalCode || "");
       setTeamAgentsCount(normalizeTeamBucketFromCount(next.teamAgentsCount));
       setOnboardingGoal(String(next.onboardingGoal || ""));
       setMonthlyConversationsTier(String(next.monthlyConversationsTier || ""));
       setActiveStep(normalizeStepFromOnboarding(next));
-      setPairingCode(String(next.whatsappPairingCode || ""));
       setPairingExpiresAt(next.whatsappPairingExpiresAt || null);
       setWhatsappState(next.whatsappConnected ? "open" : "close");
       onUpdated?.(next);
@@ -609,7 +706,6 @@ export default function OnboardingModal({
         } else if (payload.onboarding.whatsappConnected || payload.onboarding.uiStep !== "whatsapp") {
           setQrCodeDataUrl("");
         }
-        setPairingCode(String(payload.pairingCode || payload.onboarding.whatsappPairingCode || ""));
         setPairingExpiresAt(String(payload.pairingExpiresAt || payload.onboarding.whatsappPairingExpiresAt || "") || null);
         setPairingUrl(String(payload.pairingUrl || ""));
         setWhatsappState(String(payload.whatsappState || (payload.onboarding.whatsappConnected ? "open" : "close")));
@@ -641,6 +737,63 @@ export default function OnboardingModal({
     if (!open) return;
     void fetchOnboarding();
   }, [fetchOnboarding, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (activeStep !== "company") return;
+    if (isOnlineBusiness) {
+      setPostalLookupLoading(false);
+      setPostalLookupMessage(null);
+      return;
+    }
+
+    const cepDigits = normalizePostalCodeDigits(companyPostalCode);
+    if (cepDigits.length !== 8) {
+      setPostalLookupLoading(false);
+      setPostalLookupMessage(null);
+      if (cepDigits.length === 0) {
+        lastResolvedPostalCodeRef.current = "";
+      }
+      return;
+    }
+    if (lastResolvedPostalCodeRef.current === cepDigits) return;
+
+    let cancelled = false;
+    setPostalLookupLoading(true);
+    setPostalLookupMessage(null);
+
+    void (async () => {
+      const lookedUp = await lookupPostalCode(cepDigits);
+      if (cancelled) return;
+
+      setPostalLookupLoading(false);
+      lastResolvedPostalCodeRef.current = cepDigits;
+
+      if (!lookedUp) {
+        setPostalLookupMessage("Nao foi possivel completar esse CEP automaticamente.");
+        return;
+      }
+
+      const addressParts = [lookedUp.street, lookedUp.neighborhood].filter(Boolean);
+      if (addressParts.length > 0) {
+        setCompanyAddress((current) => {
+          const cleanCurrent = String(current || "").trim();
+          return cleanCurrent || addressParts.join(" - ");
+        });
+      }
+      if (lookedUp.city) {
+        setCompanyCity((current) => String(current || "").trim() || lookedUp.city);
+      }
+      if (lookedUp.state) {
+        setCompanyState((current) => normalizeStateCode(current || "") || lookedUp.state);
+      }
+      setPostalLookupMessage("Endereco preenchido automaticamente pelo CEP.");
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeStep, companyPostalCode, isOnlineBusiness, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -706,7 +859,6 @@ export default function OnboardingModal({
 
       applyOnboardingUpdate(payload.onboarding);
       if (payload.qrCodeDataUrl) setQrCodeDataUrl(String(payload.qrCodeDataUrl));
-      if (payload.pairingCode) setPairingCode(String(payload.pairingCode));
       if (payload.pairingExpiresAt) setPairingExpiresAt(String(payload.pairingExpiresAt));
       if (payload.pairingUrl) setPairingUrl(String(payload.pairingUrl));
       if (payload.whatsappState) setWhatsappState(String(payload.whatsappState));
@@ -822,7 +974,7 @@ export default function OnboardingModal({
   const handleBackStep = useCallback(() => {
     setError(null);
     if (activeStep === "final") {
-      setActiveStep("whatsapp");
+      setActiveStep("team");
       return;
     }
     if (activeStep === "whatsapp") {
@@ -1007,7 +1159,14 @@ export default function OnboardingModal({
                     </div>
                   </div>
                 ) : (
-                  <>
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.div
+                      key={activeStep}
+                      initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.996 }}
+                      animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+                      exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.996 }}
+                      transition={prefersReducedMotion ? { duration: 0.1 } : { duration: 0.22, ease: "easeOut" }}
+                    >
                     {activeStep === "company" && (
                       <div>
                         <p className="text-[14px] text-black/62">
@@ -1023,22 +1182,32 @@ export default function OnboardingModal({
                             onClick={openLogoPicker}
                             disabled={uploadingLogo}
                             className={cx(
-                              "mt-2 flex w-full flex-col items-center justify-center rounded-2xl border border-dashed border-black/20 bg-white/75 px-4 py-8 text-center transition-colors",
+                              "mt-2 flex w-full items-center gap-3 rounded-2xl border border-dashed border-black/20 bg-white/75 px-3 py-3 text-left transition-colors",
                               uploadingLogo ? "cursor-not-allowed opacity-70" : "hover:bg-white",
                             )}
                           >
-                            {uploadingLogo ? (
-                              <Loader2 className="h-5 w-5 animate-spin text-black/60" />
-                            ) : companyLogoUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={companyLogoUrl} alt="Logo da empresa" className="h-16 w-16 rounded-xl border border-black/10 bg-white object-cover" />
-                            ) : (
-                              <UploadCloud className="h-6 w-6 text-black/55" />
-                            )}
-                            <span className="mt-2 text-[14px] font-semibold text-black/78">
-                              {companyLogoUrl ? "Trocar logo" : "Clique para enviar sua logo"}
+                            <span className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-black/10 bg-white">
+                              {uploadingLogo ? (
+                                <Loader2 className="h-5 w-5 animate-spin text-black/60" />
+                              ) : companyLogoUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={companyLogoUrl}
+                                  alt="Logo da empresa"
+                                  className="h-12 w-12 rounded-lg border border-black/10 bg-white object-cover"
+                                />
+                              ) : (
+                                <UploadCloud className="h-6 w-6 text-black/55" />
+                              )}
                             </span>
-                            <span className="mt-1 text-[12px] text-black/52">PNG, JPG, WEBP ou SVG - maximo 1MB</span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[14px] font-semibold text-black/78">
+                                {companyLogoUrl ? "Trocar logo" : "Enviar logo da empresa"}
+                              </span>
+                              <span className="mt-1 block text-[12px] text-black/52">
+                                PNG, JPG, WEBP ou SVG - maximo 1MB
+                              </span>
+                            </span>
                           </button>
                           <input
                             ref={fileInputRef}
@@ -1136,30 +1305,30 @@ export default function OnboardingModal({
 
                           {!isOnlineBusiness && (
                             <>
-                              <label className="block md:col-span-2">
-                                <span className="text-[13px] font-medium text-black/62">
-                                  Endereco da empresa <span className="text-[#d54f4f]">*</span>
-                                </span>
-                                <input
-                                  type="text"
-                                  value={companyAddress}
-                                  onChange={(event) => setCompanyAddress(event.target.value)}
-                                  placeholder="Rua, numero e complemento"
-                                  className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/82 outline-none transition-[border-color,box-shadow] focus:border-black/25 focus:ring-2 focus:ring-black/8"
-                                />
-                              </label>
-
                               <label className="block">
                                 <span className="text-[13px] font-medium text-black/62">
-                                  Cidade <span className="text-[#d54f4f]">*</span>
+                                  CEP <span className="text-[#d54f4f]">*</span>
                                 </span>
                                 <input
                                   type="text"
-                                  value={companyCity}
-                                  onChange={(event) => setCompanyCity(event.target.value)}
-                                  placeholder="Ex.: Sao Paulo"
+                                  value={companyPostalCode}
+                                  onChange={(event) => {
+                                    const formatted = formatPostalCode(event.target.value);
+                                    setCompanyPostalCode(formatted);
+                                    if (normalizePostalCodeDigits(formatted).length < 8) {
+                                      lastResolvedPostalCodeRef.current = "";
+                                      setPostalLookupMessage(null);
+                                    }
+                                  }}
+                                  placeholder="00000-000"
+                                  inputMode="numeric"
                                   className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/82 outline-none transition-[border-color,box-shadow] focus:border-black/25 focus:ring-2 focus:ring-black/8"
                                 />
+                                <div className="mt-1 text-[11px] text-black/52">
+                                  {postalLookupLoading
+                                    ? "Consultando CEP para preencher endereco..."
+                                    : postalLookupMessage || "Digite o CEP para completar os campos automaticamente."}
+                                </div>
                               </label>
 
                               <label className="block">
@@ -1182,16 +1351,28 @@ export default function OnboardingModal({
                                 />
                               </label>
 
-                              <label className="block">
+                              <label className="block md:col-span-2">
                                 <span className="text-[13px] font-medium text-black/62">
-                                  CEP <span className="text-[#d54f4f]">*</span>
+                                  Endereco da empresa <span className="text-[#d54f4f]">*</span>
                                 </span>
                                 <input
                                   type="text"
-                                  value={companyPostalCode}
-                                  onChange={(event) => setCompanyPostalCode(formatPostalCode(event.target.value))}
-                                  placeholder="00000-000"
-                                  inputMode="numeric"
+                                  value={companyAddress}
+                                  onChange={(event) => setCompanyAddress(event.target.value)}
+                                  placeholder="Rua, avenida, numero e complemento"
+                                  className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/82 outline-none transition-[border-color,box-shadow] focus:border-black/25 focus:ring-2 focus:ring-black/8"
+                                />
+                              </label>
+
+                              <label className="block">
+                                <span className="text-[13px] font-medium text-black/62">
+                                  Cidade <span className="text-[#d54f4f]">*</span>
+                                </span>
+                                <input
+                                  type="text"
+                                  value={companyCity}
+                                  onChange={(event) => setCompanyCity(event.target.value)}
+                                  placeholder="Ex.: Sao Paulo"
                                   className="mt-2 h-11 w-full rounded-xl border border-black/12 bg-white/90 px-3 text-[15px] text-black/82 outline-none transition-[border-color,box-shadow] focus:border-black/25 focus:ring-2 focus:ring-black/8"
                                 />
                               </label>
@@ -1271,31 +1452,26 @@ export default function OnboardingModal({
                         </div>
                         <div className="mt-4 rounded-2xl border border-black/12 bg-white/82 p-4">
                           {qrCodeDataUrl ? (
-                            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[220px_1fr]">
-                              <div className="rounded-2xl border border-black/10 bg-white p-3">
+                            <div className="flex flex-col items-center">
+                              <div className="rounded-2xl border border-black/10 bg-white p-3 shadow-[0_10px_26px_rgba(0,0,0,0.09)]">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={qrCodeDataUrl} alt="QR Code de conexao WhatsApp" className="aspect-square w-full max-w-[220px] rounded-xl border border-black/8 object-contain" />
+                                <img
+                                  src={qrCodeDataUrl}
+                                  alt="QR Code de conexao WhatsApp"
+                                  className="h-[280px] w-[280px] rounded-xl border border-black/8 object-contain sm:h-[320px] sm:w-[320px]"
+                                />
                               </div>
-                              <div>
-                                <p className="text-[13px] text-black/58">
-                                  Escaneie com o aplicativo do WhatsApp Business no seu celular. A confirmacao e automatica.
-                                </p>
-                                <div className="mt-3 rounded-xl border border-black/10 bg-[#f6f6f7] px-3 py-2">
-                                  <p className="text-[12px] text-black/55">Codigo de pareamento</p>
-                                  <p className="mt-1 text-[18px] font-semibold tracking-[0.08em] text-black/82">
-                                    {pairingCode || "------"}
-                                  </p>
-                                </div>
-                                <div className="mt-2 text-[12px] text-black/55">
-                                  {pairingExpiresAt ? `Expira em: ${new Date(pairingExpiresAt).toLocaleString("pt-BR")}` : "Aguardando novo QR em tempo real."}
-                                </div>
-                                {!providerConfigured && (
-                                  <div className="mt-2 text-[11px] text-[#b2433e]">
-                                    Provider proprio desativado no servidor. Defina WHATSAPP_SELF_HOSTED_ENABLED=true.
-                                  </div>
-                                )}
-                                {pairingUrl && <div className="mt-2 break-all text-[11px] text-black/48">Ref tecnica: {pairingUrl}</div>}
+                              <div className="mt-3 rounded-full bg-black/[0.04] px-3 py-1 text-[12px] font-medium text-black/62">
+                                {pairingExpiresAt
+                                  ? `Expira em: ${new Date(pairingExpiresAt).toLocaleString("pt-BR")}`
+                                  : "Atualizando validade do QR em tempo real..."}
                               </div>
+                              {!providerConfigured && (
+                                <div className="mt-2 text-[11px] text-[#b2433e]">
+                                  Provider proprio desativado no servidor. Defina WHATSAPP_SELF_HOSTED_ENABLED=true.
+                                </div>
+                              )}
+                              {pairingUrl && <div className="mt-2 break-all text-[11px] text-black/48">Ref tecnica: {pairingUrl}</div>}
                             </div>
                           ) : (
                             <div className="flex h-[240px] items-center justify-center rounded-2xl border border-dashed border-black/16 bg-white/80">
@@ -1352,7 +1528,8 @@ export default function OnboardingModal({
                         </div>
                       </div>
                     )}
-                  </>
+                    </motion.div>
+                  </AnimatePresence>
                 )}
 
                 {error && (
