@@ -531,6 +531,43 @@ function buildAzureConnectRedirect(params: {
   return url.toString();
 }
 
+function mapAzureOAuthErrorMessage(raw?: string | null) {
+  const clean = normalizeText(raw);
+  if (!clean) return null;
+
+  const lower = clean.toLowerCase();
+
+  if (
+    lower.includes("unable to exchange external code") ||
+    lower.includes("invalid_client") ||
+    lower.includes("invalid_grant")
+  ) {
+    return (
+      "Falha na configuracao OAuth da Microsoft no Supabase. " +
+      "Revise Client ID, Client Secret (use o VALUE, nao o Secret ID), " +
+      "Azure Tenant URL e a Redirect URI https://<project-ref>.supabase.co/auth/v1/callback " +
+      "no app da Microsoft."
+    );
+  }
+
+  if (lower.includes("redirect_uri")) {
+    return (
+      "Redirect URI invalida no OAuth Microsoft. " +
+      "No app da Microsoft, configure exatamente: https://<project-ref>.supabase.co/auth/v1/callback"
+    );
+  }
+
+  if (lower.includes("provider is not enabled")) {
+    return "O provedor Microsoft (Azure) nao esta habilitado no Supabase.";
+  }
+
+  if (lower.includes("access_denied")) {
+    return "A autenticacao Microsoft foi cancelada ou negada.";
+  }
+
+  return clean;
+}
+
 function isMissingColumnError(error: unknown, column: string) {
   const code =
     typeof (error as { code?: unknown } | null)?.code === "string"
@@ -1412,7 +1449,7 @@ export async function GET(req: NextRequest) {
       "",
   );
   if (oauthError) {
-    return fail(oauthError);
+    return fail(mapAzureOAuthErrorMessage(oauthError) || oauthError);
   }
 
   const code = String(req.nextUrl.searchParams.get("code") || "").trim();
@@ -1434,9 +1471,9 @@ export async function GET(req: NextRequest) {
     });
     if (!exchange.ok) {
       console.error("[azure-callback] PKCE exchange error:", exchange.error);
-      return fail(
-        "Nao foi possivel validar o retorno do Microsoft. Confira as URLs de redirecionamento.",
-      );
+      const mappedExchangeError = mapAzureOAuthErrorMessage(exchange.error);
+      if (mappedExchangeError) return fail(mappedExchangeError);
+      return fail("Nao foi possivel validar o retorno do Microsoft. Confira as URLs de redirecionamento.");
     }
 
     const user = exchange.user;

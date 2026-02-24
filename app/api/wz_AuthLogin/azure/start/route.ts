@@ -286,7 +286,6 @@ export async function POST(req: NextRequest) {
         queryParams: {
           code_challenge: codeChallenge,
           code_challenge_method: "s256",
-          include_granted_scopes: "true",
         },
       },
     });
