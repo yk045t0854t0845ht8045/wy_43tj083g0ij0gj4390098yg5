@@ -23,7 +23,10 @@ const NO_STORE_HEADERS = {
   Pragma: "no-cache",
   Expires: "0",
 };
-const WHATSAPP_PAIRING_TTL_MS = 1000 * 60 * 10;
+
+const WHATSAPP_PAIRING_TTL_MS = 1000 * 60 * 2;
+const EVOLUTION_REQUEST_TIMEOUT_MS = 12000;
+const WHATSAPP_PROVIDER_NAME = "evolution";
 
 type OnboardingAction =
   | "save-company"
@@ -32,6 +35,60 @@ type OnboardingAction =
   | "generate-whatsapp-qr"
   | "confirm-whatsapp"
   | "finish";
+
+type EvolutionRequestResult = {
+  ok: boolean;
+  status: number;
+  data: unknown;
+  error: string | null;
+};
+
+type EvolutionStateResult =
+  | {
+      ok: true;
+      exists: boolean;
+      state: string;
+      data: unknown;
+    }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+    };
+
+type EvolutionConnectResult =
+  | {
+      ok: true;
+      code: string | null;
+      pairingCode: string | null;
+      data: unknown;
+    }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+    };
+
+type ResolvedOnboardingContext = {
+  sb: ReturnType<typeof supabaseAdmin>;
+  sessionUserId: string;
+  sessionEmail: string;
+  onboarding: OnboardingRecord;
+};
+
+type WhatsAppProviderSyncResult =
+  | {
+      ok: true;
+      onboarding: OnboardingRecord;
+      whatsappState: string;
+      qrCodeDataUrl?: string;
+      pairingCode?: string;
+      pairingExpiresAt?: string;
+    }
+  | {
+      ok: false;
+      response: NextResponse;
+    };
 
 const ONBOARDING_ALLOWED_STEPS = new Set<OnboardingUiStep>([
   "welcome",
@@ -84,93 +141,362 @@ function normalizeIndustry(value: unknown) {
   return clean.slice(0, 120);
 }
 
-function createWhatsAppPairingCode() {
-  return crypto.randomBytes(6).toString("hex").toUpperCase();
+function resolveEvolutionApiBaseUrl() {
+  const configured = String(
+    process.env.EVOLUTION_API_BASE_URL || process.env.WHATSAPP_PROVIDER_BASE_URL || "",
+  ).trim();
+  if (!configured) return "";
+  return configured.replace(/\/+$/, "");
 }
 
-function resolveDashboardOrigin() {
-  const configured = String(process.env.DASHBOARD_ORIGIN || "").trim();
-  if (configured) return configured;
-  return "https://dashboard.wyzer.com.br";
+function resolveEvolutionApiKey() {
+  return String(process.env.EVOLUTION_API_KEY || process.env.WHATSAPP_PROVIDER_API_KEY || "").trim();
 }
 
-function resolveBridgeBase() {
-  const configured = String(process.env.WHATSAPP_BRIDGE_URL || "").trim();
-  if (configured) return configured;
-  return resolveDashboardOrigin();
+function resolveEvolutionIntegration() {
+  const configured = String(process.env.EVOLUTION_INTEGRATION || "").trim();
+  if (!configured) return "WHATSAPP-BAILEYS";
+  return configured;
 }
 
-function buildWhatsAppPairingUrl(params: { pairingCode: string; userId: string }) {
-  const bridgeBase = resolveBridgeBase();
-  const pairingUrl = new URL("/onboarding/whatsapp/connect", bridgeBase);
-  pairingUrl.searchParams.set("code", params.pairingCode);
-  pairingUrl.searchParams.set("uid", params.userId);
-  pairingUrl.searchParams.set("at", String(Date.now()));
-  return pairingUrl.toString();
+function resolveEvolutionInstancePrefix() {
+  const configured = String(process.env.EVOLUTION_INSTANCE_PREFIX || "").trim().toLowerCase();
+  if (!configured) return "wyzer";
+  return configured.replace(/[^a-z0-9-_]/g, "") || "wyzer";
 }
 
-async function buildWhatsAppQrPayload(params: {
-  pairingCode: string;
-  userId: string;
-  pairingExpiresAt: string;
+function resolveEvolutionWebhookUrl() {
+  const configured = String(process.env.EVOLUTION_WEBHOOK_URL || "").trim();
+  return configured || "";
+}
+
+function isEvolutionProviderConfigured() {
+  return Boolean(resolveEvolutionApiBaseUrl() && resolveEvolutionApiKey());
+}
+
+function buildEvolutionInstanceName(userId: string) {
+  const prefix = resolveEvolutionInstancePrefix();
+  const cleanUserId = String(userId || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const base = `${prefix}-${cleanUserId || "unknown"}`;
+  return base.slice(0, 60);
+}
+
+function toJsonSafe(raw: string) {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return { raw: text };
+  }
+}
+
+function normalizeEvolutionError(data: unknown, fallback: string) {
+  const payload = data as Record<string, unknown> | null;
+  const msg =
+    normalizeOptionalText(String(payload?.message || "")) ||
+    normalizeOptionalText(String(payload?.error || "")) ||
+    normalizeOptionalText(String(payload?.response || "")) ||
+    normalizeOptionalText(String(payload?.raw || ""));
+  return msg || fallback;
+}
+
+function pickEvolutionState(data: unknown) {
+  const payload = data as Record<string, unknown> | null;
+  const instance = (payload?.instance || null) as Record<string, unknown> | null;
+  const response = (payload?.response || null) as Record<string, unknown> | null;
+  const responseInstance = (response?.instance || null) as Record<string, unknown> | null;
+
+  const candidates = [
+    instance?.state,
+    instance?.status,
+    responseInstance?.state,
+    response?.state,
+    payload?.state,
+    payload?.status,
+  ];
+
+  for (const candidate of candidates) {
+    const state = String(candidate || "").trim().toLowerCase();
+    if (!state) continue;
+    if (state === "connected") return "open";
+    if (state === "closed") return "close";
+    return state;
+  }
+
+  return "unknown";
+}
+
+function isEvolutionInstanceAlreadyExists(status: number, data: unknown) {
+  if (status === 409) return true;
+  const text = String(
+    (data as Record<string, unknown> | null)?.message ||
+      (data as Record<string, unknown> | null)?.error ||
+      (data as Record<string, unknown> | null)?.raw ||
+      "",
+  )
+    .trim()
+    .toLowerCase();
+  if (!text) return false;
+  return (
+    (text.includes("already") && text.includes("exist")) ||
+    text.includes("ja existe") ||
+    text.includes("existente") ||
+    text.includes("in use")
+  );
+}
+
+function extractEvolutionConnectCode(data: unknown) {
+  const payload = data as Record<string, unknown> | null;
+  const response = (payload?.response || null) as Record<string, unknown> | null;
+
+  const codeCandidates = [
+    payload?.code,
+    payload?.qrcode,
+    payload?.qr,
+    payload?.base64,
+    response?.code,
+    response?.qrcode,
+    response?.qr,
+    response?.base64,
+  ];
+
+  const pairingCandidates = [
+    payload?.pairingCode,
+    payload?.pairingcode,
+    payload?.pairing_code,
+    response?.pairingCode,
+    response?.pairingcode,
+    response?.pairing_code,
+  ];
+
+  let code: string | null = null;
+  for (const candidate of codeCandidates) {
+    const normalized = normalizeOptionalText(String(candidate || ""));
+    if (!normalized) continue;
+    code = normalized;
+    break;
+  }
+
+  let pairingCode: string | null = null;
+  for (const candidate of pairingCandidates) {
+    const normalized = normalizeOptionalText(String(candidate || ""));
+    if (!normalized) continue;
+    pairingCode = normalized;
+    break;
+  }
+
+  return { code, pairingCode };
+}
+
+function looksLikeBase64Image(value: string) {
+  const clean = String(value || "").trim();
+  if (!clean) return false;
+  if (clean.startsWith("data:image/")) return true;
+  if (clean.length < 180) return false;
+  if (clean.includes("@")) return false;
+  return /^[A-Za-z0-9+/=\r\n]+$/.test(clean);
+}
+
+async function evolutionRequest(params: {
+  path: string;
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  body?: Record<string, unknown>;
 }) {
-  const pairingUrl = buildWhatsAppPairingUrl({
-    pairingCode: params.pairingCode,
-    userId: params.userId,
+  const baseUrl = resolveEvolutionApiBaseUrl();
+  const apiKey = resolveEvolutionApiKey();
+  if (!baseUrl || !apiKey) {
+    return {
+      ok: false,
+      status: 0,
+      data: null,
+      error: "Provider WhatsApp nao configurado no ambiente.",
+    } as EvolutionRequestResult;
+  }
+
+  const url = `${baseUrl}${params.path.startsWith("/") ? "" : "/"}${params.path}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, EVOLUTION_REQUEST_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(url, {
+      method: params.method || "GET",
+      cache: "no-store",
+      signal: controller.signal,
+      headers: {
+        apikey: apiKey,
+        ...(params.body ? { "Content-Type": "application/json" } : {}),
+      },
+      body: params.body ? JSON.stringify(params.body) : undefined,
+    });
+
+    const raw = await res.text();
+    const data = toJsonSafe(raw);
+
+    if (res.ok) {
+      return {
+        ok: true,
+        status: res.status,
+        data,
+        error: null,
+      } as EvolutionRequestResult;
+    }
+
+    return {
+      ok: false,
+      status: res.status,
+      data,
+      error: normalizeEvolutionError(data, "Falha ao comunicar com provider WhatsApp."),
+    } as EvolutionRequestResult;
+  } catch (error) {
+    const errMessage =
+      error instanceof Error
+        ? error.name === "AbortError"
+          ? "Tempo limite atingido ao consultar provider WhatsApp."
+          : error.message
+        : "Erro inesperado ao consultar provider WhatsApp.";
+    return {
+      ok: false,
+      status: 0,
+      data: null,
+      error: errMessage,
+    } as EvolutionRequestResult;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function ensureEvolutionInstance(instanceName: string) {
+  const webhookUrl = resolveEvolutionWebhookUrl();
+  const body: Record<string, unknown> = {
+    instanceName,
+    integration: resolveEvolutionIntegration(),
+    qrcode: true,
+    token: crypto.randomBytes(12).toString("hex"),
+  };
+
+  if (webhookUrl) {
+    body.webhook = {
+      url: webhookUrl,
+      byEvents: true,
+      base64: true,
+      events: ["CONNECTION_UPDATE"],
+    };
+  }
+
+  const created = await evolutionRequest({
+    path: "/instance/create",
+    method: "POST",
+    body,
   });
 
-  const qrCodeDataUrl = await QRCode.toDataURL(pairingUrl, {
-    width: 320,
-    margin: 1,
-    errorCorrectionLevel: "M",
-  });
+  if (created.ok) {
+    return { ok: true as const };
+  }
+
+  if (isEvolutionInstanceAlreadyExists(created.status, created.data)) {
+    return { ok: true as const };
+  }
 
   return {
-    qrCodeDataUrl,
-    pairingCode: params.pairingCode,
-    pairingExpiresAt: params.pairingExpiresAt,
-    pairingUrl,
+    ok: false as const,
+    error: created.error || "Nao foi possivel preparar instancia do WhatsApp.",
   };
 }
 
-function isWhatsAppPairingStillValid(onboarding: OnboardingRecord) {
-  const pairingCode = normalizeOptionalText(onboarding.whatsappPairingCode);
-  if (!pairingCode) return false;
-  const expiresAt = normalizeOptionalText(onboarding.whatsappPairingExpiresAt);
-  if (!expiresAt) return false;
-  const expiresAtTs = Date.parse(expiresAt);
-  if (!Number.isFinite(expiresAtTs)) return false;
-  return expiresAtTs > Date.now();
-}
-
-type ResolvedOnboardingContext = {
-  sb: ReturnType<typeof supabaseAdmin>;
-  sessionUserId: string;
-  sessionEmail: string;
-  onboarding: OnboardingRecord;
-};
-
-async function generateAndPersistWhatsAppPairing(ctx: ResolvedOnboardingContext) {
-  const pairingCode = createWhatsAppPairingCode();
-  const pairingExpiresAt = new Date(Date.now() + WHATSAPP_PAIRING_TTL_MS).toISOString();
-  const qrPayload = await buildWhatsAppQrPayload({
-    pairingCode,
-    userId: ctx.onboarding.userId,
-    pairingExpiresAt,
+async function getEvolutionConnectionState(instanceName: string): Promise<EvolutionStateResult> {
+  const stateRes = await evolutionRequest({
+    path: `/instance/connectionState/${encodeURIComponent(instanceName)}`,
+    method: "GET",
   });
 
+  if (!stateRes.ok && stateRes.status === 404) {
+    return {
+      ok: true,
+      exists: false,
+      state: "not-found",
+      data: stateRes.data,
+    };
+  }
+
+  if (!stateRes.ok) {
+    return {
+      ok: false,
+      status: stateRes.status,
+      error: stateRes.error || "Nao foi possivel consultar status de conexao do WhatsApp.",
+    };
+  }
+
+  return {
+    ok: true,
+    exists: true,
+    state: pickEvolutionState(stateRes.data),
+    data: stateRes.data,
+  };
+}
+
+async function getEvolutionConnectCode(instanceName: string): Promise<EvolutionConnectResult> {
+  const res = await evolutionRequest({
+    path: `/instance/connect/${encodeURIComponent(instanceName)}`,
+    method: "GET",
+  });
+
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      error: res.error || "Nao foi possivel gerar QR Code no provider WhatsApp.",
+    };
+  }
+
+  const extracted = extractEvolutionConnectCode(res.data);
+  return {
+    ok: true,
+    code: extracted.code,
+    pairingCode: extracted.pairingCode,
+    data: res.data,
+  };
+}
+
+async function refreshOnboarding(params: ResolvedOnboardingContext) {
+  const refreshed = await ensureOnboardingRecord({
+    sb: params.sb,
+    sessionUserId: params.sessionUserId,
+    sessionEmail: params.sessionEmail,
+  });
+
+  if (!refreshed.ok) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { ok: false, error: "Nao foi possivel recarregar onboarding." },
+        { status: refreshed.schemaReady === false ? 500 : 400, headers: NO_STORE_HEADERS },
+      ),
+    };
+  }
+
+  return {
+    ok: true as const,
+    onboarding: refreshed.record,
+  };
+}
+
+async function patchOnboardingAndRefresh(params: {
+  ctx: ResolvedOnboardingContext;
+  patch: Record<string, unknown>;
+  fallbackError: string;
+}) {
   const updated = await patchOnboardingRecord({
-    sb: ctx.sb,
-    recordId: ctx.onboarding.id,
-    patch: {
-      ui_step: "whatsapp",
-      whatsapp_pairing_code: pairingCode,
-      whatsapp_pairing_expires_at: pairingExpiresAt,
-      whatsapp_connected: false,
-      whatsapp_connected_at: null,
-      completed: false,
-      completed_at: null,
-    },
+    sb: params.ctx.sb,
+    recordId: params.ctx.onboarding.id,
+    patch: params.patch,
   });
 
   if (!updated.ok) {
@@ -178,9 +504,9 @@ async function generateAndPersistWhatsAppPairing(ctx: ResolvedOnboardingContext)
     const errorMessage =
       updated.schemaReady === false
         ? ONBOARDING_SCHEMA_HINT
-        : getErrorMessage(updated.error, "Nao foi possivel gerar QR Code do WhatsApp.");
+        : getErrorMessage(updated.error, params.fallbackError);
     if (updated.schemaReady !== false) {
-      console.error("[onboarding] generate-whatsapp-qr update error:", updated.error);
+      console.error("[onboarding] patch/update error:", updated.error);
     }
     return {
       ok: false as const,
@@ -191,26 +517,201 @@ async function generateAndPersistWhatsAppPairing(ctx: ResolvedOnboardingContext)
     };
   }
 
-  const refreshed = await ensureOnboardingRecord({
-    sb: ctx.sb,
-    sessionUserId: ctx.sessionUserId,
-    sessionEmail: ctx.sessionEmail,
-  });
+  const refreshed = await refreshOnboarding(params.ctx);
+  if (!refreshed.ok) return refreshed;
 
-  if (!refreshed.ok) {
+  return {
+    ok: true as const,
+    onboarding: refreshed.onboarding,
+  };
+}
+
+async function syncWhatsAppWithProvider(params: {
+  ctx: ResolvedOnboardingContext;
+  requireQr: boolean;
+}): Promise<WhatsAppProviderSyncResult> {
+  if (!isEvolutionProviderConfigured()) {
     return {
-      ok: false as const,
+      ok: false,
       response: NextResponse.json(
-        { ok: false, error: "Nao foi possivel recarregar onboarding apos gerar QR." },
+        {
+          ok: false,
+          error:
+            "Provider WhatsApp nao configurado. Defina EVOLUTION_API_BASE_URL e EVOLUTION_API_KEY no ambiente.",
+        },
         { status: 500, headers: NO_STORE_HEADERS },
       ),
     };
   }
 
+  const instanceName = buildEvolutionInstanceName(params.ctx.onboarding.userId);
+  let stateResult = await getEvolutionConnectionState(instanceName);
+  if (!stateResult.ok) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { ok: false, error: stateResult.error },
+        { status: 502, headers: NO_STORE_HEADERS },
+      ),
+    };
+  }
+
+  if (!stateResult.exists) {
+    const ensured = await ensureEvolutionInstance(instanceName);
+    if (!ensured.ok) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          { ok: false, error: ensured.error },
+          { status: 502, headers: NO_STORE_HEADERS },
+        ),
+      };
+    }
+
+    stateResult = await getEvolutionConnectionState(instanceName);
+    if (!stateResult.ok) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          { ok: false, error: stateResult.error },
+          { status: 502, headers: NO_STORE_HEADERS },
+        ),
+      };
+    }
+  }
+
+  if (stateResult.state === "open") {
+    let onboarding = params.ctx.onboarding;
+    const patch: Record<string, unknown> = {};
+    const nowIso = new Date().toISOString();
+
+    if (!onboarding.whatsappConnected) {
+      patch.whatsapp_connected = true;
+      patch.whatsapp_connected_at = nowIso;
+    }
+    if (onboarding.uiStep !== "final") {
+      patch.ui_step = "final";
+    }
+    if (onboarding.whatsappPairingCode) {
+      patch.whatsapp_pairing_code = null;
+    }
+    if (onboarding.whatsappPairingExpiresAt) {
+      patch.whatsapp_pairing_expires_at = null;
+    }
+
+    if (Object.keys(patch).length > 0) {
+      const patched = await patchOnboardingAndRefresh({
+        ctx: params.ctx,
+        patch,
+        fallbackError: "Nao foi possivel salvar status de conexao do WhatsApp.",
+      });
+      if (!patched.ok) return patched;
+      onboarding = patched.onboarding;
+    }
+
+    return {
+      ok: true,
+      onboarding,
+      whatsappState: "open",
+    };
+  }
+
+  if (!params.requireQr) {
+    let onboarding = params.ctx.onboarding;
+    const needsRollback =
+      onboarding.whatsappConnected || onboarding.whatsappConnectedAt || onboarding.uiStep === "final";
+
+    if (needsRollback) {
+      const patched = await patchOnboardingAndRefresh({
+        ctx: params.ctx,
+        patch: {
+          ui_step: "whatsapp",
+          whatsapp_connected: false,
+          whatsapp_connected_at: null,
+          completed: false,
+          completed_at: null,
+        },
+        fallbackError: "Nao foi possivel atualizar status do WhatsApp.",
+      });
+      if (!patched.ok) return patched;
+      onboarding = patched.onboarding;
+    }
+
+    return {
+      ok: true,
+      onboarding,
+      whatsappState: stateResult.state,
+    };
+  }
+
+  let connectResult = await getEvolutionConnectCode(instanceName);
+  if (!connectResult.ok && connectResult.status === 404) {
+    const ensured = await ensureEvolutionInstance(instanceName);
+    if (ensured.ok) {
+      connectResult = await getEvolutionConnectCode(instanceName);
+    }
+  }
+
+  if (!connectResult.ok) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { ok: false, error: connectResult.error },
+        { status: 502, headers: NO_STORE_HEADERS },
+      ),
+    };
+  }
+
+  if (!connectResult.code) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        {
+          ok: false,
+          error: "Provider WhatsApp nao retornou QR Code valido. Tente novamente em alguns segundos.",
+        },
+        { status: 502, headers: NO_STORE_HEADERS },
+      ),
+    };
+  }
+
+  const codeValue = String(connectResult.code || "").trim();
+  const qrCodeDataUrl = codeValue.startsWith("data:image/")
+    ? codeValue
+    : looksLikeBase64Image(codeValue)
+      ? `data:image/png;base64,${codeValue}`
+      : await QRCode.toDataURL(codeValue, {
+          width: 320,
+          margin: 1,
+          errorCorrectionLevel: "M",
+        });
+
+  const pairingCode =
+    normalizeOptionalText(connectResult.pairingCode || params.ctx.onboarding.whatsappPairingCode || "") || null;
+  const pairingExpiresAt = new Date(Date.now() + WHATSAPP_PAIRING_TTL_MS).toISOString();
+
+  const patched = await patchOnboardingAndRefresh({
+    ctx: params.ctx,
+    patch: {
+      ui_step: "whatsapp",
+      whatsapp_pairing_code: pairingCode,
+      whatsapp_pairing_expires_at: pairingExpiresAt,
+      whatsapp_connected: false,
+      whatsapp_connected_at: null,
+      completed: false,
+      completed_at: null,
+    },
+    fallbackError: "Nao foi possivel atualizar QR Code do WhatsApp.",
+  });
+  if (!patched.ok) return patched;
+
   return {
-    ok: true as const,
-    onboarding: refreshed.record,
-    ...qrPayload,
+    ok: true,
+    onboarding: patched.onboarding,
+    whatsappState: stateResult.state,
+    qrCodeDataUrl,
+    pairingCode: pairingCode || undefined,
+    pairingExpiresAt,
   };
 }
 
@@ -281,40 +782,27 @@ export async function GET(req: NextRequest) {
     let qrCodeDataUrl: string | undefined;
     let pairingCode: string | undefined;
     let pairingExpiresAt: string | undefined;
-    let pairingUrl: string | undefined;
+    let whatsappState = onboarding.whatsappConnected ? "open" : "close";
 
-    const shouldPrepareWhatsAppQr =
+    const shouldSyncWhatsApp =
       !onboarding.completed &&
-      !onboarding.whatsappConnected &&
-      onboarding.uiStep === "whatsapp";
+      (onboarding.uiStep === "whatsapp" ||
+        (onboarding.uiStep === "final" && !onboarding.whatsappConnected));
 
-    if (shouldPrepareWhatsAppQr) {
-      if (isWhatsAppPairingStillValid(onboarding)) {
-        const currentPairingCode = String(onboarding.whatsappPairingCode || "").trim().toUpperCase();
-        const currentPairingExpiresAt = String(onboarding.whatsappPairingExpiresAt || "").trim();
-        const qrPayload = await buildWhatsAppQrPayload({
-          pairingCode: currentPairingCode,
-          userId: onboarding.userId,
-          pairingExpiresAt: currentPairingExpiresAt,
-        });
-        qrCodeDataUrl = qrPayload.qrCodeDataUrl;
-        pairingCode = qrPayload.pairingCode;
-        pairingExpiresAt = qrPayload.pairingExpiresAt;
-        pairingUrl = qrPayload.pairingUrl;
-      } else {
-        const generated = await generateAndPersistWhatsAppPairing({
-          sb: ctx.sb,
-          sessionUserId: ctx.sessionUserId,
-          sessionEmail: ctx.sessionEmail,
+    if (shouldSyncWhatsApp) {
+      const sync = await syncWhatsAppWithProvider({
+        ctx: {
+          ...ctx,
           onboarding,
-        });
-        if (!generated.ok) return generated.response;
-        onboarding = generated.onboarding;
-        qrCodeDataUrl = generated.qrCodeDataUrl;
-        pairingCode = generated.pairingCode;
-        pairingExpiresAt = generated.pairingExpiresAt;
-        pairingUrl = generated.pairingUrl;
-      }
+        },
+        requireQr: onboarding.uiStep === "whatsapp",
+      });
+      if (!sync.ok) return sync.response;
+      onboarding = sync.onboarding;
+      whatsappState = sync.whatsappState;
+      qrCodeDataUrl = sync.qrCodeDataUrl;
+      pairingCode = sync.pairingCode;
+      pairingExpiresAt = sync.pairingExpiresAt;
     }
 
     return NextResponse.json(
@@ -324,7 +812,9 @@ export async function GET(req: NextRequest) {
         qrCodeDataUrl,
         pairingCode,
         pairingExpiresAt,
-        pairingUrl,
+        whatsappState,
+        whatsappProvider: WHATSAPP_PROVIDER_NAME,
+        providerConfigured: isEvolutionProviderConfigured(),
       },
       { status: 200, headers: NO_STORE_HEADERS },
     );
@@ -384,9 +874,8 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const updated = await patchOnboardingRecord({
-        sb: ctx.sb,
-        recordId: ctx.onboarding.id,
+      const patched = await patchOnboardingAndRefresh({
+        ctx,
         patch: {
           company_name: companyName,
           industry,
@@ -397,37 +886,12 @@ export async function POST(req: NextRequest) {
           completed: false,
           completed_at: null,
         },
+        fallbackError: "Nao foi possivel salvar os dados da empresa.",
       });
-
-      if (!updated.ok) {
-        const status = updated.schemaReady === false ? 500 : 400;
-        const errorMessage =
-          updated.schemaReady === false
-            ? ONBOARDING_SCHEMA_HINT
-            : getErrorMessage(updated.error, "Nao foi possivel salvar os dados da empresa.");
-        if (updated.schemaReady !== false) {
-          console.error("[onboarding] save-company update error:", updated.error);
-        }
-        return NextResponse.json(
-          { ok: false, error: errorMessage },
-          { status, headers: NO_STORE_HEADERS },
-        );
-      }
-
-      const refreshed = await ensureOnboardingRecord({
-        sb: ctx.sb,
-        sessionUserId: ctx.sessionUserId,
-        sessionEmail: ctx.sessionEmail,
-      });
-      if (!refreshed.ok) {
-        return NextResponse.json(
-          { ok: false, error: "Nao foi possivel recarregar onboarding apos salvar." },
-          { status: 500, headers: NO_STORE_HEADERS },
-        );
-      }
+      if (!patched.ok) return patched.response;
 
       return NextResponse.json(
-        { ok: true, onboarding: refreshed.record },
+        { ok: true, onboarding: patched.onboarding },
         { status: 200, headers: NO_STORE_HEADERS },
       );
     }
@@ -441,43 +905,38 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const updated = await patchOnboardingRecord({
-        sb: ctx.sb,
-        recordId: ctx.onboarding.id,
+      const patched = await patchOnboardingAndRefresh({
+        ctx,
         patch: {
           team_agents_count: teamAgentsCount,
           ui_step: "whatsapp",
+          completed: false,
+          completed_at: null,
         },
+        fallbackError: "Nao foi possivel salvar os dados do time.",
       });
-      if (!updated.ok) {
-        const status = updated.schemaReady === false ? 500 : 400;
-        const errorMessage =
-          updated.schemaReady === false
-            ? ONBOARDING_SCHEMA_HINT
-            : getErrorMessage(updated.error, "Nao foi possivel salvar os dados do time.");
-        if (updated.schemaReady !== false) {
-          console.error("[onboarding] save-team update error:", updated.error);
-        }
-        return NextResponse.json(
-          { ok: false, error: errorMessage },
-          { status, headers: NO_STORE_HEADERS },
-        );
-      }
+      if (!patched.ok) return patched.response;
 
-      const refreshed = await ensureOnboardingRecord({
-        sb: ctx.sb,
-        sessionUserId: ctx.sessionUserId,
-        sessionEmail: ctx.sessionEmail,
+      const sync = await syncWhatsAppWithProvider({
+        ctx: {
+          ...ctx,
+          onboarding: patched.onboarding,
+        },
+        requireQr: true,
       });
-      if (!refreshed.ok) {
-        return NextResponse.json(
-          { ok: false, error: "Nao foi possivel recarregar onboarding apos salvar time." },
-          { status: 500, headers: NO_STORE_HEADERS },
-        );
-      }
+      if (!sync.ok) return sync.response;
 
       return NextResponse.json(
-        { ok: true, onboarding: refreshed.record },
+        {
+          ok: true,
+          onboarding: sync.onboarding,
+          qrCodeDataUrl: sync.qrCodeDataUrl,
+          pairingCode: sync.pairingCode,
+          pairingExpiresAt: sync.pairingExpiresAt,
+          whatsappState: sync.whatsappState,
+          whatsappProvider: WHATSAPP_PROVIDER_NAME,
+          providerConfigured: isEvolutionProviderConfigured(),
+        },
         { status: 200, headers: NO_STORE_HEADERS },
       );
     }
@@ -491,129 +950,68 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const updated = await patchOnboardingRecord({
-        sb: ctx.sb,
-        recordId: ctx.onboarding.id,
+      const patched = await patchOnboardingAndRefresh({
+        ctx,
         patch: {
           ui_step: uiStep,
         },
+        fallbackError: "Nao foi possivel atualizar etapa.",
       });
-      if (!updated.ok) {
-        const status = updated.schemaReady === false ? 500 : 400;
-        const errorMessage =
-          updated.schemaReady === false
-            ? ONBOARDING_SCHEMA_HINT
-            : getErrorMessage(updated.error, "Nao foi possivel atualizar etapa.");
-        if (updated.schemaReady !== false) {
-          console.error("[onboarding] set-step update error:", updated.error);
-        }
-        return NextResponse.json(
-          { ok: false, error: errorMessage },
-          { status, headers: NO_STORE_HEADERS },
-        );
-      }
-
-      const refreshed = await ensureOnboardingRecord({
-        sb: ctx.sb,
-        sessionUserId: ctx.sessionUserId,
-        sessionEmail: ctx.sessionEmail,
-      });
-      if (!refreshed.ok) {
-        return NextResponse.json(
-          { ok: false, error: "Nao foi possivel recarregar onboarding apos atualizar etapa." },
-          { status: 500, headers: NO_STORE_HEADERS },
-        );
-      }
+      if (!patched.ok) return patched.response;
 
       return NextResponse.json(
-        { ok: true, onboarding: refreshed.record },
+        { ok: true, onboarding: patched.onboarding },
         { status: 200, headers: NO_STORE_HEADERS },
       );
     }
 
     if (action === "generate-whatsapp-qr") {
-      const generated = await generateAndPersistWhatsAppPairing({
-        sb: ctx.sb,
-        sessionUserId: ctx.sessionUserId,
-        sessionEmail: ctx.sessionEmail,
-        onboarding: ctx.onboarding,
+      const sync = await syncWhatsAppWithProvider({
+        ctx,
+        requireQr: true,
       });
-      if (!generated.ok) return generated.response;
+      if (!sync.ok) return sync.response;
 
       return NextResponse.json(
         {
           ok: true,
-          onboarding: generated.onboarding,
-          qrCodeDataUrl: generated.qrCodeDataUrl,
-          pairingCode: generated.pairingCode,
-          pairingExpiresAt: generated.pairingExpiresAt,
-          pairingUrl: generated.pairingUrl,
+          onboarding: sync.onboarding,
+          qrCodeDataUrl: sync.qrCodeDataUrl,
+          pairingCode: sync.pairingCode,
+          pairingExpiresAt: sync.pairingExpiresAt,
+          whatsappState: sync.whatsappState,
+          whatsappProvider: WHATSAPP_PROVIDER_NAME,
+          providerConfigured: isEvolutionProviderConfigured(),
         },
         { status: 200, headers: NO_STORE_HEADERS },
       );
     }
 
     if (action === "confirm-whatsapp") {
-      const inputPairingCode = normalizeOptionalText(String(body?.pairingCode || ""))?.toUpperCase() || null;
-      const recordPairingCode = normalizeOptionalText(ctx.onboarding.whatsappPairingCode)?.toUpperCase() || null;
-
-      if (recordPairingCode && inputPairingCode && recordPairingCode !== inputPairingCode) {
-        return NextResponse.json(
-          { ok: false, error: "Codigo de pareamento invalido." },
-          { status: 400, headers: NO_STORE_HEADERS },
-        );
-      }
-
-      if (ctx.onboarding.whatsappPairingExpiresAt) {
-        const expiresAtTs = Date.parse(ctx.onboarding.whatsappPairingExpiresAt);
-        if (Number.isFinite(expiresAtTs) && expiresAtTs < Date.now()) {
-          return NextResponse.json(
-            { ok: false, error: "QR Code expirado. Gere um novo QR para conectar." },
-            { status: 409, headers: NO_STORE_HEADERS },
-          );
-        }
-      }
-
-      const updated = await patchOnboardingRecord({
-        sb: ctx.sb,
-        recordId: ctx.onboarding.id,
-        patch: {
-          ui_step: "final",
-          whatsapp_connected: true,
-          whatsapp_connected_at: nowIso,
-          completed: true,
-          completed_at: nowIso,
-        },
+      const sync = await syncWhatsAppWithProvider({
+        ctx,
+        requireQr: false,
       });
-      if (!updated.ok) {
-        const status = updated.schemaReady === false ? 500 : 400;
-        const errorMessage =
-          updated.schemaReady === false
-            ? ONBOARDING_SCHEMA_HINT
-            : getErrorMessage(updated.error, "Nao foi possivel confirmar conexao WhatsApp.");
-        if (updated.schemaReady !== false) {
-          console.error("[onboarding] confirm-whatsapp update error:", updated.error);
-        }
-        return NextResponse.json(
-          { ok: false, error: errorMessage },
-          { status, headers: NO_STORE_HEADERS },
-        );
-      }
+      if (!sync.ok) return sync.response;
 
-      const refreshed = await ensureOnboardingRecord({
-        sb: ctx.sb,
-        sessionUserId: ctx.sessionUserId,
-        sessionEmail: ctx.sessionEmail,
-      });
-      if (!refreshed.ok) {
+      if (!sync.onboarding.whatsappConnected) {
         return NextResponse.json(
-          { ok: false, error: "Nao foi possivel recarregar onboarding apos confirmar WhatsApp." },
-          { status: 500, headers: NO_STORE_HEADERS },
+          {
+            ok: false,
+            error: "WhatsApp ainda nao conectado. Escaneie o QR Code e aguarde a validacao automatica.",
+          },
+          { status: 409, headers: NO_STORE_HEADERS },
         );
       }
 
       return NextResponse.json(
-        { ok: true, onboarding: refreshed.record },
+        {
+          ok: true,
+          onboarding: sync.onboarding,
+          whatsappState: sync.whatsappState,
+          whatsappProvider: WHATSAPP_PROVIDER_NAME,
+          providerConfigured: isEvolutionProviderConfigured(),
+        },
         { status: 200, headers: NO_STORE_HEADERS },
       );
     }
@@ -626,44 +1024,19 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const updated = await patchOnboardingRecord({
-        sb: ctx.sb,
-        recordId: ctx.onboarding.id,
+      const patched = await patchOnboardingAndRefresh({
+        ctx,
         patch: {
           ui_step: "final",
           completed: true,
           completed_at: nowIso,
         },
+        fallbackError: "Nao foi possivel concluir onboarding.",
       });
-      if (!updated.ok) {
-        const status = updated.schemaReady === false ? 500 : 400;
-        const errorMessage =
-          updated.schemaReady === false
-            ? ONBOARDING_SCHEMA_HINT
-            : getErrorMessage(updated.error, "Nao foi possivel concluir onboarding.");
-        if (updated.schemaReady !== false) {
-          console.error("[onboarding] finish update error:", updated.error);
-        }
-        return NextResponse.json(
-          { ok: false, error: errorMessage },
-          { status, headers: NO_STORE_HEADERS },
-        );
-      }
-
-      const refreshed = await ensureOnboardingRecord({
-        sb: ctx.sb,
-        sessionUserId: ctx.sessionUserId,
-        sessionEmail: ctx.sessionEmail,
-      });
-      if (!refreshed.ok) {
-        return NextResponse.json(
-          { ok: false, error: "Nao foi possivel recarregar onboarding apos concluir." },
-          { status: 500, headers: NO_STORE_HEADERS },
-        );
-      }
+      if (!patched.ok) return patched.response;
 
       return NextResponse.json(
-        { ok: true, onboarding: refreshed.record },
+        { ok: true, onboarding: patched.onboarding },
         { status: 200, headers: NO_STORE_HEADERS },
       );
     }
