@@ -25,6 +25,7 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 };
 const GOOGLE_STATE_COOKIE_NAME = "wz_google_oauth_state_v1";
+const GOOGLE_CONNECT_STATE_COOKIE_NAME = "wz_google_oauth_connect_state_v1";
 
 type GoogleStatePayload = {
   typ: "wz-google-oauth-state";
@@ -357,28 +358,25 @@ function applyNoStore(res: NextResponse) {
 }
 
 function clearGoogleStateCookie(res: NextResponse, req: NextRequest) {
-  res.cookies.set({
-    name: GOOGLE_STATE_COOKIE_NAME,
-    value: "",
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 0,
-  });
-
-  const domain = resolveGoogleStateCookieDomain(req);
-  if (domain) {
+  const clearByName = (name: string, domain?: string) => {
     res.cookies.set({
-      name: GOOGLE_STATE_COOKIE_NAME,
+      name,
       value: "",
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
-      domain,
       maxAge: 0,
+      ...(domain ? { domain } : {}),
     });
+  };
+
+  const domain = resolveGoogleStateCookieDomain(req);
+  clearByName(GOOGLE_STATE_COOKIE_NAME);
+  clearByName(GOOGLE_CONNECT_STATE_COOKIE_NAME);
+  if (domain) {
+    clearByName(GOOGLE_STATE_COOKIE_NAME, domain);
+    clearByName(GOOGLE_CONNECT_STATE_COOKIE_NAME, domain);
   }
 }
 
@@ -1377,8 +1375,27 @@ export async function GET(req: NextRequest) {
   const requestOrigin = getRequestOrigin(req);
   const stFromQuery = String(req.nextUrl.searchParams.get("st") || "").trim();
   const stFromCookie = String(req.cookies.get(GOOGLE_STATE_COOKIE_NAME)?.value || "").trim();
+  const connectStateFromCookie = String(
+    req.cookies.get(GOOGLE_CONNECT_STATE_COOKIE_NAME)?.value || "",
+  ).trim();
+  const hasExplicitStQuery = Boolean(stFromQuery);
+
   const st = stFromQuery || stFromCookie;
-  const stateRes = readGoogleStateTicket(st);
+  const primaryStateRes = readGoogleStateTicket(st);
+  const connectCookieStateRes = readGoogleStateTicket(connectStateFromCookie);
+  let stateRes = primaryStateRes;
+  if (connectCookieStateRes.ok) {
+    if (!stateRes.ok) {
+      stateRes = connectCookieStateRes;
+    } else if (
+      readGoogleIntent(stateRes.payload) !== "connect" &&
+      !hasExplicitStQuery
+    ) {
+      // Fallback para o contexto de vinculo dedicado quando o state principal
+      // vier ausente/antigo e nao houve state explicito no callback.
+      stateRes = connectCookieStateRes;
+    }
+  }
   const safeNext = stateRes.ok ? sanitizeNext(stateRes.payload.next) : "/";
   const oauthIntent = stateRes.ok ? readGoogleIntent(stateRes.payload) : "login";
 

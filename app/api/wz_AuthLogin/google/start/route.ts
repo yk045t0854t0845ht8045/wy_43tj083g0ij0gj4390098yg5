@@ -12,6 +12,7 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 };
 const GOOGLE_STATE_COOKIE_NAME = "wz_google_oauth_state_v1";
+const GOOGLE_CONNECT_STATE_COOKIE_NAME = "wz_google_oauth_connect_state_v1";
 
 type GoogleStatePayload = {
   typ: "wz-google-oauth-state";
@@ -91,6 +92,19 @@ function getConfiguredAuthOrigin() {
   }
 }
 
+function getConfiguredDashboardOrigin() {
+  const raw = String(process.env.DASHBOARD_ORIGIN || "").trim();
+  if (!raw) return "";
+
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return "";
+  }
+}
+
 function sanitizeNext(raw: string) {
   if (!raw) return "/";
 
@@ -137,6 +151,30 @@ function getRequestOrigin(req: NextRequest, opts?: { preferRequestHost?: boolean
     "https";
   const proto = protoHeader === "http" ? "http" : "https";
   return `${proto}://${hostHeader}`;
+}
+
+function resolveConnectCallbackOrigin(req: NextRequest, nextSafe: string) {
+  if (/^https?:\/\//i.test(nextSafe)) {
+    try {
+      const absolute = new URL(nextSafe);
+      if (isAllowedReturnToAbsolute(absolute)) {
+        return `${absolute.protocol}//${absolute.host}`;
+      }
+    } catch {}
+  }
+
+  const configuredDashboard = getConfiguredDashboardOrigin();
+  if (configuredDashboard) return configuredDashboard;
+
+  const reqHost = String(pickRequestHost(req) || req.nextUrl.host || "")
+    .split(":")[0]
+    .trim()
+    .toLowerCase();
+  if (reqHost.endsWith(".localhost") || reqHost === "localhost") {
+    return "http://dashboard.localhost:3000";
+  }
+
+  return "https://dashboard.wyzer.com.br";
 }
 
 function resolveGoogleStateCookieDomain(req: NextRequest) {
@@ -236,9 +274,13 @@ export async function POST(req: NextRequest) {
       codeVerifier,
     });
 
+    const callbackOrigin =
+      intent === "connect"
+        ? resolveConnectCallbackOrigin(req, nextSafe)
+        : getRequestOrigin(req, { preferRequestHost: false });
     const callback = new URL(
       "/api/wz_AuthLogin/google/callback",
-      getRequestOrigin(req, { preferRequestHost: intent === "connect" }),
+      callbackOrigin,
     );
     callback.searchParams.set("st", stateTicket);
 
@@ -286,6 +328,29 @@ export async function POST(req: NextRequest) {
       maxAge: 60 * 10,
       ...(cookieDomain ? { domain: cookieDomain } : {}),
     });
+    if (intent === "connect") {
+      response.cookies.set({
+        name: GOOGLE_CONNECT_STATE_COOKIE_NAME,
+        value: stateTicket,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 10,
+        ...(cookieDomain ? { domain: cookieDomain } : {}),
+      });
+    } else {
+      response.cookies.set({
+        name: GOOGLE_CONNECT_STATE_COOKIE_NAME,
+        value: "",
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 0,
+        ...(cookieDomain ? { domain: cookieDomain } : {}),
+      });
+    }
     return response;
   } catch (error) {
     console.error("[google-start] error:", error);
