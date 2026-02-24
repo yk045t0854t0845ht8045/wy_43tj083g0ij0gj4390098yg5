@@ -11,6 +11,7 @@ import {
   normalizeOptionalText,
   ONBOARDING_SCHEMA_HINT,
   patchOnboardingRecord,
+  type OnboardingRecord,
   type OnboardingUiStep,
 } from "@/app/api/wz_users/_onboarding";
 
@@ -22,6 +23,7 @@ const NO_STORE_HEADERS = {
   Pragma: "no-cache",
   Expires: "0",
 };
+const WHATSAPP_PAIRING_TTL_MS = 1000 * 60 * 10;
 
 type OnboardingAction =
   | "save-company"
@@ -98,6 +100,120 @@ function resolveBridgeBase() {
   return resolveDashboardOrigin();
 }
 
+function buildWhatsAppPairingUrl(params: { pairingCode: string; userId: string }) {
+  const bridgeBase = resolveBridgeBase();
+  const pairingUrl = new URL("/onboarding/whatsapp/connect", bridgeBase);
+  pairingUrl.searchParams.set("code", params.pairingCode);
+  pairingUrl.searchParams.set("uid", params.userId);
+  pairingUrl.searchParams.set("at", String(Date.now()));
+  return pairingUrl.toString();
+}
+
+async function buildWhatsAppQrPayload(params: {
+  pairingCode: string;
+  userId: string;
+  pairingExpiresAt: string;
+}) {
+  const pairingUrl = buildWhatsAppPairingUrl({
+    pairingCode: params.pairingCode,
+    userId: params.userId,
+  });
+
+  const qrCodeDataUrl = await QRCode.toDataURL(pairingUrl, {
+    width: 320,
+    margin: 1,
+    errorCorrectionLevel: "M",
+  });
+
+  return {
+    qrCodeDataUrl,
+    pairingCode: params.pairingCode,
+    pairingExpiresAt: params.pairingExpiresAt,
+    pairingUrl,
+  };
+}
+
+function isWhatsAppPairingStillValid(onboarding: OnboardingRecord) {
+  const pairingCode = normalizeOptionalText(onboarding.whatsappPairingCode);
+  if (!pairingCode) return false;
+  const expiresAt = normalizeOptionalText(onboarding.whatsappPairingExpiresAt);
+  if (!expiresAt) return false;
+  const expiresAtTs = Date.parse(expiresAt);
+  if (!Number.isFinite(expiresAtTs)) return false;
+  return expiresAtTs > Date.now();
+}
+
+type ResolvedOnboardingContext = {
+  sb: ReturnType<typeof supabaseAdmin>;
+  sessionUserId: string;
+  sessionEmail: string;
+  onboarding: OnboardingRecord;
+};
+
+async function generateAndPersistWhatsAppPairing(ctx: ResolvedOnboardingContext) {
+  const pairingCode = createWhatsAppPairingCode();
+  const pairingExpiresAt = new Date(Date.now() + WHATSAPP_PAIRING_TTL_MS).toISOString();
+  const qrPayload = await buildWhatsAppQrPayload({
+    pairingCode,
+    userId: ctx.onboarding.userId,
+    pairingExpiresAt,
+  });
+
+  const updated = await patchOnboardingRecord({
+    sb: ctx.sb,
+    recordId: ctx.onboarding.id,
+    patch: {
+      ui_step: "whatsapp",
+      whatsapp_pairing_code: pairingCode,
+      whatsapp_pairing_expires_at: pairingExpiresAt,
+      whatsapp_connected: false,
+      whatsapp_connected_at: null,
+      completed: false,
+      completed_at: null,
+    },
+  });
+
+  if (!updated.ok) {
+    const status = updated.schemaReady === false ? 500 : 400;
+    const errorMessage =
+      updated.schemaReady === false
+        ? ONBOARDING_SCHEMA_HINT
+        : getErrorMessage(updated.error, "Nao foi possivel gerar QR Code do WhatsApp.");
+    if (updated.schemaReady !== false) {
+      console.error("[onboarding] generate-whatsapp-qr update error:", updated.error);
+    }
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { ok: false, error: errorMessage },
+        { status, headers: NO_STORE_HEADERS },
+      ),
+    };
+  }
+
+  const refreshed = await ensureOnboardingRecord({
+    sb: ctx.sb,
+    sessionUserId: ctx.sessionUserId,
+    sessionEmail: ctx.sessionEmail,
+  });
+
+  if (!refreshed.ok) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { ok: false, error: "Nao foi possivel recarregar onboarding apos gerar QR." },
+        { status: 500, headers: NO_STORE_HEADERS },
+      ),
+    };
+  }
+
+  return {
+    ok: true as const,
+    onboarding: refreshed.record,
+    ...qrPayload,
+  };
+}
+
 async function withOnboardingContext(req: NextRequest) {
   const session = await readActiveSessionFromRequest(req);
   if (!session) {
@@ -161,10 +277,54 @@ export async function GET(req: NextRequest) {
     const ctx = await withOnboardingContext(req);
     if (!ctx.ok) return ctx.response;
 
+    let onboarding = ctx.onboarding;
+    let qrCodeDataUrl: string | undefined;
+    let pairingCode: string | undefined;
+    let pairingExpiresAt: string | undefined;
+    let pairingUrl: string | undefined;
+
+    const shouldPrepareWhatsAppQr =
+      !onboarding.completed &&
+      !onboarding.whatsappConnected &&
+      onboarding.uiStep === "whatsapp";
+
+    if (shouldPrepareWhatsAppQr) {
+      if (isWhatsAppPairingStillValid(onboarding)) {
+        const currentPairingCode = String(onboarding.whatsappPairingCode || "").trim().toUpperCase();
+        const currentPairingExpiresAt = String(onboarding.whatsappPairingExpiresAt || "").trim();
+        const qrPayload = await buildWhatsAppQrPayload({
+          pairingCode: currentPairingCode,
+          userId: onboarding.userId,
+          pairingExpiresAt: currentPairingExpiresAt,
+        });
+        qrCodeDataUrl = qrPayload.qrCodeDataUrl;
+        pairingCode = qrPayload.pairingCode;
+        pairingExpiresAt = qrPayload.pairingExpiresAt;
+        pairingUrl = qrPayload.pairingUrl;
+      } else {
+        const generated = await generateAndPersistWhatsAppPairing({
+          sb: ctx.sb,
+          sessionUserId: ctx.sessionUserId,
+          sessionEmail: ctx.sessionEmail,
+          onboarding,
+        });
+        if (!generated.ok) return generated.response;
+        onboarding = generated.onboarding;
+        qrCodeDataUrl = generated.qrCodeDataUrl;
+        pairingCode = generated.pairingCode;
+        pairingExpiresAt = generated.pairingExpiresAt;
+        pairingUrl = generated.pairingUrl;
+      }
+    }
+
     return NextResponse.json(
       {
         ok: true,
-        onboarding: ctx.onboarding,
+        onboarding,
+        qrCodeDataUrl,
+        pairingCode,
+        pairingExpiresAt,
+        pairingUrl,
       },
       { status: 200, headers: NO_STORE_HEADERS },
     );
@@ -372,68 +532,22 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "generate-whatsapp-qr") {
-      const pairingCode = createWhatsAppPairingCode();
-      const expiresAt = new Date(Date.now() + 1000 * 60 * 10).toISOString();
-      const bridgeBase = resolveBridgeBase();
-      const pairingUrl = new URL("/onboarding/whatsapp/connect", bridgeBase);
-      pairingUrl.searchParams.set("code", pairingCode);
-      pairingUrl.searchParams.set("uid", ctx.onboarding.userId);
-      pairingUrl.searchParams.set("at", String(Date.now()));
-
-      const qrCodeDataUrl = await QRCode.toDataURL(pairingUrl.toString(), {
-        width: 320,
-        margin: 1,
-        errorCorrectionLevel: "M",
-      });
-
-      const updated = await patchOnboardingRecord({
-        sb: ctx.sb,
-        recordId: ctx.onboarding.id,
-        patch: {
-          ui_step: "whatsapp",
-          whatsapp_pairing_code: pairingCode,
-          whatsapp_pairing_expires_at: expiresAt,
-          whatsapp_connected: false,
-          whatsapp_connected_at: null,
-          completed: false,
-          completed_at: null,
-        },
-      });
-      if (!updated.ok) {
-        const status = updated.schemaReady === false ? 500 : 400;
-        const errorMessage =
-          updated.schemaReady === false
-            ? ONBOARDING_SCHEMA_HINT
-            : getErrorMessage(updated.error, "Nao foi possivel gerar QR Code do WhatsApp.");
-        if (updated.schemaReady !== false) {
-          console.error("[onboarding] generate-whatsapp-qr update error:", updated.error);
-        }
-        return NextResponse.json(
-          { ok: false, error: errorMessage },
-          { status, headers: NO_STORE_HEADERS },
-        );
-      }
-
-      const refreshed = await ensureOnboardingRecord({
+      const generated = await generateAndPersistWhatsAppPairing({
         sb: ctx.sb,
         sessionUserId: ctx.sessionUserId,
         sessionEmail: ctx.sessionEmail,
+        onboarding: ctx.onboarding,
       });
-      if (!refreshed.ok) {
-        return NextResponse.json(
-          { ok: false, error: "Nao foi possivel recarregar onboarding apos gerar QR." },
-          { status: 500, headers: NO_STORE_HEADERS },
-        );
-      }
+      if (!generated.ok) return generated.response;
 
       return NextResponse.json(
         {
           ok: true,
-          onboarding: refreshed.record,
-          qrCodeDataUrl,
-          pairingCode,
-          pairingExpiresAt: expiresAt,
-          pairingUrl: pairingUrl.toString(),
+          onboarding: generated.onboarding,
+          qrCodeDataUrl: generated.qrCodeDataUrl,
+          pairingCode: generated.pairingCode,
+          pairingExpiresAt: generated.pairingExpiresAt,
+          pairingUrl: generated.pairingUrl,
         },
         { status: 200, headers: NO_STORE_HEADERS },
       );
@@ -566,4 +680,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

@@ -366,6 +366,7 @@ type Props = {
   userEmail?: string;
   userPhotoLink?: string | null;
   onOpenConfig?: (section?: ConfigSectionId) => void;
+  locked?: boolean;
 };
 
 const SIDEBAR_COLLAPSE_STORAGE_KEY = "dashboard-sidebar-collapsed-v1";
@@ -395,6 +396,7 @@ export default function Sidebar({
   userEmail = "conta@wyzer.com.br",
   userPhotoLink = null,
   onOpenConfig,
+  locked = false,
 }: Props) {
   const [transactionsOpen, setTransactionsOpen] = useState(
     () => activeMain === "transactions"
@@ -414,6 +416,7 @@ export default function Sidebar({
 
   const [activeMainState, setActiveMainState] = useState<MainItemId>(activeMain);
   const [activeSubState, setActiveSubState] = useState<SubItemId | null>(activeSub);
+  const interactionsLocked = Boolean(locked);
   const isCollapsed = !isMobile && desktopCollapsed;
   const showCollapsedTooltips = isCollapsed && !isMobile;
   const expandedSidebarLogoSrc = "/lg/topj4390tjg83gh43g.svg";
@@ -519,6 +522,14 @@ export default function Sidebar({
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [profileMenuOpen]);
+
+  useEffect(() => {
+    if (!interactionsLocked) return;
+    setMobileMenuOpen(false);
+    setProfileMenuOpen(false);
+    setHelpModalOpen(false);
+    setPaymentsTooltipOpen(false);
+  }, [interactionsLocked]);
 
   useEffect(() => {
     return () => {
@@ -670,6 +681,7 @@ export default function Sidebar({
   }, [indicatorVisible]);
 
   const pickMain = (id: MainItemId) => {
+    if (interactionsLocked) return;
     setActiveMainState(id);
 
     if (id !== "transactions") {
@@ -681,6 +693,7 @@ export default function Sidebar({
   };
 
   const toggleTransactions = () => {
+    if (interactionsLocked) return;
     if (isCollapsed) {
       setDesktopCollapsed(false);
       setActiveMainState("transactions");
@@ -693,6 +706,7 @@ export default function Sidebar({
   };
 
   const pickSub = (id: SubItemId) => {
+    if (interactionsLocked) return;
     if (isCollapsed) setDesktopCollapsed(false);
     setActiveMainState("transactions");
     if (!transactionsOpen) setTransactionsOpen(true);
@@ -701,21 +715,25 @@ export default function Sidebar({
   };
 
   const openConfigModal = (section: ConfigSectionId = "my-account") => {
+    if (interactionsLocked) return;
     onOpenConfig?.(section);
     setProfileMenuOpen(false);
     setMobileMenuOpen(false);
   };
 
   const openHelpModal = () => {
+    if (interactionsLocked) return;
     setProfileMenuOpen(false);
     setHelpModalOpen(true);
   };
 
   const closeHelpModal = () => {
+    if (interactionsLocked) return;
     setHelpModalOpen(false);
   };
 
   const redirectFromHelpModal = (target: "documentation" | "support") => {
+    if (interactionsLocked) return;
     const url =
       target === "documentation"
         ? buildHelpDocumentationUrlClient()
@@ -754,11 +772,13 @@ export default function Sidebar({
   );
 
   const toggleSidebarCollapse = () => {
+    if (interactionsLocked) return;
     if (isMobile) return;
     setDesktopCollapsed((v) => !v);
   };
 
   const handleCollapsedLogoExpand = () => {
+    if (interactionsLocked) return;
     if (!showCollapsedTooltips) return;
     setDesktopCollapsed(false);
   };
@@ -770,12 +790,14 @@ export default function Sidebar({
   };
 
   const openPaymentsTooltip = () => {
+    if (interactionsLocked) return;
     if (!showCollapsedTooltips) return;
     clearPaymentsTooltipCloseTimer();
     setPaymentsTooltipOpen(true);
   };
 
   const schedulePaymentsTooltipClose = () => {
+    if (interactionsLocked) return;
     if (!showCollapsedTooltips) return;
     clearPaymentsTooltipCloseTimer();
     paymentsTooltipCloseTimerRef.current = setTimeout(() => {
@@ -785,6 +807,7 @@ export default function Sidebar({
   };
 
   const handlePaymentsTooltipBlur = (e: React.FocusEvent<HTMLElement>) => {
+    if (interactionsLocked) return;
     const next = e.relatedTarget as Node | null;
     if (next && e.currentTarget.contains(next)) return;
     schedulePaymentsTooltipClose();
@@ -794,7 +817,7 @@ export default function Sidebar({
     <>
       <Script src="https://cdn.lordicon.com/lordicon.js" strategy="afterInteractive" />
 
-      {!mobileMenuOpen && (
+      {!mobileMenuOpen && !interactionsLocked && (
         <button
           type="button"
           onClick={() => setMobileMenuOpen(true)}
@@ -847,7 +870,7 @@ export default function Sidebar({
             ? "sm:w-[92px] sm:min-w-[92px] sm:max-w-[92px]"
             : "sm:w-[308px] sm:min-w-[308px] sm:max-w-[308px]",
           "min-h-svh bg-[#f6f6f7] text-black",
-          "flex flex-col overflow-visible",
+          "relative flex flex-col overflow-visible",
           "shadow-[0_20px_50px_rgba(0,0,0,0.18)] sm:shadow-none",
           "transform-gpu transition-[transform,width,min-width,max-width] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
           mobileMenuOpen ? "translate-x-0" : "-translate-x-full sm:translate-x-0"
@@ -1445,6 +1468,57 @@ export default function Sidebar({
             </div>
           )}
         </div>
+
+        {interactionsLocked && (
+          <div className="pointer-events-auto absolute inset-0 z-[180] flex flex-col bg-[#f6f6f7]/95 backdrop-blur-[2px]">
+            <div
+              className={cx(
+                "pt-2.5",
+                "transition-[padding] duration-[300ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+                isCollapsed ? "px-3" : "px-2"
+              )}
+              aria-hidden="true"
+            >
+              <div className="h-[44px] rounded-xl bg-black/[0.09] animate-pulse" />
+              <div className="mt-2 border-t border-dashed border-black/15" />
+            </div>
+
+            <div
+              className={cx(
+                "mt-3 flex-1 overscroll-contain",
+                isCollapsed ? "px-3" : "px-2"
+              )}
+              aria-hidden="true"
+            >
+              <div className="space-y-2">
+                {Array.from({ length: isCollapsed ? 7 : 9 }).map((_, index) => (
+                  <div
+                    key={`sidebar-lock-skeleton-${index}`}
+                    className={cx(
+                      "h-[40px] rounded-xl bg-black/[0.09] animate-pulse",
+                      isCollapsed ? "mx-auto w-[42px]" : "w-full"
+                    )}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div
+              className={cx(
+                "shrink-0 pb-3 pt-2",
+                isCollapsed ? "px-3" : "px-2"
+              )}
+              aria-hidden="true"
+            >
+              <div className={cx("h-[44px] rounded-2xl bg-black/[0.09] animate-pulse", isCollapsed && "mx-auto w-[42px]")} />
+              {!isCollapsed && (
+                <p className="mt-2 text-center text-[11px] font-semibold tracking-[0.02em] text-black/52">
+                  Conclua o onboarding para liberar a navegação
+                </p>
+              )}
+            </div>
+          </div>
+        )}
       </aside>
 
       <AnimatePresence>

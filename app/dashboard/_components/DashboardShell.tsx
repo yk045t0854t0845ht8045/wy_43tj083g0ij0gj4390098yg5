@@ -34,6 +34,7 @@ function normalizeIsoDatetime(value?: string | null) {
 const SESSION_DISCONNECT_EVENT_KEY = "wz:session:disconnected";
 const SESSION_CHECK_TIMEOUT_MS = 4500;
 const SESSION_CHECK_MIN_GAP_MS = 1200;
+const ONBOARDING_REQUIRED_STORAGE_PREFIX = "wz:onboarding:required:";
 
 function normalizeConfigSectionFromQuery(value: string): ConfigSectionId | null {
   const clean = String(value || "").trim().toLowerCase();
@@ -130,6 +131,7 @@ export default function DashboardShell({
   const [sessionDisconnected, setSessionDisconnected] = useState(false);
   const [disconnectCountdown, setDisconnectCountdown] = useState(0);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [onboardingLoading, setOnboardingLoading] = useState(true);
   const [onboardingData, setOnboardingData] = useState<OnboardingState | null>(null);
   const redirectingRef = useRef(false);
   const queryBootstrapHandledRef = useRef(false);
@@ -261,46 +263,75 @@ export default function DashboardShell({
     setAutoOpenPasswordModalToken(0);
   }, []);
 
-  const getOnboardingDismissKey = useCallback(
-    (userId?: string | null) => {
-      const base = String(userId || "").trim() || String(profileEmail || "").trim().toLowerCase();
-      return `wz:onboarding:dismissed:${base || "unknown"}`;
+  const getOnboardingRequiredKey = useCallback(
+    (identity?: string | null) => {
+      const base = String(identity || "").trim() || String(profileEmail || "").trim().toLowerCase();
+      return `${ONBOARDING_REQUIRED_STORAGE_PREFIX}${base || "unknown"}`;
     },
     [profileEmail],
   );
 
-  const handleCloseOnboarding = useCallback(() => {
-    if (onboardingData && !onboardingData.completed) {
+  const syncOnboardingRequiredHint = useCallback(
+    (required: boolean, identities?: Array<string | null | undefined>) => {
+      const keys = new Set<string>();
+      keys.add(getOnboardingRequiredKey());
+      for (const identity of identities || []) {
+        keys.add(getOnboardingRequiredKey(identity));
+      }
+
       try {
-        window.sessionStorage.setItem(getOnboardingDismissKey(onboardingData.userId), "1");
+        for (const key of keys) {
+          if (required) {
+            window.localStorage.setItem(key, "1");
+          } else {
+            window.localStorage.removeItem(key);
+          }
+        }
       } catch {
         // noop
       }
+    },
+    [getOnboardingRequiredKey],
+  );
+
+  const shouldForceOnboardingFromHint = useCallback(() => {
+    try {
+      return window.localStorage.getItem(getOnboardingRequiredKey()) === "1";
+    } catch {
+      return false;
+    }
+  }, [getOnboardingRequiredKey]);
+
+  const handleCloseOnboarding = useCallback(() => {
+    if (onboardingData && !onboardingData.completed) {
+      setOnboardingOpen(true);
+      return;
     }
     setOnboardingOpen(false);
-  }, [getOnboardingDismissKey, onboardingData]);
+  }, [onboardingData]);
 
   const handleOnboardingUpdated = useCallback((next: OnboardingState) => {
     setOnboardingData(next);
     if (next.completed) {
       setOnboardingOpen(false);
-      try {
-        window.sessionStorage.removeItem(`wz:onboarding:dismissed:${next.userId}`);
-      } catch {
-        // noop
-      }
+      syncOnboardingRequiredHint(false, [next.userId, next.email]);
+      return;
     }
-  }, []);
+    syncOnboardingRequiredHint(true, [next.userId, next.email]);
+    setOnboardingOpen(true);
+  }, [syncOnboardingRequiredHint]);
 
   const handleOnboardingCompleted = useCallback((next: OnboardingState) => {
     setOnboardingData(next);
     setOnboardingOpen(false);
-    try {
-      window.sessionStorage.removeItem(`wz:onboarding:dismissed:${next.userId}`);
-    } catch {
-      // noop
-    }
-  }, []);
+    syncOnboardingRequiredHint(false, [next.userId, next.email]);
+  }, [syncOnboardingRequiredHint]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!shouldForceOnboardingFromHint()) return;
+    setOnboardingOpen(true);
+  }, [shouldForceOnboardingFromHint]);
 
   useEffect(() => {
     if (queryBootstrapHandledRef.current) return;
@@ -349,6 +380,7 @@ export default function DashboardShell({
     let cancelled = false;
 
     const checkOnboarding = async () => {
+      setOnboardingLoading(true);
       try {
         const res = await fetch("/api/wz_users/onboarding", {
           method: "GET",
@@ -368,22 +400,22 @@ export default function DashboardShell({
         if (!payload?.ok || !payload.onboarding || cancelled) return;
 
         setOnboardingData(payload.onboarding);
-        if (payload.onboarding.completed) return;
+        if (payload.onboarding.completed) {
+          syncOnboardingRequiredHint(false, [payload.onboarding.userId, payload.onboarding.email]);
+          setOnboardingOpen(false);
+          return;
+        }
 
-        const dismissKey = getOnboardingDismissKey(payload.onboarding.userId);
-        const dismissed = (() => {
-          try {
-            return window.sessionStorage.getItem(dismissKey) === "1";
-          } catch {
-            return false;
-          }
-        })();
-
-        if (!dismissed) {
+        syncOnboardingRequiredHint(true, [payload.onboarding.userId, payload.onboarding.email]);
+        if (!cancelled) {
           setOnboardingOpen(true);
         }
       } catch {
         // noop
+      } finally {
+        if (!cancelled) {
+          setOnboardingLoading(false);
+        }
       }
     };
 
@@ -392,7 +424,25 @@ export default function DashboardShell({
     return () => {
       cancelled = true;
     };
-  }, [getOnboardingDismissKey]);
+  }, [syncOnboardingRequiredHint]);
+
+  const onboardingRequired = Boolean(onboardingData && !onboardingData.completed);
+  const onboardingUiLocked = onboardingLoading || onboardingRequired;
+
+  useEffect(() => {
+    if (!onboardingRequired) return;
+    if (!onboardingOpen) {
+      setOnboardingOpen(true);
+    }
+  }, [onboardingOpen, onboardingRequired]);
+
+  useEffect(() => {
+    if (!onboardingUiLocked) return;
+    if (configOpen) {
+      setConfigOpen(false);
+      setAutoOpenPasswordModalToken(0);
+    }
+  }, [configOpen, onboardingUiLocked]);
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
@@ -537,6 +587,7 @@ export default function DashboardShell({
         userEmail={profileEmail}
         userPhotoLink={profilePhotoLink}
         onOpenConfig={handleOpenConfig}
+        locked={onboardingUiLocked}
       />
 
       <div className="flex-1 flex items-center justify-center">
@@ -573,6 +624,7 @@ export default function DashboardShell({
 
       <OnboardingModal
         open={onboardingOpen}
+        required={onboardingRequired || onboardingLoading}
         userEmail={profileEmail}
         initialData={onboardingData}
         onClose={handleCloseOnboarding}

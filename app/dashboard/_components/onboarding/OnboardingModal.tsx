@@ -51,6 +51,7 @@ type OnboardingApiPayload = {
 
 type OnboardingModalProps = {
   open: boolean;
+  required?: boolean;
   userEmail: string;
   initialData?: OnboardingState | null;
   onClose: () => void;
@@ -137,6 +138,7 @@ function pickFileExtension(file: File) {
 
 export default function OnboardingModal({
   open,
+  required = false,
   userEmail,
   initialData = null,
   onClose,
@@ -162,6 +164,12 @@ export default function OnboardingModal({
   const [pairingCode, setPairingCode] = useState<string>("");
   const [pairingExpiresAt, setPairingExpiresAt] = useState<string | null>(null);
   const [pairingUrl, setPairingUrl] = useState<string>("");
+  const canDismiss = !required || Boolean(onboarding?.completed);
+
+  const handleDismiss = useCallback(() => {
+    if (!canDismiss) return;
+    onClose();
+  }, [canDismiss, onClose]);
 
   const progressPercent = useMemo(() => {
     const idx = toLocalStepIndex(activeStep);
@@ -209,6 +217,10 @@ export default function OnboardingModal({
         throw new Error(String(payload?.error || "Nao foi possivel carregar onboarding."));
       }
       applyOnboardingUpdate(payload.onboarding);
+      setQrCodeDataUrl(String(payload.qrCodeDataUrl || ""));
+      setPairingCode(String(payload.pairingCode || payload.onboarding.whatsappPairingCode || ""));
+      setPairingExpiresAt(String(payload.pairingExpiresAt || payload.onboarding.whatsappPairingExpiresAt || "") || null);
+      setPairingUrl(String(payload.pairingUrl || ""));
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : "Falha ao carregar onboarding.");
     } finally {
@@ -223,23 +235,27 @@ export default function OnboardingModal({
 
   useEffect(() => {
     if (!open) return;
-    if (initialData) return;
     void fetchOnboarding();
-  }, [fetchOnboarding, initialData, open]);
+  }, [fetchOnboarding, open]);
 
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape") return;
+      if (!canDismiss) {
+        event.preventDefault();
+        return;
+      }
+      onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prev;
       window.removeEventListener("keydown", onKey);
     };
-  }, [onClose, open]);
+  }, [canDismiss, onClose, open]);
 
   const postAction = useCallback(
     async (body: Record<string, unknown>) => {
@@ -431,7 +447,7 @@ export default function OnboardingModal({
           type="button"
           aria-label="Fechar onboarding"
           className="absolute inset-0 bg-black/60 backdrop-blur-[6px]"
-          onClick={onClose}
+          onClick={handleDismiss}
         />
 
         <motion.section
@@ -442,9 +458,9 @@ export default function OnboardingModal({
           animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
           exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.985 }}
           transition={prefersReducedMotion ? { duration: 0.12 } : { type: "spring", stiffness: 300, damping: 34, mass: 0.78 }}
-          className="relative z-[1] w-[min(98vw,1120px)] max-h-[92vh] overflow-hidden rounded-[24px] border border-black/15 bg-[#f3f3f4] shadow-[0_28px_90px_rgba(0,0,0,0.45)]"
+          className="relative z-[1] h-[min(94vh,1030px)] w-[min(96vw,980px)] max-h-[94vh] overflow-hidden rounded-[24px] bg-[#ececef] shadow-[0_28px_90px_rgba(0,0,0,0.45)]"
         >
-          <div className="grid h-full min-h-[620px] max-h-[92vh] grid-cols-1 lg:grid-cols-[330px_1fr]">
+          <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[320px_1fr]">
             <aside className="relative overflow-hidden bg-[#151618] px-5 py-6 text-white sm:px-6">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(66,153,225,0.16),transparent_48%),radial-gradient(circle_at_85%_80%,rgba(16,185,129,0.14),transparent_45%)]" />
               <div className="relative">
@@ -498,7 +514,7 @@ export default function OnboardingModal({
               </div>
             </aside>
 
-            <div className="flex min-h-0 flex-col bg-[#f3f3f4]">
+            <div className="flex min-h-0 flex-col bg-[#ececef]">
               <div className="flex h-16 items-center justify-between border-b border-black/10 px-4 sm:px-6">
                 <div className="min-w-0">
                   <h3 className="truncate text-[20px] font-semibold text-black/84">
@@ -507,9 +523,27 @@ export default function OnboardingModal({
                     {activeStep === "whatsapp" && "Conectar WhatsApp Business"}
                     {activeStep === "final" && "Onboarding concluído"}
                   </h3>
-                  <p className="truncate text-[12px] text-black/58">Conta: {maskEmail(onboarding?.email || userEmail)}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-[12px] text-black/58">Conta: {maskEmail(onboarding?.email || userEmail)}</p>
+                    {required && !onboarding?.completed && (
+                      <span className="inline-flex shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-[0.04em] text-amber-700">
+                        Obrigatorio
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <button type="button" onClick={onClose} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/78" aria-label="Fechar onboarding">
+                <button
+                  type="button"
+                  onClick={handleDismiss}
+                  disabled={!canDismiss}
+                  className={cx(
+                    "inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors",
+                    canDismiss
+                      ? "hover:bg-black/5 hover:text-black/78"
+                      : "cursor-not-allowed opacity-45",
+                  )}
+                  aria-label="Fechar onboarding"
+                >
                   <X className="h-5 w-5" />
                 </button>
               </div>
@@ -645,7 +679,7 @@ export default function OnboardingModal({
                             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[220px_1fr]">
                               <div className="rounded-2xl border border-black/10 bg-white p-3">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={qrCodeDataUrl} alt="QR Code de conexão WhatsApp" className="h-[190px] w-[190px] max-w-full rounded-xl border border-black/8 object-contain" />
+                                <img src={qrCodeDataUrl} alt="QR Code de conexão WhatsApp" className="aspect-square w-full max-w-[220px] rounded-xl border border-black/8 object-contain" />
                               </div>
                               <div>
                                 <p className="text-[13px] text-black/58">
