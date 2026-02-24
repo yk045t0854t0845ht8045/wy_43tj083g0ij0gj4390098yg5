@@ -155,7 +155,7 @@ export async function POST(req: Request) {
     }
 
     let shouldRequirePasswordSetup = false;
-    let providerForSetup: "google" | null = null;
+    let providerForSetup: "google" | "azure" | null = null;
     if (user.mustCreatePassword || user.passwordCreated === false) {
       const passwordSetupState = await resolvePasswordSetupRequirement({
         sb,

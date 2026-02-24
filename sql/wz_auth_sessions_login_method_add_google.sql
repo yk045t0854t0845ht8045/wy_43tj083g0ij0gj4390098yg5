@@ -1,4 +1,4 @@
--- Permite registrar sessoes com metodo de login Google.
+-- Permite registrar sessoes com metodo de login social (Google/Microsoft).
 
 -- Normaliza dados legados antes de recriar a constraint.
 -- Sem isso, registros antigos (ex.: discord/microsoft) quebram o add constraint.
@@ -20,6 +20,7 @@ begin
       'exchange',
       'sync',
       'google',
+      'azure',
       'unknown'
     ) then coalesce(nullif(btrim(lower(login_method)), ''), 'unknown')
     else 'unknown'
@@ -38,6 +39,7 @@ begin
       'exchange',
       'sync',
       'google',
+      'azure',
       'unknown'
     );
 end;
@@ -59,6 +61,7 @@ alter table if exists public.wz_auth_sessions
       'exchange',
       'sync',
       'google',
+      'azure',
       'unknown'
     )
   );

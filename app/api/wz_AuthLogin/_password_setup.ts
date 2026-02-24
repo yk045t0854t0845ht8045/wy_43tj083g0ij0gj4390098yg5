@@ -4,7 +4,7 @@ import {
 } from "./_login_providers";
 import { supabaseAdmin } from "./_supabase";
 
-export type ExternalLoginProvider = "google";
+export type ExternalLoginProvider = "google" | "azure";
 
 function normalizeText(value?: string | null) {
   const clean = String(value || "").trim();
@@ -23,6 +23,7 @@ function normalizeAuthProviderName(value: unknown) {
 function normalizeExternalProvider(value: unknown): ExternalLoginProvider | null {
   const clean = String(value || "").trim().toLowerCase();
   if (clean === "google") return "google";
+  if (clean === "azure") return "azure";
   return null;
 }
 
@@ -235,6 +236,7 @@ export async function updatePasswordCreatedBestEffort(params: {
 
 export function externalProviderLabel(provider: ExternalLoginProvider) {
   if (provider === "google") return "Google";
+  if (provider === "azure") return "Microsoft";
   return "Provedor";
 }
 

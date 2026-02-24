@@ -1,8 +1,8 @@
--- Habilita o onboarding de OAuth Google no pending auth:
--- - flow aceita "google"
+-- Habilita o onboarding de OAuth externo no pending auth:
+-- - flow aceita "google" e "azure"
 -- - stage aceita "phone" (etapa de coleta de celular)
 --
--- Execute antes de publicar o fluxo novo de login Google.
+-- Execute antes de publicar o fluxo novo de login social.
 
 alter table if exists public.wz_pending_auth
   add column if not exists flow text,
@@ -47,7 +47,7 @@ begin
 
   update public.wz_pending_auth
   set flow = case
-    when coalesce(nullif(btrim(lower(flow)), ''), 'login') in ('login', 'register', 'google')
+    when coalesce(nullif(btrim(lower(flow)), ''), 'login') in ('login', 'register', 'google', 'azure')
       then coalesce(nullif(btrim(lower(flow)), ''), 'login')
     else 'login'
   end,
@@ -60,7 +60,7 @@ begin
     flow is null
     or flow <> btrim(lower(flow))
     or btrim(lower(flow)) = ''
-    or btrim(lower(flow)) not in ('login', 'register', 'google')
+    or btrim(lower(flow)) not in ('login', 'register', 'google', 'azure')
     or stage is null
     or stage <> btrim(lower(stage))
     or btrim(lower(stage)) = ''
@@ -70,7 +70,7 @@ $$;
 
 alter table if exists public.wz_pending_auth
   add constraint wz_pending_auth_flow_chk
-  check (flow in ('login', 'register', 'google'));
+  check (flow in ('login', 'register', 'google', 'azure'));
 
 alter table if exists public.wz_pending_auth
   add constraint wz_pending_auth_stage_chk

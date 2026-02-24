@@ -17,7 +17,7 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 };
 
-type ExternalProvider = "google" | "apple" | "github";
+type ExternalProvider = "google" | "azure" | "apple" | "github";
 
 type WzUserCandidateRow = {
   id: string | null;
@@ -65,7 +65,12 @@ function parseIsoMs(value?: string | null) {
 
 function normalizeExternalProvider(value: unknown): ExternalProvider | null {
   const provider = normalizeLoginProvider(String(value || ""));
-  if (provider === "google" || provider === "apple" || provider === "github") {
+  if (
+    provider === "google" ||
+    provider === "azure" ||
+    provider === "apple" ||
+    provider === "github"
+  ) {
     return provider;
   }
   return null;
@@ -73,6 +78,7 @@ function normalizeExternalProvider(value: unknown): ExternalProvider | null {
 
 function providerLabel(provider?: ExternalProvider | null) {
   if (provider === "google") return "Google";
+  if (provider === "azure") return "Microsoft";
   if (provider === "apple") return "Apple";
   if (provider === "github") return "GitHub";
   return null;

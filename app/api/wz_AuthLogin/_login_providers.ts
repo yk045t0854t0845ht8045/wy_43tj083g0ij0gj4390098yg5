@@ -3,6 +3,7 @@ import { supabaseAdmin } from "./_supabase";
 export type LoginProvider =
   | "password"
   | "google"
+  | "azure"
   | "apple"
   | "github"
   | "unknown";
@@ -42,6 +43,7 @@ export function normalizeLoginProvider(value?: string | null): LoginProvider {
   if (
     clean === "password" ||
     clean === "google" ||
+    clean === "azure" ||
     clean === "apple" ||
     clean === "github"
   ) {
@@ -130,7 +132,12 @@ function isExternalIdentityUniqueViolation(error: unknown) {
 }
 
 function isExternalOAuthProvider(provider: LoginProvider) {
-  return provider === "google" || provider === "apple" || provider === "github";
+  return (
+    provider === "google" ||
+    provider === "azure" ||
+    provider === "apple" ||
+    provider === "github"
+  );
 }
 
 export async function upsertLoginProviderRecord(params: {

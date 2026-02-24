@@ -89,6 +89,13 @@ function getDashboardOriginForLoginHost(host: string) {
 
 const GOOGLE_PROVIDER_ICON_URL =
   "https://cdn.brandfetch.io/id6O2oGzv-/theme/dark/symbol.svg?c=1bxid64Mup7aczewSAYMX&t=1755835725776";
+const MICROSOFT_PROVIDER_ICON_URL = "https://cdn.simpleicons.org/microsoft/00A4EF";
+
+function oauthProviderLabel(provider: "google" | "azure") {
+  if (provider === "google") return "Google";
+  if (provider === "azure") return "Microsoft";
+  return "Provedor";
+}
 
 function isAllowedReturnToAbsolute(url: URL) {
   const host = url.hostname.toLowerCase();
@@ -265,7 +272,7 @@ type Step =
   | "collect"
   | "emailCode"
   | "twoFactorCode";
-type OAuthProvider = "google";
+type OAuthProvider = "google" | "azure";
 type LoginAuthMethod = "choose" | "totp" | "passkey";
 type LoginAuthMethodsPayload = { totp?: boolean; passkey?: boolean };
 type PasskeyLoginOptionsPayload = {
@@ -631,7 +638,8 @@ export default function LinkLoginPage() {
     useState("Verificando sessao...");
   const [twoFactorIslandLoading, setTwoFactorIslandLoading] = useState(false);
   const [twoFactorShakeTick, setTwoFactorShakeTick] = useState(0);
-  const [startingGoogleLogin, setStartingGoogleLogin] = useState(false);
+  const [startingOAuthProvider, setStartingOAuthProvider] =
+    useState<OAuthProvider | null>(null);
   const [msgError, setMsgError] = useState<string | null>(null);
   const [passwordSetupPrompt, setPasswordSetupPrompt] =
     useState<PasswordSetupRequiredPrompt | null>(null);
@@ -641,6 +649,7 @@ export default function LinkLoginPage() {
   const lastCheckedRef = useRef<string>("");
   const abortRef = useRef<AbortController | null>(null);
   const passkeyAutoStartTicketRef = useRef<string>("");
+  const oauthActionBusy = Boolean(startingOAuthProvider);
 
   // prefill email from token -> lock + cleanup URL
   useEffect(() => {
@@ -807,7 +816,10 @@ export default function LinkLoginPage() {
       .trim()
       .toLowerCase();
 
-    const provider = oauthProvider === "google" ? (oauthProvider as OAuthProvider) : null;
+    const provider =
+      oauthProvider === "google" || oauthProvider === "azure"
+        ? (oauthProvider as OAuthProvider)
+        : null;
     if (!provider || !isValidEmail(oauthEmail)) {
       return;
     }
@@ -893,7 +905,7 @@ export default function LinkLoginPage() {
         const requiresPasswordSetup =
           exists &&
           Boolean(data?.passwordSetupRequired) &&
-          provider === "google";
+          (provider === "google" || provider === "azure");
 
         lastCheckedRef.current = value;
 
@@ -905,10 +917,13 @@ export default function LinkLoginPage() {
                 .trim() || "Voce nao cumpriu os requisitos de senha da conta.";
             setPassword("");
             setMsgError(message);
+            const providerForSetup = provider as OAuthProvider;
             setPasswordSetupPrompt({
               message,
-              provider: "google",
-              providerLabel: String(data?.providerLabel || "Google").trim() || "Google",
+              provider: providerForSetup,
+              providerLabel:
+                String(data?.providerLabel || oauthProviderLabel(providerForSetup)).trim() ||
+                oauthProviderLabel(providerForSetup),
               ctaLabel: String(data?.ctaLabel || "Criar agora").trim() || "Criar agora",
             });
             setPasswordSetupModalOpen(false);
@@ -1102,7 +1117,7 @@ export default function LinkLoginPage() {
       return `Conta criada com ${passwordSetupPrompt.providerLabel}. Continue com ${passwordSetupPrompt.providerLabel} para criar sua senha.`;
     if (check.state === "exists")
       return oauthOnboardingProvider
-        ? "Conta Google conectada. Vamos confirmar com codigo."
+        ? `Conta ${oauthProviderLabel(oauthOnboardingProvider)} conectada. Vamos confirmar com codigo.`
         : "Conta encontrada. Vamos confirmar com codigo.";
     if (check.state === "new")
       return "Novo por aqui? Complete seus dados e confirme o e-mail.";
@@ -1178,15 +1193,21 @@ export default function LinkLoginPage() {
         if (!res.ok) {
           const code = String(j?.code || "").trim().toLowerCase();
           const provider = String(j?.provider || "").trim().toLowerCase();
-          if (code === "password_setup_required" && provider === "google") {
+          if (
+            code === "password_setup_required" &&
+            (provider === "google" || provider === "azure")
+          ) {
             const message =
               String(j?.error || "Voce nao cumpriu os requisitos de senha da conta.").trim() ||
               "Voce nao cumpriu os requisitos de senha da conta.";
+            const providerForSetup = provider as OAuthProvider;
             setMsgError(message);
             setPasswordSetupPrompt({
               message,
-              provider: "google",
-              providerLabel: String(j?.providerLabel || "Google").trim() || "Google",
+              provider: providerForSetup,
+              providerLabel:
+                String(j?.providerLabel || oauthProviderLabel(providerForSetup)).trim() ||
+                oauthProviderLabel(providerForSetup),
               ctaLabel: String(j?.ctaLabel || "Criar agora").trim() || "Criar agora",
             });
             setPasswordSetupModalOpen(false);
@@ -1231,18 +1252,19 @@ export default function LinkLoginPage() {
     [canStart, busy, email, check.state, fullName, phone, cpf, password, router],
   );
 
-  const startGoogleLogin = useCallback(
+  const startOAuthLogin = useCallback(
     async (
+      provider: OAuthProvider,
       e?: React.MouseEvent | React.FormEvent,
       options?: { nextOverride?: string },
     ) => {
       e?.preventDefault?.();
-      if (startingGoogleLogin || busy) {
+      if (startingOAuthProvider || busy) {
         return;
       }
 
       try {
-        setStartingGoogleLogin(true);
+        setStartingOAuthProvider(provider);
         setMsgError(null);
         setPasswordSetupModalOpen(false);
         const returnToValue =
@@ -1251,7 +1273,7 @@ export default function LinkLoginPage() {
             ? new URL(window.location.href).searchParams.get("returnTo") || ""
             : "");
 
-        const res = await fetch("/api/wz_AuthLogin/google/start", {
+        const res = await fetch(`/api/wz_AuthLogin/${provider}/start`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ next: returnToValue }),
@@ -1264,7 +1286,7 @@ export default function LinkLoginPage() {
 
         if (!res.ok || !payload.ok || !payload.authUrl) {
           throw new Error(
-            payload.error || "Nao foi possivel iniciar o login com Google.",
+            payload.error || `Nao foi possivel iniciar o login com ${oauthProviderLabel(provider)}.`,
           );
         }
 
@@ -1273,13 +1295,25 @@ export default function LinkLoginPage() {
         setMsgError(
           error instanceof Error
             ? error.message
-            : "Erro inesperado ao iniciar login com Google.",
+            : `Erro inesperado ao iniciar login com ${oauthProviderLabel(provider)}.`,
         );
       } finally {
-        setStartingGoogleLogin(false);
+        setStartingOAuthProvider(null);
       }
     },
-    [busy, startingGoogleLogin],
+    [busy, startingOAuthProvider],
+  );
+
+  const startGoogleLogin = useCallback(
+    (e?: React.MouseEvent | React.FormEvent, options?: { nextOverride?: string }) =>
+      startOAuthLogin("google", e, options),
+    [startOAuthLogin],
+  );
+
+  const startAzureLogin = useCallback(
+    (e?: React.MouseEvent | React.FormEvent, options?: { nextOverride?: string }) =>
+      startOAuthLogin("azure", e, options),
+    [startOAuthLogin],
   );
 
   const openPasswordSetupModal = useCallback(() => {
@@ -1289,7 +1323,6 @@ export default function LinkLoginPage() {
 
   const continuePasswordSetupWithProvider = useCallback(async () => {
     if (!passwordSetupPrompt) return;
-    if (passwordSetupPrompt.provider !== "google") return;
 
     const host =
       typeof window !== "undefined"
@@ -1300,8 +1333,10 @@ export default function LinkLoginPage() {
     next.searchParams.set("openPasswordModal", "1");
     next.searchParams.set("passwordSetupFlow", "1");
     next.searchParams.set("passwordSetupProvider", passwordSetupPrompt.provider);
-    await startGoogleLogin(undefined, { nextOverride: next.toString() });
-  }, [passwordSetupPrompt, startGoogleLogin]);
+    await startOAuthLogin(passwordSetupPrompt.provider, undefined, {
+      nextOverride: next.toString(),
+    });
+  }, [passwordSetupPrompt, startOAuthLogin]);
 
   // Declare returnTo at component level
   const url =
@@ -2197,7 +2232,7 @@ export default function LinkLoginPage() {
                   >
                     {step === "collect"
                       ? showMoreProviders
-                        ? "Outras formas de login"
+                        ? "Outros Logins"
                         : "Bem Vindo de volta a Wyzer!"
                       : step === "emailCode"
                         ? "Confirme seu endereco de e-mail"
@@ -2298,10 +2333,10 @@ export default function LinkLoginPage() {
                                 <button
                                   type="button"
                                   onClick={openPasswordSetupModal}
-                                  disabled={busy || startingGoogleLogin}
+                                  disabled={busy || oauthActionBusy}
                                   className={cx(
                                     "inline-flex items-center rounded-full border border-black/20 bg-black/[0.04] px-3 py-1 text-[12px] font-semibold text-black/72 transition-colors",
-                                    busy || startingGoogleLogin
+                                    busy || oauthActionBusy
                                       ? "cursor-not-allowed opacity-60"
                                       : "hover:bg-black/[0.08]",
                                   )}
@@ -2318,21 +2353,16 @@ export default function LinkLoginPage() {
                         <button
                           type="button"
                           onClick={startGoogleLogin}
-                          disabled={
-                            busy ||
-                            startingGoogleLogin
-                          }
+                          disabled={busy || oauthActionBusy}
                           className={cx(
                             "group inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-[15px] border border-black/10 bg-white text-[15px] font-semibold text-black/82",
                             "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
                             "hover:border-black/20 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
                             "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
-                            (busy ||
-                              startingGoogleLogin) &&
-                              "cursor-not-allowed opacity-70",
+                            (busy || oauthActionBusy) && "cursor-not-allowed opacity-70",
                           )}
                         >
-                          {startingGoogleLogin ? (
+                          {startingOAuthProvider === "google" ? (
                             <SpinnerMini reduced={!!prefersReducedMotion} />
                           ) : (
                             <span
@@ -2342,7 +2372,39 @@ export default function LinkLoginPage() {
                             />
                           )}
                           <span>
-                            {startingGoogleLogin ? "Conectando..." : "Continuar com Google"}
+                            {startingOAuthProvider === "google"
+                              ? "Conectando..."
+                              : "Continuar com Google"}
+                          </span>
+                        </button>
+                      </motion.div>
+
+                      <motion.div variants={collectModeItemVariants} className="mt-3">
+                        <button
+                          type="button"
+                          onClick={startAzureLogin}
+                          disabled={busy || oauthActionBusy}
+                          className={cx(
+                            "group inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-[15px] border border-black/10 bg-white text-[15px] font-semibold text-black/82",
+                            "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                            "hover:border-black/20 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
+                            "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
+                            (busy || oauthActionBusy) && "cursor-not-allowed opacity-70",
+                          )}
+                        >
+                          {startingOAuthProvider === "azure" ? (
+                            <SpinnerMini reduced={!!prefersReducedMotion} />
+                          ) : (
+                            <span
+                              aria-hidden
+                              className="h-5 w-5 bg-contain bg-center bg-no-repeat"
+                              style={{ backgroundImage: `url('${MICROSOFT_PROVIDER_ICON_URL}')` }}
+                            />
+                          )}
+                          <span>
+                            {startingOAuthProvider === "azure"
+                              ? "Conectando..."
+                              : "Continuar com Microsoft"}
                           </span>
                         </button>
                       </motion.div>
@@ -2353,19 +2415,17 @@ export default function LinkLoginPage() {
                       >
                         <button
                           type="button"
-                          onClick={resetAll}
-                          disabled={
-                            busy || startingGoogleLogin
-                          }
+                          onClick={() => setShowMoreProviders(false)}
+                          disabled={busy || oauthActionBusy}
                           className={cx(
                             "text-[13px] font-semibold transition-colors inline-flex items-center gap-2",
-                            busy || startingGoogleLogin
+                            busy || oauthActionBusy
                               ? "text-black/35 cursor-not-allowed"
                               : "text-black/55 hover:text-black/75",
                           )}
                         >
                           <Undo2 className="h-4 w-4" />
-                          Voltar ao inicio
+                          Voltar
                         </button>
                       </motion.div>
                     </motion.div>
@@ -2539,10 +2599,10 @@ export default function LinkLoginPage() {
                             <button
                               type="button"
                               onClick={openPasswordSetupModal}
-                              disabled={busy || startingGoogleLogin}
+                              disabled={busy || oauthActionBusy}
                               className={cx(
                                 "inline-flex items-center rounded-full border border-black/20 bg-black/[0.04] px-3 py-1 text-[12px] font-semibold text-black/72 transition-colors",
-                                busy || startingGoogleLogin
+                                busy || oauthActionBusy
                                   ? "cursor-not-allowed opacity-60"
                                   : "hover:bg-black/[0.08]",
                               )}
@@ -2563,13 +2623,13 @@ export default function LinkLoginPage() {
                     disabled={
                       !canStart ||
                       busy ||
-                      startingGoogleLogin
+                      oauthActionBusy
                     }
                     whileHover={
                       prefersReducedMotion ||
                       !canStart ||
                       busy ||
-                      startingGoogleLogin
+                      oauthActionBusy
                         ? undefined
                         : { y: -2, scale: 1.01 }
                     }
@@ -2577,7 +2637,7 @@ export default function LinkLoginPage() {
                       prefersReducedMotion ||
                       !canStart ||
                       busy ||
-                      startingGoogleLogin
+                      oauthActionBusy
                         ? undefined
                         : { scale: 0.98 }
                     }
@@ -2591,7 +2651,7 @@ export default function LinkLoginPage() {
                       "text-[16px] font-semibold shadow-[0_18px_55px_rgba(0,0,0,0.12)] hover:shadow-[0_22px_70px_rgba(0,0,0,0.16)] pr-16 transform-gpu",
                       !canStart ||
                       busy ||
-                      startingGoogleLogin
+                      oauthActionBusy
                         ? "opacity-60 cursor-not-allowed select-none pointer-events-none"
                         : "hover:border-[#6a6a6a] focus:border-lime-400",
                     )}
@@ -2606,7 +2666,7 @@ export default function LinkLoginPage() {
                         prefersReducedMotion ||
                         !canStart ||
                         busy ||
-                        startingGoogleLogin
+                        oauthActionBusy
                           ? undefined
                           : { scale: 1.06 }
                       }
@@ -2614,7 +2674,7 @@ export default function LinkLoginPage() {
                         prefersReducedMotion ||
                         !canStart ||
                         busy ||
-                        startingGoogleLogin
+                        oauthActionBusy
                           ? undefined
                           : { scale: 0.96 }
                       }
@@ -2626,7 +2686,7 @@ export default function LinkLoginPage() {
                         "absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-3 transition-all duration-300 ease-out",
                         !canStart ||
                         busy ||
-                        startingGoogleLogin
+                        oauthActionBusy
                           ? "bg-transparent"
                           : "bg-transparent group-hover:bg-white/10 group-hover:translate-x-0.5",
                       )}
@@ -2650,21 +2710,16 @@ export default function LinkLoginPage() {
                   <button
                     type="button"
                     onClick={startGoogleLogin}
-                    disabled={
-                      busy ||
-                      startingGoogleLogin
-                    }
+                    disabled={busy || oauthActionBusy}
                     className={cx(
                       "group mt-4 inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-[15px] border border-black/10 bg-white text-[15px] font-semibold text-black/82",
                       "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
                       "hover:border-black/20 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
                       "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
-                      (busy ||
-                        startingGoogleLogin) &&
-                        "cursor-not-allowed opacity-70",
+                      (busy || oauthActionBusy) && "cursor-not-allowed opacity-70",
                     )}
                   >
-                    {startingGoogleLogin ? (
+                    {startingOAuthProvider === "google" ? (
                       <SpinnerMini reduced={!!prefersReducedMotion} />
                     ) : (
                       <span
@@ -2674,9 +2729,28 @@ export default function LinkLoginPage() {
                       />
                     )}
                     <span>
-                      {startingGoogleLogin ? "Conectando..." : "Continuar com Google"}
+                      {startingOAuthProvider === "google" ? "Conectando..." : "Continuar com Google"}
                     </span>
                   </button>
+
+                  <div className="mt-3 flex items-center justify-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMsgError(null);
+                        setShowMoreProviders(true);
+                      }}
+                      disabled={busy || oauthActionBusy}
+                      className={cx(
+                        "inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-black/10 bg-white px-4 text-[16px] font-semibold leading-none text-black/62 transition-colors",
+                        "hover:bg-black/[0.02] hover:text-black/78",
+                        (busy || oauthActionBusy) && "cursor-not-allowed opacity-60",
+                      )}
+                      aria-label="Outros logins"
+                    >
+                      ...
+                    </button>
+                  </div>
 
                     </motion.div>
                   )}
@@ -2812,10 +2886,10 @@ export default function LinkLoginPage() {
               <button
                 type="button"
                 onClick={() => setPasswordSetupModalOpen(false)}
-                disabled={startingGoogleLogin}
+                disabled={oauthActionBusy}
                 className={cx(
                   "absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-full text-black/52 transition-colors",
-                  startingGoogleLogin
+                  oauthActionBusy
                     ? "cursor-not-allowed opacity-55"
                     : "hover:bg-black/6 hover:text-black/75",
                 )}
@@ -2835,26 +2909,31 @@ export default function LinkLoginPage() {
               <button
                 type="button"
                 onClick={() => void continuePasswordSetupWithProvider()}
-                disabled={busy || startingGoogleLogin}
+                disabled={busy || oauthActionBusy}
                 className={cx(
                   "group mt-6 inline-flex h-[52px] w-full items-center justify-center gap-3 rounded-[15px] border border-black/12 bg-white text-[15px] font-semibold text-black/82",
                   "transition-[transform,background-color,border-color,box-shadow] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)]",
                   "hover:border-black/22 hover:bg-black/[0.02] active:translate-y-[0.6px] active:scale-[0.992]",
                   "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
-                  (busy || startingGoogleLogin) && "cursor-not-allowed opacity-70",
+                  (busy || oauthActionBusy) && "cursor-not-allowed opacity-70",
                 )}
               >
-                {startingGoogleLogin ? (
+                {startingOAuthProvider === passwordSetupPrompt.provider ? (
                   <SpinnerMini reduced={!!prefersReducedMotion} />
                 ) : (
                   <span
                     aria-hidden
                     className="h-5 w-5 bg-contain bg-center bg-no-repeat"
-                    style={{ backgroundImage: `url('${GOOGLE_PROVIDER_ICON_URL}')` }}
+                    style={{
+                      backgroundImage:
+                        passwordSetupPrompt.provider === "azure"
+                          ? `url('${MICROSOFT_PROVIDER_ICON_URL}')`
+                          : `url('${GOOGLE_PROVIDER_ICON_URL}')`,
+                    }}
                   />
                 )}
                 <span>
-                  {startingGoogleLogin
+                  {startingOAuthProvider === passwordSetupPrompt.provider
                     ? "Conectando..."
                     : `Continuar com ${passwordSetupPrompt.providerLabel}`}
                 </span>

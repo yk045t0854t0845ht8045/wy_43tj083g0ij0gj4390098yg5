@@ -16,7 +16,7 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 };
 
-const CONNECTABLE_PROVIDER_ORDER: LoginProvider[] = ["google"];
+const CONNECTABLE_PROVIDER_ORDER: LoginProvider[] = ["google", "azure"];
 
 type WzUserRow = {
   id?: string | null;
@@ -273,6 +273,7 @@ function providerLabel(provider: string) {
   const p = normalizeLoginProvider(provider);
   if (p === "password") return "Wyzer Login";
   if (p === "google") return "Google";
+  if (p === "azure") return "Microsoft";
   if (p === "apple") return "Apple";
   if (p === "github") return "GitHub";
   return "Desconhecido";
@@ -284,6 +285,7 @@ function pickProviderUsername(provider: LoginProvider, metadata?: Record<string,
   const keysByProvider: Record<LoginProvider, string[]> = {
     password: [],
     google: ["fullName", "name", "displayName", "given_name", "username"],
+    azure: ["fullName", "name", "displayName", "given_name", "preferred_username", "username"],
     apple: ["fullName", "name", "displayName"],
     github: ["username", "login", "name", "fullName"],
     unknown: ["fullName", "name", "displayName", "username"],
@@ -470,6 +472,7 @@ function mapCreationProviderFromSession(loginMethod: unknown, loginFlow: unknown
 
   if (
     method === "google" ||
+    method === "azure" ||
     method === "apple" ||
     method === "github"
   ) {

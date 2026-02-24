@@ -141,6 +141,7 @@ set login_method = case
     'exchange',
     'sync',
     'google',
+    'azure',
     'unknown'
   ) then coalesce(nullif(btrim(lower(login_method)), ''), 'unknown')
   else 'unknown'
@@ -167,6 +168,7 @@ where
     'exchange',
     'sync',
     'google',
+    'azure',
     'unknown'
   )
   or login_flow is null
@@ -216,7 +218,7 @@ begin
   ) then
     alter table public.wz_auth_sessions
       add constraint wz_auth_sessions_login_method_chk
-      check (login_method in ('password', 'email_code', 'sms_code', 'totp', 'passkey', 'trusted', 'exchange', 'sync', 'google', 'unknown'));
+      check (login_method in ('password', 'email_code', 'sms_code', 'totp', 'passkey', 'trusted', 'exchange', 'sync', 'google', 'azure', 'unknown'));
   end if;
 
   if not exists (

@@ -1,4 +1,4 @@
--- Suporte a contas criadas por OAuth (Google) e obrigacao de criar senha local.
+-- Suporte a contas criadas por OAuth (Google/Microsoft) e obrigacao de criar senha local.
 
 alter table if exists public.wz_users
   add column if not exists auth_provider text,
@@ -53,6 +53,7 @@ begin
     when coalesce(nullif(btrim(lower(auth_provider)), ''), 'password') in (
       'password',
       'google',
+      'azure',
       'apple',
       'github',
       'unknown'
@@ -66,6 +67,7 @@ begin
     or btrim(lower(auth_provider)) not in (
       'password',
       'google',
+      'azure',
       'apple',
       'github',
       'unknown'
@@ -75,4 +77,4 @@ $$;
 
 alter table if exists public.wz_users
   add constraint wz_users_auth_provider_chk
-  check (auth_provider in ('password', 'google', 'apple', 'github', 'unknown'));
+  check (auth_provider in ('password', 'google', 'azure', 'apple', 'github', 'unknown'));

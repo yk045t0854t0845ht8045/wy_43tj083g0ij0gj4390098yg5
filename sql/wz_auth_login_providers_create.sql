@@ -58,7 +58,7 @@ begin
     if exists (
       select 1
       from public.wz_auth_login_providers
-      where provider in ('google', 'apple', 'github')
+      where provider in ('google', 'azure', 'apple', 'github')
         and auth_user_id is not null
         and btrim(auth_user_id) <> ''
       group by provider, auth_user_id
@@ -68,7 +68,7 @@ begin
     else
       create unique index wz_auth_login_providers_provider_auth_uidx
         on public.wz_auth_login_providers (provider, auth_user_id)
-        where provider in ('google', 'apple', 'github')
+        where provider in ('google', 'azure', 'apple', 'github')
           and auth_user_id is not null
           and btrim(auth_user_id) <> '';
     end if;
@@ -87,7 +87,7 @@ begin
     if exists (
       select 1
       from public.wz_auth_login_providers
-      where provider in ('google', 'apple', 'github')
+      where provider in ('google', 'azure', 'apple', 'github')
         and provider_user_id is not null
         and btrim(provider_user_id) <> ''
       group by provider, provider_user_id
@@ -97,7 +97,7 @@ begin
     else
       create unique index wz_auth_login_providers_provider_user_uidx
         on public.wz_auth_login_providers (provider, provider_user_id)
-        where provider in ('google', 'apple', 'github')
+        where provider in ('google', 'azure', 'apple', 'github')
           and provider_user_id is not null
           and btrim(provider_user_id) <> '';
     end if;
@@ -111,6 +111,7 @@ set provider = case
   when coalesce(nullif(btrim(lower(provider)), ''), 'unknown') in (
     'password',
     'google',
+    'azure',
     'apple',
     'github',
     'unknown'
@@ -124,25 +125,18 @@ where
   or btrim(lower(provider)) not in (
     'password',
     'google',
+    'azure',
     'apple',
     'github',
     'unknown'
   );
 
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_constraint
-    where conname = 'wz_auth_login_providers_provider_chk'
-      and conrelid = 'public.wz_auth_login_providers'::regclass
-  ) then
-    alter table public.wz_auth_login_providers
-      add constraint wz_auth_login_providers_provider_chk
-      check (provider in ('password', 'google', 'apple', 'github', 'unknown'));
-  end if;
-end;
-$$;
+alter table if exists public.wz_auth_login_providers
+  drop constraint if exists wz_auth_login_providers_provider_chk;
+
+alter table if exists public.wz_auth_login_providers
+  add constraint wz_auth_login_providers_provider_chk
+  check (provider in ('password', 'google', 'azure', 'apple', 'github', 'unknown'));
 
 create or replace function public.wz_auth_login_providers_set_updated_at()
 returns trigger
