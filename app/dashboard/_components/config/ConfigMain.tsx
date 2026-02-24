@@ -5898,11 +5898,19 @@ function AuthorizedAppsContent() {
       .map((entry) => entry.provider);
   }, [providers]);
   const showLowMethodsWarning = useMemo(() => {
+    const normalizedCreationProvider = String(creationProvider || "").trim().toLowerCase();
+    const createdWithExternalProvider =
+      normalizedCreationProvider === "google" ||
+      normalizedCreationProvider === "apple" ||
+      normalizedCreationProvider === "github";
+
+    if (createdWithExternalProvider) return false;
+
     const validProviders = providers.filter((provider) => provider.provider !== "unknown");
     if (!validProviders.length) return false;
     if (validProviders.length <= 1) return true;
     return validProviders.every((provider) => !provider.canRemove);
-  }, [providers]);
+  }, [creationProvider, providers]);
 
   const loadPasswordState = useCallback(async (opts?: { signal?: AbortSignal; silent?: boolean }) => {
     const signal = opts?.signal;
