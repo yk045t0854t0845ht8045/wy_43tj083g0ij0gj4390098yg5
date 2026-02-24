@@ -100,6 +100,35 @@ export function isLoginProvidersSchemaMissingError(error: unknown) {
   return isLoginProvidersSchemaMissing(error);
 }
 
+function isUniqueViolation(error: unknown) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  return code === "23505" || message.includes("duplicate key") || details.includes("duplicate key");
+}
+
+function getUniqueConstraintText(error: unknown) {
+  const message = String((error as { message?: unknown } | null)?.message || "");
+  const details = String((error as { details?: unknown } | null)?.details || "");
+  const hint = String((error as { hint?: unknown } | null)?.hint || "");
+  const constraint = String((error as { constraint?: unknown } | null)?.constraint || "");
+  return [message, details, hint, constraint].join(" ").toLowerCase();
+}
+
+function isExternalIdentityUniqueViolation(error: unknown) {
+  if (!isUniqueViolation(error)) return false;
+  const text = getUniqueConstraintText(error);
+  return (
+    text.includes("wz_auth_login_providers_provider_auth_uidx") ||
+    text.includes("wz_auth_login_providers_provider_user_uidx") ||
+    text.includes("(provider, auth_user_id)") ||
+    text.includes("(provider, provider_user_id)")
+  );
+}
+
 function isExternalOAuthProvider(provider: LoginProvider) {
   return provider === "google" || provider === "apple" || provider === "github";
 }
@@ -125,13 +154,24 @@ export async function upsertLoginProviderRecord(params: {
     return { ok: false as const, schemaReady: true as const, reason: "invalid" as const };
   }
 
+  const basePayload = {
+    auth_user_id: authUserId,
+    email,
+    provider_user_id: providerUserId,
+    last_login_at: nowIso,
+    metadata: params.metadata || {},
+    updated_at: nowIso,
+  };
+
   if (isExternalOAuthProvider(provider)) {
     const identityLookup = await findLinkedUserByProviderIdentity({
       sb: params.sb,
       provider,
       authUserId,
       providerUserId,
-      allowEmailFallback: false,
+      email,
+      allowEmailFallback: true,
+      emailFallbackMode: "legacy-only",
     });
 
     if (!identityLookup.lookupOk) {
@@ -178,15 +218,6 @@ export async function upsertLoginProviderRecord(params: {
 
     if (lookup.error) throw lookup.error;
 
-    const basePayload = {
-      auth_user_id: authUserId,
-      email,
-      provider_user_id: providerUserId,
-      last_login_at: nowIso,
-      metadata: params.metadata || {},
-      updated_at: nowIso,
-    };
-
     if (lookup.data?.id) {
       const updateRes = await params.sb
         .from("wz_auth_login_providers")
@@ -216,6 +247,68 @@ export async function upsertLoginProviderRecord(params: {
   } catch (error) {
     if (isLoginProvidersSchemaMissing(error)) {
       return { ok: false as const, schemaReady: false as const, reason: "schema-missing" as const };
+    }
+    if (isUniqueViolation(error)) {
+      // Handles concurrent insert for the same user/provider pair.
+      const lookupAfterUnique = await params.sb
+        .from("wz_auth_login_providers")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("provider", provider)
+        .maybeSingle();
+
+      if (!lookupAfterUnique.error && lookupAfterUnique.data?.id) {
+        const retryUpdate = await params.sb
+          .from("wz_auth_login_providers")
+          .update(basePayload)
+          .eq("id", String(lookupAfterUnique.data.id))
+          .select("id")
+          .single();
+
+        if (!retryUpdate.error && retryUpdate.data?.id) {
+          return { ok: true as const, schemaReady: true as const, id: String(retryUpdate.data.id) };
+        }
+      }
+
+      if (isExternalOAuthProvider(provider)) {
+        const identityLookup = await findLinkedUserByProviderIdentity({
+          sb: params.sb,
+          provider,
+          authUserId,
+          providerUserId,
+          email,
+          allowEmailFallback: true,
+          emailFallbackMode: "legacy-only",
+        });
+
+        if (identityLookup.lookupOk) {
+          if (identityLookup.conflict) {
+            return {
+              ok: false as const,
+              schemaReady: true as const,
+              reason: "identity-conflict" as const,
+              conflictUserId: null as string | null,
+            };
+          }
+          if (identityLookup.userId && identityLookup.userId !== userId) {
+            return {
+              ok: false as const,
+              schemaReady: true as const,
+              reason: "identity-conflict" as const,
+              conflictUserId: identityLookup.userId,
+            };
+          }
+        }
+
+        if (isExternalIdentityUniqueViolation(error)) {
+          return {
+            ok: false as const,
+            schemaReady: true as const,
+            reason: "identity-conflict" as const,
+            conflictUserId: null as string | null,
+          };
+        }
+      }
     }
     console.error("[login-providers] upsert error:", error);
     return { ok: false as const, schemaReady: true as const, reason: "error" as const };

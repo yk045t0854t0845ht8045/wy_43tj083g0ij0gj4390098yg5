@@ -45,6 +45,66 @@ create index if not exists wz_auth_login_providers_email_idx
 create index if not exists wz_auth_login_providers_last_login_idx
   on public.wz_auth_login_providers (last_login_at desc);
 
+-- Impede que a mesma identidade OAuth externa seja vinculada a mais de uma conta.
+-- Em bases legadas com duplicidade antiga, nao quebra o script: apenas alerta.
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_indexes
+    where schemaname = 'public'
+      and indexname = 'wz_auth_login_providers_provider_auth_uidx'
+  ) then
+    if exists (
+      select 1
+      from public.wz_auth_login_providers
+      where provider in ('google', 'apple', 'github')
+        and auth_user_id is not null
+        and btrim(auth_user_id) <> ''
+      group by provider, auth_user_id
+      having count(*) > 1
+    ) then
+      raise warning 'Nao foi possivel criar wz_auth_login_providers_provider_auth_uidx: existem duplicidades antigas (provider + auth_user_id).';
+    else
+      create unique index wz_auth_login_providers_provider_auth_uidx
+        on public.wz_auth_login_providers (provider, auth_user_id)
+        where provider in ('google', 'apple', 'github')
+          and auth_user_id is not null
+          and btrim(auth_user_id) <> '';
+    end if;
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_indexes
+    where schemaname = 'public'
+      and indexname = 'wz_auth_login_providers_provider_user_uidx'
+  ) then
+    if exists (
+      select 1
+      from public.wz_auth_login_providers
+      where provider in ('google', 'apple', 'github')
+        and provider_user_id is not null
+        and btrim(provider_user_id) <> ''
+      group by provider, provider_user_id
+      having count(*) > 1
+    ) then
+      raise warning 'Nao foi possivel criar wz_auth_login_providers_provider_user_uidx: existem duplicidades antigas (provider + provider_user_id).';
+    else
+      create unique index wz_auth_login_providers_provider_user_uidx
+        on public.wz_auth_login_providers (provider, provider_user_id)
+        where provider in ('google', 'apple', 'github')
+          and provider_user_id is not null
+          and btrim(provider_user_id) <> '';
+    end if;
+  end if;
+end;
+$$;
+
 -- Normaliza provedores legados para evitar falha ao adicionar a constraint.
 update public.wz_auth_login_providers
 set provider = case

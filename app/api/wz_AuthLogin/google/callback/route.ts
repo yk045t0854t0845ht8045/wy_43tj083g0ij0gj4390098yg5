@@ -1465,7 +1465,7 @@ export async function GET(req: NextRequest) {
       authUserId,
       providerUserId,
       email,
-      allowEmailFallback: oauthIntent !== "connect",
+      allowEmailFallback: true,
       emailFallbackMode: "legacy-only",
     });
     if (!identityLookup.lookupOk) {
@@ -1477,7 +1477,7 @@ export async function GET(req: NextRequest) {
       );
     }
     if (identityLookup.conflict) {
-      return fail("Conflito de vinculo do Google detectado. Contate o suporte.");
+      return fail("Esta conta Google ja esta conectada a outra conta.");
     }
     const linkedUserId = identityLookup.userId;
 
