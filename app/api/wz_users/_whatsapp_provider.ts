@@ -294,7 +294,7 @@ async function startInstance(instance: LocalWhatsAppInstance) {
   clearReconnectTimer(instance);
   const socketGeneration = instance.socketGeneration + 1;
   instance.socketGeneration = socketGeneration;
-  instance.connectPromise = (async () => {
+  const connectRun = (async () => {
     await ensureAuthDirectory(instance);
     if (instance.socketGeneration !== socketGeneration) return;
 
@@ -384,9 +384,10 @@ async function startInstance(instance: LocalWhatsAppInstance) {
       }
     });
   })();
+  instance.connectPromise = connectRun;
 
   try {
-    await instance.connectPromise;
+    await connectRun;
   } catch (error) {
     if (instance.socketGeneration === socketGeneration) {
       instance.socket = null;
@@ -399,7 +400,7 @@ async function startInstance(instance: LocalWhatsAppInstance) {
     }
     throw error;
   } finally {
-    if (instance.connectPromise) {
+    if (instance.connectPromise === connectRun) {
       instance.connectPromise = null;
     }
   }

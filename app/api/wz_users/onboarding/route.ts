@@ -32,9 +32,9 @@ const NO_STORE_HEADERS = {
 };
 
 const WHATSAPP_PAIRING_TTL_MS = 1000 * 60 * 2;
-const WHATSAPP_QR_WAIT_TIMEOUT_MS = 7000;
+const WHATSAPP_QR_WAIT_TIMEOUT_MS = 5000;
 const WHATSAPP_QR_SYNC_ATTEMPTS = 3;
-const WHATSAPP_CONNECTING_STALE_MS = 12000;
+const WHATSAPP_CONNECTING_STALE_MS = 9000;
 const WHATSAPP_PROVIDER_NAME = "self-hosted-baileys";
 const ONBOARDING_GOAL_OPTIONS = new Set(["support", "sales", "scheduling", "billing", "mixed"]);
 const MONTHLY_CONVERSATION_OPTIONS = new Set([
@@ -355,17 +355,19 @@ async function syncWhatsAppWithProvider(params: {
         hasQr: Boolean(providerSnapshot.qr),
         updatedAt: providerSnapshot.updatedAt,
       });
-      if (mustRestart) {
-        const restarted = await ensureOwnWhatsAppInstance(instanceName, { forceRestart: true });
-        if (!restarted.ok) {
-          return {
-            ok: false,
-            response: NextResponse.json(
-              { ok: false, error: restarted.error },
-              { status: 502, headers: NO_STORE_HEADERS },
-            ),
-          };
-        }
+
+      const ensuredAttempt = await ensureOwnWhatsAppInstance(
+        instanceName,
+        mustRestart ? { forceRestart: true } : {},
+      );
+      if (!ensuredAttempt.ok) {
+        return {
+          ok: false,
+          response: NextResponse.json(
+            { ok: false, error: ensuredAttempt.error },
+            { status: 502, headers: NO_STORE_HEADERS },
+          ),
+        };
       }
 
       providerSnapshot = await waitForOwnWhatsAppQr(instanceName, WHATSAPP_QR_WAIT_TIMEOUT_MS);
@@ -373,6 +375,21 @@ async function syncWhatsAppWithProvider(params: {
       if (providerSnapshot.qr || providerState === "open") {
         break;
       }
+    }
+
+    if (!providerSnapshot.qr && providerState !== "open") {
+      const hardRestart = await ensureOwnWhatsAppInstance(instanceName, { forceRestart: true });
+      if (!hardRestart.ok) {
+        return {
+          ok: false,
+          response: NextResponse.json(
+            { ok: false, error: hardRestart.error },
+            { status: 502, headers: NO_STORE_HEADERS },
+          ),
+        };
+      }
+      providerSnapshot = await waitForOwnWhatsAppQr(instanceName, WHATSAPP_QR_WAIT_TIMEOUT_MS);
+      providerState = normalizeProviderState(providerSnapshot.state);
     }
   }
 

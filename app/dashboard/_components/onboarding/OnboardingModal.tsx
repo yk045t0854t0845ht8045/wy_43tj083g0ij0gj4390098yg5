@@ -430,7 +430,7 @@ const MONTHLY_CONVERSATION_TIER_OPTIONS: SelectOption[] = [
   { value: "3001_10000", label: "3.001 a 10.000 conversas/mes" },
   { value: "10001_plus", label: "Mais de 10.000 conversas/mes" },
 ];
-const WHATSAPP_QR_REGENERATE_COOLDOWN_MS = 12000;
+const WHATSAPP_QR_REGENERATE_COOLDOWN_MS = 4500;
 
 function formatPostalCode(value?: string | null) {
   const digits = String(value || "").replace(/\D+/g, "").slice(0, 8);
@@ -662,6 +662,9 @@ export default function OnboardingModal({
   const loadedDraftKeyRef = useRef<string | null>(null);
   const latestFetchRequestIdRef = useRef(0);
   const silentFetchInFlightRef = useRef(false);
+  const companyFormDirtyRef = useRef(false);
+  const teamFormDirtyRef = useRef(false);
+  const hasLoadedOnboardingRef = useRef(Boolean(initialData));
   const qrGenerationInFlightRef = useRef(false);
   const lastQrGenerationAtRef = useRef(0);
   const [loading, setLoading] = useState(false);
@@ -794,11 +797,16 @@ export default function OnboardingModal({
 
   const hasUnsavedChanges = companyFormDirty || teamFormDirty;
 
+  useEffect(() => {
+    companyFormDirtyRef.current = companyFormDirty;
+    teamFormDirtyRef.current = teamFormDirty;
+  }, [companyFormDirty, teamFormDirty]);
+
   const applyOnboardingUpdate = useCallback(
     (next: OnboardingState, opts?: { respectDirty?: boolean }) => {
       const respectDirty = opts?.respectDirty !== false;
-      const allowCompanySync = !respectDirty || !companyFormDirty;
-      const allowTeamSync = !respectDirty || !teamFormDirty;
+      const allowCompanySync = !respectDirty || !companyFormDirtyRef.current;
+      const allowTeamSync = !respectDirty || !teamFormDirtyRef.current;
       const addressParts = splitAddressAndNumber(next.companyAddress || "");
       setOnboarding(next);
       setCompanyLogoUrl(String(next.companyLogoUrl || ""));
@@ -824,7 +832,7 @@ export default function OnboardingModal({
       setWhatsappState(next.whatsappConnected ? "open" : "close");
       onUpdated?.(next);
     },
-    [companyFormDirty, onUpdated, teamFormDirty],
+    [onUpdated],
   );
 
   const fetchOnboarding = useCallback(
@@ -855,6 +863,7 @@ export default function OnboardingModal({
         if (requestId !== latestFetchRequestIdRef.current) {
           return;
         }
+        hasLoadedOnboardingRef.current = true;
         applyOnboardingUpdate(payload.onboarding);
         if (payload.qrCodeDataUrl) {
           setQrCodeDataUrl(String(payload.qrCodeDataUrl));
@@ -927,12 +936,17 @@ export default function OnboardingModal({
 
   useEffect(() => {
     if (!initialData) return;
+    hasLoadedOnboardingRef.current = true;
+  }, [initialData]);
+
+  useEffect(() => {
+    if (!initialData) return;
     applyOnboardingUpdate(initialData);
   }, [applyOnboardingUpdate, initialData]);
 
   useEffect(() => {
     if (!open) return;
-    void fetchOnboarding();
+    void fetchOnboarding({ silent: hasLoadedOnboardingRef.current });
   }, [fetchOnboarding, open]);
 
   useEffect(() => {
