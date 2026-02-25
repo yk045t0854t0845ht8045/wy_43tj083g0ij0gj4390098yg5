@@ -34,6 +34,7 @@ type LocalWhatsAppInstance = {
   instanceName: string;
   authDir: string;
   socket: WASocket | null;
+  socketGeneration: number;
   state: LocalWhatsAppState;
   qr: string | null;
   pairingCode: string | null;
@@ -214,6 +215,7 @@ function getOrCreateInstance(instanceName: string) {
     instanceName,
     authDir: buildAuthDir(instanceName),
     socket: null,
+    socketGeneration: 0,
     state: "idle",
     qr: null,
     pairingCode: null,
@@ -242,6 +244,7 @@ function scheduleReconnect(instance: LocalWhatsAppInstance) {
 }
 
 function safeCloseSocket(instance: LocalWhatsAppInstance) {
+  instance.socketGeneration += 1;
   const current = instance.socket as { end?: (error?: Error) => void } | null;
   if (!current) return;
   try {
@@ -289,12 +292,19 @@ async function startInstance(instance: LocalWhatsAppInstance) {
   }
 
   clearReconnectTimer(instance);
+  const socketGeneration = instance.socketGeneration + 1;
+  instance.socketGeneration = socketGeneration;
   instance.connectPromise = (async () => {
     await ensureAuthDirectory(instance);
+    if (instance.socketGeneration !== socketGeneration) return;
+
     setInstanceState(instance, "starting", { lastError: null });
 
     const { state, saveCreds } = await useMultiFileAuthState(instance.authDir);
+    if (instance.socketGeneration !== socketGeneration) return;
+
     const latestVersion = await fetchLatestBaileysVersion().catch(() => null);
+    if (instance.socketGeneration !== socketGeneration) return;
 
     const socket = makeWASocket({
       auth: state,
@@ -307,9 +317,23 @@ async function startInstance(instance: LocalWhatsAppInstance) {
       logger: pino({ level: "error" }),
     });
 
+    if (instance.socketGeneration !== socketGeneration) {
+      try {
+        (socket as { end?: (error?: Error) => void }).end?.(new Error("Ignoring stale WhatsApp socket."));
+      } catch {
+        // Ignore stale close failure.
+      }
+      return;
+    }
+
     instance.socket = socket;
-    socket.ev.on("creds.update", saveCreds);
+    socket.ev.on("creds.update", () => {
+      if (instance.socketGeneration !== socketGeneration) return;
+      void saveCreds();
+    });
     socket.ev.on("connection.update", (update) => {
+      if (instance.socketGeneration !== socketGeneration) return;
+
       if (update.qr) {
         setInstanceState(instance, "qr", {
           qr: update.qr,
@@ -364,16 +388,20 @@ async function startInstance(instance: LocalWhatsAppInstance) {
   try {
     await instance.connectPromise;
   } catch (error) {
-    instance.socket = null;
-    setInstanceState(instance, "error", {
-      qr: null,
-      pairingCode: null,
-      lastError: normalizeError(error, "Falha ao iniciar sessao WhatsApp."),
-    });
-    scheduleReconnect(instance);
+    if (instance.socketGeneration === socketGeneration) {
+      instance.socket = null;
+      setInstanceState(instance, "error", {
+        qr: null,
+        pairingCode: null,
+        lastError: normalizeError(error, "Falha ao iniciar sessao WhatsApp."),
+      });
+      scheduleReconnect(instance);
+    }
     throw error;
   } finally {
-    instance.connectPromise = null;
+    if (instance.connectPromise) {
+      instance.connectPromise = null;
+    }
   }
 }
 
@@ -408,6 +436,7 @@ export async function ensureOwnWhatsAppInstance(
         pairingCode: null,
         lastError: null,
       });
+      instance.connectPromise = null;
     }
 
     if (!instance.socket && !instance.connectPromise) {
@@ -443,6 +472,7 @@ export async function waitForOwnWhatsAppQr(instanceName: string, timeoutMs = WAI
     (snapshot) =>
       Boolean(snapshot.qr) ||
       snapshot.state === "open" ||
+      snapshot.state === "close" ||
       snapshot.state === "logged_out" ||
       snapshot.state === "error",
     timeoutMs,

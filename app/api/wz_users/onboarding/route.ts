@@ -32,6 +32,9 @@ const NO_STORE_HEADERS = {
 };
 
 const WHATSAPP_PAIRING_TTL_MS = 1000 * 60 * 2;
+const WHATSAPP_QR_WAIT_TIMEOUT_MS = 7000;
+const WHATSAPP_QR_SYNC_ATTEMPTS = 3;
+const WHATSAPP_CONNECTING_STALE_MS = 12000;
 const WHATSAPP_PROVIDER_NAME = "self-hosted-baileys";
 const ONBOARDING_GOAL_OPTIONS = new Set(["support", "sales", "scheduling", "billing", "mixed"]);
 const MONTHLY_CONVERSATION_OPTIONS = new Set([
@@ -239,6 +242,18 @@ function snapshotAgeMs(updatedAt?: string | null) {
   return Date.now() - parsed;
 }
 
+function shouldForceRestartForQr(params: {
+  state: string;
+  hasQr: boolean;
+  updatedAt?: string | null;
+}) {
+  if (params.hasQr) return false;
+  if (params.state === "close" || params.state === "logged_out" || params.state === "error") {
+    return true;
+  }
+  return params.state === "connecting" && snapshotAgeMs(params.updatedAt) > WHATSAPP_CONNECTING_STALE_MS;
+}
+
 async function refreshOnboarding(params: ResolvedOnboardingContext) {
   const refreshed = await ensureOnboardingRecord({
     sb: params.sb,
@@ -330,32 +345,35 @@ async function syncWhatsAppWithProvider(params: {
     };
   }
 
-  let providerSnapshot = params.requireQr
-    ? await waitForOwnWhatsAppQr(instanceName)
-    : getOwnWhatsAppSnapshot(instanceName);
+  let providerSnapshot = getOwnWhatsAppSnapshot(instanceName);
   let providerState = normalizeProviderState(providerSnapshot.state);
 
-  const shouldRestartNow =
-    !providerSnapshot.qr &&
-    (providerState === "close" ||
-      providerState === "logged_out" ||
-      providerState === "error" ||
-      (providerState === "connecting" && snapshotAgeMs(providerSnapshot.updatedAt) > 25000));
+  if (params.requireQr && !providerSnapshot.qr && providerState !== "open") {
+    for (let attempt = 0; attempt < WHATSAPP_QR_SYNC_ATTEMPTS; attempt += 1) {
+      const mustRestart = shouldForceRestartForQr({
+        state: providerState,
+        hasQr: Boolean(providerSnapshot.qr),
+        updatedAt: providerSnapshot.updatedAt,
+      });
+      if (mustRestart) {
+        const restarted = await ensureOwnWhatsAppInstance(instanceName, { forceRestart: true });
+        if (!restarted.ok) {
+          return {
+            ok: false,
+            response: NextResponse.json(
+              { ok: false, error: restarted.error },
+              { status: 502, headers: NO_STORE_HEADERS },
+            ),
+          };
+        }
+      }
 
-  if (params.requireQr && shouldRestartNow) {
-    const restarted = await ensureOwnWhatsAppInstance(instanceName, { forceRestart: true });
-    if (!restarted.ok) {
-      return {
-        ok: false,
-        response: NextResponse.json(
-          { ok: false, error: restarted.error },
-          { status: 502, headers: NO_STORE_HEADERS },
-        ),
-      };
+      providerSnapshot = await waitForOwnWhatsAppQr(instanceName, WHATSAPP_QR_WAIT_TIMEOUT_MS);
+      providerState = normalizeProviderState(providerSnapshot.state);
+      if (providerSnapshot.qr || providerState === "open") {
+        break;
+      }
     }
-
-    providerSnapshot = await waitForOwnWhatsAppQr(instanceName);
-    providerState = normalizeProviderState(providerSnapshot.state);
   }
 
   if (providerState === "open") {
