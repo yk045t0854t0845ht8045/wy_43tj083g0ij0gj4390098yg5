@@ -854,23 +854,23 @@ export default function OverviewMain() {
                       onClick={handleCreateClick}
                       disabled={loadingConfig}
                       className={cx(
-                        "relative min-h-[172px] overflow-hidden rounded-[22px] bg-[#0f1013] px-5 py-4 text-left",
-                        "shadow-[0_16px_34px_rgba(0,0,0,0.25)] transition-[background-color,box-shadow] duration-200 ease-out",
-                        "hover:bg-[#151820] hover:shadow-[0_20px_38px_rgba(0,0,0,0.28)]",
+                        "relative min-h-[172px] overflow-hidden rounded-[22px] border border-black/[0.06] bg-black/[0.08] px-5 py-4 text-left",
+                        "shadow-[0_6px_14px_rgba(0,0,0,0.03)] transition-[background-color,box-shadow] duration-200 ease-out",
+                        "hover:bg-black/[0.11] hover:shadow-[0_10px_20px_rgba(0,0,0,0.06)]",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#eff0f2]",
                         loadingConfig ? "cursor-wait opacity-85" : "cursor-pointer",
                       )}
                       aria-label="Adicionar novo sistema"
                     >
                       <span className="relative z-[1] flex h-full flex-col items-center justify-center gap-3.5">
-                        <span className="inline-flex h-[76px] w-[76px] items-center justify-center rounded-full border border-white/18">
-                          <Plus className="h-[44px] w-[44px] text-white" strokeWidth={2.1} />
+                        <span className="inline-flex h-[76px] w-[76px] items-center justify-center rounded-full border border-black/14 bg-white/45">
+                          <Plus className="h-[44px] w-[44px] text-black/72" strokeWidth={2.1} />
                         </span>
-                        <span className="text-[13px] font-semibold tracking-[0.01em] text-white/96">
+                        <span className="text-[13px] font-semibold tracking-[0.01em] text-black/78">
                           Adicionar novo sistema
                         </span>
                         {!loadingConfig && !whatsappConnected && (
-                          <span className="max-w-[220px] text-center text-[11px] font-medium text-[#ffb0b0]">
+                          <span className="max-w-[220px] text-center text-[11px] font-medium text-[#b2433e]">
                             Conecte o WhatsApp no onboarding para ativar.
                           </span>
                         )}
