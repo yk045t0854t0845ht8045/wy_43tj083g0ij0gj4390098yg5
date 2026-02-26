@@ -29,11 +29,23 @@ type SystemConfigForm = {
   aiTransferToHumanWhenUncertain: boolean;
 };
 
+type SystemSummary = {
+  id: string;
+  companyName: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  whatsappConnected: boolean;
+};
+
 type SystemConfigApiPayload = {
   ok?: boolean;
   error?: string;
   whatsappConnected?: boolean;
   hasSystem?: boolean;
+  companyName?: string | null;
+  activeSystemId?: string;
+  systems?: SystemSummary[];
   systemConfig?: Partial<SystemConfigForm> | null;
   createdAt?: string;
   updatedAt?: string;
@@ -146,6 +158,8 @@ const INPUT_CLASS =
   "mt-2 h-12 w-full rounded-xl border border-black/12 bg-white px-3 text-[15px] text-black/84 outline-none transition-[border-color,box-shadow,background-color] focus:border-black/24 focus:ring-2 focus:ring-black/10";
 const TEXTAREA_CLASS =
   "mt-2 min-h-[130px] w-full rounded-xl border border-black/12 bg-white px-3 py-3 text-[14px] text-black/84 outline-none transition-[border-color,box-shadow,background-color] focus:border-black/24 focus:ring-2 focus:ring-black/10 resize-y";
+const DARK_BUTTON_GRADIENT_CLASS =
+  "bg-[#0b0b0b] [background-image:radial-gradient(130%_120%_at_50%_-18%,rgba(255,255,255,0.12)_0%,rgba(255,255,255,0)_52%),linear-gradient(180deg,#171717_0%,#0f0f0f_58%,#080808_100%)]";
 
 const AI_TONE_OPTIONS: SelectOption[] = [
   { value: "professional", label: "Profissional", search: "formal empresa corporativo" },
@@ -309,6 +323,31 @@ function formatSavedAt(value: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function normalizeSystemSummaries(value: unknown): SystemSummary[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: SystemSummary[] = [];
+
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const row = item as Record<string, unknown>;
+    const id = String(row.id || "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+
+    result.push({
+      id,
+      companyName: String(row.companyName || "").trim() || null,
+      status: String(row.status || "").trim().toLowerCase() || "active",
+      createdAt: String(row.createdAt || "").trim(),
+      updatedAt: String(row.updatedAt || "").trim(),
+      whatsappConnected: normalizeBoolean(row.whatsappConnected),
+    });
+  }
+
+  return result;
 }
 function validateMessages(form: SystemConfigForm) {
   if (!normalizeLongText(form.welcomeMessage, 1200)) {
@@ -500,16 +539,22 @@ export default function OverviewMain() {
   const [saving, setSaving] = useState(false);
   const [whatsappConnected, setWhatsappConnected] = useState(false);
   const [hasSystem, setHasSystem] = useState(false);
+  const [systems, setSystems] = useState<SystemSummary[]>([]);
+  const [activeSystemId, setActiveSystemId] = useState<string | null>(null);
+  const [companyName, setCompanyName] = useState<string>("");
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<SystemConfigForm>(createDefaultForm());
 
-  const loadConfig = useCallback(async () => {
+  const loadConfig = useCallback(async (systemId?: string | null) => {
     setLoadingConfig(true);
     setError(null);
 
     try {
-      const res = await fetch("/api/wz_users/system-config", {
+      const endpoint = systemId
+        ? `/api/wz_users/system-config?systemId=${encodeURIComponent(systemId)}`
+        : "/api/wz_users/system-config";
+      const res = await fetch(endpoint, {
         method: "GET",
         cache: "no-store",
         credentials: "include",
@@ -521,17 +566,24 @@ export default function OverviewMain() {
 
       setWhatsappConnected(Boolean(payload.whatsappConnected));
       setHasSystem(Boolean(payload.hasSystem));
+      setCompanyName(String(payload.companyName || "").trim());
+      setSystems(normalizeSystemSummaries(payload.systems));
+      setActiveSystemId(String(payload.activeSystemId || "").trim() || null);
       setSavedAt(String(payload.updatedAt || payload.createdAt || "") || null);
 
       if (payload.systemConfig) {
         setForm(normalizeIncomingConfig(payload.systemConfig));
+      } else if (!payload.hasSystem) {
+        setForm(createDefaultForm());
       }
+      return true;
     } catch (fetchError) {
       setError(
         fetchError instanceof Error
           ? fetchError.message
           : "Falha ao carregar configuracao do sistema.",
       );
+      return false;
     } finally {
       setLoadingConfig(false);
     }
@@ -557,9 +609,29 @@ export default function OverviewMain() {
     }
 
     setError(null);
+    setActiveSystemId(null);
+    setForm(createDefaultForm());
     setActiveTopic("messages");
     setMode("wizard");
   };
+
+  const handleOpenExistingSystem = useCallback(
+    async (systemId: string) => {
+      if (loadingConfig || saving) return;
+      if (!systemId) return;
+      if (!whatsappConnected) {
+        setError("Conecte seu WhatsApp no onboarding antes de abrir o sistema.");
+        return;
+      }
+
+      const ok = await loadConfig(systemId);
+      if (!ok) return;
+      setError(null);
+      setActiveTopic("messages");
+      setMode("wizard");
+    },
+    [loadingConfig, loadConfig, saving, whatsappConnected],
+  );
 
   const updateDaySchedule = (day: ScheduleDay, patch: Partial<DaySchedule>) => {
     setForm((current) => ({
@@ -603,6 +675,7 @@ export default function OverviewMain() {
         cache: "no-store",
         body: JSON.stringify({
           action: "save-system-config",
+          systemId: activeSystemId || undefined,
           config: form,
         }),
       });
@@ -613,6 +686,9 @@ export default function OverviewMain() {
 
       setHasSystem(true);
       setForm(normalizeIncomingConfig(payload.systemConfig));
+      setCompanyName(String(payload.companyName || "").trim());
+      setSystems(normalizeSystemSummaries(payload.systems));
+      setActiveSystemId(String(payload.activeSystemId || "").trim() || activeSystemId || null);
       setSavedAt(String(payload.updatedAt || payload.createdAt || "") || null);
       setMode("success");
     } catch (saveError) {
@@ -620,7 +696,7 @@ export default function OverviewMain() {
     } finally {
       setSaving(false);
     }
-  }, [form]);
+  }, [activeSystemId, form]);
 
   const handlePrimaryAction = async () => {
     if (saving) return;
@@ -657,6 +733,20 @@ export default function OverviewMain() {
     : { duration: 0.36, ease: [0.22, 1, 0.36, 1] as const };
 
   const savedAtLabel = formatSavedAt(savedAt);
+  const resolvedSystems = useMemo(() => {
+    if (systems.length) return systems;
+    if (!hasSystem) return [];
+    return [
+      {
+        id: activeSystemId || "current-system",
+        companyName: companyName || "Minha empresa",
+        status: "active",
+        createdAt: "",
+        updatedAt: savedAt || "",
+        whatsappConnected: true,
+      } as SystemSummary,
+    ];
+  }, [activeSystemId, companyName, hasSystem, savedAt, systems]);
 
   return (
     <section className="w-full px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
@@ -715,44 +805,119 @@ export default function OverviewMain() {
               transition={panelTransition}
               className="space-y-4"
             >
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-                <button
-                  type="button"
-                  onClick={handleCreateClick}
-                  disabled={loadingConfig}
-                  className={cx(
-                    "relative min-h-[172px] overflow-hidden rounded-[22px] bg-[#0f1013] px-5 py-4 text-left",
-                    "shadow-[0_16px_34px_rgba(0,0,0,0.25)] transition-[background-color,box-shadow] duration-200 ease-out",
-                    "hover:bg-[#151820] hover:shadow-[0_20px_38px_rgba(0,0,0,0.28)]",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#eff0f2]",
-                    loadingConfig ? "cursor-wait opacity-85" : "cursor-pointer",
-                  )}
-                  aria-label="Criar meu sistema"
-                >
-                  <span className="relative z-[1] flex h-full flex-col items-center justify-center gap-3.5">
-                    <span className="inline-flex h-[76px] w-[76px] items-center justify-center rounded-full border border-white/18">
-                      <Plus className="h-[44px] w-[44px] text-white" strokeWidth={2.1} />
-                    </span>
-                    <span className="text-[13px] font-semibold tracking-[0.01em] text-white/96">
-                      Criar meu sistema
-                    </span>
-                    {!loadingConfig && !whatsappConnected && (
-                      <span className="max-w-[220px] text-center text-[11px] font-medium text-[#ffb0b0]">
-                        Conecte o WhatsApp no onboarding para ativar.
-                      </span>
-                    )}
-                  </span>
-                </button>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {hasSystem ? (
+                  <>
+                    {resolvedSystems.map((system, index) => {
+                      const systemUpdatedAtLabel = formatSavedAt(system.updatedAt || null);
+                      return (
+                        <button
+                          key={system.id || `system-card-${index}`}
+                          type="button"
+                          onClick={() => void handleOpenExistingSystem(system.id)}
+                          disabled={loadingConfig}
+                          className={cx(
+                            "relative min-h-[172px] overflow-hidden rounded-[22px] px-5 py-4 text-left",
+                            DARK_BUTTON_GRADIENT_CLASS,
+                            "shadow-[0_16px_34px_rgba(0,0,0,0.25)] transition-[box-shadow,filter] duration-200 ease-out",
+                            "hover:brightness-[1.04] hover:shadow-[0_20px_38px_rgba(0,0,0,0.28)]",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#eff0f2]",
+                            loadingConfig ? "cursor-wait opacity-85" : "cursor-pointer",
+                          )}
+                          aria-label={`Abrir sistema ${system.companyName || companyName || "Minha empresa"}`}
+                        >
+                          <span className="relative z-[1] flex h-full flex-col justify-between gap-3">
+                            <span className="inline-flex w-fit rounded-full border border-white/14 bg-white/10 px-2.5 py-1 text-[10px] font-semibold tracking-[0.03em] text-white/90">
+                              {system.status === "active" ? "Sistema ativo" : "Sistema"}
+                            </span>
+                            <span>
+                              <strong className="line-clamp-2 block text-[17px] font-semibold text-white/96">
+                                {system.companyName || companyName || "Minha empresa"}
+                              </strong>
+                              <span className="mt-1 block text-[12px] text-white/68">
+                                {systemUpdatedAtLabel
+                                  ? `Atualizado em ${systemUpdatedAtLabel}`
+                                  : "Configuracao pronta para uso"}
+                              </span>
+                            </span>
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-white/76">
+                              <Check className="h-3.5 w-3.5" strokeWidth={2.4} />
+                              {system.whatsappConnected ? "WhatsApp conectado" : "WhatsApp pendente"}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
 
-                <div className="hidden sm:contents" aria-hidden="true">
-                  {skeletonOpacities.map((opacity, index) => (
-                    <article
-                      key={`overview-skeleton-${index}`}
-                      className="overview-skeleton-card relative min-h-[172px] overflow-hidden rounded-[22px]"
-                      style={{ opacity }}
-                    />
-                  ))}
-                </div>
+                    <button
+                      type="button"
+                      onClick={handleCreateClick}
+                      disabled={loadingConfig}
+                      className={cx(
+                        "relative min-h-[172px] overflow-hidden rounded-[22px] bg-[#0f1013] px-5 py-4 text-left",
+                        "shadow-[0_16px_34px_rgba(0,0,0,0.25)] transition-[background-color,box-shadow] duration-200 ease-out",
+                        "hover:bg-[#151820] hover:shadow-[0_20px_38px_rgba(0,0,0,0.28)]",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#eff0f2]",
+                        loadingConfig ? "cursor-wait opacity-85" : "cursor-pointer",
+                      )}
+                      aria-label="Adicionar novo sistema"
+                    >
+                      <span className="relative z-[1] flex h-full flex-col items-center justify-center gap-3.5">
+                        <span className="inline-flex h-[76px] w-[76px] items-center justify-center rounded-full border border-white/18">
+                          <Plus className="h-[44px] w-[44px] text-white" strokeWidth={2.1} />
+                        </span>
+                        <span className="text-[13px] font-semibold tracking-[0.01em] text-white/96">
+                          Adicionar novo sistema
+                        </span>
+                        {!loadingConfig && !whatsappConnected && (
+                          <span className="max-w-[220px] text-center text-[11px] font-medium text-[#ffb0b0]">
+                            Conecte o WhatsApp no onboarding para ativar.
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleCreateClick}
+                      disabled={loadingConfig}
+                      className={cx(
+                        "relative min-h-[172px] overflow-hidden rounded-[22px] bg-[#0f1013] px-5 py-4 text-left",
+                        "shadow-[0_16px_34px_rgba(0,0,0,0.25)] transition-[background-color,box-shadow] duration-200 ease-out",
+                        "hover:bg-[#151820] hover:shadow-[0_20px_38px_rgba(0,0,0,0.28)]",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#eff0f2]",
+                        loadingConfig ? "cursor-wait opacity-85" : "cursor-pointer",
+                      )}
+                      aria-label="Criar meu sistema"
+                    >
+                      <span className="relative z-[1] flex h-full flex-col items-center justify-center gap-3.5">
+                        <span className="inline-flex h-[76px] w-[76px] items-center justify-center rounded-full border border-white/18">
+                          <Plus className="h-[44px] w-[44px] text-white" strokeWidth={2.1} />
+                        </span>
+                        <span className="text-[13px] font-semibold tracking-[0.01em] text-white/96">
+                          Criar meu sistema
+                        </span>
+                        {!loadingConfig && !whatsappConnected && (
+                          <span className="max-w-[220px] text-center text-[11px] font-medium text-[#ffb0b0]">
+                            Conecte o WhatsApp no onboarding para ativar.
+                          </span>
+                        )}
+                      </span>
+                    </button>
+
+                    <div className="hidden sm:contents" aria-hidden="true">
+                      {skeletonOpacities.map((opacity, index) => (
+                        <article
+                          key={`overview-skeleton-${index}`}
+                          className="overview-skeleton-card relative min-h-[172px] overflow-hidden rounded-[22px]"
+                          style={{ opacity }}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
 
               {error && (
@@ -825,12 +990,12 @@ export default function OverviewMain() {
                           key={`desktop-step-${step.id}`}
                           aria-current={isActive ? "step" : undefined}
                           className={cx(
-                            "flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left",
+                            "flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition-[box-shadow,filter]",
                             isActive
-                              ? "bg-black text-white"
+                              ? `${DARK_BUTTON_GRADIENT_CLASS} border-white/18 text-white shadow-[0_12px_24px_rgba(0,0,0,0.28)]`
                               : isDone
-                                ? "bg-black/88 text-white"
-                                : "bg-black/[0.06] text-black/72",
+                                ? `${DARK_BUTTON_GRADIENT_CLASS} border-white/12 text-white shadow-[0_8px_16px_rgba(0,0,0,0.2)]`
+                                : "border-black/[0.06] bg-black/[0.06] text-black/72",
                           )}
                         >
                           <span
@@ -1331,7 +1496,7 @@ export default function OverviewMain() {
                       {saving
                         ? "Salvando..."
                         : isLastStep
-                          ? hasSystem
+                          ? activeSystemId
                             ? "Confirmar alteracoes"
                             : "Confirmar e criar sistema"
                           : "Proximo"}

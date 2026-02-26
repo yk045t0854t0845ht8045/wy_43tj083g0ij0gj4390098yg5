@@ -46,6 +46,20 @@ type SystemConfig = {
   aiTransferToHumanWhenUncertain: boolean;
 };
 
+type SystemSummary = {
+  id: string;
+  companyName: string | null;
+  status: string;
+  whatsappConnected: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const BOT_SYSTEM_CONFIG_COLUMNS =
+  "id,company_name,status,whatsapp_connected,welcome_message,closing_message,out_of_hours_message,weekly_schedule,ai_instructions,ai_fallback_message,ai_response_tone,ai_response_size,ai_collect_name,ai_collect_email,ai_collect_phone,ai_transfer_to_human_when_uncertain,created_at,updated_at";
+
+const BOT_SYSTEM_SUMMARY_COLUMNS = "id,company_name,status,whatsapp_connected,created_at,updated_at";
+
 function getErrorMessage(error: unknown, fallback: string) {
   const message = String((error as { message?: unknown } | null)?.message || "").trim();
   return message || fallback;
@@ -67,6 +81,19 @@ function isMissingBotSystemSchema(error: unknown) {
     message.includes(BOT_SYSTEM_TABLE) ||
     details.includes(BOT_SYSTEM_TABLE) ||
     hint.includes(BOT_SYSTEM_TABLE)
+  );
+}
+
+function isLegacySingleSystemConstraint(error: unknown) {
+  const code = String((error as { code?: unknown } | null)?.code || "").trim().toUpperCase();
+  if (code !== "23505") return false;
+
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  return (
+    message.includes("wz_bot_systems_user_id_key") ||
+    details.includes("wz_bot_systems_user_id_key") ||
+    (message.includes("duplicate key") && message.includes("user_id"))
   );
 }
 
@@ -214,6 +241,20 @@ function mapDbRowToConfig(row: Record<string, unknown>): SystemConfig {
   };
 }
 
+function mapDbRowToSummary(row: Record<string, unknown>): SystemSummary | null {
+  const id = normalizeOptionalText(String(row.id || ""));
+  if (!id) return null;
+
+  return {
+    id,
+    companyName: normalizeOptionalText(String(row.company_name || "")),
+    status: normalizeOptionalText(String(row.status || "")) || "active",
+    whatsappConnected: normalizeBoolean(row.whatsapp_connected),
+    createdAt: String((row.created_at as string | undefined) || ""),
+    updatedAt: String((row.updated_at as string | undefined) || ""),
+  };
+}
+
 async function withContext(req: NextRequest) {
   const session = await readActiveSessionFromRequest(req);
   if (!session) {
@@ -267,19 +308,84 @@ async function withContext(req: NextRequest) {
   };
 }
 
+async function listSystemSummaries(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+}) {
+  const lookup = await params.sb
+    .from(BOT_SYSTEM_TABLE)
+    .select(BOT_SYSTEM_SUMMARY_COLUMNS)
+    .eq("user_id", params.userId)
+    .order("updated_at", { ascending: false })
+    .limit(100);
+
+  if (lookup.error) {
+    return {
+      ok: false as const,
+      error: lookup.error,
+      systems: [] as SystemSummary[],
+    };
+  }
+
+  const systems = ((lookup.data || []) as Record<string, unknown>[])
+    .map((row) => mapDbRowToSummary(row))
+    .filter((row): row is SystemSummary => Boolean(row));
+
+  return {
+    ok: true as const,
+    systems,
+  };
+}
+
 export async function GET(req: NextRequest) {
   try {
     const ctx = await withContext(req);
     if (!ctx.ok) return ctx.response;
 
+    const requestedSystemId = normalizeOptionalText(req.nextUrl.searchParams.get("systemId"));
+
+    const list = await listSystemSummaries({
+      sb: ctx.sb,
+      userId: ctx.onboarding.userId,
+    });
+
+    if (!list.ok) {
+      if (isMissingBotSystemSchema(list.error)) {
+        return NextResponse.json(
+          { ok: false, error: BOT_SYSTEM_SQL_HINT },
+          { status: 500, headers: NO_STORE_HEADERS },
+        );
+      }
+      return NextResponse.json(
+        { ok: false, error: getErrorMessage(list.error, "Nao foi possivel carregar sistemas.") },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const fallbackSystemId = list.systems[0]?.id || null;
+    const targetSystemId = requestedSystemId || fallbackSystemId;
+    if (!targetSystemId) {
+      return NextResponse.json(
+        {
+          ok: true,
+          whatsappConnected: Boolean(ctx.onboarding.whatsappConnected),
+          hasSystem: false,
+          companyName: ctx.onboarding.companyName || null,
+          activeSystemId: null,
+          systems: [],
+          systemConfig: null,
+          createdAt: "",
+          updatedAt: "",
+        },
+        { status: 200, headers: NO_STORE_HEADERS },
+      );
+    }
+
     const lookup = await ctx.sb
       .from(BOT_SYSTEM_TABLE)
-      .select(
-        "id,welcome_message,closing_message,out_of_hours_message,weekly_schedule,ai_instructions,ai_fallback_message,ai_response_tone,ai_response_size,ai_collect_name,ai_collect_email,ai_collect_phone,ai_transfer_to_human_when_uncertain,created_at,updated_at",
-      )
+      .select(BOT_SYSTEM_CONFIG_COLUMNS)
       .eq("user_id", ctx.onboarding.userId)
-      .order("updated_at", { ascending: false })
-      .limit(1)
+      .eq("id", targetSystemId)
       .maybeSingle();
 
     if (lookup.error) {
@@ -295,14 +401,31 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const row = (lookup.data || null) as Record<string, unknown> | null;
+    let row = (lookup.data || null) as Record<string, unknown> | null;
+    if (!row && list.systems.length && requestedSystemId && requestedSystemId !== list.systems[0].id) {
+      const fallbackLookup = await ctx.sb
+        .from(BOT_SYSTEM_TABLE)
+        .select(BOT_SYSTEM_CONFIG_COLUMNS)
+        .eq("user_id", ctx.onboarding.userId)
+        .eq("id", list.systems[0].id)
+        .maybeSingle();
+      if (!fallbackLookup.error) {
+        row = (fallbackLookup.data || null) as Record<string, unknown> | null;
+      }
+    }
+
+    const summary = row ? mapDbRowToSummary(row) : null;
     const systemConfig = row ? mapDbRowToConfig(row) : null;
+    const activeSystemId = summary?.id || list.systems[0]?.id || null;
 
     return NextResponse.json(
       {
         ok: true,
         whatsappConnected: Boolean(ctx.onboarding.whatsappConnected),
-        hasSystem: Boolean(systemConfig),
+        hasSystem: Boolean(list.systems.length),
+        companyName: summary?.companyName || ctx.onboarding.companyName || null,
+        activeSystemId,
+        systems: list.systems,
         systemConfig,
         createdAt: String((row?.created_at as string | undefined) || ""),
         updatedAt: String((row?.updated_at as string | undefined) || ""),
@@ -346,6 +469,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const systemId = normalizeOptionalText(String(body.systemId || ""));
     const payload = {
       onboarding_id: ctx.onboarding.id,
       user_id: ctx.onboarding.userId,
@@ -368,13 +492,19 @@ export async function POST(req: NextRequest) {
       status: "active",
     };
 
-    const save = await ctx.sb
-      .from(BOT_SYSTEM_TABLE)
-      .upsert(payload, { onConflict: "user_id" })
-      .select(
-        "id,welcome_message,closing_message,out_of_hours_message,weekly_schedule,ai_instructions,ai_fallback_message,ai_response_tone,ai_response_size,ai_collect_name,ai_collect_email,ai_collect_phone,ai_transfer_to_human_when_uncertain,created_at,updated_at",
-      )
-      .single();
+    const save = systemId
+      ? await ctx.sb
+          .from(BOT_SYSTEM_TABLE)
+          .update(payload)
+          .eq("id", systemId)
+          .eq("user_id", ctx.onboarding.userId)
+          .select(BOT_SYSTEM_CONFIG_COLUMNS)
+          .maybeSingle()
+      : await ctx.sb
+          .from(BOT_SYSTEM_TABLE)
+          .insert(payload)
+          .select(BOT_SYSTEM_CONFIG_COLUMNS)
+          .single();
 
     if (save.error) {
       if (isMissingBotSystemSchema(save.error)) {
@@ -383,17 +513,56 @@ export async function POST(req: NextRequest) {
           { status: 500, headers: NO_STORE_HEADERS },
         );
       }
+      if (isLegacySingleSystemConstraint(save.error)) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "Sua base ainda esta no modo de sistema unico. Reexecute o SQL /sql/wz_bot_systems_create.sql para habilitar varios sistemas por conta.",
+          },
+          { status: 409, headers: NO_STORE_HEADERS },
+        );
+      }
       return NextResponse.json(
         { ok: false, error: getErrorMessage(save.error, "Nao foi possivel salvar sistema.") },
         { status: 400, headers: NO_STORE_HEADERS },
       );
     }
 
-    const row = (save.data || {}) as Record<string, unknown>;
+    const row = (save.data || null) as Record<string, unknown> | null;
+    if (!row) {
+      return NextResponse.json(
+        { ok: false, error: "Sistema nao encontrado para salvar." },
+        { status: 404, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const list = await listSystemSummaries({
+      sb: ctx.sb,
+      userId: ctx.onboarding.userId,
+    });
+
+    if (!list.ok) {
+      if (isMissingBotSystemSchema(list.error)) {
+        return NextResponse.json(
+          { ok: false, error: BOT_SYSTEM_SQL_HINT },
+          { status: 500, headers: NO_STORE_HEADERS },
+        );
+      }
+      return NextResponse.json(
+        { ok: false, error: getErrorMessage(list.error, "Nao foi possivel carregar sistemas.") },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const savedSummary = mapDbRowToSummary(row);
     return NextResponse.json(
       {
         ok: true,
         hasSystem: true,
+        companyName: savedSummary?.companyName || ctx.onboarding.companyName || null,
+        activeSystemId: savedSummary?.id || null,
+        systems: list.systems,
         systemConfig: mapDbRowToConfig(row),
         createdAt: String((row.created_at as string | undefined) || ""),
         updatedAt: String((row.updated_at as string | undefined) || ""),

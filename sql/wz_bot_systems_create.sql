@@ -54,29 +54,10 @@ alter table if exists public.wz_bot_systems
   add column if not exists created_at timestamptz not null default now(),
   add column if not exists updated_at timestamptz not null default now();
 
--- Remove registros invalidos de user_id para garantir unicidade por conta.
+-- Remove registros invalidos de user_id para garantir vinculacao por conta.
 delete from public.wz_bot_systems
 where user_id is null
    or btrim(user_id) = '';
-
--- Remove duplicados, mantendo o mais atualizado por user_id.
-do $$
-begin
-  with ranked as (
-    select
-      ctid,
-      row_number() over (
-        partition by user_id
-        order by updated_at desc nulls last, created_at desc nulls last, ctid desc
-      ) as rn
-    from public.wz_bot_systems
-  )
-  delete from public.wz_bot_systems t
-  using ranked r
-  where t.ctid = r.ctid
-    and r.rn > 1;
-end;
-$$;
 
 update public.wz_bot_systems
 set welcome_message = coalesce(nullif(btrim(welcome_message), ''), 'Ola! Recebemos sua mensagem e iniciaremos o atendimento em instantes.'),
@@ -112,25 +93,10 @@ alter table if exists public.wz_bot_systems
   alter column ai_instructions set not null,
   alter column ai_fallback_message set not null;
 
--- Unicidade por usuario para permitir upsert seguro no backend.
+-- Permite varios sistemas por usuario.
 drop index if exists public.wz_bot_systems_user_id_uidx;
-
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_constraint c
-    join pg_class t on t.oid = c.conrelid
-    join pg_namespace n on n.oid = t.relnamespace
-    where n.nspname = 'public'
-      and t.relname = 'wz_bot_systems'
-      and c.conname = 'wz_bot_systems_user_id_key'
-  ) then
-    alter table public.wz_bot_systems
-      add constraint wz_bot_systems_user_id_key unique (user_id);
-  end if;
-end;
-$$;
+alter table if exists public.wz_bot_systems
+  drop constraint if exists wz_bot_systems_user_id_key;
 
 do $$
 begin
