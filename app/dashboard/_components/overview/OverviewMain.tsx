@@ -16,17 +16,7 @@ export default function OverviewMain({ onCreateChatbot }: OverviewMainProps) {
   );
 
   const handleCreateClick = () => {
-    if (onCreateChatbot) {
-      onCreateChatbot();
-      return;
-    }
-
-    if (typeof window === "undefined") return;
-    window.dispatchEvent(
-      new CustomEvent<{ message: string }>("wyzerai:open", {
-        detail: { message: "Quero criar meu primeiro chatbot na plataforma." },
-      }),
-    );
+    void onCreateChatbot;
   };
 
   return (
@@ -36,15 +26,15 @@ export default function OverviewMain({ onCreateChatbot }: OverviewMainProps) {
           0% { transform: translateX(-62%); }
           100% { transform: translateX(118%); }
         }
-        @keyframes overviewSkeletonBreath {
-          0%, 100% { opacity: 0.58; }
-          50% { opacity: 0.9; }
-        }
         .overview-skeleton-shimmer {
           animation: overviewSkeletonShimmer 2.2s linear infinite;
         }
-        .overview-skeleton-breath {
-          animation: overviewSkeletonBreath 2.6s ease-in-out infinite;
+        .overview-skeleton-pulse {
+          animation: overviewSkeletonPulse 1.8s ease-in-out infinite;
+        }
+        @keyframes overviewSkeletonPulse {
+          0%, 100% { opacity: 0.74; }
+          50% { opacity: 0.96; }
         }
       `}</style>
 
@@ -65,14 +55,14 @@ export default function OverviewMain({ onCreateChatbot }: OverviewMainProps) {
           >
             <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgba(255,255,255,0.34),transparent_44%),radial-gradient(circle_at_84%_84%,rgba(0,0,0,0.08),transparent_50%)]" />
 
-            <span className="relative z-[1] flex h-full flex-col items-center justify-center gap-3">
-              <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-[#1d2c00] shadow-[0_6px_16px_rgba(0,0,0,0.12)]">
-                <Plus className="h-5 w-5" strokeWidth={2.5} />
+            <span className="relative z-[1] flex h-full flex-col items-center justify-center gap-2 text-center">
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/92 text-[#1d2c00] shadow-[0_6px_16px_rgba(0,0,0,0.12)]">
+                <Plus className="h-6 w-6" strokeWidth={2.7} />
               </span>
-              <span className="text-[25px] font-semibold tracking-[-0.01em] text-[#1f3000] sm:text-[26px]">
-                Add chatbot
+              <span className="text-[24px] font-semibold tracking-[-0.01em] text-[#1f3000] sm:text-[26px]">
+                Criar Bot
               </span>
-              <span className="text-[13px] font-medium text-[#243700]/78">Criar seu primeiro fluxo</span>
+              <span className="text-[13px] font-medium text-[#243700]/78">Crie seu primeiro sistema</span>
             </span>
           </button>
 
@@ -80,31 +70,12 @@ export default function OverviewMain({ onCreateChatbot }: OverviewMainProps) {
             {skeletonOpacities.map((opacity, index) => (
               <article
                 key={`overview-skeleton-${index}`}
-                className="relative min-h-[152px] overflow-hidden rounded-[20px] border border-black/[0.045] bg-[#f4f4f5] shadow-[0_6px_20px_rgba(0,0,0,0.04)]"
+                className="overview-skeleton-pulse relative min-h-[152px] overflow-hidden rounded-[20px] border border-black/[0.04] bg-[#e3e4e6] shadow-[0_5px_16px_rgba(0,0,0,0.035)]"
                 style={{ opacity }}
               >
                 <span className="absolute inset-0 overflow-hidden rounded-[20px]">
-                  <span className="overview-skeleton-shimmer absolute inset-y-0 w-[48%] bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.55)_45%,transparent_100%)]" />
+                  <span className="overview-skeleton-shimmer absolute inset-y-0 w-[46%] bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.46)_45%,transparent_100%)]" />
                 </span>
-
-                <div className="relative z-[1] flex h-full flex-col p-4">
-                  <div className="overview-skeleton-breath h-3 w-[42%] rounded-full bg-[#d8d8da]" />
-                  <div className="mt-auto">
-                    <svg
-                      viewBox="0 0 356 84"
-                      className="h-[56px] w-full text-[#d2d3d6]"
-                      preserveAspectRatio="none"
-                      fill="none"
-                    >
-                      <path
-                        d="M0 58 C 22 22, 42 22, 67 58 C 90 88, 109 88, 131 58 C 154 26, 178 26, 198 52 C 221 78, 242 78, 264 50 C 287 22, 308 22, 330 52 C 341 67, 349 73, 356 74"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  </div>
-                </div>
               </article>
             ))}
           </div>
@@ -113,4 +84,3 @@ export default function OverviewMain({ onCreateChatbot }: OverviewMainProps) {
     </section>
   );
 }
-
