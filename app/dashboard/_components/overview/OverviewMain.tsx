@@ -22,19 +22,32 @@ export default function OverviewMain({ onCreateChatbot }: OverviewMainProps) {
   return (
     <section className="w-full px-3 py-3 sm:px-5 sm:py-5 lg:px-6">
       <style>{`
-        @keyframes overviewSkeletonShimmer {
-          0% { transform: translateX(-62%); }
-          100% { transform: translateX(118%); }
+        @keyframes overviewCreatePlusFloat {
+          0%, 100% { transform: translateY(0) scale(1); }
+          50% { transform: translateY(-2px) scale(1.035); }
         }
-        .overview-skeleton-shimmer {
-          animation: overviewSkeletonShimmer 2.2s linear infinite;
+
+        @keyframes overviewSkeletonSheen {
+          0% { background-position: 12% 50%; }
+          100% { background-position: 88% 50%; }
         }
-        .overview-skeleton-pulse {
-          animation: overviewSkeletonPulse 1.8s ease-in-out infinite;
-        }
-        @keyframes overviewSkeletonPulse {
-          0%, 100% { opacity: 0.74; }
+
+        @keyframes overviewSkeletonTone {
+          0%, 100% { opacity: 0.84; }
           50% { opacity: 0.96; }
+        }
+
+        .overview-create-plus {
+          animation: overviewCreatePlusFloat 2.3s ease-in-out infinite;
+        }
+
+        .overview-skeleton-sheen {
+          background-size: 180% 100%;
+          animation: overviewSkeletonSheen 3.4s ease-in-out infinite alternate;
+        }
+
+        .overview-skeleton-tone {
+          animation: overviewSkeletonTone 2.4s ease-in-out infinite;
         }
       `}</style>
 
@@ -44,25 +57,24 @@ export default function OverviewMain({ onCreateChatbot }: OverviewMainProps) {
             type="button"
             onClick={handleCreateClick}
             className={[
-              "group relative min-h-[152px] overflow-hidden rounded-[20px] border border-[#8acc08] bg-[#99e600]",
-              "px-5 py-4 text-left shadow-[0_12px_30px_rgba(68,105,0,0.18)]",
-              "transition-[transform,box-shadow,filter] duration-200 ease-out",
-              "hover:-translate-y-[1px] hover:brightness-[1.02] hover:shadow-[0_18px_34px_rgba(68,105,0,0.26)]",
+              "group relative min-h-[152px] cursor-pointer overflow-hidden rounded-[20px]",
+              "bg-[linear-gradient(136deg,#99e600_0%,#93db00_46%,#82c200_100%)]",
+              "px-5 py-4 text-left shadow-[0_16px_36px_rgba(68,105,0,0.22)]",
+              "transition-[transform,box-shadow,filter] duration-220 ease-out",
+              "hover:-translate-y-[1px] hover:brightness-[1.03] hover:shadow-[0_22px_44px_rgba(68,105,0,0.28)]",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4d7600]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#eff0f2]",
-              "active:translate-y-[0.5px] active:scale-[0.996]",
+              "active:translate-y-[0.6px] active:scale-[0.996]",
             ].join(" ")}
             aria-label="Adicionar chatbot"
           >
-            <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgba(255,255,255,0.34),transparent_44%),radial-gradient(circle_at_84%_84%,rgba(0,0,0,0.08),transparent_50%)]" />
+            <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_16%_14%,rgba(255,255,255,0.38),transparent_42%),radial-gradient(circle_at_82%_84%,rgba(0,0,0,0.12),transparent_50%)]" />
+            <span className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,0.2)_38%,transparent_60%)]" />
 
-            <span className="relative z-[1] flex h-full flex-col items-center justify-center gap-2 text-center">
-              <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/92 text-[#1d2c00] shadow-[0_6px_16px_rgba(0,0,0,0.12)]">
-                <Plus className="h-6 w-6" strokeWidth={2.7} />
-              </span>
-              <span className="text-[24px] font-semibold tracking-[-0.01em] text-[#1f3000] sm:text-[26px]">
-                Criar Bot
-              </span>
-              <span className="text-[13px] font-medium text-[#243700]/78">Crie seu primeiro sistema</span>
+            <span className="relative z-[1] flex h-full items-center justify-center">
+              <Plus
+                className="overview-create-plus h-[58px] w-[58px] text-white drop-shadow-[0_10px_22px_rgba(0,0,0,0.2)] sm:h-[64px] sm:w-[64px]"
+                strokeWidth={2.35}
+              />
             </span>
           </button>
 
@@ -70,11 +82,11 @@ export default function OverviewMain({ onCreateChatbot }: OverviewMainProps) {
             {skeletonOpacities.map((opacity, index) => (
               <article
                 key={`overview-skeleton-${index}`}
-                className="overview-skeleton-pulse relative min-h-[152px] overflow-hidden rounded-[20px] border border-black/[0.04] bg-[#e3e4e6] shadow-[0_5px_16px_rgba(0,0,0,0.035)]"
+                className="overview-skeleton-tone relative min-h-[152px] overflow-hidden rounded-[20px] bg-[#e0e3e6] shadow-[0_8px_18px_rgba(0,0,0,0.03)]"
                 style={{ opacity }}
               >
                 <span className="absolute inset-0 overflow-hidden rounded-[20px]">
-                  <span className="overview-skeleton-shimmer absolute inset-y-0 w-[46%] bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.46)_45%,transparent_100%)]" />
+                  <span className="overview-skeleton-sheen absolute inset-0 bg-[linear-gradient(104deg,rgba(255,255,255,0.02)_16%,rgba(255,255,255,0.12)_50%,rgba(255,255,255,0.02)_84%)]" />
                 </span>
               </article>
             ))}
