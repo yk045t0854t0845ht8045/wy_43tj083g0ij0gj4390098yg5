@@ -1,8 +1,8 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Plus } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type ScheduleDay = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 type WizardTopic = "messages" | "schedule" | "ai" | "confirm";
@@ -43,6 +43,12 @@ type StepMeta = {
   id: WizardTopic;
   title: string;
   description: string;
+};
+
+type SelectOption = {
+  value: string;
+  label: string;
+  search?: string;
 };
 
 const DAY_OPTIONS: Array<{
@@ -140,8 +146,19 @@ const INPUT_CLASS =
   "mt-2 h-12 w-full rounded-xl border border-black/12 bg-white px-3 text-[15px] text-black/84 outline-none transition-[border-color,box-shadow,background-color] focus:border-black/24 focus:ring-2 focus:ring-black/10";
 const TEXTAREA_CLASS =
   "mt-2 min-h-[130px] w-full rounded-xl border border-black/12 bg-white px-3 py-3 text-[14px] text-black/84 outline-none transition-[border-color,box-shadow,background-color] focus:border-black/24 focus:ring-2 focus:ring-black/10 resize-y";
-const SELECT_CLASS =
-  "mt-2 h-12 w-full rounded-xl border border-black/12 bg-white px-3 text-[14px] text-black/84 outline-none transition-[border-color,box-shadow,background-color] focus:border-black/24 focus:ring-2 focus:ring-black/10";
+
+const AI_TONE_OPTIONS: SelectOption[] = [
+  { value: "professional", label: "Profissional", search: "formal empresa corporativo" },
+  { value: "friendly", label: "Amigavel", search: "leve acolhedor simpatico" },
+  { value: "consultative", label: "Consultivo", search: "especialista orientar recomendacoes" },
+  { value: "objective", label: "Objetivo", search: "direto curto rapido" },
+];
+
+const AI_RESPONSE_SIZE_OPTIONS: SelectOption[] = [
+  { value: "concise", label: "Curtas e diretas", search: "curto rapido resumo" },
+  { value: "balanced", label: "Equilibradas", search: "medio natural padrao" },
+  { value: "detailed", label: "Detalhadas", search: "longo completo explicativo" },
+];
 
 function createDefaultSchedule(): DaySchedule[] {
   return DAY_OPTIONS.map((day) => ({
@@ -356,6 +373,119 @@ function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
+type SelectMenuProps = {
+  value: string;
+  options: SelectOption[];
+  placeholder: string;
+  searchPlaceholder?: string;
+  emptyLabel?: string;
+  disabled?: boolean;
+  onChange: (next: string) => void;
+};
+
+function SelectMenu({
+  value,
+  options,
+  placeholder,
+  searchPlaceholder = "Buscar...",
+  emptyLabel = "Nenhuma opcao encontrada.",
+  disabled = false,
+  onChange,
+}: SelectMenuProps) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const selected = useMemo(() => options.find((item) => item.value === value) || null, [options, value]);
+
+  const filtered = useMemo(() => {
+    const clean = String(query || "").trim().toLowerCase();
+    if (!clean) return options;
+    return options.filter((item) => {
+      const search = `${item.label} ${item.search || ""}`.toLowerCase();
+      return search.includes(clean);
+    });
+  }, [options, query]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target || !wrapRef.current) return;
+      if (!wrapRef.current.contains(target)) {
+        setOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    return () => window.removeEventListener("mousedown", onPointerDown);
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => {
+          if (disabled) return;
+          setOpen((current) => !current);
+        }}
+        className={cx(
+          "mt-2 inline-flex h-11 w-full items-center justify-between rounded-xl border border-black/12 bg-white/90 px-3 text-left text-[15px] text-black/82",
+          "transition-[border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/8",
+          disabled ? "cursor-not-allowed opacity-65" : "hover:border-black/22",
+        )}
+      >
+        <span className={cx("truncate", !selected && "text-black/46")}>{selected?.label || placeholder}</span>
+        <ChevronDown className={cx("h-4 w-4 shrink-0 text-black/52 transition-transform", open && "rotate-180")} />
+      </button>
+
+      {open && (
+        <div className="absolute z-[55] mt-2 w-full overflow-hidden rounded-xl border border-black/15 bg-white shadow-[0_16px_34px_rgba(0,0,0,0.16)]">
+          <div className="border-b border-black/8 p-2">
+            <input
+              type="text"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={searchPlaceholder}
+              className="h-9 w-full rounded-lg border border-black/12 bg-[#f7f7f8] px-2.5 text-[13px] text-black/78 outline-none focus:border-black/24"
+            />
+          </div>
+
+          <div className="max-h-[250px] overflow-y-auto p-1.5">
+            {filtered.length > 0 ? (
+              filtered.map((option) => {
+                const active = option.value === value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onChange(option.value);
+                      setOpen(false);
+                      setQuery("");
+                    }}
+                    className={cx(
+                      "flex h-9 w-full items-center justify-between rounded-lg px-2.5 text-left text-[13px] text-black/82 transition-colors",
+                      active ? "bg-black/[0.08] font-semibold" : "hover:bg-black/[0.05]",
+                    )}
+                  >
+                    <span className="truncate">{option.label}</span>
+                    {active && <Check className="h-4 w-4 shrink-0 text-black/70" />}
+                  </button>
+                );
+              })
+            ) : (
+              <p className="px-2.5 py-3 text-[12px] text-black/52">{emptyLabel}</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function OverviewMain() {
   const reduceMotion = useReducedMotion();
   const skeletonOpacities = useMemo(
@@ -364,7 +494,7 @@ export default function OverviewMain() {
     [],
   );
 
-  const [mode, setMode] = useState<"cards" | "wizard">("cards");
+  const [mode, setMode] = useState<"cards" | "wizard" | "success">("cards");
   const [activeTopic, setActiveTopic] = useState<WizardTopic>("messages");
   const [loadingConfig, setLoadingConfig] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -372,7 +502,6 @@ export default function OverviewMain() {
   const [hasSystem, setHasSystem] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [form, setForm] = useState<SystemConfigForm>(createDefaultForm());
 
   const loadConfig = useCallback(async () => {
@@ -428,7 +557,6 @@ export default function OverviewMain() {
     }
 
     setError(null);
-    setSuccess(null);
     setActiveTopic("messages");
     setMode("wizard");
   };
@@ -448,7 +576,6 @@ export default function OverviewMain() {
 
   const handleSaveSystem = useCallback(async () => {
     setError(null);
-    setSuccess(null);
 
     const validationError = validateByTopic("confirm", form);
     if (validationError) {
@@ -487,9 +614,7 @@ export default function OverviewMain() {
       setHasSystem(true);
       setForm(normalizeIncomingConfig(payload.systemConfig));
       setSavedAt(String(payload.updatedAt || payload.createdAt || "") || null);
-      setSuccess(
-        "Sistema criado com sucesso. Voce pode continuar ajustando as configuracoes quando quiser.",
-      );
+      setMode("success");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Falha ao salvar sistema.");
     } finally {
@@ -501,7 +626,6 @@ export default function OverviewMain() {
     if (saving) return;
 
     setError(null);
-    setSuccess(null);
 
     if (!isLastStep) {
       const validationError = validateByTopic(activeTopic, form);
@@ -519,7 +643,6 @@ export default function OverviewMain() {
   const handleBackAction = () => {
     if (saving) return;
     setError(null);
-    setSuccess(null);
 
     if (activeTopic === "messages") {
       setMode("cards");
@@ -560,6 +683,24 @@ export default function OverviewMain() {
           background: linear-gradient(120deg, transparent 22%, rgba(255, 255, 255, 0.2) 50%, transparent 78%);
           animation: overviewSkeletonSheen 5.4s ease-in-out infinite;
           pointer-events: none;
+        }
+
+        @keyframes overviewSuccessPulse {
+          0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(111, 215, 102, 0.32); }
+          55% { transform: scale(1.03); box-shadow: 0 0 0 24px rgba(111, 215, 102, 0); }
+        }
+
+        @keyframes overviewSuccessGlow {
+          0%, 100% { opacity: 0.5; transform: translateY(0px); }
+          50% { opacity: 0.9; transform: translateY(-4px); }
+        }
+
+        .overview-success-badge {
+          animation: overviewSuccessPulse 2.3s ease-in-out infinite;
+        }
+
+        .overview-success-glow {
+          animation: overviewSuccessGlow 3.4s ease-in-out infinite;
         }
       `}</style>
 
@@ -620,7 +761,7 @@ export default function OverviewMain() {
                 </p>
               )}
             </motion.div>
-          ) : (
+          ) : mode === "wizard" ? (
             <motion.div
               key="overview-wizard"
               initial={reduceMotion ? false : { opacity: 0, y: 14, filter: "blur(6px)" }}
@@ -644,18 +785,16 @@ export default function OverviewMain() {
                   const isActive = step.id === activeTopic;
                   const isDone = index < currentStepIndex;
                   return (
-                    <button
+                    <div
                       key={`mobile-step-${step.id}`}
-                      type="button"
-                      onClick={() => setActiveTopic(step.id)}
-                      disabled={saving}
+                      aria-current={isActive ? "step" : undefined}
                       className={cx(
-                        "inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-2 text-[12px] font-semibold transition-colors",
+                        "inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-2 text-[12px] font-semibold",
                         isActive
                           ? "bg-black text-white"
                           : isDone
                             ? "bg-black/85 text-white"
-                            : "bg-black/[0.07] text-black/65 hover:bg-black/[0.11]",
+                            : "bg-black/[0.07] text-black/65",
                       )}
                     >
                       <span
@@ -669,31 +808,29 @@ export default function OverviewMain() {
                         {isDone ? <Check className="h-3.5 w-3.5" strokeWidth={2.2} /> : index + 1}
                       </span>
                       <span>{step.title}</span>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
 
-              <div className="grid grid-cols-1 gap-5 lg:grid-cols-[310px_minmax(0,1fr)] xl:grid-cols-[340px_minmax(0,1fr)]">
-                <aside className="hidden lg:block">
-                  <div className="sticky top-5 space-y-2">
+              <div className="grid grid-cols-1 gap-5 lg:items-start lg:grid-cols-[310px_minmax(0,1fr)] xl:grid-cols-[340px_minmax(0,1fr)]">
+                <aside className="hidden lg:sticky lg:top-6 lg:block lg:self-start">
+                  <div className="max-h-[calc(100dvh-1.5rem)] space-y-2 overflow-y-auto pr-1">
                     {WIZARD_STEPS.map((step, index) => {
                       const isActive = step.id === activeTopic;
                       const isDone = index < currentStepIndex;
 
                       return (
-                        <button
+                        <div
                           key={`desktop-step-${step.id}`}
-                          type="button"
-                          onClick={() => setActiveTopic(step.id)}
-                          disabled={saving}
+                          aria-current={isActive ? "step" : undefined}
                           className={cx(
-                            "flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition-colors",
+                            "flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left",
                             isActive
                               ? "bg-black text-white"
                               : isDone
                                 ? "bg-black/88 text-white"
-                                : "bg-black/[0.06] text-black/72 hover:bg-black/[0.1]",
+                                : "bg-black/[0.06] text-black/72",
                           )}
                         >
                           <span
@@ -717,7 +854,7 @@ export default function OverviewMain() {
                               {step.description}
                             </span>
                           </span>
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -922,46 +1059,91 @@ export default function OverviewMain() {
                             />
                           </label>
 
+                          <div className="rounded-2xl bg-white/78 p-4 shadow-[0_10px_24px_rgba(0,0,0,0.045)] sm:p-5">
+                            <span className="text-[13px] font-semibold text-black/70">
+                              Quando nao entender a mensagem do cliente
+                            </span>
+                            <p className="mt-1 text-[12px] text-black/58">
+                              Escolha como o bot deve agir nesse momento.
+                            </p>
+                            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    aiTransferToHumanWhenUncertain: false,
+                                  }))
+                                }
+                                className={cx(
+                                  "rounded-xl border px-3 py-2.5 text-left text-[13px] font-medium transition-colors",
+                                  !form.aiTransferToHumanWhenUncertain
+                                    ? "border-black bg-black text-white"
+                                    : "border-black/12 bg-white text-black/76 hover:bg-black/[0.04]",
+                                )}
+                              >
+                                Responder com fallback
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    aiTransferToHumanWhenUncertain: true,
+                                  }))
+                                }
+                                className={cx(
+                                  "rounded-xl border px-3 py-2.5 text-left text-[13px] font-medium transition-colors",
+                                  form.aiTransferToHumanWhenUncertain
+                                    ? "border-black bg-black text-white"
+                                    : "border-black/12 bg-white text-black/76 hover:bg-black/[0.04]",
+                                )}
+                              >
+                                Redirecionar para atendente
+                              </button>
+                            </div>
+                            <p className="mt-2 text-[12px] text-black/58">
+                              {form.aiTransferToHumanWhenUncertain
+                                ? "Sempre que houver duvida, o cliente sera encaminhado para atendimento humano."
+                                : "Quando houver duvida, o bot envia a mensagem de fallback pedindo mais contexto."}
+                            </p>
+                          </div>
+
                           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                             <label className="block rounded-2xl bg-white/78 p-4 shadow-[0_10px_24px_rgba(0,0,0,0.045)] sm:p-5">
                               <span className="text-[13px] font-semibold text-black/70">
                                 Tom das respostas
                               </span>
-                              <select
+                              <SelectMenu
                                 value={form.aiResponseTone}
-                                onChange={(event) =>
+                                options={AI_TONE_OPTIONS}
+                                placeholder="Selecione o tom"
+                                searchPlaceholder="Buscar tom..."
+                                onChange={(next) =>
                                   setForm((current) => ({
                                     ...current,
-                                    aiResponseTone: normalizeTone(event.target.value),
+                                    aiResponseTone: normalizeTone(next),
                                   }))
                                 }
-                                className={SELECT_CLASS}
-                              >
-                                <option value="professional">Profissional</option>
-                                <option value="friendly">Amigavel</option>
-                                <option value="consultative">Consultivo</option>
-                                <option value="objective">Objetivo</option>
-                              </select>
+                              />
                             </label>
 
                             <label className="block rounded-2xl bg-white/78 p-4 shadow-[0_10px_24px_rgba(0,0,0,0.045)] sm:p-5">
                               <span className="text-[13px] font-semibold text-black/70">
                                 Tamanho das respostas
                               </span>
-                              <select
+                              <SelectMenu
                                 value={form.aiResponseSize}
-                                onChange={(event) =>
+                                options={AI_RESPONSE_SIZE_OPTIONS}
+                                placeholder="Selecione o tamanho"
+                                searchPlaceholder="Buscar formato..."
+                                onChange={(next) =>
                                   setForm((current) => ({
                                     ...current,
-                                    aiResponseSize: normalizeResponseSize(event.target.value),
+                                    aiResponseSize: normalizeResponseSize(next),
                                   }))
                                 }
-                                className={SELECT_CLASS}
-                              >
-                                <option value="concise">Curtas e diretas</option>
-                                <option value="balanced">Equilibradas</option>
-                                <option value="detailed">Detalhadas</option>
-                              </select>
+                              />
                             </label>
                           </div>
 
@@ -1013,21 +1195,6 @@ export default function OverviewMain() {
                                   className="h-4 w-4 rounded border-black/25 text-black focus:ring-black/20"
                                 />
                                 Coletar telefone
-                              </label>
-
-                              <label className="inline-flex items-center gap-2 rounded-xl bg-black/[0.04] px-3 py-2 text-[13px] font-medium text-black/74">
-                                <input
-                                  type="checkbox"
-                                  checked={form.aiTransferToHumanWhenUncertain}
-                                  onChange={(event) =>
-                                    setForm((current) => ({
-                                      ...current,
-                                      aiTransferToHumanWhenUncertain: Boolean(event.target.checked),
-                                    }))
-                                  }
-                                  className="h-4 w-4 rounded border-black/25 text-black focus:ring-black/20"
-                                />
-                                Encaminhar para humano se houver duvida
                               </label>
                             </div>
                           </div>
@@ -1144,12 +1311,6 @@ export default function OverviewMain() {
                     </p>
                   )}
 
-                  {success && (
-                    <p className="mt-4 rounded-xl border border-emerald-600/18 bg-emerald-500/10 px-3 py-2 text-[13px] font-medium text-emerald-700">
-                      {success}
-                    </p>
-                  )}
-
                   <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-black/10 pt-4">
                     <button
                       type="button"
@@ -1175,6 +1336,60 @@ export default function OverviewMain() {
                             : "Confirmar e criar sistema"
                           : "Proximo"}
                       {!saving && <ChevronRight className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="overview-success"
+              initial={reduceMotion ? false : { opacity: 0, y: 14, filter: "blur(6px)" }}
+              animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
+              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -8, filter: "blur(6px)" }}
+              transition={panelTransition}
+              className="w-full"
+            >
+              <div className="mx-auto flex w-full max-w-[860px] items-center justify-center py-6 sm:py-10">
+                <div className="w-full overflow-hidden rounded-[28px] bg-[#0f1013] p-6 text-white shadow-[0_26px_52px_rgba(0,0,0,0.28)] sm:p-8">
+                  <div className="relative mx-auto flex h-[132px] w-[132px] items-center justify-center">
+                    <span className="overview-success-glow absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(111,215,102,0.5),rgba(111,215,102,0.05)_62%,transparent_74%)]" />
+                    <span className="overview-success-badge relative inline-flex h-[78px] w-[78px] items-center justify-center rounded-full bg-[#6fd766] text-[#0e160c]">
+                      <Check className="h-10 w-10" strokeWidth={2.8} />
+                    </span>
+                  </div>
+
+                  <h3 className="mt-2 text-center text-[28px] font-semibold tracking-[-0.02em] text-white">
+                    Sistema criado com sucesso
+                  </h3>
+                  <p className="mx-auto mt-3 max-w-[620px] text-center text-[14px] text-white/74">
+                    Seu sistema de atendimento WhatsApp ja esta salvo e pronto para evoluir com as
+                    proximas automacoes que voce adicionar.
+                  </p>
+                  {savedAtLabel && (
+                    <p className="mt-4 text-center text-[12px] text-white/58">
+                      Ultima atualizacao: {savedAtLabel}
+                    </p>
+                  )}
+
+                  <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setMode("cards")}
+                      className="inline-flex h-11 items-center rounded-xl border border-white/18 bg-white/10 px-4 text-[13px] font-semibold text-white transition-colors hover:bg-white/16"
+                    >
+                      Voltar para visao geral
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setError(null);
+                        setActiveTopic("messages");
+                        setMode("wizard");
+                      }}
+                      className="inline-flex h-11 items-center rounded-xl bg-white px-4 text-[13px] font-semibold text-[#121418] transition-colors hover:bg-white/92"
+                    >
+                      Editar configuracoes
                     </button>
                   </div>
                 </div>
