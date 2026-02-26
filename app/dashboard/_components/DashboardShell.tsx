@@ -36,6 +36,13 @@ const SESSION_DISCONNECT_EVENT_KEY = "wz:session:disconnected";
 const SESSION_CHECK_TIMEOUT_MS = 4500;
 const SESSION_CHECK_MIN_GAP_MS = 1200;
 const ONBOARDING_REQUIRED_STORAGE_PREFIX = "wz:onboarding:required:";
+const COMPANY_ONBOARDING_ACTIVE_STORAGE_PREFIX = "wz:company-onboarding:active:";
+const COMPANY_ONBOARDING_SYSTEM_PENDING_PREFIX = "wz:company-onboarding:pending-system:";
+
+type PendingCompanySystemContext = {
+  id: string;
+  companyName: string | null;
+};
 
 function normalizeConfigSectionFromQuery(value: string): ConfigSectionId | null {
   const clean = String(value || "").trim().toLowerCase();
@@ -134,8 +141,16 @@ export default function DashboardShell({
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingLoading, setOnboardingLoading] = useState(true);
   const [onboardingData, setOnboardingData] = useState<OnboardingState | null>(null);
+  const [companyOnboardingOpen, setCompanyOnboardingOpen] = useState(false);
+  const [companyOnboardingLoading, setCompanyOnboardingLoading] = useState(false);
+  const [companyOnboardingData, setCompanyOnboardingData] = useState<OnboardingState | null>(null);
+  const [companyOnboardingId, setCompanyOnboardingId] = useState<string | null>(null);
+  const [pendingCompanySystemContext, setPendingCompanySystemContext] =
+    useState<PendingCompanySystemContext | null>(null);
   const redirectingRef = useRef(false);
   const queryBootstrapHandledRef = useRef(false);
+  const onboardingRequired = Boolean(onboardingData && !onboardingData.completed);
+  const onboardingUiLocked = onboardingLoading || onboardingRequired;
 
   const normalizedInitialPhotoLink = useMemo(() => {
     const clean = String(userPhotoLink || "").trim();
@@ -272,6 +287,22 @@ export default function DashboardShell({
     [profileEmail],
   );
 
+  const getCompanyOnboardingActiveKey = useCallback(
+    (identity?: string | null) => {
+      const base = String(identity || "").trim() || String(profileEmail || "").trim().toLowerCase();
+      return `${COMPANY_ONBOARDING_ACTIVE_STORAGE_PREFIX}${base || "unknown"}`;
+    },
+    [profileEmail],
+  );
+
+  const getCompanyPendingSystemKey = useCallback(
+    (identity?: string | null) => {
+      const base = String(identity || "").trim() || String(profileEmail || "").trim().toLowerCase();
+      return `${COMPANY_ONBOARDING_SYSTEM_PENDING_PREFIX}${base || "unknown"}`;
+    },
+    [profileEmail],
+  );
+
   const syncOnboardingRequiredHint = useCallback(
     (required: boolean, identities?: Array<string | null | undefined>) => {
       const keys = new Set<string>();
@@ -328,11 +359,219 @@ export default function DashboardShell({
     syncOnboardingRequiredHint(false, [next.userId, next.email]);
   }, [syncOnboardingRequiredHint]);
 
+  const syncCompanyOnboardingActiveHint = useCallback(
+    (id: string | null | undefined, identities?: Array<string | null | undefined>) => {
+      const keys = new Set<string>();
+      keys.add(getCompanyOnboardingActiveKey());
+      for (const identity of identities || []) {
+        keys.add(getCompanyOnboardingActiveKey(identity));
+      }
+      try {
+        for (const key of keys) {
+          if (id) {
+            window.localStorage.setItem(key, id);
+          } else {
+            window.localStorage.removeItem(key);
+          }
+        }
+      } catch {
+        // noop
+      }
+    },
+    [getCompanyOnboardingActiveKey],
+  );
+
+  const syncPendingCompanySystemHint = useCallback(
+    (payload: PendingCompanySystemContext | null, identities?: Array<string | null | undefined>) => {
+      const keys = new Set<string>();
+      keys.add(getCompanyPendingSystemKey());
+      for (const identity of identities || []) {
+        keys.add(getCompanyPendingSystemKey(identity));
+      }
+      try {
+        for (const key of keys) {
+          if (payload?.id) {
+            window.localStorage.setItem(key, JSON.stringify(payload));
+          } else {
+            window.localStorage.removeItem(key);
+          }
+        }
+      } catch {
+        // noop
+      }
+    },
+    [getCompanyPendingSystemKey],
+  );
+
+  const startAdditionalCompanyOnboarding = useCallback(async () => {
+    if (onboardingLoading || onboardingRequired || companyOnboardingLoading) return;
+    setCompanyOnboardingLoading(true);
+    try {
+      const res = await fetch("/api/wz_users/company-onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        cache: "no-store",
+        body: JSON.stringify({
+          action: "start-additional-company",
+          companyOnboardingId:
+            companyOnboardingData && !companyOnboardingData.completed
+              ? companyOnboardingData.id
+              : undefined,
+        }),
+      });
+      const payload = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        onboarding?: OnboardingState;
+      } | null;
+      if (!res.ok || !payload?.ok || !payload.onboarding) {
+        throw new Error(String(payload?.error || "Nao foi possivel iniciar cadastro de nova empresa."));
+      }
+
+      setCompanyOnboardingData(payload.onboarding);
+      setCompanyOnboardingId(payload.onboarding.id);
+      syncCompanyOnboardingActiveHint(payload.onboarding.id, [
+        payload.onboarding.userId,
+        payload.onboarding.email,
+      ]);
+      setCompanyOnboardingOpen(true);
+    } finally {
+      setCompanyOnboardingLoading(false);
+    }
+  }, [
+    companyOnboardingData,
+    companyOnboardingLoading,
+    onboardingLoading,
+    onboardingRequired,
+    syncCompanyOnboardingActiveHint,
+  ]);
+
+  const handleCloseCompanyOnboarding = useCallback(() => {
+    if (companyOnboardingData && !companyOnboardingData.completed) {
+      setCompanyOnboardingOpen(true);
+      return;
+    }
+    setCompanyOnboardingOpen(false);
+  }, [companyOnboardingData]);
+
+  const handleCompanyOnboardingUpdated = useCallback(
+    (next: OnboardingState) => {
+      setCompanyOnboardingData(next);
+      setCompanyOnboardingId(next.id);
+      if (next.completed) {
+        setCompanyOnboardingOpen(false);
+        syncCompanyOnboardingActiveHint(null, [next.userId, next.email]);
+        return;
+      }
+      syncCompanyOnboardingActiveHint(next.id, [next.userId, next.email]);
+      setCompanyOnboardingOpen(true);
+    },
+    [syncCompanyOnboardingActiveHint],
+  );
+
+  const handleCompanyOnboardingCompleted = useCallback(
+    (next: OnboardingState) => {
+      const payload: PendingCompanySystemContext = {
+        id: next.id,
+        companyName: String(next.companyName || "").trim() || null,
+      };
+      setCompanyOnboardingData(next);
+      setCompanyOnboardingId(next.id);
+      setPendingCompanySystemContext(payload);
+      setCompanyOnboardingOpen(false);
+      syncCompanyOnboardingActiveHint(null, [next.userId, next.email]);
+      syncPendingCompanySystemHint(payload, [next.userId, next.email]);
+    },
+    [syncCompanyOnboardingActiveHint, syncPendingCompanySystemHint],
+  );
+
+  const handleConsumePendingCompanySystem = useCallback(
+    (companyOnboardingIdToConsume: string) => {
+      if (!companyOnboardingIdToConsume) return;
+      setPendingCompanySystemContext((current) =>
+        current?.id === companyOnboardingIdToConsume ? null : current,
+      );
+      syncPendingCompanySystemHint(null);
+    },
+    [syncPendingCompanySystemHint],
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!shouldForceOnboardingFromHint()) return;
     setOnboardingOpen(true);
   }, [shouldForceOnboardingFromHint]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const activeId = window.localStorage.getItem(getCompanyOnboardingActiveKey());
+    if (!activeId) return;
+
+    let cancelled = false;
+    const restore = async () => {
+      setCompanyOnboardingLoading(true);
+      try {
+        const endpoint = `/api/wz_users/company-onboarding?companyOnboardingId=${encodeURIComponent(activeId)}`;
+        const res = await fetch(endpoint, {
+          method: "GET",
+          cache: "no-store",
+          credentials: "include",
+          headers: {
+            "Cache-Control": "no-store",
+            Pragma: "no-cache",
+          },
+        });
+        if (!res.ok) return;
+        const payload = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          onboarding?: OnboardingState;
+        } | null;
+        if (!payload?.ok || !payload.onboarding || cancelled) return;
+
+        setCompanyOnboardingData(payload.onboarding);
+        setCompanyOnboardingId(payload.onboarding.id);
+        if (!payload.onboarding.completed && !cancelled) {
+          setCompanyOnboardingOpen(true);
+        } else {
+          syncCompanyOnboardingActiveHint(null, [
+            payload.onboarding.userId,
+            payload.onboarding.email,
+          ]);
+        }
+      } catch {
+        // noop
+      } finally {
+        if (!cancelled) {
+          setCompanyOnboardingLoading(false);
+        }
+      }
+    };
+
+    void restore();
+    return () => {
+      cancelled = true;
+    };
+  }, [getCompanyOnboardingActiveKey, syncCompanyOnboardingActiveHint]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = window.localStorage.getItem(getCompanyPendingSystemKey());
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as PendingCompanySystemContext | null;
+      if (!parsed?.id) {
+        syncPendingCompanySystemHint(null);
+        return;
+      }
+      setPendingCompanySystemContext({
+        id: parsed.id,
+        companyName: String(parsed.companyName || "").trim() || null,
+      });
+    } catch {
+      syncPendingCompanySystemHint(null);
+    }
+  }, [getCompanyPendingSystemKey, syncPendingCompanySystemHint]);
 
   useEffect(() => {
     if (queryBootstrapHandledRef.current) return;
@@ -426,9 +665,6 @@ export default function DashboardShell({
       cancelled = true;
     };
   }, [syncOnboardingRequiredHint]);
-
-  const onboardingRequired = Boolean(onboardingData && !onboardingData.completed);
-  const onboardingUiLocked = onboardingLoading || onboardingRequired;
 
   useEffect(() => {
     if (!onboardingRequired) return;
@@ -592,7 +828,13 @@ export default function DashboardShell({
       />
 
       <div className="relative flex-1 overflow-y-auto bg-[#eff0f2]">
-        <OverviewMain />
+        <OverviewMain
+          onboardingLocked={onboardingUiLocked}
+          requestingAdditionalCompany={companyOnboardingLoading}
+          pendingCompanySystemContext={pendingCompanySystemContext}
+          onRequestAddSystemOnboarding={startAdditionalCompanyOnboarding}
+          onConsumePendingCompanySystem={handleConsumePendingCompanySystem}
+        />
         <WyzerAIWidget />
       </div>
 
@@ -631,6 +873,21 @@ export default function DashboardShell({
         onClose={handleCloseOnboarding}
         onUpdated={handleOnboardingUpdated}
         onCompleted={handleOnboardingCompleted}
+      />
+
+      <OnboardingModal
+        open={companyOnboardingOpen}
+        required={false}
+        userEmail={profileEmail}
+        initialData={companyOnboardingData}
+        apiBasePath="/api/wz_users/company-onboarding"
+        logoApiBasePath="/api/wz_users/company-onboarding/logo"
+        contextId={companyOnboardingId}
+        contextParamName="companyOnboardingId"
+        flowMode="additional-company"
+        onClose={handleCloseCompanyOnboarding}
+        onUpdated={handleCompanyOnboardingUpdated}
+        onCompleted={handleCompanyOnboardingCompleted}
       />
 
       {sessionDisconnected && (

@@ -6,6 +6,10 @@ import {
   normalizeEmail,
   normalizeOptionalText,
 } from "@/app/api/wz_users/_onboarding";
+import {
+  COMPANY_ONBOARDING_SCHEMA_HINT,
+  ensureCompanyOnboardingRecord,
+} from "@/app/api/wz_users/_company_onboarding";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -18,8 +22,9 @@ const NO_STORE_HEADERS = {
 };
 
 const BOT_SYSTEM_TABLE = "wz_bot_systems";
+const COMPANY_ONBOARDING_TABLE = "wz_company_onboarding";
 const BOT_SYSTEM_SQL_HINT =
-  "Estrutura do sistema de WhatsApp nao encontrada. Execute o SQL /sql/wz_bot_systems_create.sql no Supabase.";
+  "Estrutura do sistema de WhatsApp nao encontrada. Execute os SQL /sql/wz_company_onboarding_create.sql e /sql/wz_bot_systems_create.sql no Supabase.";
 
 const DAY_VALUES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 type ScheduleDay = (typeof DAY_VALUES)[number];
@@ -49,6 +54,7 @@ type SystemConfig = {
 type SystemSummary = {
   id: string;
   companyName: string | null;
+  companyOnboardingId: string | null;
   status: string;
   whatsappConnected: boolean;
   createdAt: string;
@@ -56,9 +62,10 @@ type SystemSummary = {
 };
 
 const BOT_SYSTEM_CONFIG_COLUMNS =
-  "id,company_name,status,whatsapp_connected,welcome_message,closing_message,out_of_hours_message,weekly_schedule,ai_instructions,ai_fallback_message,ai_response_tone,ai_response_size,ai_collect_name,ai_collect_email,ai_collect_phone,ai_transfer_to_human_when_uncertain,created_at,updated_at";
+  "id,onboarding_id,company_onboarding_id,company_name,status,whatsapp_connected,welcome_message,closing_message,out_of_hours_message,weekly_schedule,ai_instructions,ai_fallback_message,ai_response_tone,ai_response_size,ai_collect_name,ai_collect_email,ai_collect_phone,ai_transfer_to_human_when_uncertain,created_at,updated_at";
 
-const BOT_SYSTEM_SUMMARY_COLUMNS = "id,company_name,status,whatsapp_connected,created_at,updated_at";
+const BOT_SYSTEM_SUMMARY_COLUMNS =
+  "id,company_onboarding_id,company_name,status,whatsapp_connected,created_at,updated_at";
 
 function getErrorMessage(error: unknown, fallback: string) {
   const message = String((error as { message?: unknown } | null)?.message || "").trim();
@@ -77,10 +84,20 @@ function isMissingBotSystemSchema(error: unknown) {
   const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
   const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
   const hint = String((error as { hint?: unknown } | null)?.hint || "").toLowerCase();
+  if (code === "42703" || code === "PGRST204") {
+    return (
+      message.includes("company_onboarding_id") ||
+      details.includes("company_onboarding_id") ||
+      hint.includes("company_onboarding_id")
+    );
+  }
   return (
     message.includes(BOT_SYSTEM_TABLE) ||
     details.includes(BOT_SYSTEM_TABLE) ||
-    hint.includes(BOT_SYSTEM_TABLE)
+    hint.includes(BOT_SYSTEM_TABLE) ||
+    message.includes(COMPANY_ONBOARDING_TABLE) ||
+    details.includes(COMPANY_ONBOARDING_TABLE) ||
+    hint.includes(COMPANY_ONBOARDING_TABLE)
   );
 }
 
@@ -248,6 +265,7 @@ function mapDbRowToSummary(row: Record<string, unknown>): SystemSummary | null {
   return {
     id,
     companyName: normalizeOptionalText(String(row.company_name || "")),
+    companyOnboardingId: normalizeOptionalText(String(row.company_onboarding_id || "")),
     status: normalizeOptionalText(String(row.status || "")) || "active",
     whatsappConnected: normalizeBoolean(row.whatsapp_connected),
     createdAt: String((row.created_at as string | undefined) || ""),
@@ -337,6 +355,77 @@ async function listSystemSummaries(params: {
   };
 }
 
+type ResolvedSaveSource = {
+  onboardingId: string | null;
+  companyOnboardingId: string | null;
+  userId: string;
+  authUserId: string | null;
+  email: string;
+  companyName: string | null;
+  whatsappConnected: boolean;
+  completed?: boolean;
+};
+
+async function resolveSaveSource(params: {
+  ctx: Extract<Awaited<ReturnType<typeof withContext>>, { ok: true }>;
+  companyOnboardingId?: string | null;
+}) {
+  const requestedCompanyOnboardingId = normalizeOptionalText(
+    String(params.companyOnboardingId || ""),
+  );
+
+  if (!requestedCompanyOnboardingId) {
+    return {
+      ok: true as const,
+      source: {
+        onboardingId: params.ctx.onboarding.id,
+        companyOnboardingId: null,
+        userId: params.ctx.onboarding.userId,
+        authUserId: params.ctx.onboarding.authUserId || params.ctx.sessionUserId,
+        email: params.ctx.onboarding.email || params.ctx.sessionEmail,
+        companyName: params.ctx.onboarding.companyName || null,
+        whatsappConnected: Boolean(params.ctx.onboarding.whatsappConnected),
+      } satisfies ResolvedSaveSource,
+    };
+  }
+
+  const additional = await ensureCompanyOnboardingRecord({
+    sb: params.ctx.sb,
+    sessionUserId: params.ctx.sessionUserId,
+    sessionEmail: params.ctx.sessionEmail,
+    companyOnboardingId: requestedCompanyOnboardingId,
+    createIfMissing: false,
+  });
+
+  if (!additional.ok) {
+    const errorMessage =
+      additional.schemaReady === false
+        ? COMPANY_ONBOARDING_SCHEMA_HINT
+        : getErrorMessage(additional.error, "Nao foi possivel carregar a empresa selecionada.");
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { ok: false, error: errorMessage },
+        { status: additional.schemaReady === false ? 500 : 400, headers: NO_STORE_HEADERS },
+      ),
+    };
+  }
+
+  return {
+    ok: true as const,
+    source: {
+      onboardingId: params.ctx.onboarding.id,
+      companyOnboardingId: additional.record.id,
+      userId: additional.record.userId,
+      authUserId: additional.record.authUserId || params.ctx.sessionUserId,
+      email: additional.record.email || params.ctx.sessionEmail,
+      companyName: additional.record.companyName || null,
+      whatsappConnected: Boolean(additional.record.whatsappConnected),
+      completed: Boolean(additional.record.completed),
+    },
+  };
+}
+
 export async function GET(req: NextRequest) {
   try {
     const ctx = await withContext(req);
@@ -372,6 +461,7 @@ export async function GET(req: NextRequest) {
           hasSystem: false,
           companyName: ctx.onboarding.companyName || null,
           activeSystemId: null,
+          activeCompanyOnboardingId: null,
           systems: [],
           systemConfig: null,
           createdAt: "",
@@ -421,10 +511,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         ok: true,
-        whatsappConnected: Boolean(ctx.onboarding.whatsappConnected),
+        whatsappConnected: Boolean(summary?.whatsappConnected || ctx.onboarding.whatsappConnected),
         hasSystem: Boolean(list.systems.length),
         companyName: summary?.companyName || ctx.onboarding.companyName || null,
         activeSystemId,
+        activeCompanyOnboardingId: summary?.companyOnboardingId || null,
         systems: list.systems,
         systemConfig,
         createdAt: String((row?.created_at as string | undefined) || ""),
@@ -454,13 +545,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!ctx.onboarding.whatsappConnected) {
-      return NextResponse.json(
-        { ok: false, error: "Conecte seu WhatsApp no onboarding antes de criar o sistema." },
-        { status: 409, headers: NO_STORE_HEADERS },
-      );
-    }
-
     const parsed = parseIncomingConfig(body.config);
     if (!parsed.ok) {
       return NextResponse.json(
@@ -470,13 +554,99 @@ export async function POST(req: NextRequest) {
     }
 
     const systemId = normalizeOptionalText(String(body.systemId || ""));
+    const requestedCompanyOnboardingId = normalizeOptionalText(
+      String(body.companyOnboardingId || ""),
+    );
+
+    let existingSystemRow: Record<string, unknown> | null = null;
+    if (systemId) {
+      const existingLookup = await ctx.sb
+        .from(BOT_SYSTEM_TABLE)
+        .select(BOT_SYSTEM_CONFIG_COLUMNS)
+        .eq("id", systemId)
+        .eq("user_id", ctx.onboarding.userId)
+        .maybeSingle();
+
+      if (existingLookup.error) {
+        if (isMissingBotSystemSchema(existingLookup.error)) {
+          return NextResponse.json(
+            { ok: false, error: BOT_SYSTEM_SQL_HINT },
+            { status: 500, headers: NO_STORE_HEADERS },
+          );
+        }
+        return NextResponse.json(
+          {
+            ok: false,
+            error: getErrorMessage(existingLookup.error, "Nao foi possivel carregar sistema atual."),
+          },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      existingSystemRow = (existingLookup.data || null) as Record<string, unknown> | null;
+      if (!existingSystemRow) {
+        return NextResponse.json(
+          { ok: false, error: "Sistema nao encontrado para atualizar." },
+          { status: 404, headers: NO_STORE_HEADERS },
+        );
+      }
+    }
+
+    const source = await resolveSaveSource({
+      ctx,
+      companyOnboardingId:
+        requestedCompanyOnboardingId ||
+        normalizeOptionalText(String(existingSystemRow?.company_onboarding_id || "")) ||
+        null,
+    });
+    if (!source.ok) return source.response;
+
+    const sourceCompanyOnboardingId = normalizeOptionalText(source.source.companyOnboardingId);
+    if (sourceCompanyOnboardingId && !source.source.completed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Finalize o onboarding da nova empresa antes de criar o sistema (incluindo conexao do WhatsApp).",
+        },
+        { status: 409, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    if (!source.source.whatsappConnected) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            sourceCompanyOnboardingId
+              ? "Conecte o WhatsApp da nova empresa no onboarding antes de criar o sistema."
+              : "Conecte seu WhatsApp no onboarding antes de criar o sistema.",
+        },
+        { status: 409, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    if (!normalizeOptionalText(source.source.companyName)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            sourceCompanyOnboardingId
+              ? "Informe o nome da empresa no onboarding adicional antes de continuar."
+              : "Nome da empresa nao encontrado no onboarding principal.",
+        },
+        { status: 409, headers: NO_STORE_HEADERS },
+      );
+    }
+
     const payload = {
-      onboarding_id: ctx.onboarding.id,
-      user_id: ctx.onboarding.userId,
-      auth_user_id: ctx.onboarding.authUserId || ctx.sessionUserId,
-      email: ctx.onboarding.email || ctx.sessionEmail,
-      company_name: ctx.onboarding.companyName || null,
-      whatsapp_connected: true,
+      onboarding_id: source.source.onboardingId,
+      company_onboarding_id: source.source.companyOnboardingId,
+      user_id: source.source.userId,
+      auth_user_id: source.source.authUserId || ctx.sessionUserId,
+      email: source.source.email || ctx.sessionEmail,
+      company_name: source.source.companyName || null,
+      whatsapp_connected: source.source.whatsappConnected,
       welcome_message: parsed.config.welcomeMessage,
       closing_message: parsed.config.closingMessage,
       out_of_hours_message: parsed.config.outOfHoursMessage,
@@ -497,7 +667,7 @@ export async function POST(req: NextRequest) {
           .from(BOT_SYSTEM_TABLE)
           .update(payload)
           .eq("id", systemId)
-          .eq("user_id", ctx.onboarding.userId)
+          .eq("user_id", source.source.userId)
           .select(BOT_SYSTEM_CONFIG_COLUMNS)
           .maybeSingle()
       : await ctx.sb
@@ -560,8 +730,10 @@ export async function POST(req: NextRequest) {
       {
         ok: true,
         hasSystem: true,
-        companyName: savedSummary?.companyName || ctx.onboarding.companyName || null,
+        companyName: savedSummary?.companyName || source.source.companyName || null,
         activeSystemId: savedSummary?.id || null,
+        activeCompanyOnboardingId:
+          savedSummary?.companyOnboardingId || source.source.companyOnboardingId || null,
         systems: list.systems,
         systemConfig: mapDbRowToConfig(row),
         createdAt: String((row.created_at as string | undefined) || ""),

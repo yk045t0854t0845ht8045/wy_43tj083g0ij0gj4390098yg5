@@ -6,6 +6,7 @@ create extension if not exists pgcrypto;
 create table if not exists public.wz_bot_systems (
   id uuid primary key default gen_random_uuid(),
   onboarding_id uuid,
+  company_onboarding_id uuid,
   user_id text,
   auth_user_id text,
   email text,
@@ -32,6 +33,7 @@ create table if not exists public.wz_bot_systems (
 alter table if exists public.wz_bot_systems
   add column if not exists id uuid default gen_random_uuid(),
   add column if not exists onboarding_id uuid,
+  add column if not exists company_onboarding_id uuid,
   add column if not exists user_id text,
   add column if not exists auth_user_id text,
   add column if not exists email text,
@@ -118,6 +120,33 @@ begin
 end;
 $$;
 
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.tables
+    where table_schema = 'public'
+      and table_name = 'wz_company_onboarding'
+  ) then
+    if not exists (
+      select 1
+      from pg_constraint c
+      join pg_class t on t.oid = c.conrelid
+      join pg_namespace n on n.oid = t.relnamespace
+      where n.nspname = 'public'
+        and t.relname = 'wz_bot_systems'
+        and c.conname = 'wz_bot_systems_company_onboarding_id_fkey'
+    ) then
+      alter table public.wz_bot_systems
+        add constraint wz_bot_systems_company_onboarding_id_fkey
+        foreign key (company_onboarding_id)
+        references public.wz_company_onboarding (id)
+        on delete set null;
+    end if;
+  end if;
+end;
+$$;
+
 alter table if exists public.wz_bot_systems
   drop constraint if exists wz_bot_systems_user_id_not_blank_check;
 
@@ -199,6 +228,9 @@ create index if not exists wz_bot_systems_email_idx
 
 create index if not exists wz_bot_systems_onboarding_id_idx
   on public.wz_bot_systems (onboarding_id);
+
+create index if not exists wz_bot_systems_company_onboarding_id_idx
+  on public.wz_bot_systems (company_onboarding_id);
 
 create index if not exists wz_bot_systems_status_idx
   on public.wz_bot_systems (status);

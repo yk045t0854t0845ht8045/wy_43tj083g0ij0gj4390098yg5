@@ -32,6 +32,7 @@ type SystemConfigForm = {
 type SystemSummary = {
   id: string;
   companyName: string | null;
+  companyOnboardingId: string | null;
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -45,10 +46,24 @@ type SystemConfigApiPayload = {
   hasSystem?: boolean;
   companyName?: string | null;
   activeSystemId?: string;
+  activeCompanyOnboardingId?: string | null;
   systems?: SystemSummary[];
   systemConfig?: Partial<SystemConfigForm> | null;
   createdAt?: string;
   updatedAt?: string;
+};
+
+type PendingCompanySystemContext = {
+  id: string;
+  companyName: string | null;
+};
+
+type OverviewMainProps = {
+  onboardingLocked?: boolean;
+  requestingAdditionalCompany?: boolean;
+  pendingCompanySystemContext?: PendingCompanySystemContext | null;
+  onRequestAddSystemOnboarding?: () => Promise<void> | void;
+  onConsumePendingCompanySystem?: (companyOnboardingId: string) => void;
 };
 
 type StepMeta = {
@@ -340,6 +355,7 @@ function normalizeSystemSummaries(value: unknown): SystemSummary[] {
     result.push({
       id,
       companyName: String(row.companyName || "").trim() || null,
+      companyOnboardingId: String(row.companyOnboardingId || "").trim() || null,
       status: String(row.status || "").trim().toLowerCase() || "active",
       createdAt: String(row.createdAt || "").trim(),
       updatedAt: String(row.updatedAt || "").trim(),
@@ -525,7 +541,13 @@ function SelectMenu({
   );
 }
 
-export default function OverviewMain() {
+export default function OverviewMain({
+  onboardingLocked = false,
+  requestingAdditionalCompany = false,
+  pendingCompanySystemContext = null,
+  onRequestAddSystemOnboarding,
+  onConsumePendingCompanySystem,
+}: OverviewMainProps) {
   const reduceMotion = useReducedMotion();
   const skeletonOpacities = useMemo(
     () =>
@@ -541,6 +563,9 @@ export default function OverviewMain() {
   const [hasSystem, setHasSystem] = useState(false);
   const [systems, setSystems] = useState<SystemSummary[]>([]);
   const [activeSystemId, setActiveSystemId] = useState<string | null>(null);
+  const [draftCompanyOnboardingId, setDraftCompanyOnboardingId] = useState<string | null>(null);
+  const [draftCompanyName, setDraftCompanyName] = useState<string | null>(null);
+  const [requestingCreateFlow, setRequestingCreateFlow] = useState(false);
   const [companyName, setCompanyName] = useState<string>("");
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -601,19 +626,78 @@ export default function OverviewMain() {
     [form.weeklySchedule],
   );
 
-  const handleCreateClick = () => {
-    if (loadingConfig) return;
+  const openWizardForNewSystem = useCallback((opts?: {
+    companyOnboardingId?: string | null;
+    companyName?: string | null;
+  }) => {
+    setError(null);
+    setActiveSystemId(null);
+    setDraftCompanyOnboardingId(String(opts?.companyOnboardingId || "").trim() || null);
+    setDraftCompanyName(String(opts?.companyName || "").trim() || null);
+    setForm(createDefaultForm());
+    setActiveTopic("messages");
+    setMode("wizard");
+  }, []);
+
+  useEffect(() => {
+    if (!pendingCompanySystemContext?.id) return;
+    const pendingId = String(pendingCompanySystemContext.id || "").trim();
+    if (!pendingId) return;
+    if (mode === "wizard" && pendingId === draftCompanyOnboardingId) return;
+
+    openWizardForNewSystem({
+      companyOnboardingId: pendingId,
+      companyName: pendingCompanySystemContext.companyName || null,
+    });
+  }, [
+    draftCompanyOnboardingId,
+    mode,
+    openWizardForNewSystem,
+    pendingCompanySystemContext,
+  ]);
+
+  const handleCreateClick = useCallback(async () => {
+    if (loadingConfig || saving || requestingCreateFlow || requestingAdditionalCompany) return;
+    if (onboardingLocked) return;
+
+    if (hasSystem) {
+      if (!onRequestAddSystemOnboarding) {
+        setError("Nao foi possivel iniciar o cadastro da nova empresa.");
+        return;
+      }
+      try {
+        setRequestingCreateFlow(true);
+        setError(null);
+        await onRequestAddSystemOnboarding();
+      } catch (requestError) {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Falha ao iniciar onboarding da nova empresa.",
+        );
+      } finally {
+        setRequestingCreateFlow(false);
+      }
+      return;
+    }
+
     if (!whatsappConnected) {
       setError("Conecte seu WhatsApp no onboarding antes de criar o sistema.");
       return;
     }
 
-    setError(null);
-    setActiveSystemId(null);
-    setForm(createDefaultForm());
-    setActiveTopic("messages");
-    setMode("wizard");
-  };
+    openWizardForNewSystem();
+  }, [
+    hasSystem,
+    loadingConfig,
+    onRequestAddSystemOnboarding,
+    onboardingLocked,
+    openWizardForNewSystem,
+    requestingAdditionalCompany,
+    requestingCreateFlow,
+    saving,
+    whatsappConnected,
+  ]);
 
   const handleOpenExistingSystem = useCallback(
     async (systemId: string) => {
@@ -627,6 +711,8 @@ export default function OverviewMain() {
       const ok = await loadConfig(systemId);
       if (!ok) return;
       setError(null);
+      setDraftCompanyOnboardingId(null);
+      setDraftCompanyName(null);
       setActiveTopic("messages");
       setMode("wizard");
     },
@@ -676,6 +762,10 @@ export default function OverviewMain() {
         body: JSON.stringify({
           action: "save-system-config",
           systemId: activeSystemId || undefined,
+          companyOnboardingId:
+            !activeSystemId && draftCompanyOnboardingId
+              ? draftCompanyOnboardingId
+              : undefined,
           config: form,
         }),
       });
@@ -690,13 +780,23 @@ export default function OverviewMain() {
       setSystems(normalizeSystemSummaries(payload.systems));
       setActiveSystemId(String(payload.activeSystemId || "").trim() || activeSystemId || null);
       setSavedAt(String(payload.updatedAt || payload.createdAt || "") || null);
+      if (!activeSystemId && draftCompanyOnboardingId) {
+        onConsumePendingCompanySystem?.(draftCompanyOnboardingId);
+      }
+      setDraftCompanyOnboardingId(null);
+      setDraftCompanyName(null);
       setMode("success");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Falha ao salvar sistema.");
     } finally {
       setSaving(false);
     }
-  }, [activeSystemId, form]);
+  }, [
+    activeSystemId,
+    draftCompanyOnboardingId,
+    form,
+    onConsumePendingCompanySystem,
+  ]);
 
   const handlePrimaryAction = async () => {
     if (saving) return;
@@ -740,6 +840,7 @@ export default function OverviewMain() {
       {
         id: activeSystemId || "current-system",
         companyName: companyName || "Minha empresa",
+        companyOnboardingId: null,
         status: "active",
         createdAt: "",
         updatedAt: savedAt || "",
@@ -851,14 +952,24 @@ export default function OverviewMain() {
 
                     <button
                       type="button"
-                      onClick={handleCreateClick}
-                      disabled={loadingConfig}
+                      onClick={() => void handleCreateClick()}
+                      disabled={
+                        loadingConfig ||
+                        saving ||
+                        onboardingLocked ||
+                        requestingCreateFlow ||
+                        requestingAdditionalCompany
+                      }
                       className={cx(
                         "relative min-h-[172px] overflow-hidden rounded-[22px] border border-black/[0.06] bg-black/[0.08] px-5 py-4 text-left",
                         "shadow-[0_6px_14px_rgba(0,0,0,0.03)] transition-[background-color,box-shadow] duration-200 ease-out",
                         "hover:bg-black/[0.11] hover:shadow-[0_10px_20px_rgba(0,0,0,0.06)]",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#eff0f2]",
-                        loadingConfig ? "cursor-wait opacity-85" : "cursor-pointer",
+                        loadingConfig || saving || requestingCreateFlow || requestingAdditionalCompany
+                          ? "cursor-wait opacity-85"
+                          : onboardingLocked
+                            ? "cursor-not-allowed opacity-70"
+                            : "cursor-pointer",
                       )}
                       aria-label="Adicionar novo sistema"
                     >
@@ -869,9 +980,16 @@ export default function OverviewMain() {
                         <span className="text-[13px] font-semibold tracking-[0.01em] text-black/78">
                           Adicionar novo sistema
                         </span>
-                        {!loadingConfig && !whatsappConnected && (
+                        {!loadingConfig &&
+                          !saving &&
+                          (requestingCreateFlow || requestingAdditionalCompany) && (
+                            <span className="max-w-[220px] text-center text-[11px] font-medium text-black/56">
+                              Preparando onboarding da nova empresa...
+                            </span>
+                          )}
+                        {!loadingConfig && onboardingLocked && (
                           <span className="max-w-[220px] text-center text-[11px] font-medium text-[#b2433e]">
-                            Conecte o WhatsApp no onboarding para ativar.
+                            Conclua o onboarding principal para continuar.
                           </span>
                         )}
                       </span>
@@ -881,15 +999,19 @@ export default function OverviewMain() {
                   <>
                     <button
                       type="button"
-                      onClick={handleCreateClick}
-                      disabled={loadingConfig}
+                      onClick={() => void handleCreateClick()}
+                      disabled={loadingConfig || onboardingLocked}
                       className={cx(
                         "relative min-h-[172px] overflow-hidden rounded-[22px] px-5 py-4 text-left",
                         DARK_BUTTON_GRADIENT_CLASS,
                         "shadow-[0_16px_34px_rgba(0,0,0,0.25)] transition-[box-shadow,filter] duration-200 ease-out",
                         "hover:brightness-[1.04] hover:shadow-[0_20px_38px_rgba(0,0,0,0.28)]",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#eff0f2]",
-                        loadingConfig ? "cursor-wait opacity-85" : "cursor-pointer",
+                        loadingConfig
+                          ? "cursor-wait opacity-85"
+                          : onboardingLocked
+                            ? "cursor-not-allowed opacity-70"
+                            : "cursor-pointer",
                       )}
                       aria-label="Criar meu sistema"
                     >
@@ -944,6 +1066,11 @@ export default function OverviewMain() {
                   Defina como seu bot vai atender clientes, responder fora do horario e conduzir
                   conversas no dia a dia.
                 </p>
+                {!activeSystemId && (draftCompanyName || companyName) && (
+                  <p className="mt-2 text-[12px] font-medium text-black/56">
+                    Empresa vinculada: {draftCompanyName || companyName}
+                  </p>
+                )}
               </header>
 
               <div className="mb-5 flex gap-2 overflow-x-auto pb-1 lg:hidden">
@@ -1491,7 +1618,7 @@ export default function OverviewMain() {
                     <button
                       type="button"
                       onClick={() => void handlePrimaryAction()}
-                      disabled={saving || !whatsappConnected}
+                      disabled={saving || !whatsappConnected || onboardingLocked}
                       className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#131417] px-5 text-[13px] font-semibold text-white transition-colors hover:bg-[#1d2129] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {saving

@@ -70,6 +70,11 @@ type OnboardingModalProps = {
   required?: boolean;
   userEmail: string;
   initialData?: OnboardingState | null;
+  apiBasePath?: string;
+  logoApiBasePath?: string;
+  contextId?: string | null;
+  contextParamName?: string;
+  flowMode?: "primary" | "additional-company";
   onClose: () => void;
   onUpdated?: (next: OnboardingState) => void;
   onCompleted?: (next: OnboardingState) => void;
@@ -77,6 +82,18 @@ type OnboardingModalProps = {
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
+}
+
+function appendContextToPath(path: string, key: string, value?: string | null) {
+  const cleanPath = String(path || "").trim();
+  const cleanKey = String(key || "").trim();
+  const cleanValue = String(value || "").trim();
+  if (!cleanPath || !cleanKey || !cleanValue) return cleanPath;
+
+  const base = "http://localhost";
+  const url = new URL(cleanPath, base);
+  url.searchParams.set(cleanKey, cleanValue);
+  return `${url.pathname}${url.search}`;
 }
 
 function normalizeCnpjDigits(value?: string | null) {
@@ -658,6 +675,11 @@ export default function OnboardingModal({
   required = false,
   userEmail,
   initialData = null,
+  apiBasePath = "/api/wz_users/onboarding",
+  logoApiBasePath = "/api/wz_users/onboarding/logo",
+  contextId = null,
+  contextParamName = "companyOnboardingId",
+  flowMode = "primary",
   onClose,
   onUpdated,
   onCompleted,
@@ -709,6 +731,15 @@ export default function OnboardingModal({
   const qrCodeDataUrlRef = useRef("");
   const whatsappStateRef = useRef("");
   const canDismiss = !required || Boolean(onboarding?.completed);
+  const isAdditionalCompanyFlow = flowMode === "additional-company";
+  const resolvedApiPath = useMemo(
+    () => appendContextToPath(apiBasePath, contextParamName, contextId),
+    [apiBasePath, contextId, contextParamName],
+  );
+  const resolvedLogoApiPath = useMemo(
+    () => appendContextToPath(logoApiBasePath, contextParamName, contextId),
+    [contextId, contextParamName, logoApiBasePath],
+  );
 
   const handleDismiss = useCallback(() => {
     if (!canDismiss) return;
@@ -724,12 +755,32 @@ export default function OnboardingModal({
 
   const leftSteps = useMemo(() => {
     return [
-      { id: "company" as WizardStep, title: "Dados da empresa", subtitle: "Logo, nome, CNPJ e atuacao", icon: Building2 },
-      { id: "team" as WizardStep, title: "Estrutura de atendimento", subtitle: "Equipe, objetivo e volume", icon: Users },
-      { id: "whatsapp" as WizardStep, title: "Conectar WhatsApp", subtitle: "Conexao automatica em tempo real", icon: MessageCircle },
-      { id: "final" as WizardStep, title: "Tudo pronto", subtitle: "Revisar e concluir", icon: CheckCircle2 },
+      {
+        id: "company" as WizardStep,
+        title: "Dados da empresa",
+        subtitle: "Logo, nome, CNPJ e atuacao",
+        icon: Building2,
+      },
+      {
+        id: "team" as WizardStep,
+        title: "Estrutura de atendimento",
+        subtitle: "Equipe, objetivo e volume",
+        icon: Users,
+      },
+      {
+        id: "whatsapp" as WizardStep,
+        title: "Conectar WhatsApp",
+        subtitle: "Conexao automatica em tempo real",
+        icon: MessageCircle,
+      },
+      {
+        id: "final" as WizardStep,
+        title: isAdditionalCompanyFlow ? "Empresa vinculada" : "Tudo pronto",
+        subtitle: isAdditionalCompanyFlow ? "Concluir e criar sistema" : "Revisar e concluir",
+        icon: CheckCircle2,
+      },
     ];
-  }, []);
+  }, [isAdditionalCompanyFlow]);
 
   const industryOptions = useMemo(() => {
     const current = String(industry || "").trim();
@@ -744,8 +795,11 @@ export default function OnboardingModal({
       .trim()
       .toLowerCase();
     if (!base) return null;
-    return `wz:onboarding:draft:${base}`;
-  }, [onboarding?.email, onboarding?.userId, userEmail]);
+    const flowToken = isAdditionalCompanyFlow
+      ? `company:${String(contextId || "").trim() || "new"}`
+      : "primary";
+    return `wz:onboarding:draft:${flowToken}:${base}`;
+  }, [contextId, isAdditionalCompanyFlow, onboarding?.email, onboarding?.userId, userEmail]);
 
   const companyFormDirty = useMemo(() => {
     const baseAddressParts = splitAddressAndNumber(onboarding?.companyAddress || "");
@@ -863,7 +917,7 @@ export default function OnboardingModal({
         setError(null);
       }
       try {
-        const res = await fetch("/api/wz_users/onboarding", {
+        const res = await fetch(resolvedApiPath, {
           method: "GET",
           cache: "no-store",
           credentials: "include",
@@ -913,7 +967,7 @@ export default function OnboardingModal({
         }
       }
     },
-    [applyOnboardingUpdate],
+    [applyOnboardingUpdate, resolvedApiPath],
   );
 
   const generateWhatsAppQr = useCallback(
@@ -923,7 +977,7 @@ export default function OnboardingModal({
       lastQrGenerationAtRef.current = Date.now();
 
       try {
-        const res = await fetch("/api/wz_users/onboarding", {
+        const res = await fetch(resolvedApiPath, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -964,7 +1018,7 @@ export default function OnboardingModal({
         qrGenerationInFlightRef.current = false;
       }
     },
-    [applyOnboardingUpdate],
+    [applyOnboardingUpdate, resolvedApiPath],
   );
 
   useEffect(() => {
@@ -1239,7 +1293,7 @@ export default function OnboardingModal({
       body: Record<string, unknown>,
       opts?: { respectDirty?: boolean },
     ): Promise<OnboardingApiSuccessPayload> => {
-      const res = await fetch("/api/wz_users/onboarding", {
+      const res = await fetch(resolvedApiPath, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -1277,7 +1331,7 @@ export default function OnboardingModal({
       if (successPayload.onboarding.completed) onCompleted?.(successPayload.onboarding);
       return successPayload;
     },
-    [applyOnboardingUpdate, onCompleted],
+    [applyOnboardingUpdate, onCompleted, resolvedApiPath],
   );
 
   const handleCompanyContinue = useCallback(async () => {
@@ -1413,7 +1467,7 @@ export default function OnboardingModal({
       setUploadingLogo(true);
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch("/api/wz_users/onboarding/logo", {
+      const res = await fetch(resolvedLogoApiPath, {
         method: "POST",
         body: form,
         credentials: "include",
@@ -1447,7 +1501,7 @@ export default function OnboardingModal({
     } finally {
       setUploadingLogo(false);
     }
-  }, [onUpdated]);
+  }, [onUpdated, resolvedLogoApiPath]);
 
   const openLogoPicker = useCallback(() => {
     fileInputRef.current?.click();
@@ -1483,7 +1537,11 @@ export default function OnboardingModal({
         <motion.section
           role="dialog"
           aria-modal="true"
-          aria-label="Onboarding inicial da empresa"
+          aria-label={
+            isAdditionalCompanyFlow
+              ? "Onboarding para adicionar nova empresa"
+              : "Onboarding inicial da empresa"
+          }
           initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.985 }}
           animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
           exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.985 }}
@@ -1494,9 +1552,13 @@ export default function OnboardingModal({
             <aside className="relative overflow-hidden bg-[#151618] px-5 py-6 text-white sm:px-6">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(66,153,225,0.16),transparent_48%),radial-gradient(circle_at_85%_80%,rgba(16,185,129,0.14),transparent_45%)]" />
               <div className="relative">
-                <h2 className="text-[34px] font-semibold leading-[1.04]">Vamos comecar</h2>
+                <h2 className="text-[34px] font-semibold leading-[1.04]">
+                  {isAdditionalCompanyFlow ? "Adicionar empresa" : "Vamos comecar"}
+                </h2>
                 <p className="mt-2 text-[13px] text-white/72">
-                  Complete as etapas para ativar sua operacao no WhatsApp.
+                  {isAdditionalCompanyFlow
+                    ? "Complete as etapas para vincular mais uma empresa e conectar outro WhatsApp."
+                    : "Complete as etapas para ativar sua operacao no WhatsApp."}
                 </p>
 
                 <div className="mt-5">
@@ -1551,7 +1613,10 @@ export default function OnboardingModal({
                     {activeStep === "company" && "Dados da empresa"}
                     {activeStep === "team" && "Estrutura da operacao"}
                     {activeStep === "whatsapp" && "Conectar WhatsApp Business"}
-                    {activeStep === "final" && "Onboarding concluido"}
+                    {activeStep === "final" &&
+                      (isAdditionalCompanyFlow
+                        ? "Empresa pronta para criar sistema"
+                        : "Onboarding concluido")}
                   </h3>
                   <div className="flex items-center gap-2">
                     <p className="truncate text-[12px] text-black/58">Conta: {maskEmail(onboarding?.email || userEmail)}</p>
@@ -1602,7 +1667,9 @@ export default function OnboardingModal({
                     {activeStep === "company" && (
                       <div>
                         <p className="text-[14px] text-black/62">
-                          Preencha os dados da empresa para iniciarmos seu fluxo de atendimento.
+                          {isAdditionalCompanyFlow
+                            ? "Preencha os dados da nova empresa para iniciar um novo sistema de atendimento."
+                            : "Preencha os dados da empresa para iniciarmos seu fluxo de atendimento."}
                         </p>
 
                         <div className="mt-4">
@@ -1944,9 +2011,15 @@ export default function OnboardingModal({
                     {activeStep === "final" && (
                       <div>
                         <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-4">
-                          <p className="text-[16px] font-semibold text-emerald-800">Onboarding concluido com sucesso</p>
+                          <p className="text-[16px] font-semibold text-emerald-800">
+                            {isAdditionalCompanyFlow
+                              ? "Nova empresa adicionada com sucesso"
+                              : "Onboarding concluido com sucesso"}
+                          </p>
                           <p className="mt-1 text-[13px] text-emerald-900/80">
-                            Sua empresa esta pronta para iniciar os atendimentos no painel.
+                            {isAdditionalCompanyFlow
+                              ? "Empresa vinculada e WhatsApp conectado. Agora voce pode criar o sistema dela."
+                              : "Sua empresa esta pronta para iniciar os atendimentos no painel."}
                           </p>
                         </div>
                         <div className="mt-4 space-y-2 rounded-2xl border border-black/10 bg-white/86 p-4 text-[13px] text-black/70">
@@ -2052,7 +2125,11 @@ export default function OnboardingModal({
                         saving || loading ? "cursor-not-allowed opacity-70" : "hover:bg-[#242424] active:translate-y-[0.6px] active:scale-[0.992]",
                       )}
                     >
-                      {saving ? "Finalizando..." : "Entrar no dashboard"}
+                      {saving
+                        ? "Finalizando..."
+                        : isAdditionalCompanyFlow
+                          ? "Ir para criar sistema"
+                          : "Entrar no dashboard"}
                     </button>
                   )}
                 </div>
@@ -2064,5 +2141,6 @@ export default function OnboardingModal({
     </AnimatePresence>
   );
 }
+
 
 

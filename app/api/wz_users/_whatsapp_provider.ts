@@ -410,10 +410,12 @@ export function isOwnWhatsAppProviderConfigured() {
   return resolveBooleanEnv(process.env.WHATSAPP_SELF_HOSTED_ENABLED, true);
 }
 
-export function buildOwnWhatsAppInstanceName(userId: string) {
+export function buildOwnWhatsAppInstanceName(userId: string, scopeId?: string | null) {
   const prefix = resolveLocalInstancePrefix();
   const userToken = sanitizeInstanceToken(userId) || "unknown";
-  return `${prefix}-${userToken}`.slice(0, 64);
+  const scopeToken = sanitizeInstanceToken(String(scopeId || ""));
+  const scoped = scopeToken ? `${prefix}-${userToken}-${scopeToken}` : `${prefix}-${userToken}`;
+  return scoped.slice(0, 64);
 }
 
 export async function ensureOwnWhatsAppInstance(
