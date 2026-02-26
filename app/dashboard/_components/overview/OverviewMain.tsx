@@ -70,11 +70,14 @@ export default function OverviewMain({ onCreateChatbot }: OverviewMainProps) {
             <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_16%_14%,rgba(255,255,255,0.38),transparent_42%),radial-gradient(circle_at_82%_84%,rgba(0,0,0,0.12),transparent_50%)]" />
             <span className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,0.2)_38%,transparent_60%)]" />
 
-            <span className="relative z-[1] flex h-full items-center justify-center">
+            <span className="relative z-[1] flex h-full flex-col items-center justify-center gap-2">
               <Plus
                 className="overview-create-plus h-[58px] w-[58px] text-white drop-shadow-[0_10px_22px_rgba(0,0,0,0.2)] sm:h-[64px] sm:w-[64px]"
                 strokeWidth={2.35}
               />
+              <span className="text-[12px] font-semibold tracking-[0.01em] text-white/95 sm:text-[13px]">
+                Criar meu sistema
+              </span>
             </span>
           </button>
 
