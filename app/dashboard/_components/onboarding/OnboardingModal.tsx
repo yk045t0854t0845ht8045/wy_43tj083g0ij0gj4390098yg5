@@ -431,6 +431,7 @@ const MONTHLY_CONVERSATION_TIER_OPTIONS: SelectOption[] = [
   { value: "10001_plus", label: "Mais de 10.000 conversas/mes" },
 ];
 const WHATSAPP_QR_REGENERATE_COOLDOWN_MS = 4500;
+const WHATSAPP_REALTIME_SYNC_INTERVAL_MS = 1800;
 
 function formatPostalCode(value?: string | null) {
   const digits = String(value || "").replace(/\D+/g, "").slice(0, 8);
@@ -699,6 +700,9 @@ export default function OnboardingModal({
   const [pairingUrl, setPairingUrl] = useState<string>("");
   const [whatsappState, setWhatsappState] = useState<string>("");
   const [providerConfigured, setProviderConfigured] = useState(true);
+  const whatsappConnectedRef = useRef(Boolean(initialData?.whatsappConnected));
+  const qrCodeDataUrlRef = useRef("");
+  const whatsappStateRef = useRef("");
   const canDismiss = !required || Boolean(onboarding?.completed);
 
   const handleDismiss = useCallback(() => {
@@ -829,7 +833,10 @@ export default function OnboardingModal({
       }
       setActiveStep(normalizeStepFromOnboarding(next));
       setPairingExpiresAt(next.whatsappPairingExpiresAt || null);
-      setWhatsappState(next.whatsappConnected ? "open" : "close");
+      const nextWhatsappState = next.whatsappConnected ? "open" : "close";
+      setWhatsappState(nextWhatsappState);
+      whatsappConnectedRef.current = Boolean(next.whatsappConnected);
+      whatsappStateRef.current = nextWhatsappState;
       onUpdated?.(next);
     },
     [onUpdated],
@@ -839,7 +846,7 @@ export default function OnboardingModal({
     async (opts?: { silent?: boolean }) => {
       const silent = Boolean(opts?.silent);
       if (silent && silentFetchInFlightRef.current) {
-        return;
+        return null;
       }
 
       const requestId = ++latestFetchRequestIdRef.current;
@@ -861,7 +868,7 @@ export default function OnboardingModal({
           throw new Error(String(payload?.error || "Nao foi possivel carregar onboarding."));
         }
         if (requestId !== latestFetchRequestIdRef.current) {
-          return;
+          return null;
         }
         hasLoadedOnboardingRef.current = true;
         applyOnboardingUpdate(payload.onboarding);
@@ -872,12 +879,24 @@ export default function OnboardingModal({
         }
         setPairingExpiresAt(String(payload.pairingExpiresAt || payload.onboarding.whatsappPairingExpiresAt || "") || null);
         setPairingUrl(String(payload.pairingUrl || ""));
-        setWhatsappState(String(payload.whatsappState || (payload.onboarding.whatsappConnected ? "open" : "close")));
+        const resolvedWhatsappState = String(
+          payload.whatsappState || (payload.onboarding.whatsappConnected ? "open" : "close"),
+        );
+        setWhatsappState(resolvedWhatsappState);
+        whatsappConnectedRef.current = Boolean(payload.onboarding.whatsappConnected);
+        whatsappStateRef.current = resolvedWhatsappState;
         setProviderConfigured(payload.providerConfigured !== false);
+        if (payload.qrCodeDataUrl) {
+          qrCodeDataUrlRef.current = String(payload.qrCodeDataUrl);
+        } else if (payload.onboarding.whatsappConnected || payload.onboarding.uiStep !== "whatsapp") {
+          qrCodeDataUrlRef.current = "";
+        }
+        return payload;
       } catch (fetchError) {
         if (requestId === latestFetchRequestIdRef.current) {
           setError(fetchError instanceof Error ? fetchError.message : "Falha ao carregar onboarding.");
         }
+        return null;
       } finally {
         if (silent) {
           silentFetchInFlightRef.current = false;
@@ -894,7 +913,7 @@ export default function OnboardingModal({
 
   const generateWhatsAppQr = useCallback(
     async (opts?: { silent?: boolean }) => {
-      if (qrGenerationInFlightRef.current) return;
+      if (qrGenerationInFlightRef.current) return null;
       qrGenerationInFlightRef.current = true;
       lastQrGenerationAtRef.current = Date.now();
 
@@ -914,25 +933,46 @@ export default function OnboardingModal({
         applyOnboardingUpdate(payload.onboarding);
         if (payload.qrCodeDataUrl) {
           setQrCodeDataUrl(String(payload.qrCodeDataUrl));
+          qrCodeDataUrlRef.current = String(payload.qrCodeDataUrl);
         } else if (payload.onboarding.whatsappConnected || payload.onboarding.uiStep !== "whatsapp") {
           setQrCodeDataUrl("");
+          qrCodeDataUrlRef.current = "";
         }
         setPairingExpiresAt(String(payload.pairingExpiresAt || payload.onboarding.whatsappPairingExpiresAt || "") || null);
         setPairingUrl(String(payload.pairingUrl || ""));
-        setWhatsappState(String(payload.whatsappState || (payload.onboarding.whatsappConnected ? "open" : "close")));
+        const resolvedWhatsappState = String(
+          payload.whatsappState || (payload.onboarding.whatsappConnected ? "open" : "close"),
+        );
+        setWhatsappState(resolvedWhatsappState);
+        whatsappConnectedRef.current = Boolean(payload.onboarding.whatsappConnected);
+        whatsappStateRef.current = resolvedWhatsappState;
         if (typeof payload.providerConfigured === "boolean") {
           setProviderConfigured(payload.providerConfigured);
         }
+        return payload;
       } catch (generateError) {
         if (!opts?.silent) {
           setError(generateError instanceof Error ? generateError.message : "Falha ao gerar QR Code.");
         }
+        return null;
       } finally {
         qrGenerationInFlightRef.current = false;
       }
     },
     [applyOnboardingUpdate],
   );
+
+  useEffect(() => {
+    whatsappConnectedRef.current = Boolean(onboarding?.whatsappConnected);
+  }, [onboarding?.whatsappConnected]);
+
+  useEffect(() => {
+    qrCodeDataUrlRef.current = String(qrCodeDataUrl || "");
+  }, [qrCodeDataUrl]);
+
+  useEffect(() => {
+    whatsappStateRef.current = String(whatsappState || "");
+  }, [whatsappState]);
 
   useEffect(() => {
     if (!initialData) return;
@@ -1104,12 +1144,18 @@ export default function OnboardingModal({
     let stopped = false;
     const syncRealtime = async () => {
       if (stopped) return;
-      await fetchOnboarding({ silent: true });
+      const payload = await fetchOnboarding({ silent: true });
       if (stopped) return;
-      if (onboarding?.whatsappConnected || qrCodeDataUrl) return;
 
+      const connectedNow = Boolean(payload?.onboarding?.whatsappConnected || whatsappConnectedRef.current);
+      const hasQrNow = Boolean(payload?.qrCodeDataUrl || qrCodeDataUrlRef.current);
+      if (connectedNow || hasQrNow) return;
+
+      const currentProviderState = String(payload?.whatsappState || whatsappStateRef.current || "").toLowerCase();
       const providerNeedsRecovery =
-        whatsappState === "error" || whatsappState === "logged_out" || whatsappState === "close";
+        currentProviderState === "error" ||
+        currentProviderState === "logged_out" ||
+        currentProviderState === "close";
       const cooldownElapsed = Date.now() - lastQrGenerationAtRef.current > WHATSAPP_QR_REGENERATE_COOLDOWN_MS;
       if (providerNeedsRecovery || cooldownElapsed) {
         await generateWhatsAppQr({ silent: true });
@@ -1119,7 +1165,7 @@ export default function OnboardingModal({
     void syncRealtime();
     const timer = window.setInterval(() => {
       void syncRealtime();
-    }, 3500);
+    }, WHATSAPP_REALTIME_SYNC_INTERVAL_MS);
 
     return () => {
       stopped = true;
@@ -1130,22 +1176,19 @@ export default function OnboardingModal({
     fetchOnboarding,
     generateWhatsAppQr,
     onboarding?.completed,
-    onboarding?.whatsappConnected,
     open,
-    qrCodeDataUrl,
-    whatsappState,
   ]);
 
   useEffect(() => {
     if (!open) return;
     if (activeStep !== "whatsapp") return;
-    if (onboarding?.whatsappConnected) return;
-    if (qrCodeDataUrl) return;
+    if (whatsappConnectedRef.current) return;
+    if (qrCodeDataUrlRef.current) return;
 
     const cooldownElapsed = Date.now() - lastQrGenerationAtRef.current > 2000;
     if (!cooldownElapsed) return;
     void generateWhatsAppQr({ silent: true });
-  }, [activeStep, generateWhatsAppQr, onboarding?.whatsappConnected, open, qrCodeDataUrl]);
+  }, [activeStep, generateWhatsAppQr, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -1201,10 +1244,21 @@ export default function OnboardingModal({
       }
 
       applyOnboardingUpdate(payload.onboarding, { respectDirty: opts?.respectDirty });
-      if (payload.qrCodeDataUrl) setQrCodeDataUrl(String(payload.qrCodeDataUrl));
-      if (payload.pairingExpiresAt) setPairingExpiresAt(String(payload.pairingExpiresAt));
-      if (payload.pairingUrl) setPairingUrl(String(payload.pairingUrl));
-      if (payload.whatsappState) setWhatsappState(String(payload.whatsappState));
+      if (payload.qrCodeDataUrl) {
+        setQrCodeDataUrl(String(payload.qrCodeDataUrl));
+        qrCodeDataUrlRef.current = String(payload.qrCodeDataUrl);
+      } else if (payload.onboarding.whatsappConnected || payload.onboarding.uiStep !== "whatsapp") {
+        setQrCodeDataUrl("");
+        qrCodeDataUrlRef.current = "";
+      }
+      setPairingExpiresAt(String(payload.pairingExpiresAt || payload.onboarding.whatsappPairingExpiresAt || "") || null);
+      setPairingUrl(String(payload.pairingUrl || ""));
+      const resolvedWhatsappState = String(
+        payload.whatsappState || (payload.onboarding.whatsappConnected ? "open" : "close"),
+      );
+      setWhatsappState(resolvedWhatsappState);
+      whatsappStateRef.current = resolvedWhatsappState;
+      whatsappConnectedRef.current = Boolean(payload.onboarding.whatsappConnected);
       if (typeof payload.providerConfigured === "boolean") {
         setProviderConfigured(payload.providerConfigured);
       }
@@ -1294,12 +1348,15 @@ export default function OnboardingModal({
         monthlyConversationsTier,
       }, { respectDirty: false });
       setActiveStep(normalizeStepFromOnboarding(payload.onboarding));
+      if (!payload.onboarding.whatsappConnected && !payload.qrCodeDataUrl) {
+        void generateWhatsAppQr({ silent: true });
+      }
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Nao foi possivel salvar os dados do time.");
     } finally {
       setSaving(false);
     }
-  }, [monthlyConversationsTier, onboardingGoal, postAction, teamAgentsCount]);
+  }, [generateWhatsAppQr, monthlyConversationsTier, onboardingGoal, postAction, teamAgentsCount]);
 
   const handleRefreshWhatsApp = useCallback(async () => {
     setError(null);
