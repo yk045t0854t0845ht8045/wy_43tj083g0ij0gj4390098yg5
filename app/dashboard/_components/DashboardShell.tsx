@@ -6,6 +6,7 @@ import LoadingBase from "./LoadingBase";
 import Sidebar from "./sidebar";
 import ConfigMain, { type ConfigSectionId } from "./config/ConfigMain";
 import OnboardingModal, { type OnboardingState } from "./onboarding/OnboardingModal";
+import OverviewMain from "./overview/OverviewMain";
 
 type DashboardShellProps = {
   userNickname: string;
@@ -590,8 +591,8 @@ export default function DashboardShell({
         locked={onboardingUiLocked}
       />
 
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center" />
+      <div className="relative flex-1 overflow-y-auto bg-[#eff0f2]">
+        <OverviewMain />
         <WyzerAIWidget />
       </div>
 
