@@ -60,6 +60,11 @@ type OnboardingApiPayload = {
   companyLogoUrl?: string;
 };
 
+type OnboardingApiSuccessPayload = Omit<OnboardingApiPayload, "ok" | "onboarding"> & {
+  ok: true;
+  onboarding: OnboardingState;
+};
+
 type OnboardingModalProps = {
   open: boolean;
   required?: boolean;
@@ -1230,7 +1235,10 @@ export default function OnboardingModal({
   }, [hasUnsavedChanges, open]);
 
   const postAction = useCallback(
-    async (body: Record<string, unknown>, opts?: { respectDirty?: boolean }) => {
+    async (
+      body: Record<string, unknown>,
+      opts?: { respectDirty?: boolean },
+    ): Promise<OnboardingApiSuccessPayload> => {
       const res = await fetch("/api/wz_users/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1243,27 +1251,31 @@ export default function OnboardingModal({
         throw new Error(String(payload?.error || "Falha ao salvar onboarding."));
       }
 
-      applyOnboardingUpdate(payload.onboarding, { respectDirty: opts?.respectDirty });
-      if (payload.qrCodeDataUrl) {
-        setQrCodeDataUrl(String(payload.qrCodeDataUrl));
-        qrCodeDataUrlRef.current = String(payload.qrCodeDataUrl);
-      } else if (payload.onboarding.whatsappConnected || payload.onboarding.uiStep !== "whatsapp") {
+      const successPayload = payload as OnboardingApiSuccessPayload;
+
+      applyOnboardingUpdate(successPayload.onboarding, { respectDirty: opts?.respectDirty });
+      if (successPayload.qrCodeDataUrl) {
+        setQrCodeDataUrl(String(successPayload.qrCodeDataUrl));
+        qrCodeDataUrlRef.current = String(successPayload.qrCodeDataUrl);
+      } else if (successPayload.onboarding.whatsappConnected || successPayload.onboarding.uiStep !== "whatsapp") {
         setQrCodeDataUrl("");
         qrCodeDataUrlRef.current = "";
       }
-      setPairingExpiresAt(String(payload.pairingExpiresAt || payload.onboarding.whatsappPairingExpiresAt || "") || null);
-      setPairingUrl(String(payload.pairingUrl || ""));
+      setPairingExpiresAt(
+        String(successPayload.pairingExpiresAt || successPayload.onboarding.whatsappPairingExpiresAt || "") || null,
+      );
+      setPairingUrl(String(successPayload.pairingUrl || ""));
       const resolvedWhatsappState = String(
-        payload.whatsappState || (payload.onboarding.whatsappConnected ? "open" : "close"),
+        successPayload.whatsappState || (successPayload.onboarding.whatsappConnected ? "open" : "close"),
       );
       setWhatsappState(resolvedWhatsappState);
       whatsappStateRef.current = resolvedWhatsappState;
-      whatsappConnectedRef.current = Boolean(payload.onboarding.whatsappConnected);
-      if (typeof payload.providerConfigured === "boolean") {
-        setProviderConfigured(payload.providerConfigured);
+      whatsappConnectedRef.current = Boolean(successPayload.onboarding.whatsappConnected);
+      if (typeof successPayload.providerConfigured === "boolean") {
+        setProviderConfigured(successPayload.providerConfigured);
       }
-      if (payload.onboarding.completed) onCompleted?.(payload.onboarding);
-      return payload;
+      if (successPayload.onboarding.completed) onCompleted?.(successPayload.onboarding);
+      return successPayload;
     },
     [applyOnboardingUpdate, onCompleted],
   );
