@@ -3,10 +3,8 @@ import { readActiveSessionFromRequest } from "@/app/api/wz_AuthLogin/_active_ses
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import {
   ensureOnboardingRecord,
-  normalizeBoolean,
   normalizeEmail,
   normalizeOptionalText,
-  ONBOARDING_SCHEMA_HINT,
 } from "@/app/api/wz_users/_onboarding";
 
 export const dynamic = "force-dynamic";
@@ -19,28 +17,33 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 };
 
-const BOT_SYSTEM_METADATA_KEY = "bot_system_mvp";
-const BOT_SYSTEM_CONFIG_VERSION = 1;
+const BOT_SYSTEM_TABLE = "wz_bot_systems";
+const BOT_SYSTEM_SQL_HINT =
+  "Estrutura do sistema de WhatsApp nao encontrada. Execute o SQL /sql/wz_bot_systems_create.sql no Supabase.";
 
-const OPERATION_DAY_VALUES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
-type OperationDay = (typeof OPERATION_DAY_VALUES)[number];
+const DAY_VALUES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+type ScheduleDay = (typeof DAY_VALUES)[number];
 
-type BotSystemConfig = {
-  version: number;
-  systemName: string;
-  companyContext: string;
-  assistantRole: string;
-  welcomeEnabled: boolean;
+type DaySchedule = {
+  day: ScheduleDay;
+  enabled: boolean;
+  start: string;
+  end: string;
+};
+
+type SystemConfig = {
   welcomeMessage: string;
-  operationDays: OperationDay[];
-  operationStart: string;
-  operationEnd: string;
+  closingMessage: string;
   outOfHoursMessage: string;
-  fallbackMessage: string;
-  humanHandoffEnabled: boolean;
-  humanHandoffMessage: string;
-  createdAt: string;
-  updatedAt: string;
+  weeklySchedule: DaySchedule[];
+  aiInstructions: string;
+  aiFallbackMessage: string;
+  aiResponseTone: "professional" | "friendly" | "consultative" | "objective";
+  aiResponseSize: "concise" | "balanced" | "detailed";
+  aiCollectName: boolean;
+  aiCollectEmail: boolean;
+  aiCollectPhone: boolean;
+  aiTransferToHumanWhenUncertain: boolean;
 };
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -53,18 +56,23 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-function normalizeShortText(value: unknown, maxLength = 120) {
-  const clean = String(value || "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!clean) return "";
-  return clean.slice(0, maxLength);
+function isMissingBotSystemSchema(error: unknown) {
+  const code = String((error as { code?: unknown } | null)?.code || "").trim().toUpperCase();
+  if (code === "42P01" || code === "PGRST205") return true;
+
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  const hint = String((error as { hint?: unknown } | null)?.hint || "").toLowerCase();
+  return (
+    message.includes(BOT_SYSTEM_TABLE) ||
+    details.includes(BOT_SYSTEM_TABLE) ||
+    hint.includes(BOT_SYSTEM_TABLE)
+  );
 }
 
-function normalizeLongText(value: unknown, maxLength = 1200) {
+function normalizeLongText(value: unknown, maxLength = 1800) {
   const clean = String(value || "")
     .replace(/\r/g, "")
-    .replace(/\t/g, " ")
     .replace(/[ ]{2,}/g, " ")
     .trim();
   if (!clean) return "";
@@ -77,75 +85,62 @@ function normalizeTime(value: unknown) {
   return clean;
 }
 
-function normalizeOperationDays(value: unknown): OperationDay[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<OperationDay>();
-  for (const item of value) {
-    const clean = String(item || "").trim().toLowerCase();
-    if ((OPERATION_DAY_VALUES as readonly string[]).includes(clean)) {
-      seen.add(clean as OperationDay);
-    }
+function normalizeBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const clean = value.trim().toLowerCase();
+    return clean === "1" || clean === "true" || clean === "t" || clean === "yes" || clean === "sim";
   }
-  return OPERATION_DAY_VALUES.filter((day) => seen.has(day));
+  return false;
 }
 
-function normalizeBooleanInput(value: unknown) {
-  return normalizeBoolean(value);
+function normalizeDay(value: unknown): ScheduleDay | null {
+  const clean = String(value || "").trim().toLowerCase();
+  return DAY_VALUES.includes(clean as ScheduleDay) ? (clean as ScheduleDay) : null;
 }
 
-function normalizeStoredConfig(value: unknown): BotSystemConfig | null {
-  const record = asRecord(value);
-  if (!record) return null;
+function normalizeSchedule(input: unknown): DaySchedule[] {
+  if (!Array.isArray(input)) return [];
 
-  const operationDays = normalizeOperationDays(record.operationDays);
-  const operationStart = normalizeTime(record.operationStart);
-  const operationEnd = normalizeTime(record.operationEnd);
-  const systemName = normalizeShortText(record.systemName, 90);
-  const companyContext = normalizeLongText(record.companyContext, 1800);
-  const assistantRole = normalizeLongText(record.assistantRole, 1800);
-  const welcomeEnabled = normalizeBooleanInput(record.welcomeEnabled);
-  const welcomeMessage = normalizeLongText(record.welcomeMessage, 1200);
-  const outOfHoursMessage = normalizeLongText(record.outOfHoursMessage, 1200);
-  const fallbackMessage = normalizeLongText(record.fallbackMessage, 1200);
-  const humanHandoffEnabled = normalizeBooleanInput(record.humanHandoffEnabled);
-  const humanHandoffMessage = normalizeLongText(record.humanHandoffMessage, 1200);
-  const createdAt = String(record.createdAt || "").trim();
-  const updatedAt = String(record.updatedAt || "").trim();
-  const versionRaw = Number(record.version);
-  const version = Number.isFinite(versionRaw) && versionRaw > 0 ? Math.trunc(versionRaw) : BOT_SYSTEM_CONFIG_VERSION;
+  const map = new Map<ScheduleDay, DaySchedule>();
+  for (const item of input) {
+    const record = asRecord(item);
+    if (!record) continue;
 
-  if (
-    !systemName ||
-    !companyContext ||
-    !assistantRole ||
-    !operationDays.length ||
-    !operationStart ||
-    !operationEnd ||
-    !outOfHoursMessage ||
-    !fallbackMessage
-  ) {
-    return null;
+    const day = normalizeDay(record.day);
+    if (!day) continue;
+    map.set(day, {
+      day,
+      enabled: normalizeBoolean(record.enabled),
+      start: normalizeTime(record.start),
+      end: normalizeTime(record.end),
+    });
   }
-  if (welcomeEnabled && !welcomeMessage) return null;
-  if (humanHandoffEnabled && !humanHandoffMessage) return null;
 
-  return {
-    version,
-    systemName,
-    companyContext,
-    assistantRole,
-    welcomeEnabled,
-    welcomeMessage,
-    operationDays,
-    operationStart,
-    operationEnd,
-    outOfHoursMessage,
-    fallbackMessage,
-    humanHandoffEnabled,
-    humanHandoffMessage,
-    createdAt: createdAt || new Date().toISOString(),
-    updatedAt: updatedAt || new Date().toISOString(),
-  };
+  return DAY_VALUES.map((day) => {
+    const row = map.get(day);
+    return (
+      row || {
+        day,
+        enabled: false,
+        start: "",
+        end: "",
+      }
+    );
+  });
+}
+
+function normalizeTone(value: unknown): SystemConfig["aiResponseTone"] {
+  const clean = String(value || "").trim().toLowerCase();
+  if (clean === "friendly" || clean === "consultative" || clean === "objective") return clean;
+  return "professional";
+}
+
+function normalizeResponseSize(value: unknown): SystemConfig["aiResponseSize"] {
+  const clean = String(value || "").trim().toLowerCase();
+  if (clean === "concise" || clean === "detailed") return clean;
+  return "balanced";
 }
 
 function parseIncomingConfig(value: unknown) {
@@ -154,64 +149,68 @@ function parseIncomingConfig(value: unknown) {
     return { ok: false as const, error: "Configuracao do sistema invalida." };
   }
 
-  const systemName = normalizeShortText(raw.systemName, 90);
-  const companyContext = normalizeLongText(raw.companyContext, 1800);
-  const assistantRole = normalizeLongText(raw.assistantRole, 1800);
-  const welcomeEnabled = normalizeBooleanInput(raw.welcomeEnabled);
-  const welcomeMessage = normalizeLongText(raw.welcomeMessage, 1200);
-  const operationDays = normalizeOperationDays(raw.operationDays);
-  const operationStart = normalizeTime(raw.operationStart);
-  const operationEnd = normalizeTime(raw.operationEnd);
-  const outOfHoursMessage = normalizeLongText(raw.outOfHoursMessage, 1200);
-  const fallbackMessage = normalizeLongText(raw.fallbackMessage, 1200);
-  const humanHandoffEnabled = normalizeBooleanInput(raw.humanHandoffEnabled);
-  const humanHandoffMessage = normalizeLongText(raw.humanHandoffMessage, 1200);
+  const config: SystemConfig = {
+    welcomeMessage: normalizeLongText(raw.welcomeMessage, 1200),
+    closingMessage: normalizeLongText(raw.closingMessage, 1200),
+    outOfHoursMessage: normalizeLongText(raw.outOfHoursMessage, 1200),
+    weeklySchedule: normalizeSchedule(raw.weeklySchedule),
+    aiInstructions: normalizeLongText(raw.aiInstructions, 2400),
+    aiFallbackMessage: normalizeLongText(raw.aiFallbackMessage, 1200),
+    aiResponseTone: normalizeTone(raw.aiResponseTone),
+    aiResponseSize: normalizeResponseSize(raw.aiResponseSize),
+    aiCollectName: normalizeBoolean(raw.aiCollectName),
+    aiCollectEmail: normalizeBoolean(raw.aiCollectEmail),
+    aiCollectPhone: normalizeBoolean(raw.aiCollectPhone),
+    aiTransferToHumanWhenUncertain: normalizeBoolean(raw.aiTransferToHumanWhenUncertain),
+  };
 
-  if (!systemName) return { ok: false as const, error: "Informe o nome do sistema." };
-  if (!companyContext) {
-    return { ok: false as const, error: "Descreva brevemente sua empresa e servicos." };
-  }
-  if (!assistantRole) {
-    return { ok: false as const, error: "Explique como o bot deve agir no atendimento." };
-  }
-  if (welcomeEnabled && !welcomeMessage) {
+  if (!config.welcomeMessage) {
     return { ok: false as const, error: "Informe a mensagem de boas-vindas." };
   }
-  if (!operationDays.length) {
-    return { ok: false as const, error: "Selecione pelo menos um dia de atendimento." };
+  if (!config.closingMessage) {
+    return { ok: false as const, error: "Informe a mensagem de encerramento do atendimento." };
   }
-  if (!operationStart || !operationEnd) {
-    return { ok: false as const, error: "Informe o horario inicial e final de atendimento." };
-  }
-  if (operationStart === operationEnd) {
-    return { ok: false as const, error: "O horario inicial deve ser diferente do horario final." };
-  }
-  if (!outOfHoursMessage) {
-    return { ok: false as const, error: "Informe a mensagem para fora do horario de atendimento." };
-  }
-  if (!fallbackMessage) {
-    return { ok: false as const, error: "Informe a mensagem para quando o bot nao entender." };
-  }
-  if (humanHandoffEnabled && !humanHandoffMessage) {
-    return { ok: false as const, error: "Informe a mensagem de encaminhamento para atendimento humano." };
+  if (!config.outOfHoursMessage) {
+    return { ok: false as const, error: "Informe a mensagem fora do horario." };
   }
 
+  const enabledDays = config.weeklySchedule.filter((item) => item.enabled);
+  if (!enabledDays.length) {
+    return { ok: false as const, error: "Selecione pelo menos um dia de atendimento." };
+  }
+  for (const day of enabledDays) {
+    if (!day.start || !day.end) {
+      return { ok: false as const, error: "Preencha horario inicial e final para todos os dias ativos." };
+    }
+    if (day.start >= day.end) {
+      return { ok: false as const, error: "O horario final deve ser maior que o inicial em cada dia ativo." };
+    }
+  }
+
+  if (!config.aiInstructions) {
+    return { ok: false as const, error: "Informe as instrucoes principais para a IA." };
+  }
+  if (!config.aiFallbackMessage) {
+    return { ok: false as const, error: "Informe a mensagem quando a IA nao entender o cliente." };
+  }
+
+  return { ok: true as const, config };
+}
+
+function mapDbRowToConfig(row: Record<string, unknown>): SystemConfig {
   return {
-    ok: true as const,
-    config: {
-      systemName,
-      companyContext,
-      assistantRole,
-      welcomeEnabled,
-      welcomeMessage,
-      operationDays,
-      operationStart,
-      operationEnd,
-      outOfHoursMessage,
-      fallbackMessage,
-      humanHandoffEnabled,
-      humanHandoffMessage,
-    },
+    welcomeMessage: normalizeLongText(row.welcome_message, 1200),
+    closingMessage: normalizeLongText(row.closing_message, 1200),
+    outOfHoursMessage: normalizeLongText(row.out_of_hours_message, 1200),
+    weeklySchedule: normalizeSchedule(row.weekly_schedule),
+    aiInstructions: normalizeLongText(row.ai_instructions, 2400),
+    aiFallbackMessage: normalizeLongText(row.ai_fallback_message, 1200),
+    aiResponseTone: normalizeTone(row.ai_response_tone),
+    aiResponseSize: normalizeResponseSize(row.ai_response_size),
+    aiCollectName: normalizeBoolean(row.ai_collect_name),
+    aiCollectEmail: normalizeBoolean(row.ai_collect_email),
+    aiCollectPhone: normalizeBoolean(row.ai_collect_phone),
+    aiTransferToHumanWhenUncertain: normalizeBoolean(row.ai_transfer_to_human_when_uncertain),
   };
 }
 
@@ -252,10 +251,7 @@ async function withContext(req: NextRequest) {
       response: NextResponse.json(
         {
           ok: false,
-          error:
-            onboarding.schemaReady === false
-              ? ONBOARDING_SCHEMA_HINT
-              : getErrorMessage(onboarding.error, "Nao foi possivel carregar onboarding."),
+          error: onboarding.schemaReady === false ? BOT_SYSTEM_SQL_HINT : getErrorMessage(onboarding.error, "Nao foi possivel carregar onboarding."),
         },
         { status: onboarding.schemaReady === false ? 500 : 400, headers: NO_STORE_HEADERS },
       ),
@@ -266,6 +262,8 @@ async function withContext(req: NextRequest) {
     ok: true as const,
     sb,
     onboarding: onboarding.record,
+    sessionUserId,
+    sessionEmail,
   };
 }
 
@@ -274,38 +272,40 @@ export async function GET(req: NextRequest) {
     const ctx = await withContext(req);
     if (!ctx.ok) return ctx.response;
 
-    const rowRes = await ctx.sb
-      .from("wz_onboarding")
-      .select("whatsapp_connected,metadata,updated_at")
-      .eq("id", ctx.onboarding.id)
-      .single();
+    const lookup = await ctx.sb
+      .from(BOT_SYSTEM_TABLE)
+      .select(
+        "id,welcome_message,closing_message,out_of_hours_message,weekly_schedule,ai_instructions,ai_fallback_message,ai_response_tone,ai_response_size,ai_collect_name,ai_collect_email,ai_collect_phone,ai_transfer_to_human_when_uncertain,created_at,updated_at",
+      )
+      .eq("user_id", ctx.onboarding.userId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (rowRes.error) {
+    if (lookup.error) {
+      if (isMissingBotSystemSchema(lookup.error)) {
+        return NextResponse.json(
+          { ok: false, error: BOT_SYSTEM_SQL_HINT },
+          { status: 500, headers: NO_STORE_HEADERS },
+        );
+      }
       return NextResponse.json(
-        {
-          ok: false,
-          error: getErrorMessage(rowRes.error, "Nao foi possivel carregar configuracao do sistema."),
-        },
+        { ok: false, error: getErrorMessage(lookup.error, "Nao foi possivel carregar sistema.") },
         { status: 400, headers: NO_STORE_HEADERS },
       );
     }
 
-    const row = (rowRes.data || {}) as {
-      whatsapp_connected?: unknown;
-      metadata?: unknown;
-      updated_at?: string | null;
-    };
-
-    const metadata = asRecord(row.metadata) || {};
-    const savedConfig = normalizeStoredConfig(metadata[BOT_SYSTEM_METADATA_KEY]);
+    const row = (lookup.data || null) as Record<string, unknown> | null;
+    const systemConfig = row ? mapDbRowToConfig(row) : null;
 
     return NextResponse.json(
       {
         ok: true,
-        whatsappConnected: normalizeBoolean(row.whatsapp_connected) || ctx.onboarding.whatsappConnected,
-        hasSystem: Boolean(savedConfig),
-        systemConfig: savedConfig || null,
-        onboardingUpdatedAt: String(row.updated_at || ctx.onboarding.updatedAt || "") || null,
+        whatsappConnected: Boolean(ctx.onboarding.whatsappConnected),
+        hasSystem: Boolean(systemConfig),
+        systemConfig,
+        createdAt: String((row?.created_at as string | undefined) || ""),
+        updatedAt: String((row?.updated_at as string | undefined) || ""),
       },
       { status: 200, headers: NO_STORE_HEADERS },
     );
@@ -331,34 +331,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const rowRes = await ctx.sb
-      .from("wz_onboarding")
-      .select("whatsapp_connected,metadata")
-      .eq("id", ctx.onboarding.id)
-      .single();
-
-    if (rowRes.error) {
+    if (!ctx.onboarding.whatsappConnected) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: getErrorMessage(rowRes.error, "Nao foi possivel carregar dados do onboarding."),
-        },
-        { status: 400, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    const row = (rowRes.data || {}) as {
-      whatsapp_connected?: unknown;
-      metadata?: unknown;
-    };
-
-    const whatsappConnected = normalizeBoolean(row.whatsapp_connected) || ctx.onboarding.whatsappConnected;
-    if (!whatsappConnected) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Conecte seu WhatsApp no onboarding antes de criar o sistema.",
-        },
+        { ok: false, error: "Conecte seu WhatsApp no onboarding antes de criar o sistema." },
         { status: 409, headers: NO_STORE_HEADERS },
       );
     }
@@ -371,45 +346,57 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const nowIso = new Date().toISOString();
-    const metadata = asRecord(row.metadata) || {};
-    const existingSaved = normalizeStoredConfig(metadata[BOT_SYSTEM_METADATA_KEY]);
-
-    const nextConfig: BotSystemConfig = {
-      version: BOT_SYSTEM_CONFIG_VERSION,
-      ...parsed.config,
-      createdAt: existingSaved?.createdAt || nowIso,
-      updatedAt: nowIso,
+    const payload = {
+      onboarding_id: ctx.onboarding.id,
+      user_id: ctx.onboarding.userId,
+      auth_user_id: ctx.onboarding.authUserId || ctx.sessionUserId,
+      email: ctx.onboarding.email || ctx.sessionEmail,
+      company_name: ctx.onboarding.companyName || null,
+      whatsapp_connected: true,
+      welcome_message: parsed.config.welcomeMessage,
+      closing_message: parsed.config.closingMessage,
+      out_of_hours_message: parsed.config.outOfHoursMessage,
+      weekly_schedule: parsed.config.weeklySchedule,
+      ai_instructions: parsed.config.aiInstructions,
+      ai_fallback_message: parsed.config.aiFallbackMessage,
+      ai_response_tone: parsed.config.aiResponseTone,
+      ai_response_size: parsed.config.aiResponseSize,
+      ai_collect_name: parsed.config.aiCollectName,
+      ai_collect_email: parsed.config.aiCollectEmail,
+      ai_collect_phone: parsed.config.aiCollectPhone,
+      ai_transfer_to_human_when_uncertain: parsed.config.aiTransferToHumanWhenUncertain,
+      status: "active",
     };
 
-    const nextMetadata = {
-      ...metadata,
-      [BOT_SYSTEM_METADATA_KEY]: nextConfig,
-    };
-
-    const updateRes = await ctx.sb
-      .from("wz_onboarding")
-      .update({ metadata: nextMetadata })
-      .eq("id", ctx.onboarding.id)
-      .select("updated_at")
+    const save = await ctx.sb
+      .from(BOT_SYSTEM_TABLE)
+      .upsert(payload, { onConflict: "user_id" })
+      .select(
+        "id,welcome_message,closing_message,out_of_hours_message,weekly_schedule,ai_instructions,ai_fallback_message,ai_response_tone,ai_response_size,ai_collect_name,ai_collect_email,ai_collect_phone,ai_transfer_to_human_when_uncertain,created_at,updated_at",
+      )
       .single();
 
-    if (updateRes.error) {
+    if (save.error) {
+      if (isMissingBotSystemSchema(save.error)) {
+        return NextResponse.json(
+          { ok: false, error: BOT_SYSTEM_SQL_HINT },
+          { status: 500, headers: NO_STORE_HEADERS },
+        );
+      }
       return NextResponse.json(
-        {
-          ok: false,
-          error: getErrorMessage(updateRes.error, "Nao foi possivel salvar configuracao do sistema."),
-        },
+        { ok: false, error: getErrorMessage(save.error, "Nao foi possivel salvar sistema.") },
         { status: 400, headers: NO_STORE_HEADERS },
       );
     }
 
+    const row = (save.data || {}) as Record<string, unknown>;
     return NextResponse.json(
       {
         ok: true,
         hasSystem: true,
-        systemConfig: nextConfig,
-        savedAt: String((updateRes.data as { updated_at?: string | null } | null)?.updated_at || nowIso),
+        systemConfig: mapDbRowToConfig(row),
+        createdAt: String((row.created_at as string | undefined) || ""),
+        updatedAt: String((row.updated_at as string | undefined) || ""),
       },
       { status: 200, headers: NO_STORE_HEADERS },
     );
@@ -420,4 +407,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-
