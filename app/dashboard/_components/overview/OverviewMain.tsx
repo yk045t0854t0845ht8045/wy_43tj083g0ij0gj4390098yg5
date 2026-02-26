@@ -884,9 +884,10 @@ export default function OverviewMain() {
                       onClick={handleCreateClick}
                       disabled={loadingConfig}
                       className={cx(
-                        "relative min-h-[172px] overflow-hidden rounded-[22px] bg-[#0f1013] px-5 py-4 text-left",
-                        "shadow-[0_16px_34px_rgba(0,0,0,0.25)] transition-[background-color,box-shadow] duration-200 ease-out",
-                        "hover:bg-[#151820] hover:shadow-[0_20px_38px_rgba(0,0,0,0.28)]",
+                        "relative min-h-[172px] overflow-hidden rounded-[22px] px-5 py-4 text-left",
+                        DARK_BUTTON_GRADIENT_CLASS,
+                        "shadow-[0_16px_34px_rgba(0,0,0,0.25)] transition-[box-shadow,filter] duration-200 ease-out",
+                        "hover:brightness-[1.04] hover:shadow-[0_20px_38px_rgba(0,0,0,0.28)]",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#eff0f2]",
                         loadingConfig ? "cursor-wait opacity-85" : "cursor-pointer",
                       )}
