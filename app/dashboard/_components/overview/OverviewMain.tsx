@@ -42,11 +42,13 @@ type SystemSummary = {
 type SystemConfigApiPayload = {
   ok?: boolean;
   error?: string;
+  errorCode?: string;
   whatsappConnected?: boolean;
   hasSystem?: boolean;
   companyName?: string | null;
   activeSystemId?: string;
   activeCompanyOnboardingId?: string | null;
+  recoveredCompanyContext?: boolean;
   systems?: SystemSummary[];
   systemConfig?: Partial<SystemConfigForm> | null;
   createdAt?: string;
@@ -789,7 +791,47 @@ export default function OverviewMain({
       });
       const payload = (await res.json().catch(() => ({}))) as SystemConfigApiPayload;
       if (!res.ok || !payload?.ok || !payload.systemConfig) {
-        throw new Error(String(payload?.error || "Nao foi possivel salvar o sistema."));
+        const errorCode = String(payload?.errorCode || "")
+          .trim()
+          .toUpperCase();
+        const errorMessage = String(payload?.error || "Nao foi possivel salvar o sistema.").trim();
+        const staleCompanyContext =
+          errorCode === "STALE_COMPANY_ONBOARDING_CONTEXT" ||
+          /onboarding da empresa nao encontrado/i.test(errorMessage);
+
+        if (staleCompanyContext) {
+          if (normalizedDraftCompanyOnboardingId) {
+            onConsumePendingCompanySystem?.(normalizedDraftCompanyOnboardingId);
+          }
+          setDraftCompanyOnboardingId(null);
+          setDraftCompanyName(null);
+
+          if (!activeSystemId && hasSystem && onRequestAddSystemOnboarding) {
+            setMode("cards");
+            setActiveTopic("messages");
+            setRequestingCreateFlow(true);
+            try {
+              await onRequestAddSystemOnboarding();
+              setError("Contexto da empresa expirou. Reabrimos o onboarding para continuar.");
+              return;
+            } catch (requestError) {
+              const nextError =
+                requestError instanceof Error
+                  ? requestError.message
+                  : "Nao foi possivel reiniciar o onboarding da empresa.";
+              setError(nextError);
+              return;
+            } finally {
+              setRequestingCreateFlow(false);
+            }
+          }
+
+          throw new Error(
+            "Contexto da empresa expirou. Inicie novamente o fluxo de adicionar empresa.",
+          );
+        }
+
+        throw new Error(errorMessage);
       }
 
       setHasSystem(true);
@@ -813,7 +855,9 @@ export default function OverviewMain({
     activeSystemId,
     draftCompanyOnboardingId,
     form,
+    hasSystem,
     onConsumePendingCompanySystem,
+    onRequestAddSystemOnboarding,
   ]);
 
   const handlePrimaryAction = async () => {

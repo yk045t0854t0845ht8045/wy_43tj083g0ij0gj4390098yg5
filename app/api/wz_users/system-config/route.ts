@@ -139,6 +139,20 @@ function normalizeBoolean(value: unknown) {
   return false;
 }
 
+function isUuidLike(value?: string | null) {
+  const clean = String(value || "").trim().toLowerCase();
+  if (!clean) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(clean);
+}
+
+function isCompanyOnboardingNotFoundError(error: unknown) {
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  return (
+    message.includes("onboarding da empresa nao encontrado") ||
+    message.includes("nenhum onboarding adicional encontrado")
+  );
+}
+
 function normalizeDay(value: unknown): ScheduleDay | null {
   const clean = String(value || "").trim().toLowerCase();
   return DAY_VALUES.includes(clean as ScheduleDay) ? (clean as ScheduleDay) : null;
@@ -364,11 +378,28 @@ type ResolvedSaveSource = {
   companyName: string | null;
   whatsappConnected: boolean;
   completed?: boolean;
+  recoveredFromStaleCompanyContext?: boolean;
 };
+
+function buildPrimarySaveSource(
+  ctx: Extract<Awaited<ReturnType<typeof withContext>>, { ok: true }>,
+): ResolvedSaveSource {
+  return {
+    onboardingId: ctx.onboarding.id,
+    companyOnboardingId: null,
+    userId: ctx.onboarding.userId,
+    authUserId: ctx.onboarding.authUserId || ctx.sessionUserId,
+    email: ctx.onboarding.email || ctx.sessionEmail,
+    companyName: ctx.onboarding.companyName || null,
+    whatsappConnected: Boolean(ctx.onboarding.whatsappConnected),
+  };
+}
 
 async function resolveSaveSource(params: {
   ctx: Extract<Awaited<ReturnType<typeof withContext>>, { ok: true }>;
   companyOnboardingId?: string | null;
+  existingSystemRow?: Record<string, unknown> | null;
+  allowPrimaryFallbackIfMissingCompanyContext?: boolean;
 }) {
   const requestedCompanyOnboardingId = normalizeOptionalText(
     String(params.companyOnboardingId || ""),
@@ -377,15 +408,7 @@ async function resolveSaveSource(params: {
   if (!requestedCompanyOnboardingId) {
     return {
       ok: true as const,
-      source: {
-        onboardingId: params.ctx.onboarding.id,
-        companyOnboardingId: null,
-        userId: params.ctx.onboarding.userId,
-        authUserId: params.ctx.onboarding.authUserId || params.ctx.sessionUserId,
-        email: params.ctx.onboarding.email || params.ctx.sessionEmail,
-        companyName: params.ctx.onboarding.companyName || null,
-        whatsappConnected: Boolean(params.ctx.onboarding.whatsappConnected),
-      } satisfies ResolvedSaveSource,
+      source: buildPrimarySaveSource(params.ctx),
     };
   }
 
@@ -398,6 +421,66 @@ async function resolveSaveSource(params: {
   });
 
   if (!additional.ok) {
+    if (additional.schemaReady !== false && isCompanyOnboardingNotFoundError(additional.error)) {
+      if (params.existingSystemRow) {
+        const existingUserId =
+          normalizeOptionalText(String(params.existingSystemRow.user_id || "")) ||
+          params.ctx.onboarding.userId;
+        const existingAuthUserId =
+          normalizeOptionalText(String(params.existingSystemRow.auth_user_id || "")) ||
+          params.ctx.onboarding.authUserId ||
+          params.ctx.sessionUserId;
+        const existingEmail =
+          normalizeEmail(String(params.existingSystemRow.email || "")) ||
+          params.ctx.onboarding.email ||
+          params.ctx.sessionEmail;
+        const existingCompanyName =
+          normalizeOptionalText(String(params.existingSystemRow.company_name || "")) ||
+          params.ctx.onboarding.companyName ||
+          null;
+        const existingWhatsappConnected =
+          normalizeBoolean(params.existingSystemRow.whatsapp_connected) ||
+          Boolean(params.ctx.onboarding.whatsappConnected);
+
+        return {
+          ok: true as const,
+          source: {
+            onboardingId: params.ctx.onboarding.id,
+            companyOnboardingId: null,
+            userId: existingUserId,
+            authUserId: existingAuthUserId,
+            email: existingEmail,
+            companyName: existingCompanyName,
+            whatsappConnected: existingWhatsappConnected,
+            recoveredFromStaleCompanyContext: true,
+          } satisfies ResolvedSaveSource,
+        };
+      }
+
+      if (params.allowPrimaryFallbackIfMissingCompanyContext) {
+        return {
+          ok: true as const,
+          source: {
+            ...buildPrimarySaveSource(params.ctx),
+            recoveredFromStaleCompanyContext: true,
+          } satisfies ResolvedSaveSource,
+        };
+      }
+
+      return {
+        ok: false as const,
+        response: NextResponse.json(
+          {
+            ok: false,
+            errorCode: "STALE_COMPANY_ONBOARDING_CONTEXT",
+            error:
+              "Onboarding da empresa selecionada nao foi encontrado. Reabra o fluxo de adicionar empresa para continuar.",
+          },
+          { status: 409, headers: NO_STORE_HEADERS },
+        ),
+      };
+    }
+
     const errorMessage =
       additional.schemaReady === false
         ? COMPANY_ONBOARDING_SCHEMA_HINT
@@ -432,6 +515,12 @@ export async function GET(req: NextRequest) {
     if (!ctx.ok) return ctx.response;
 
     const requestedSystemId = normalizeOptionalText(req.nextUrl.searchParams.get("systemId"));
+    if (requestedSystemId && !isUuidLike(requestedSystemId)) {
+      return NextResponse.json(
+        { ok: false, error: "systemId invalido." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
 
     const list = await listSystemSummaries({
       sb: ctx.sb,
@@ -554,9 +643,22 @@ export async function POST(req: NextRequest) {
     }
 
     const systemId = normalizeOptionalText(String(body.systemId || ""));
+    if (systemId && !isUuidLike(systemId)) {
+      return NextResponse.json(
+        { ok: false, error: "systemId invalido." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
+
     const requestedCompanyOnboardingId = normalizeOptionalText(
       String(body.companyOnboardingId || ""),
     );
+    if (requestedCompanyOnboardingId && !isUuidLike(requestedCompanyOnboardingId)) {
+      return NextResponse.json(
+        { ok: false, error: "companyOnboardingId invalido." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
 
     let existingSystemRow: Record<string, unknown> | null = null;
     if (systemId) {
@@ -592,12 +694,45 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    let allowPrimaryFallbackIfMissingCompanyContext = false;
+    if (!systemId && requestedCompanyOnboardingId) {
+      const anySystemLookup = await ctx.sb
+        .from(BOT_SYSTEM_TABLE)
+        .select("id")
+        .eq("user_id", ctx.onboarding.userId)
+        .limit(1);
+
+      if (anySystemLookup.error) {
+        if (isMissingBotSystemSchema(anySystemLookup.error)) {
+          return NextResponse.json(
+            { ok: false, error: BOT_SYSTEM_SQL_HINT },
+            { status: 500, headers: NO_STORE_HEADERS },
+          );
+        }
+        return NextResponse.json(
+          {
+            ok: false,
+            error: getErrorMessage(
+              anySystemLookup.error,
+              "Nao foi possivel validar o contexto da empresa para criar o sistema.",
+            ),
+          },
+          { status: 400, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      allowPrimaryFallbackIfMissingCompanyContext =
+        !Array.isArray(anySystemLookup.data) || anySystemLookup.data.length === 0;
+    }
+
     const source = await resolveSaveSource({
       ctx,
       companyOnboardingId:
         requestedCompanyOnboardingId ||
         normalizeOptionalText(String(existingSystemRow?.company_onboarding_id || "")) ||
         null,
+      existingSystemRow,
+      allowPrimaryFallbackIfMissingCompanyContext,
     });
     if (!source.ok) return source.response;
 
@@ -606,6 +741,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
+          errorCode: "ADDITIONAL_ONBOARDING_INCOMPLETE",
           error:
             "Finalize o onboarding da nova empresa antes de criar o sistema (incluindo conexao do WhatsApp).",
         },
@@ -617,6 +753,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
+          errorCode: "WHATSAPP_NOT_CONNECTED",
           error:
             sourceCompanyOnboardingId
               ? "Conecte o WhatsApp da nova empresa no onboarding antes de criar o sistema."
@@ -630,6 +767,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
+          errorCode: sourceCompanyOnboardingId
+            ? "ADDITIONAL_COMPANY_NAME_MISSING"
+            : "PRIMARY_COMPANY_NAME_MISSING",
           error:
             sourceCompanyOnboardingId
               ? "Informe o nome da empresa no onboarding adicional antes de continuar."
@@ -734,6 +874,7 @@ export async function POST(req: NextRequest) {
         activeSystemId: savedSummary?.id || null,
         activeCompanyOnboardingId:
           savedSummary?.companyOnboardingId || source.source.companyOnboardingId || null,
+        recoveredCompanyContext: Boolean(source.source.recoveredFromStaleCompanyContext),
         systems: list.systems,
         systemConfig: mapDbRowToConfig(row),
         createdAt: String((row.created_at as string | undefined) || ""),

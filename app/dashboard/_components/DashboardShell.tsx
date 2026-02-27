@@ -157,6 +157,7 @@ export default function DashboardShell({
   const queryBootstrapHandledRef = useRef(false);
   const additionalCompanyStartLockRef = useRef(false);
   const companyOnboardingRestoreInFlightRef = useRef(false);
+  const pendingCompanyContextValidationRef = useRef(false);
   const onboardingRequired = Boolean(onboardingData && !onboardingData.completed);
   const onboardingUiLocked = onboardingLoading || onboardingRequired;
 
@@ -413,7 +414,8 @@ export default function DashboardShell({
 
   const startAdditionalCompanyOnboarding = useCallback(async () => {
     if (additionalCompanyStartLockRef.current) return;
-    if (onboardingLoading || onboardingRequired || companyOnboardingLoading) return;
+    if (companyOnboardingRestoreInFlightRef.current) return;
+    if (onboardingLoading || onboardingRequired || companyOnboardingLoading || companyOnboardingOpen) return;
 
     const existing = companyOnboardingData;
     if (existing && !existing.completed && isUuidLike(existing.id)) {
@@ -468,6 +470,7 @@ export default function DashboardShell({
     additionalCompanyStartLockRef,
     companyOnboardingData,
     companyOnboardingLoading,
+    companyOnboardingOpen,
     onboardingLoading,
     onboardingRequired,
     syncCompanyOnboardingActiveHint,
@@ -568,12 +571,18 @@ export default function DashboardShell({
             Pragma: "no-cache",
           },
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          syncCompanyOnboardingActiveHint(null);
+          return;
+        }
         const payload = (await res.json().catch(() => null)) as {
           ok?: boolean;
           onboarding?: OnboardingState;
         } | null;
-        if (!payload?.ok || !payload.onboarding || cancelled) return;
+        if (!payload?.ok || !payload.onboarding || cancelled) {
+          syncCompanyOnboardingActiveHint(null);
+          return;
+        }
 
         const restoredId = String(payload.onboarding.id || "").trim();
         if (!isUuidLike(restoredId)) {
@@ -594,7 +603,7 @@ export default function DashboardShell({
           ]);
         }
       } catch {
-        // noop
+        syncCompanyOnboardingActiveHint(null);
       } finally {
         if (!cancelled) {
           setCompanyOnboardingLoading(false);
@@ -615,22 +624,72 @@ export default function DashboardShell({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (pendingCompanyContextValidationRef.current) return;
     const raw = window.localStorage.getItem(getCompanyPendingSystemKey());
     if (!raw) return;
+
+    let parsed: PendingCompanySystemContext | null = null;
     try {
-      const parsed = JSON.parse(raw) as PendingCompanySystemContext | null;
+      parsed = JSON.parse(raw) as PendingCompanySystemContext | null;
       const pendingId = String(parsed?.id || "").trim();
       if (!isUuidLike(pendingId)) {
         syncPendingCompanySystemHint(null);
         return;
       }
-      setPendingCompanySystemContext({
-        id: pendingId,
-        companyName: String(parsed?.companyName || "").trim() || null,
-      });
     } catch {
       syncPendingCompanySystemHint(null);
+      return;
     }
+
+    const pendingId = String(parsed?.id || "").trim();
+    if (!isUuidLike(pendingId)) {
+      syncPendingCompanySystemHint(null);
+      return;
+    }
+
+    let cancelled = false;
+    const validate = async () => {
+      pendingCompanyContextValidationRef.current = true;
+      try {
+        const endpoint = `/api/wz_users/company-onboarding?companyOnboardingId=${encodeURIComponent(pendingId)}`;
+        const res = await fetch(endpoint, {
+          method: "GET",
+          cache: "no-store",
+          credentials: "include",
+          headers: {
+            "Cache-Control": "no-store",
+            Pragma: "no-cache",
+          },
+        });
+        if (!res.ok) {
+          syncPendingCompanySystemHint(null);
+          return;
+        }
+        const payload = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          onboarding?: OnboardingState;
+        } | null;
+        if (!payload?.ok || !payload.onboarding || !payload.onboarding.completed) {
+          syncPendingCompanySystemHint(null);
+          return;
+        }
+        if (cancelled) return;
+        setPendingCompanySystemContext({
+          id: pendingId,
+          companyName:
+            String(parsed?.companyName || payload.onboarding.companyName || "").trim() || null,
+        });
+      } catch {
+        syncPendingCompanySystemHint(null);
+      } finally {
+        pendingCompanyContextValidationRef.current = false;
+      }
+    };
+
+    void validate();
+    return () => {
+      cancelled = true;
+    };
   }, [getCompanyPendingSystemKey, syncPendingCompanySystemHint]);
 
   useEffect(() => {
