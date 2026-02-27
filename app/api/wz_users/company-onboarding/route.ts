@@ -195,6 +195,12 @@ function normalizeMonthlyConversationsTier(value: unknown) {
   return MONTHLY_CONVERSATION_OPTIONS.has(clean) ? clean : null;
 }
 
+function isUuidLike(value?: string | null) {
+  const clean = String(value || "").trim().toLowerCase();
+  if (!clean) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(clean);
+}
+
 function hasCompleteCompanyData(onboarding: CompanyOnboardingRecord) {
   const companyName = normalizeCompanyName(onboarding.companyName || "");
   const industry = normalizeIndustry(onboarding.industry || "");
@@ -653,9 +659,21 @@ export async function GET(req: NextRequest) {
     const companyOnboardingId = normalizeOptionalText(
       req.nextUrl.searchParams.get("companyOnboardingId"),
     );
+    if (!companyOnboardingId) {
+      return NextResponse.json(
+        { ok: false, error: "companyOnboardingId e obrigatorio para carregar onboarding adicional." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
+    if (!isUuidLike(companyOnboardingId)) {
+      return NextResponse.json(
+        { ok: false, error: "companyOnboardingId invalido." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
     const ctx = await withCompanyOnboardingContext(req, {
       companyOnboardingId,
-      createIfMissing: true,
+      createIfMissing: false,
     });
     if (!ctx.ok) return ctx.response;
 
@@ -722,19 +740,60 @@ export async function POST(req: NextRequest) {
     const companyOnboardingId =
       normalizeOptionalText(String(body?.companyOnboardingId || "")) ||
       normalizeOptionalText(req.nextUrl.searchParams.get("companyOnboardingId"));
+    if (companyOnboardingId && !isUuidLike(companyOnboardingId)) {
+      return NextResponse.json(
+        { ok: false, error: "companyOnboardingId invalido." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    if (action !== "start-additional-company" && !companyOnboardingId) {
+      return NextResponse.json(
+        { ok: false, error: "companyOnboardingId e obrigatorio para continuar este onboarding." },
+        { status: 400, headers: NO_STORE_HEADERS },
+      );
+    }
 
     const ctx = await withCompanyOnboardingContext(req, {
       companyOnboardingId,
-      createIfMissing: action === "start-additional-company" || !companyOnboardingId,
+      createIfMissing: action === "start-additional-company",
     });
     if (!ctx.ok) return ctx.response;
 
     if (action === "start-additional-company") {
+      let onboarding = ctx.onboarding;
+      if (onboarding.completed) {
+        const fresh = await ensureCompanyOnboardingRecord({
+          sb: ctx.sb,
+          sessionUserId: ctx.sessionUserId,
+          sessionEmail: ctx.sessionEmail,
+          companyOnboardingId: null,
+          createIfMissing: true,
+        });
+        if (!fresh.ok) {
+          const status = fresh.schemaReady === false ? 500 : 400;
+          return NextResponse.json(
+            {
+              ok: false,
+              error:
+                fresh.schemaReady === false
+                  ? COMPANY_ONBOARDING_SCHEMA_HINT
+                  : getErrorMessage(
+                      fresh.error,
+                      "Nao foi possivel iniciar um novo onboarding adicional.",
+                    ),
+            },
+            { status, headers: NO_STORE_HEADERS },
+          );
+        }
+        onboarding = fresh.record;
+      }
+
       return NextResponse.json(
         {
           ok: true,
-          onboarding: ctx.onboarding,
-          companyOnboardingId: ctx.onboarding.id,
+          onboarding,
+          companyOnboardingId: onboarding.id,
           whatsappProvider: WHATSAPP_PROVIDER_NAME,
           providerConfigured: isOwnWhatsAppProviderConfigured(),
         },

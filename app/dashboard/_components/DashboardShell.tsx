@@ -32,6 +32,12 @@ function normalizeIsoDatetime(value?: string | null) {
   return new Date(parsed).toISOString();
 }
 
+function isUuidLike(value?: string | null) {
+  const clean = String(value || "").trim().toLowerCase();
+  if (!clean) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(clean);
+}
+
 const SESSION_DISCONNECT_EVENT_KEY = "wz:session:disconnected";
 const SESSION_CHECK_TIMEOUT_MS = 4500;
 const SESSION_CHECK_MIN_GAP_MS = 1200;
@@ -149,6 +155,8 @@ export default function DashboardShell({
     useState<PendingCompanySystemContext | null>(null);
   const redirectingRef = useRef(false);
   const queryBootstrapHandledRef = useRef(false);
+  const additionalCompanyStartLockRef = useRef(false);
+  const companyOnboardingRestoreInFlightRef = useRef(false);
   const onboardingRequired = Boolean(onboardingData && !onboardingData.completed);
   const onboardingUiLocked = onboardingLoading || onboardingRequired;
 
@@ -404,7 +412,18 @@ export default function DashboardShell({
   );
 
   const startAdditionalCompanyOnboarding = useCallback(async () => {
+    if (additionalCompanyStartLockRef.current) return;
     if (onboardingLoading || onboardingRequired || companyOnboardingLoading) return;
+
+    const existing = companyOnboardingData;
+    if (existing && !existing.completed && isUuidLike(existing.id)) {
+      setCompanyOnboardingId(existing.id);
+      setCompanyOnboardingOpen(true);
+      syncCompanyOnboardingActiveHint(existing.id, [existing.userId, existing.email]);
+      return;
+    }
+
+    additionalCompanyStartLockRef.current = true;
     setCompanyOnboardingLoading(true);
     try {
       const res = await fetch("/api/wz_users/company-onboarding", {
@@ -415,8 +434,8 @@ export default function DashboardShell({
         body: JSON.stringify({
           action: "start-additional-company",
           companyOnboardingId:
-            companyOnboardingData && !companyOnboardingData.completed
-              ? companyOnboardingData.id
+            existing && !existing.completed && isUuidLike(existing.id)
+              ? existing.id
               : undefined,
         }),
       });
@@ -429,17 +448,24 @@ export default function DashboardShell({
         throw new Error(String(payload?.error || "Nao foi possivel iniciar cadastro de nova empresa."));
       }
 
+      const normalizedId = String(payload.onboarding.id || "").trim();
+      if (!isUuidLike(normalizedId)) {
+        throw new Error("ID invalido para onboarding adicional.");
+      }
+
       setCompanyOnboardingData(payload.onboarding);
-      setCompanyOnboardingId(payload.onboarding.id);
-      syncCompanyOnboardingActiveHint(payload.onboarding.id, [
+      setCompanyOnboardingId(normalizedId);
+      syncCompanyOnboardingActiveHint(normalizedId, [
         payload.onboarding.userId,
         payload.onboarding.email,
       ]);
       setCompanyOnboardingOpen(true);
     } finally {
       setCompanyOnboardingLoading(false);
+      additionalCompanyStartLockRef.current = false;
     }
   }, [
+    additionalCompanyStartLockRef,
     companyOnboardingData,
     companyOnboardingLoading,
     onboardingLoading,
@@ -448,23 +474,23 @@ export default function DashboardShell({
   ]);
 
   const handleCloseCompanyOnboarding = useCallback(() => {
-    if (companyOnboardingData && !companyOnboardingData.completed) {
-      setCompanyOnboardingOpen(true);
-      return;
-    }
     setCompanyOnboardingOpen(false);
-  }, [companyOnboardingData]);
+  }, []);
 
   const handleCompanyOnboardingUpdated = useCallback(
     (next: OnboardingState) => {
+      const normalizedId = String(next.id || "").trim();
+      if (!isUuidLike(normalizedId)) {
+        return;
+      }
       setCompanyOnboardingData(next);
-      setCompanyOnboardingId(next.id);
+      setCompanyOnboardingId(normalizedId);
       if (next.completed) {
         setCompanyOnboardingOpen(false);
         syncCompanyOnboardingActiveHint(null, [next.userId, next.email]);
         return;
       }
-      syncCompanyOnboardingActiveHint(next.id, [next.userId, next.email]);
+      syncCompanyOnboardingActiveHint(normalizedId, [next.userId, next.email]);
       setCompanyOnboardingOpen(true);
     },
     [syncCompanyOnboardingActiveHint],
@@ -472,12 +498,14 @@ export default function DashboardShell({
 
   const handleCompanyOnboardingCompleted = useCallback(
     (next: OnboardingState) => {
+      const normalizedId = String(next.id || "").trim();
+      if (!isUuidLike(normalizedId)) return;
       const payload: PendingCompanySystemContext = {
-        id: next.id,
+        id: normalizedId,
         companyName: String(next.companyName || "").trim() || null,
       };
       setCompanyOnboardingData(next);
-      setCompanyOnboardingId(next.id);
+      setCompanyOnboardingId(normalizedId);
       setPendingCompanySystemContext(payload);
       setCompanyOnboardingOpen(false);
       syncCompanyOnboardingActiveHint(null, [next.userId, next.email]);
@@ -505,11 +533,29 @@ export default function DashboardShell({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const activeId = window.localStorage.getItem(getCompanyOnboardingActiveKey());
+    if (companyOnboardingRestoreInFlightRef.current) return;
+
+    const activeIdRaw = window.localStorage.getItem(getCompanyOnboardingActiveKey());
+    const activeId = String(activeIdRaw || "").trim();
     if (!activeId) return;
+    if (!isUuidLike(activeId)) {
+      syncCompanyOnboardingActiveHint(null);
+      return;
+    }
+
+    if (
+      companyOnboardingData &&
+      !companyOnboardingData.completed &&
+      String(companyOnboardingData.id || "").trim() === activeId
+    ) {
+      setCompanyOnboardingId(activeId);
+      setCompanyOnboardingOpen(true);
+      return;
+    }
 
     let cancelled = false;
     const restore = async () => {
+      companyOnboardingRestoreInFlightRef.current = true;
       setCompanyOnboardingLoading(true);
       try {
         const endpoint = `/api/wz_users/company-onboarding?companyOnboardingId=${encodeURIComponent(activeId)}`;
@@ -529,8 +575,16 @@ export default function DashboardShell({
         } | null;
         if (!payload?.ok || !payload.onboarding || cancelled) return;
 
+        const restoredId = String(payload.onboarding.id || "").trim();
+        if (!isUuidLike(restoredId)) {
+          syncCompanyOnboardingActiveHint(null, [
+            payload.onboarding.userId,
+            payload.onboarding.email,
+          ]);
+          return;
+        }
         setCompanyOnboardingData(payload.onboarding);
-        setCompanyOnboardingId(payload.onboarding.id);
+        setCompanyOnboardingId(restoredId);
         if (!payload.onboarding.completed && !cancelled) {
           setCompanyOnboardingOpen(true);
         } else {
@@ -545,6 +599,7 @@ export default function DashboardShell({
         if (!cancelled) {
           setCompanyOnboardingLoading(false);
         }
+        companyOnboardingRestoreInFlightRef.current = false;
       }
     };
 
@@ -552,7 +607,11 @@ export default function DashboardShell({
     return () => {
       cancelled = true;
     };
-  }, [getCompanyOnboardingActiveKey, syncCompanyOnboardingActiveHint]);
+  }, [
+    companyOnboardingData,
+    getCompanyOnboardingActiveKey,
+    syncCompanyOnboardingActiveHint,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -560,13 +619,14 @@ export default function DashboardShell({
     if (!raw) return;
     try {
       const parsed = JSON.parse(raw) as PendingCompanySystemContext | null;
-      if (!parsed?.id) {
+      const pendingId = String(parsed?.id || "").trim();
+      if (!isUuidLike(pendingId)) {
         syncPendingCompanySystemHint(null);
         return;
       }
       setPendingCompanySystemContext({
-        id: parsed.id,
-        companyName: String(parsed.companyName || "").trim() || null,
+        id: pendingId,
+        companyName: String(parsed?.companyName || "").trim() || null,
       });
     } catch {
       syncPendingCompanySystemHint(null);

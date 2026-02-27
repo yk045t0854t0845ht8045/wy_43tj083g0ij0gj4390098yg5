@@ -428,6 +428,12 @@ function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
+function isUuidLike(value?: string | null) {
+  const clean = String(value || "").trim().toLowerCase();
+  if (!clean) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(clean);
+}
+
 type SelectMenuProps = {
   value: string;
   options: SelectOption[];
@@ -642,7 +648,10 @@ export default function OverviewMain({
   useEffect(() => {
     if (!pendingCompanySystemContext?.id) return;
     const pendingId = String(pendingCompanySystemContext.id || "").trim();
-    if (!pendingId) return;
+    if (!isUuidLike(pendingId)) {
+      onConsumePendingCompanySystem?.(pendingId);
+      return;
+    }
     if (mode === "wizard" && pendingId === draftCompanyOnboardingId) return;
 
     openWizardForNewSystem({
@@ -653,6 +662,7 @@ export default function OverviewMain({
     draftCompanyOnboardingId,
     mode,
     openWizardForNewSystem,
+    onConsumePendingCompanySystem,
     pendingCompanySystemContext,
   ]);
 
@@ -752,8 +762,16 @@ export default function OverviewMain({
       return;
     }
 
+    if (!activeSystemId && draftCompanyOnboardingId && !isUuidLike(draftCompanyOnboardingId)) {
+      setError("Contexto da empresa invalido. Reabra o fluxo de adicionar sistema.");
+      return;
+    }
+
     try {
       setSaving(true);
+      const normalizedDraftCompanyOnboardingId = isUuidLike(draftCompanyOnboardingId)
+        ? String(draftCompanyOnboardingId || "").trim()
+        : null;
       const res = await fetch("/api/wz_users/system-config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -763,8 +781,8 @@ export default function OverviewMain({
           action: "save-system-config",
           systemId: activeSystemId || undefined,
           companyOnboardingId:
-            !activeSystemId && draftCompanyOnboardingId
-              ? draftCompanyOnboardingId
+            !activeSystemId && normalizedDraftCompanyOnboardingId
+              ? normalizedDraftCompanyOnboardingId
               : undefined,
           config: form,
         }),
@@ -780,8 +798,8 @@ export default function OverviewMain({
       setSystems(normalizeSystemSummaries(payload.systems));
       setActiveSystemId(String(payload.activeSystemId || "").trim() || activeSystemId || null);
       setSavedAt(String(payload.updatedAt || payload.createdAt || "") || null);
-      if (!activeSystemId && draftCompanyOnboardingId) {
-        onConsumePendingCompanySystem?.(draftCompanyOnboardingId);
+      if (!activeSystemId && normalizedDraftCompanyOnboardingId) {
+        onConsumePendingCompanySystem?.(normalizedDraftCompanyOnboardingId);
       }
       setDraftCompanyOnboardingId(null);
       setDraftCompanyName(null);
@@ -980,13 +998,6 @@ export default function OverviewMain({
                         <span className="text-[13px] font-semibold tracking-[0.01em] text-black/78">
                           Adicionar novo sistema
                         </span>
-                        {!loadingConfig &&
-                          !saving &&
-                          (requestingCreateFlow || requestingAdditionalCompany) && (
-                            <span className="max-w-[220px] text-center text-[11px] font-medium text-black/56">
-                              Preparando onboarding da nova empresa...
-                            </span>
-                          )}
                         {!loadingConfig && onboardingLocked && (
                           <span className="max-w-[220px] text-center text-[11px] font-medium text-[#b2433e]">
                             Conclua o onboarding principal para continuar.

@@ -68,6 +68,26 @@ delete from public.wz_company_onboarding
 where user_id is null
    or btrim(user_id) = '';
 
+-- Garante apenas um onboarding adicional em aberto por conta.
+do $$
+begin
+  with ranked as (
+    select
+      ctid,
+      row_number() over (
+        partition by user_id
+        order by updated_at desc nulls last, created_at desc nulls last, ctid desc
+      ) as rn
+    from public.wz_company_onboarding
+    where completed = false
+  )
+  delete from public.wz_company_onboarding t
+  using ranked r
+  where t.ctid = r.ctid
+    and r.rn > 1;
+end;
+$$;
+
 update public.wz_company_onboarding
 set company_cnpj = nullif(regexp_replace(coalesce(company_cnpj, ''), '\D', '', 'g'), ''),
     company_postal_code = nullif(regexp_replace(coalesce(company_postal_code, ''), '\D', '', 'g'), ''),
@@ -205,6 +225,11 @@ alter table if exists public.wz_company_onboarding
   check (
     ui_step in ('welcome', 'company', 'goal', 'team', 'ai', 'whatsapp', 'improve', 'final')
   );
+
+drop index if exists public.wz_company_onboarding_single_open_uidx;
+create unique index if not exists wz_company_onboarding_single_open_uidx
+  on public.wz_company_onboarding (user_id)
+  where completed = false;
 
 create index if not exists wz_company_onboarding_user_id_idx
   on public.wz_company_onboarding (user_id);
