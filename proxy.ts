@@ -6,6 +6,8 @@ export const config = {
 
 const GOOGLE_STATE_COOKIE_NAME = "wz_google_oauth_state_v1"
 const GOOGLE_CONNECT_STATE_COOKIE_NAME = "wz_google_oauth_connect_state_v1"
+const AZURE_STATE_COOKIE_NAME = "wz_azure_oauth_state_v1"
+const AZURE_CONNECT_STATE_COOKIE_NAME = "wz_azure_oauth_connect_state_v1"
 
 function isStaticAssetPath(pathname: string) {
   return /\.(?:png|svg|jpg|jpeg|gif|webp|avif|ico|css|js|mjs|map|txt|xml|json|pdf|mp4|webm|mp3|wav|ogg|woff|woff2|ttf|otf|eot)$/i.test(
@@ -17,7 +19,6 @@ function isSafeReturnTo(raw: string) {
   const value = String(raw || "").trim()
   if (!value) return false
 
-  // bloqueia esquemas perigosos ou URLs "estranhas"
   if (
     value.startsWith("javascript:") ||
     value.startsWith("data:") ||
@@ -27,39 +28,23 @@ function isSafeReturnTo(raw: string) {
     return false
   }
 
-  // permite apenas:
-  // - caminho relativo (/algo)
-  // - URL absoluta para domínios Wyzer / localhost / vercel preview compatíveis
   try {
-    // relativo
     if (value.startsWith("/")) return true
 
     const u = new URL(value)
-
-    // só http/https
     if (u.protocol !== "http:" && u.protocol !== "https:") return false
 
     const host = u.hostname.toLowerCase()
-
-    const isWyzer =
+    return (
       host === "wyzer.com.br" ||
       host.endsWith(".wyzer.com.br") ||
       host === "localhost" ||
       host.endsWith(".localhost") ||
-      host.endsWith(".vercel.app") // previews
-    if (!isWyzer) return false
-
-    return true
+      host.endsWith(".vercel.app")
+    )
   } catch {
     return false
   }
-}
-
-function getDashboardOriginForHost(host: string) {
-  if (host.endsWith(".localhost") || host === "localhost") {
-    return "http://dashboard.localhost:3000"
-  }
-  return "https://dashboard.wyzer.com.br"
 }
 
 function hasLoginSessionCookie(req: NextRequest) {
@@ -80,47 +65,76 @@ function hasGoogleOAuthStateCookie(req: NextRequest) {
   return connectToken.includes(".")
 }
 
-function hasGoogleOAuthStateQuery(req: NextRequest) {
-  const ticket = String(req.nextUrl.searchParams.get("st") || "").trim()
-  return ticket.includes(".")
+function hasAzureOAuthStateCookie(req: NextRequest) {
+  const token = String(req.cookies.get(AZURE_STATE_COOKIE_NAME)?.value || "").trim()
+  if (token.includes(".")) return true
+
+  const connectToken = String(req.cookies.get(AZURE_CONNECT_STATE_COOKIE_NAME)?.value || "").trim()
+  return connectToken.includes(".")
 }
 
-function shouldRelayGoogleOAuthToCallback(req: NextRequest, pathname: string) {
+function base64UrlDecodeToString(input: string) {
+  const normalized = String(input || "").replace(/-/g, "+").replace(/_/g, "/")
+  const pad = "=".repeat((4 - (normalized.length % 4)) % 4)
+  return atob(normalized + pad)
+}
+
+function inferOAuthProviderFromStateTicket(ticket: string) {
+  const token = String(ticket || "").trim()
+  if (!token.includes(".")) return null
+
+  const [payloadB64] = token.split(".")
+  if (!payloadB64) return null
+
+  try {
+    const parsed = JSON.parse(base64UrlDecodeToString(payloadB64)) as { typ?: string | null }
+    const type = String(parsed?.typ || "").trim().toLowerCase()
+    if (type === "wz-google-oauth-state") return "google"
+    if (type === "wz-azure-oauth-state") return "azure"
+  } catch {}
+
+  return null
+}
+
+function resolveOAuthRelayProvider(req: NextRequest, pathname: string) {
   const isAlreadyCallback =
     pathname.startsWith("/api/wz_AuthLogin/google/callback") ||
-    pathname.startsWith("/api/wz-auth/google/callback")
-  if (isAlreadyCallback) return false
+    pathname.startsWith("/api/wz-auth/google/callback") ||
+    pathname.startsWith("/api/wz_AuthLogin/azure/callback") ||
+    pathname.startsWith("/api/wz-auth/azure/callback")
+  if (isAlreadyCallback) return null
 
   const code = String(req.nextUrl.searchParams.get("code") || "").trim()
   const error = String(req.nextUrl.searchParams.get("error") || "").trim()
   const errorDescription = String(req.nextUrl.searchParams.get("error_description") || "").trim()
   const hasOAuthParams = Boolean(code || error || errorDescription)
-  if (!hasOAuthParams) return false
+  if (!hasOAuthParams) return null
 
-  // Só redireciona quando foi um fluxo iniciado no app (state em cookie ou query).
-  return hasGoogleOAuthStateCookie(req) || hasGoogleOAuthStateQuery(req)
+  const providerFromState = inferOAuthProviderFromStateTicket(
+    String(req.nextUrl.searchParams.get("st") || "").trim()
+  )
+  if (providerFromState) return providerFromState
+
+  const hasGoogleState = hasGoogleOAuthStateCookie(req)
+  const hasAzureState = hasAzureOAuthStateCookie(req)
+
+  if (hasGoogleState && !hasAzureState) return "google"
+  if (hasAzureState && !hasGoogleState) return "azure"
+
+  return null
 }
 
-function resolveLoginRedirectTarget(host: string, rawReturnTo: string | null) {
-  const dashboardOrigin = getDashboardOriginForHost(host)
-  const value = String(rawReturnTo || "").trim()
-  if (!value) return `${dashboardOrigin}/`
-  if (!isSafeReturnTo(value)) return `${dashboardOrigin}/`
-  if (value.startsWith("/")) return new URL(value, `${dashboardOrigin}/`).toString()
-  try {
-    const target = new URL(value)
-    const targetHost = target.hostname.toLowerCase()
-    const isLoginHost =
-      targetHost === "login.wyzer.com.br" ||
-      targetHost === "login.localhost" ||
-      targetHost.startsWith("login.") ||
-      (targetHost.startsWith("login-") && targetHost.endsWith(".vercel.app"))
+function buildLoginSessionContinueUrl(req: NextRequest, rawReturnTo: string | null) {
+  const target = req.nextUrl.clone()
+  target.pathname = "/api/wz_AuthLogin/continue"
+  target.search = ""
 
-    if (isLoginHost) return `${dashboardOrigin}/`
-    return target.toString()
-  } catch {
-    return `${dashboardOrigin}/`
+  const value = String(rawReturnTo || "").trim()
+  if (value && isSafeReturnTo(value)) {
+    target.searchParams.set("next", value)
   }
+
+  return target.toString()
 }
 
 export default function proxy(req: NextRequest) {
@@ -128,10 +142,8 @@ export default function proxy(req: NextRequest) {
   const host = hostHeader.split(":")[0]
   const url = req.nextUrl.clone()
 
-  // ✅ Não mexe em assets estáticos
   if (isStaticAssetPath(url.pathname)) return NextResponse.next()
 
-  // ✅ Não mexe em rotas internas/arquivos comuns
   if (
     url.pathname.startsWith("/_next") ||
     url.pathname.startsWith("/api") ||
@@ -142,15 +154,16 @@ export default function proxy(req: NextRequest) {
     return NextResponse.next()
   }
 
-  if (shouldRelayGoogleOAuthToCallback(req, url.pathname)) {
+  const oauthRelayProvider = resolveOAuthRelayProvider(req, url.pathname)
+  if (oauthRelayProvider) {
     const target = req.nextUrl.clone()
-    target.pathname = "/api/wz_AuthLogin/google/callback"
+    target.pathname =
+      oauthRelayProvider === "azure"
+        ? "/api/wz_AuthLogin/azure/callback"
+        : "/api/wz_AuthLogin/google/callback"
     return NextResponse.redirect(target, 307)
   }
 
-  // -----------------------------
-  // ✅ SUBDOMÍNIO LINK -> /link/*
-  // -----------------------------
   const isLinkSubdomain =
     host === "link.wyzer.com.br" ||
     host === "link.localhost" ||
@@ -164,16 +177,14 @@ export default function proxy(req: NextRequest) {
   }
 
   if (isLinkSubdomain) {
-    if (url.pathname === "/link" || url.pathname.startsWith("/link/"))
+    if (url.pathname === "/link" || url.pathname.startsWith("/link/")) {
       return NextResponse.next()
+    }
     const incomingPath = url.pathname === "/" ? "" : url.pathname
     url.pathname = `/link${incomingPath}`
     return NextResponse.rewrite(url)
   }
 
-  // -----------------------------
-  // ✅ SUBDOMÍNIO TERMS -> /terms/*
-  // -----------------------------
   const isTermsSubdomain =
     host === "terms.localhost" ||
     host === "terms.wyzer.com.br" ||
@@ -187,39 +198,35 @@ export default function proxy(req: NextRequest) {
   }
 
   if (isTermsSubdomain) {
-    if (url.pathname === "/terms" || url.pathname.startsWith("/terms/"))
+    if (url.pathname === "/terms" || url.pathname.startsWith("/terms/")) {
       return NextResponse.next()
+    }
     const incomingPath = url.pathname === "/" ? "" : url.pathname
     url.pathname = `/terms${incomingPath}`
     return NextResponse.rewrite(url)
   }
 
-  // -----------------------------
-  // ✅ SUBDOMÍNIO privacy -> /privacy/*
-  // -----------------------------
-  const isprivacySubdomain =
+  const isPrivacySubdomain =
     host === "privacy.localhost" ||
     host === "privacy.wyzer.com.br" ||
     host === "privacy.vercel.app" ||
     host.startsWith("privacy.") ||
     (host.startsWith("privacy-") && host.endsWith(".vercel.app"))
 
-  if (!isprivacySubdomain && url.pathname.startsWith("/privacy")) {
+  if (!isPrivacySubdomain && url.pathname.startsWith("/privacy")) {
     url.pathname = "/404"
     return NextResponse.rewrite(url)
   }
 
-  if (isprivacySubdomain) {
-    if (url.pathname === "/privacy" || url.pathname.startsWith("/privacy/"))
+  if (isPrivacySubdomain) {
+    if (url.pathname === "/privacy" || url.pathname.startsWith("/privacy/")) {
       return NextResponse.next()
+    }
     const incomingPath = url.pathname === "/" ? "" : url.pathname
     url.pathname = `/privacy${incomingPath}`
     return NextResponse.rewrite(url)
   }
 
-  // -----------------------------
-  // ✅ SUBDOMÍNIO DASHBOARD -> /dashboard/*
-  // -----------------------------
   const isDashboardSubdomain =
     host === "dashboard.localhost" ||
     host === "dashboard.wyzer.com.br" ||
@@ -227,23 +234,20 @@ export default function proxy(req: NextRequest) {
     host.startsWith("dashboard.") ||
     (host.startsWith("dashboard-") && host.endsWith(".vercel.app"))
 
-  // ✅ BLOQUEIA /dashboard no domínio principal
   if (!isDashboardSubdomain && url.pathname.startsWith("/dashboard")) {
     url.pathname = "/404"
     return NextResponse.rewrite(url)
   }
 
   if (isDashboardSubdomain) {
-    if (url.pathname === "/dashboard" || url.pathname.startsWith("/dashboard/"))
+    if (url.pathname === "/dashboard" || url.pathname.startsWith("/dashboard/")) {
       return NextResponse.next()
+    }
     const incomingPath = url.pathname === "/" ? "" : url.pathname
     url.pathname = `/dashboard${incomingPath}`
     return NextResponse.rewrite(url)
   }
 
-  // -----------------------------
-  // ✅ SUBDOMÍNIO LOGIN -> /login/*
-  // -----------------------------
   const isLoginSubdomain =
     host === "login.localhost" ||
     host === "login.wyzer.com.br" ||
@@ -251,15 +255,12 @@ export default function proxy(req: NextRequest) {
     host.startsWith("login.") ||
     (host.startsWith("login-") && host.endsWith(".vercel.app"))
 
-  // ✅ BLOQUEIA /login no domínio principal
   if (!isLoginSubdomain && url.pathname.startsWith("/login")) {
     url.pathname = "/404"
     return NextResponse.rewrite(url)
   }
 
   if (isLoginSubdomain) {
-    // ✅ também valida caso alguém tente /login?returnTo=...
-    //    (não redireciona automaticamente, só “limpa” se for inseguro)
     const rt = req.nextUrl.searchParams.get("returnTo")
     if (rt && !isSafeReturnTo(rt)) {
       const cleaned = req.nextUrl.clone()
@@ -270,12 +271,13 @@ export default function proxy(req: NextRequest) {
 
     const forceLogin = req.nextUrl.searchParams.get("forceLogin") === "1"
     if (!forceLogin && hasLoginSessionCookie(req)) {
-      const target = resolveLoginRedirectTarget(host, rt)
+      const target = buildLoginSessionContinueUrl(req, rt)
       return NextResponse.redirect(target, 307)
     }
 
-    if (url.pathname === "/login" || url.pathname.startsWith("/login/"))
+    if (url.pathname === "/login" || url.pathname.startsWith("/login/")) {
       return NextResponse.next()
+    }
 
     const incomingPath = url.pathname === "/" ? "" : url.pathname
     url.pathname = `/login${incomingPath}`

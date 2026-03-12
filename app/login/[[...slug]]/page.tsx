@@ -98,33 +98,58 @@ function oauthProviderLabel(provider: "google" | "azure") {
   return "Provedor";
 }
 
-function isAllowedReturnToAbsolute(url: URL) {
-  const host = url.hostname.toLowerCase();
-  const protoOk = url.protocol === "https:" || url.protocol === "http:";
-  const hostOk =
-    host === "wyzer.com.br" ||
-    host === "www.wyzer.com.br" ||
-    host.endsWith(".wyzer.com.br") ||
-    host === "localhost" ||
-    host.endsWith(".localhost");
-  return protoOk && hostOk;
-}
-
-function resolveSafeReturnTo(raw: string, loginHost: string) {
-  const value = String(raw || "").trim();
-  if (!value) return "";
-
-  if (value.startsWith("/")) {
-    return new URL(value, `${getDashboardOriginForLoginHost(loginHost)}/`).toString();
-  }
-
+function readStoredReturnTo(storageKey: string) {
+  if (typeof window === "undefined") return "";
   try {
-    const url = new URL(value);
-    if (!isAllowedReturnToAbsolute(url)) return "";
-    return url.toString();
+    return String(window.sessionStorage.getItem(storageKey) || "").trim();
   } catch {
     return "";
   }
+}
+
+function shouldRestoreReturnToFromStorage(url: URL) {
+  return (
+    url.searchParams.get("forceLogin") === "1" ||
+    Boolean(url.searchParams.get("code")) ||
+    Boolean(url.searchParams.get("error")) ||
+    Boolean(url.searchParams.get("error_description")) ||
+    Boolean(url.searchParams.get("oauthProvider")) ||
+    Boolean(url.searchParams.get("oauthEmail")) ||
+    Boolean(url.searchParams.get("oauthStep")) ||
+    Boolean(url.searchParams.get("oauthError"))
+  );
+}
+
+function resolvePreferredReturnTo(url: URL, storageKey: string) {
+  const fromQuery = String(url.searchParams.get("returnTo") || "").trim();
+  if (fromQuery) return fromQuery;
+  if (!shouldRestoreReturnToFromStorage(url)) return "";
+  return readStoredReturnTo(storageKey);
+}
+
+function buildSessionContinueUrl(nextRaw: string) {
+  const url = new URL("/api/wz_AuthLogin/continue", window.location.origin);
+  const next = String(nextRaw || "").trim();
+  if (next) {
+    url.searchParams.set("next", next);
+  }
+  return url.toString();
+}
+
+function hasOAuthOnboardingRedirect(url: URL) {
+  const provider = String(url.searchParams.get("oauthProvider") || "")
+    .trim()
+    .toLowerCase();
+  const email = String(url.searchParams.get("oauthEmail") || "")
+    .trim()
+    .toLowerCase();
+  const step = String(url.searchParams.get("oauthStep") || "")
+    .trim()
+    .toLowerCase();
+
+  if (provider !== "google" && provider !== "azure") return false;
+  if (!isValidEmail(email)) return false;
+  return step === "email" || !step;
 }
 
 function SpinnerMini({
@@ -686,6 +711,7 @@ export default function LinkLoginPage() {
     if (typeof window === "undefined") return;
 
     const url = new URL(window.location.href);
+    const returnToRaw = resolvePreferredReturnTo(url, RETURN_TO_KEY);
     let cancelled = false;
     const startedAt = Date.now();
     const hasOAuthReturn = Boolean(
@@ -693,10 +719,19 @@ export default function LinkLoginPage() {
         url.searchParams.get("error") ||
         url.searchParams.get("error_description"),
     );
+    const hasOAuthOnboarding = hasOAuthOnboardingRedirect(url);
+    const hasOAuthError = Boolean(
+      String(url.searchParams.get("oauthError") || "").trim(),
+    );
+    const expectedOauthEmail = String(url.searchParams.get("oauthEmail") || "")
+      .trim()
+      .toLowerCase();
     setSessionCheckLabel(
       hasOAuthReturn
         ? "Finalizando login com provedor..."
-        : "Verificando sessao...",
+        : hasOAuthOnboarding
+          ? "Preparando verificacao da conta..."
+          : "Verificando sessao...",
     );
 
     const minLoaderMs = hasOAuthReturn ? 1800 : 0;
@@ -708,13 +743,6 @@ export default function LinkLoginPage() {
       }
       if (!cancelled) setCheckingExistingSession(false);
     };
-
-    if (url.searchParams.get("forceLogin") === "1") {
-      void finishCheck();
-      return () => {
-        cancelled = true;
-      };
-    }
 
     const host = window.location.hostname.toLowerCase();
     const isLoginHost =
@@ -748,11 +776,22 @@ export default function LinkLoginPage() {
             if (response.ok) {
               const payload = await response.json().catch(() => ({}));
               if (payload?.ok && !cancelled) {
-                const returnToRaw = url.searchParams.get("returnTo") || "";
-                const safeReturnTo = resolveSafeReturnTo(returnToRaw, host);
-                const target = safeReturnTo || `${getDashboardOriginForLoginHost(host)}/`;
+                const sessionEmail = String(payload?.session?.email || "")
+                  .trim()
+                  .toLowerCase();
+                const shouldStayOnLogin =
+                  hasOAuthError ||
+                  (hasOAuthOnboarding &&
+                    !!expectedOauthEmail &&
+                    sessionEmail !== expectedOauthEmail);
+
+                if (shouldStayOnLogin) {
+                  break;
+                }
+
                 redirected = true;
-                window.location.replace(target);
+                setSessionCheckLabel("Redirecionando sua sessao...");
+                window.location.replace(buildSessionContinueUrl(returnToRaw));
                 return;
               }
             }
@@ -1271,7 +1310,10 @@ export default function LinkLoginPage() {
         const returnToValue =
           String(options?.nextOverride || "").trim() ||
           (typeof window !== "undefined"
-            ? new URL(window.location.href).searchParams.get("returnTo") || ""
+            ? resolvePreferredReturnTo(
+                new URL(window.location.href),
+                RETURN_TO_KEY,
+              )
             : "");
 
         const res = await fetch(`/api/wz_AuthLogin/${provider}/start`, {
@@ -1342,7 +1384,7 @@ export default function LinkLoginPage() {
   // Declare returnTo at component level
   const url =
     typeof window !== "undefined" ? new URL(window.location.href) : null;
-  const returnTo = url?.searchParams.get("returnTo") || "";
+  const returnTo = url ? resolvePreferredReturnTo(url, RETURN_TO_KEY) : "";
 
   const openSecondStepChallenge = useCallback(
     (payload: Record<string, unknown>, message?: string | null) => {
