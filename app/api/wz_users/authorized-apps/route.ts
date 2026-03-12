@@ -17,6 +17,12 @@ const NO_STORE_HEADERS = {
 };
 
 const CONNECTABLE_PROVIDER_ORDER: LoginProvider[] = ["google", "azure"];
+const EXTERNAL_PROVIDER_ORDER: Array<"google" | "azure" | "apple" | "github"> = [
+  "google",
+  "azure",
+  "apple",
+  "github",
+];
 
 type WzUserRow = {
   id?: string | null;
@@ -63,6 +69,13 @@ type AuthorizedAppsPayload = {
   };
 };
 
+type AuthUserProviderSignals = {
+  lookupOk: boolean;
+  authUserId: string | null;
+  hasPasswordProvider: boolean;
+  externalProviders: Array<"google" | "azure" | "apple" | "github">;
+};
+
 function normalizeText(value?: string | null) {
   const clean = String(value || "").trim();
   return clean || null;
@@ -95,7 +108,33 @@ function normalizeAuthProviderName(value: unknown) {
   return String(value || "").trim().toLowerCase();
 }
 
-function readAuthUserHasPasswordProvider(user: unknown) {
+function isExternalProvider(
+  provider?: LoginProvider | null,
+): provider is "google" | "azure" | "apple" | "github" {
+  return (
+    provider === "google" ||
+    provider === "azure" ||
+    provider === "apple" ||
+    provider === "github"
+  );
+}
+
+function sortExternalProviders(
+  providers: Iterable<"google" | "azure" | "apple" | "github">,
+) {
+  const seen = new Set<string>();
+  const ordered: Array<"google" | "azure" | "apple" | "github"> = [];
+
+  for (const provider of providers) {
+    if (!isExternalProvider(provider) || seen.has(provider)) continue;
+    seen.add(provider);
+    ordered.push(provider);
+  }
+
+  return EXTERNAL_PROVIDER_ORDER.filter((provider) => ordered.includes(provider));
+}
+
+function readAuthUserProviderSnapshot(user: unknown) {
   const candidate =
     user && typeof user === "object"
       ? (user as {
@@ -103,32 +142,48 @@ function readAuthUserHasPasswordProvider(user: unknown) {
           identities?: Array<Record<string, unknown>> | null;
         })
       : null;
-  if (!candidate) return false;
-
-  const appProvider = normalizeAuthProviderName(candidate.app_metadata?.provider);
-  if (appProvider === "email" || appProvider === "password") {
-    return true;
+  if (!candidate) {
+    return {
+      hasPasswordProvider: false,
+      externalProviders: [] as Array<"google" | "azure" | "apple" | "github">,
+    };
   }
+
+  let hasPasswordProvider = false;
+  const externalProviders = new Set<"google" | "azure" | "apple" | "github">();
+
+  const collectProvider = (value: unknown) => {
+    const raw = normalizeAuthProviderName(value);
+    if (!raw) return;
+    if (raw === "email" || raw === "password") {
+      hasPasswordProvider = true;
+      return;
+    }
+
+    const normalized = normalizeLoginProvider(raw);
+    if (isExternalProvider(normalized)) {
+      externalProviders.add(normalized);
+    }
+  };
+
+  collectProvider(candidate.app_metadata?.provider);
 
   const appProvidersRaw = candidate.app_metadata?.providers;
   if (Array.isArray(appProvidersRaw)) {
     for (const provider of appProvidersRaw) {
-      const normalized = normalizeAuthProviderName(provider);
-      if (normalized === "email" || normalized === "password") {
-        return true;
-      }
+      collectProvider(provider);
     }
   }
 
   const identities = Array.isArray(candidate.identities) ? candidate.identities : [];
   for (const identity of identities) {
-    const provider = normalizeAuthProviderName(identity?.provider);
-    if (provider === "email" || provider === "password") {
-      return true;
-    }
+    collectProvider(identity?.provider);
   }
 
-  return false;
+  return {
+    hasPasswordProvider,
+    externalProviders: sortExternalProviders(externalProviders),
+  };
 }
 
 async function findAuthUserIdByEmail(params: {
@@ -183,7 +238,7 @@ async function getAuthUserProviderSignals(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   authUserId: string | null;
   email: string | null;
-}) {
+}): Promise<AuthUserProviderSignals> {
   let authUserId = normalizeText(params.authUserId);
   if (!authUserId) {
     const byEmail = await findAuthUserIdByEmail({
@@ -195,6 +250,7 @@ async function getAuthUserProviderSignals(params: {
         lookupOk: false as const,
         authUserId: null as string | null,
         hasPasswordProvider: false,
+        externalProviders: [] as Array<"google" | "azure" | "apple" | "github">,
       };
     }
     authUserId = byEmail.authUserId;
@@ -203,6 +259,7 @@ async function getAuthUserProviderSignals(params: {
         lookupOk: true as const,
         authUserId: null as string | null,
         hasPasswordProvider: false,
+        externalProviders: [] as Array<"google" | "azure" | "apple" | "github">,
       };
     }
   }
@@ -215,13 +272,17 @@ async function getAuthUserProviderSignals(params: {
         lookupOk: false as const,
         authUserId: null as string | null,
         hasPasswordProvider: false,
+        externalProviders: [] as Array<"google" | "azure" | "apple" | "github">,
       };
     }
+
+    const snapshot = readAuthUserProviderSnapshot(data?.user || null);
 
     return {
       lookupOk: true as const,
       authUserId,
-      hasPasswordProvider: readAuthUserHasPasswordProvider(data?.user || null),
+      hasPasswordProvider: snapshot.hasPasswordProvider,
+      externalProviders: snapshot.externalProviders,
     };
   } catch (error) {
     console.error("[authorized-apps] getAuthUserProviderSignals error:", error);
@@ -229,6 +290,7 @@ async function getAuthUserProviderSignals(params: {
       lookupOk: false as const,
       authUserId: null as string | null,
       hasPasswordProvider: false,
+      externalProviders: [] as Array<"google" | "azure" | "apple" | "github">,
     };
   }
 }
@@ -267,6 +329,24 @@ async function updatePasswordCreatedBestEffort(params: {
   if (!updateRes.error) return;
   if (isMissingColumnError(updateRes.error, "password_created")) return;
   console.error("[authorized-apps] password_created update error:", updateRes.error);
+}
+
+async function updateAuthProviderBestEffort(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  userId: string;
+  authProvider: LoginProvider;
+}) {
+  const userId = String(params.userId || "").trim();
+  if (!userId) return;
+
+  const updateRes = await params.sb
+    .from("wz_users")
+    .update({ auth_provider: params.authProvider })
+    .eq("id", userId);
+
+  if (!updateRes.error) return;
+  if (isMissingColumnError(updateRes.error, "auth_provider")) return;
+  console.error("[authorized-apps] auth_provider update error:", updateRes.error);
 }
 
 function providerLabel(provider: string) {
@@ -652,6 +732,39 @@ function resolveRemoveBlockedReason(params: {
   return null;
 }
 
+function pickPreferredExternalProvider(params: {
+  authProvider: LoginProvider;
+  sessionProvider: LoginProvider;
+  persistedExternalProviders: Array<"google" | "azure" | "apple" | "github">;
+  authExternalProviders: Array<"google" | "azure" | "apple" | "github">;
+}) {
+  const ordered = new Set<"google" | "azure" | "apple" | "github">();
+
+  if (isExternalProvider(params.sessionProvider)) {
+    ordered.add(params.sessionProvider);
+  }
+
+  if (isExternalProvider(params.authProvider)) {
+    if (
+      params.sessionProvider === params.authProvider ||
+      params.persistedExternalProviders.includes(params.authProvider) ||
+      params.authExternalProviders.includes(params.authProvider)
+    ) {
+      ordered.add(params.authProvider);
+    }
+  }
+
+  for (const provider of params.authExternalProviders) {
+    ordered.add(provider);
+  }
+
+  for (const provider of params.persistedExternalProviders) {
+    ordered.add(provider);
+  }
+
+  return EXTERNAL_PROVIDER_ORDER.find((provider) => ordered.has(provider)) || null;
+}
+
 async function buildAuthorizedAppsPayload(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   userRow: {
@@ -722,27 +835,61 @@ async function buildAuthorizedAppsPayload(params: {
   });
 
   const authProviderNormalized = normalizeLoginProvider(params.userRow.auth_provider || "unknown");
-  let creationProvider: LoginProvider =
-    authProviderNormalized !== "unknown"
-      ? authProviderNormalized
-      : creationProviderFromSessions || "unknown";
+  const sessionCreationProvider = creationProviderFromSessions || "unknown";
+  const persistedExternalProviders = Array.from(
+    new Set(
+      providerRows.rows
+        .map((row) => ({
+          provider: normalizeLoginProvider(row.provider),
+          linkedAtMs: Date.parse(String(row.linkedAt || "")) || Number.MAX_SAFE_INTEGER,
+          lastLoginAtMs: Date.parse(String(row.lastLoginAt || "")) || 0,
+        }))
+        .filter(
+          (
+            row,
+          ): row is {
+            provider: "google" | "azure" | "apple" | "github";
+            linkedAtMs: number;
+            lastLoginAtMs: number;
+          } => isExternalProvider(row.provider),
+        )
+        .sort((a, b) => {
+          if (a.lastLoginAtMs !== b.lastLoginAtMs) return b.lastLoginAtMs - a.lastLoginAtMs;
+          return a.linkedAtMs - b.linkedAtMs;
+        })
+        .map((row) => row.provider),
+    ),
+  );
+  const preferredExternalProvider = pickPreferredExternalProvider({
+    authProvider: authProviderNormalized,
+    sessionProvider: sessionCreationProvider,
+    persistedExternalProviders,
+    authExternalProviders: authSignals.externalProviders,
+  });
 
-  if (creationProvider === "unknown") {
-    const firstLinkedProvider = [...providerRows.rows]
-      .map((row) => ({
-        provider: normalizeLoginProvider(row.provider),
-        linkedAtMs: Date.parse(String(row.linkedAt || "")) || Number.MAX_SAFE_INTEGER,
-      }))
-      .filter((row) => row.provider !== "unknown")
-      .sort((a, b) => a.linkedAtMs - b.linkedAtMs)[0];
+  const canNormalizeStaleExternalProviderToPassword =
+    isExternalProvider(authProviderNormalized) &&
+    hasPasswordFingerprint &&
+    authSignals.lookupOk &&
+    authSignals.externalProviders.length === 0 &&
+    !persistedExternalProviders.includes(authProviderNormalized) &&
+    (sessionCreationProvider === "password" || sessionCreationProvider === "unknown");
 
-    if (firstLinkedProvider?.provider) {
-      creationProvider = firstLinkedProvider.provider;
-    }
+  if (canNormalizeStaleExternalProviderToPassword) {
+    await updateAuthProviderBestEffort({
+      sb: params.sb,
+      userId,
+      authProvider: "password",
+    });
   }
 
-  if (creationProvider === "unknown") {
+  let creationProvider: LoginProvider = "password";
+  if (authProviderNormalized === "password" || sessionCreationProvider === "password") {
     creationProvider = "password";
+  } else if (preferredExternalProvider) {
+    creationProvider = preferredExternalProvider;
+  } else if (!hasPasswordFingerprint && isExternalProvider(authProviderNormalized)) {
+    creationProvider = authProviderNormalized;
   }
 
   const primaryProvider: LoginProvider = creationProvider;
@@ -753,6 +900,7 @@ async function buildAuthorizedAppsPayload(params: {
 
   for (const row of providerRows.rows) {
     const provider = normalizeLoginProvider(row.provider);
+    if (provider === "unknown") continue;
     if (provider === "password" && authSignals.lookupOk && !authSignals.hasPasswordProvider) {
       // Evita exibir "Wyzer Login" stale quando a senha local nao existe no Auth.
       continue;
@@ -845,6 +993,9 @@ async function buildAuthorizedAppsPayload(params: {
   const connectedProviderSet = new Set<LoginProvider>(
     providers.map((provider) => normalizeLoginProvider(provider.provider)),
   );
+  for (const provider of authSignals.externalProviders) {
+    connectedProviderSet.add(provider);
+  }
   const connectableProviders: ConnectableProviderPayload[] = CONNECTABLE_PROVIDER_ORDER.filter(
     (provider) => !connectedProviderSet.has(provider),
   ).map((provider) => ({

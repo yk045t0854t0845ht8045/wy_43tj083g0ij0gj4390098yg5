@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type ScheduleDay = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
@@ -90,6 +90,12 @@ type StepMeta = {
   description: string;
 };
 
+type SelectOption = {
+  value: string;
+  label: string;
+  search?: string;
+};
+
 const DAY_OPTIONS: Array<{
   value: ScheduleDay;
   label: string;
@@ -169,8 +175,8 @@ const WIZARD_STEPS: StepMeta[] = [
   },
   {
     id: "ai",
-    title: "Coleta basica",
-    description: "Dados iniciais do cliente e fluxo automatico da empresa.",
+    title: "IA e coleta",
+    description: "Instrucao, fallback, coleta e regras do atendimento.",
   },
   {
     id: "confirm",
@@ -187,6 +193,19 @@ const TEXTAREA_CLASS =
   "mt-2 min-h-[130px] w-full rounded-xl border border-black/12 bg-white px-3 py-3 text-[14px] text-black/84 outline-none transition-[border-color,box-shadow,background-color] focus:border-black/24 focus:ring-2 focus:ring-black/10 resize-y";
 const DARK_BUTTON_GRADIENT_CLASS =
   "bg-[#0b0b0b] [background-image:radial-gradient(130%_120%_at_50%_-18%,rgba(255,255,255,0.12)_0%,rgba(255,255,255,0)_52%),linear-gradient(180deg,#171717_0%,#0f0f0f_58%,#080808_100%)]";
+
+const AI_TONE_OPTIONS: SelectOption[] = [
+  { value: "professional", label: "Profissional", search: "formal empresa corporativo" },
+  { value: "friendly", label: "Amigavel", search: "leve acolhedor simpatico" },
+  { value: "consultative", label: "Consultivo", search: "especialista orientar recomendacoes" },
+  { value: "objective", label: "Objetivo", search: "direto curto rapido" },
+];
+
+const AI_RESPONSE_SIZE_OPTIONS: SelectOption[] = [
+  { value: "concise", label: "Curtas e diretas", search: "curto rapido resumo" },
+  { value: "balanced", label: "Equilibradas", search: "medio natural padrao" },
+  { value: "detailed", label: "Detalhadas", search: "longo completo explicativo" },
+];
 
 function createDefaultSchedule(): DaySchedule[] {
   return DAY_OPTIONS.map((day) => ({
@@ -207,9 +226,9 @@ function createDefaultForm(): SystemConfigForm {
       "Nosso atendimento esta fora do horario no momento. Deixe sua mensagem que retornamos no proximo periodo util.",
     weeklySchedule: createDefaultSchedule(),
     aiInstructions:
-      "Atue no modo basico de atendimento: confirme o recebimento, mantenha tom profissional e colete apenas os dados marcados na configuracao.",
+      "Seja objetivo, educado e profissional. Entenda o contexto do cliente, confirme o que foi compreendido e proponha o proximo passo mais adequado.",
     aiFallbackMessage:
-      "Recebemos sua mensagem e seguimos com o atendimento pelo fluxo padrao da empresa.",
+      "Desculpe, nao entendi completamente sua mensagem. Pode explicar de outra forma ou enviar mais detalhes?",
     aiResponseTone: "professional",
     aiResponseSize: "balanced",
     aiCollectName: true,
@@ -395,14 +414,20 @@ function validateSchedule(form: SystemConfigForm) {
   return null;
 }
 
-function validateAi() {
+function validateAi(form: SystemConfigForm) {
+  if (!normalizeLongText(form.aiInstructions, 2400)) {
+    return "Descreva as instrucoes principais para a IA do WhatsApp.";
+  }
+  if (!normalizeLongText(form.aiFallbackMessage, 1200)) {
+    return "Informe a mensagem para quando a IA nao entender o cliente.";
+  }
   return null;
 }
 
 function validateByTopic(topic: WizardTopic, form: SystemConfigForm) {
   if (topic === "messages") return validateMessages(form);
   if (topic === "schedule") return validateSchedule(form);
-  if (topic === "ai") return validateAi();
+  if (topic === "ai") return validateAi(form);
 
   const messagesError = validateMessages(form);
   if (messagesError) return messagesError;
@@ -410,7 +435,7 @@ function validateByTopic(topic: WizardTopic, form: SystemConfigForm) {
   const scheduleError = validateSchedule(form);
   if (scheduleError) return scheduleError;
 
-  return validateAi();
+  return validateAi(form);
 }
 
 function stepIndex(topic: WizardTopic) {
@@ -425,6 +450,123 @@ function isUuidLike(value?: string | null) {
   const clean = String(value || "").trim().toLowerCase();
   if (!clean) return false;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(clean);
+}
+
+type SelectMenuProps = {
+  value: string;
+  options: SelectOption[];
+  placeholder: string;
+  searchPlaceholder?: string;
+  emptyLabel?: string;
+  disabled?: boolean;
+  onChange: (next: string) => void;
+};
+
+function SelectMenu({
+  value,
+  options,
+  placeholder,
+  searchPlaceholder = "Buscar...",
+  emptyLabel = "Nenhuma opcao encontrada.",
+  disabled = false,
+  onChange,
+}: SelectMenuProps) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const selected = useMemo(() => options.find((item) => item.value === value) || null, [options, value]);
+
+  const filtered = useMemo(() => {
+    const clean = String(query || "").trim().toLowerCase();
+    if (!clean) return options;
+    return options.filter((item) => {
+      const search = `${item.label} ${item.search || ""}`.toLowerCase();
+      return search.includes(clean);
+    });
+  }, [options, query]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target || !wrapRef.current) return;
+      if (!wrapRef.current.contains(target)) {
+        setOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    return () => window.removeEventListener("mousedown", onPointerDown);
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => {
+          if (disabled) return;
+          setOpen((current) => !current);
+        }}
+        className={cx(
+          "mt-2 inline-flex h-11 w-full items-center justify-between rounded-xl border border-black/12 bg-white/90 px-3 text-left text-[15px] text-black/82",
+          "transition-[border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/8",
+          disabled ? "cursor-not-allowed opacity-65" : "hover:border-black/22",
+        )}
+      >
+        <span className={cx("truncate", !selected && "text-black/46")}>
+          {selected?.label || placeholder}
+        </span>
+        <ChevronDown
+          className={cx("h-4 w-4 shrink-0 text-black/52 transition-transform", open && "rotate-180")}
+        />
+      </button>
+
+      {open && (
+        <div className="absolute z-[55] mt-2 w-full overflow-hidden rounded-xl border border-black/15 bg-white shadow-[0_16px_34px_rgba(0,0,0,0.16)]">
+          <div className="border-b border-black/8 p-2">
+            <input
+              type="text"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={searchPlaceholder}
+              className="h-9 w-full rounded-lg border border-black/12 bg-[#f7f7f8] px-2.5 text-[13px] text-black/78 outline-none focus:border-black/24"
+            />
+          </div>
+
+          <div className="max-h-[250px] overflow-y-auto p-1.5">
+            {filtered.length > 0 ? (
+              filtered.map((option) => {
+                const active = option.value === value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onChange(option.value);
+                      setOpen(false);
+                      setQuery("");
+                    }}
+                    className={cx(
+                      "flex h-9 w-full items-center justify-between rounded-lg px-2.5 text-left text-[13px] text-black/82 transition-colors",
+                      active ? "bg-black/[0.08] font-semibold" : "hover:bg-black/[0.05]",
+                    )}
+                  >
+                    <span className="truncate">{option.label}</span>
+                    {active && <Check className="h-4 w-4 shrink-0 text-black/70" />}
+                  </button>
+                );
+              })
+            ) : (
+              <p className="px-2.5 py-3 text-[12px] text-black/52">{emptyLabel}</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function OverviewMain({
@@ -1564,11 +1706,12 @@ export default function OverviewMain({
                         <>
                           <div className="rounded-2xl bg-white/75 p-4 shadow-[0_12px_28px_rgba(0,0,0,0.05)] sm:p-5">
                             <h3 className="text-[18px] font-semibold text-black/84">
-                              Coleta basica de atendimento
+                              IA, fallback e coleta
                             </h3>
                             <p className="mt-1 text-[13px] text-black/60">
-                              O atendimento automatico vai operar no modo basico: mensagem
-                              corporativa, horario comercial e coleta dos dados marcados abaixo.
+                              Continue configurando todas as regras do atendimento. O sistema basico
+                              ja opera agora, e essas configuracoes avancadas continuam sendo
+                              coletadas e salvas para a proxima evolucao do fluxo.
                             </p>
                           </div>
 
@@ -1582,10 +1725,132 @@ export default function OverviewMain({
                               </span>
                             </div>
                             <p className="mt-3 text-[13px] leading-relaxed text-black/60">
-                              O sistema vai usar as mensagens configuradas, validar horario de
-                              funcionamento e pedir somente os dados habilitados abaixo antes de
-                              finalizar o atendimento inicial.
+                              O atendimento basico usa mensagens, horario e coleta inicial. Mesmo
+                              assim, a etapa abaixo continua registrando instrucao, fallback, tom e
+                              regra de transferencia para deixar o sistema preparado.
                             </p>
+                          </div>
+
+                          <label className="block rounded-2xl bg-white/78 p-4 shadow-[0_10px_24px_rgba(0,0,0,0.045)] sm:p-5">
+                            <span className="text-[13px] font-semibold text-black/70">
+                              Instrucoes principais da IA
+                            </span>
+                            <textarea
+                              value={form.aiInstructions}
+                              onChange={(event) =>
+                                setForm((current) => ({
+                                  ...current,
+                                  aiInstructions: normalizeLongText(event.target.value, 2400),
+                                }))
+                              }
+                              placeholder="Ex.: seja consultivo, confirme entendimento, ofereca opcoes e finalize com proximo passo objetivo."
+                              className="mt-2 min-h-[170px] w-full rounded-xl border border-black/12 bg-white px-3 py-3 text-[14px] text-black/84 outline-none transition-[border-color,box-shadow,background-color] focus:border-black/24 focus:ring-2 focus:ring-black/10 resize-y"
+                            />
+                          </label>
+
+                          <label className="block rounded-2xl bg-white/78 p-4 shadow-[0_10px_24px_rgba(0,0,0,0.045)] sm:p-5">
+                            <span className="text-[13px] font-semibold text-black/70">
+                              Mensagem quando nao entender o cliente
+                            </span>
+                            <textarea
+                              value={form.aiFallbackMessage}
+                              onChange={(event) =>
+                                setForm((current) => ({
+                                  ...current,
+                                  aiFallbackMessage: normalizeLongText(event.target.value, 1200),
+                                }))
+                              }
+                              placeholder="Ex.: nao entendi totalmente, pode reformular ou enviar mais detalhes?"
+                              className={TEXTAREA_CLASS}
+                            />
+                          </label>
+
+                          <div className="rounded-2xl bg-white/78 p-4 shadow-[0_10px_24px_rgba(0,0,0,0.045)] sm:p-5">
+                            <span className="text-[13px] font-semibold text-black/70">
+                              Quando nao entender a mensagem do cliente
+                            </span>
+                            <p className="mt-1 text-[12px] text-black/58">
+                              Escolha como o bot deve agir quando a camada avancada estiver ativa.
+                            </p>
+                            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    aiTransferToHumanWhenUncertain: false,
+                                  }))
+                                }
+                                className={cx(
+                                  "rounded-xl border px-3 py-2.5 text-left text-[13px] font-medium transition-colors",
+                                  !form.aiTransferToHumanWhenUncertain
+                                    ? "border-black bg-black text-white"
+                                    : "border-black/12 bg-white text-black/76 hover:bg-black/[0.04]",
+                                )}
+                              >
+                                Responder com fallback
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    aiTransferToHumanWhenUncertain: true,
+                                  }))
+                                }
+                                className={cx(
+                                  "rounded-xl border px-3 py-2.5 text-left text-[13px] font-medium transition-colors",
+                                  form.aiTransferToHumanWhenUncertain
+                                    ? "border-black bg-black text-white"
+                                    : "border-black/12 bg-white text-black/76 hover:bg-black/[0.04]",
+                                )}
+                              >
+                                Redirecionar para atendente
+                              </button>
+                            </div>
+                            <p className="mt-2 text-[12px] text-black/58">
+                              {form.aiTransferToHumanWhenUncertain
+                                ? "Se houver incerteza, essa regra fica salva para encaminhar o cliente ao humano."
+                                : "Se houver incerteza, essa regra fica salva para usar a mensagem de fallback."}
+                            </p>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                            <label className="block rounded-2xl bg-white/78 p-4 shadow-[0_10px_24px_rgba(0,0,0,0.045)] sm:p-5">
+                              <span className="text-[13px] font-semibold text-black/70">
+                                Tom das respostas
+                              </span>
+                              <SelectMenu
+                                value={form.aiResponseTone}
+                                options={AI_TONE_OPTIONS}
+                                placeholder="Selecione o tom"
+                                searchPlaceholder="Buscar tom..."
+                                onChange={(next) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    aiResponseTone: normalizeTone(next),
+                                  }))
+                                }
+                              />
+                            </label>
+
+                            <label className="block rounded-2xl bg-white/78 p-4 shadow-[0_10px_24px_rgba(0,0,0,0.045)] sm:p-5">
+                              <span className="text-[13px] font-semibold text-black/70">
+                                Tamanho das respostas
+                              </span>
+                              <SelectMenu
+                                value={form.aiResponseSize}
+                                options={AI_RESPONSE_SIZE_OPTIONS}
+                                placeholder="Selecione o tamanho"
+                                searchPlaceholder="Buscar formato..."
+                                onChange={(next) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    aiResponseSize: normalizeResponseSize(next),
+                                  }))
+                                }
+                              />
+                            </label>
                           </div>
 
                           <div className="rounded-2xl bg-white/78 p-4 shadow-[0_10px_24px_rgba(0,0,0,0.045)] sm:p-5">
@@ -1661,9 +1926,9 @@ export default function OverviewMain({
                                 Escopo desta versao
                               </h4>
                               <p className="mt-3 text-[13px] leading-relaxed text-black/62">
-                                Esta etapa fica focada no atendimento automatico essencial. Campos
-                                avancados de IA permanecem internos com padrao seguro e nao travam
-                                mais a criacao do sistema.
+                                O atendimento automatico essencial continua rodando primeiro, mas
+                                as configuracoes de IA e fallback seguem sendo coletadas normalmente
+                                para nao perder contexto da empresa.
                               </p>
                             </article>
                           </div>
@@ -1722,20 +1987,16 @@ export default function OverviewMain({
 
                             <article className="rounded-2xl bg-white/78 p-4 shadow-[0_10px_24px_rgba(0,0,0,0.045)] sm:p-5">
                               <h4 className="text-[14px] font-semibold text-black/80">
-                                Fluxo basico de atendimento
+                                IA e regras coletadas
                               </h4>
                               <ul className="mt-3 space-y-2 text-[13px] text-black/70">
                                 <li className="flex items-start gap-2">
                                   <CheckCircle2 className="mt-[1px] h-4 w-4 text-black/70" />
-                                  <span>
-                                    Modo ativo: atendimento automatico basico da empresa
-                                  </span>
+                                  <span>Tom: {form.aiResponseTone}</span>
                                 </li>
                                 <li className="flex items-start gap-2">
                                   <CheckCircle2 className="mt-[1px] h-4 w-4 text-black/70" />
-                                  <span>
-                                    Horario comercial aplicado com bloqueio fora do expediente
-                                  </span>
+                                  <span>Tamanho das respostas: {form.aiResponseSize}</span>
                                 </li>
                                 <li className="flex items-start gap-2">
                                   <CheckCircle2 className="mt-[1px] h-4 w-4 text-black/70" />
@@ -1753,7 +2014,10 @@ export default function OverviewMain({
                                 <li className="flex items-start gap-2">
                                   <CheckCircle2 className="mt-[1px] h-4 w-4 text-black/70" />
                                   <span>
-                                    Encerramento automatico apos concluir o fluxo inicial
+                                    Regra de incerteza:{" "}
+                                    {form.aiTransferToHumanWhenUncertain
+                                      ? "Redirecionar para atendente"
+                                      : "Responder com fallback"}
                                   </span>
                                 </li>
                               </ul>

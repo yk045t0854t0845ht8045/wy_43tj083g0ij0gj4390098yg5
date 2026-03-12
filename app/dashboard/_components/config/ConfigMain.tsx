@@ -6275,6 +6275,7 @@ function AuthorizedAppsContent() {
           ) : (
             orderedProviders.map((provider, idx) => {
               const providerLabel = resolveAuthorizedProviderLabel(provider);
+              const maskedLinkedEmail = maskAuthorizedProviderEmail(provider.linkedEmail);
               const isCreationProvider =
                 String(provider.provider || "").trim().toLowerCase() ===
                 String(creationProvider || "").trim().toLowerCase();
@@ -6382,11 +6383,13 @@ function AuthorizedAppsContent() {
                         </span>
                       </span>
                     </div>
-                    {(provider.provider === "google" ||
-                      provider.provider === "azure" ||
-                      provider.provider === "password") ? (
+                    {provider.provider === "password" ? (
                       <p className="mt-1 text-[13px] text-black/56">
-                        Email vinculado: {maskAuthorizedProviderEmail(provider.linkedEmail) || "indisponível"}
+                        Email de acesso: {maskedLinkedEmail || "indisponível"}
+                      </p>
+                    ) : maskedLinkedEmail ? (
+                      <p className="mt-1 text-[13px] text-black/56">
+                        Email vinculado: {maskedLinkedEmail}
                       </p>
                     ) : null}
                   </div>

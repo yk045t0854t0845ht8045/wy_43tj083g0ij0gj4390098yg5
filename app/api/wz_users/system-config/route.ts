@@ -68,9 +68,9 @@ const BOT_SYSTEM_CONFIG_COLUMNS =
 const BOT_SYSTEM_SUMMARY_COLUMNS =
   "id,company_onboarding_id,company_name,status,whatsapp_connected,created_at,updated_at";
 const DEFAULT_AI_INSTRUCTIONS =
-  "Atue no modo basico de atendimento: confirme o recebimento, mantenha tom profissional e colete apenas os dados marcados na configuracao.";
+  "Seja objetivo, educado e profissional. Entenda o contexto do cliente, confirme o que foi compreendido e proponha o proximo passo mais adequado.";
 const DEFAULT_AI_FALLBACK_MESSAGE =
-  "Recebemos sua mensagem e seguimos com o atendimento pelo fluxo padrao da empresa.";
+  "Desculpe, nao entendi completamente sua mensagem. Pode explicar de outra forma ou enviar mais detalhes?";
 
 function getErrorMessage(error: unknown, fallback: string) {
   const message = String((error as { message?: unknown } | null)?.message || "").trim();
@@ -217,9 +217,8 @@ function parseIncomingConfig(value: unknown) {
     closingMessage: normalizeLongText(raw.closingMessage, 1200),
     outOfHoursMessage: normalizeLongText(raw.outOfHoursMessage, 1200),
     weeklySchedule: normalizeSchedule(raw.weeklySchedule),
-    aiInstructions: normalizeLongText(raw.aiInstructions, 2400) || DEFAULT_AI_INSTRUCTIONS,
-    aiFallbackMessage:
-      normalizeLongText(raw.aiFallbackMessage, 1200) || DEFAULT_AI_FALLBACK_MESSAGE,
+    aiInstructions: normalizeLongText(raw.aiInstructions, 2400),
+    aiFallbackMessage: normalizeLongText(raw.aiFallbackMessage, 1200),
     aiResponseTone: normalizeTone(raw.aiResponseTone),
     aiResponseSize: normalizeResponseSize(raw.aiResponseSize),
     aiCollectName: normalizeBoolean(raw.aiCollectName),
@@ -249,6 +248,13 @@ function parseIncomingConfig(value: unknown) {
     if (day.start >= day.end) {
       return { ok: false as const, error: "O horario final deve ser maior que o inicial em cada dia ativo." };
     }
+  }
+
+  if (!config.aiInstructions) {
+    return { ok: false as const, error: "Informe as instrucoes principais para a IA." };
+  }
+  if (!config.aiFallbackMessage) {
+    return { ok: false as const, error: "Informe a mensagem quando a IA nao entender o cliente." };
   }
 
   return { ok: true as const, config };

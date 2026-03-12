@@ -18,6 +18,7 @@ const NO_STORE_HEADERS = {
 };
 
 type ExternalProvider = "google" | "azure" | "apple" | "github";
+const EXTERNAL_PROVIDER_ORDER: ExternalProvider[] = ["google", "azure", "apple", "github"];
 
 type WzUserCandidateRow = {
   id: string | null;
@@ -76,6 +77,19 @@ function normalizeExternalProvider(value: unknown): ExternalProvider | null {
   return null;
 }
 
+function sortExternalProviders(providers: Iterable<ExternalProvider>) {
+  const seen = new Set<string>();
+  const ordered: ExternalProvider[] = [];
+
+  for (const provider of providers) {
+    if (!provider || seen.has(provider)) continue;
+    seen.add(provider);
+    ordered.push(provider);
+  }
+
+  return EXTERNAL_PROVIDER_ORDER.filter((provider) => ordered.includes(provider));
+}
+
 function providerLabel(provider?: ExternalProvider | null) {
   if (provider === "google") return "Google";
   if (provider === "azure") return "Microsoft";
@@ -125,7 +139,7 @@ function normalizeAuthProviderName(value: unknown) {
   return String(value || "").trim().toLowerCase();
 }
 
-function readAuthUserHasPasswordProvider(user: unknown) {
+function readAuthUserProviderSnapshot(user: unknown) {
   const candidate =
     user && typeof user === "object"
       ? (user as {
@@ -133,32 +147,48 @@ function readAuthUserHasPasswordProvider(user: unknown) {
           identities?: Array<Record<string, unknown>> | null;
         })
       : null;
-  if (!candidate) return false;
-
-  const appProvider = normalizeAuthProviderName(candidate.app_metadata?.provider);
-  if (appProvider === "email" || appProvider === "password") {
-    return true;
+  if (!candidate) {
+    return {
+      hasPasswordProvider: false,
+      externalProviders: [] as ExternalProvider[],
+    };
   }
+
+  let hasPasswordProvider = false;
+  const externalProviders = new Set<ExternalProvider>();
+
+  const collectProvider = (value: unknown) => {
+    const raw = normalizeAuthProviderName(value);
+    if (!raw) return;
+    if (raw === "email" || raw === "password") {
+      hasPasswordProvider = true;
+      return;
+    }
+
+    const normalized = normalizeExternalProvider(raw);
+    if (normalized) {
+      externalProviders.add(normalized);
+    }
+  };
+
+  collectProvider(candidate.app_metadata?.provider);
 
   const appProvidersRaw = candidate.app_metadata?.providers;
   if (Array.isArray(appProvidersRaw)) {
     for (const provider of appProvidersRaw) {
-      const normalized = normalizeAuthProviderName(provider);
-      if (normalized === "email" || normalized === "password") {
-        return true;
-      }
+      collectProvider(provider);
     }
   }
 
   const identities = Array.isArray(candidate.identities) ? candidate.identities : [];
   for (const identity of identities) {
-    const provider = normalizeAuthProviderName(identity?.provider);
-    if (provider === "email" || provider === "password") {
-      return true;
-    }
+    collectProvider(identity?.provider);
   }
 
-  return false;
+  return {
+    hasPasswordProvider,
+    externalProviders: sortExternalProviders(externalProviders),
+  };
 }
 
 async function findAuthUserIdByEmail(params: {
@@ -358,10 +388,12 @@ async function resolveAuthPasswordSignals(params: {
     try {
       const { data, error } = await params.sb.auth.admin.getUserById(candidateId);
       if (error) continue;
+      const snapshot = readAuthUserProviderSnapshot(data?.user || null);
       return {
         lookupOk: true as const,
         authUserId: candidateId,
-        hasPasswordProvider: readAuthUserHasPasswordProvider(data?.user || null),
+        hasPasswordProvider: snapshot.hasPasswordProvider,
+        externalProviders: snapshot.externalProviders,
       };
     } catch {
       continue;
@@ -377,6 +409,7 @@ async function resolveAuthPasswordSignals(params: {
       lookupOk: true as const,
       authUserId: null as string | null,
       hasPasswordProvider: false,
+      externalProviders: [] as ExternalProvider[],
     };
   }
 
@@ -387,18 +420,22 @@ async function resolveAuthPasswordSignals(params: {
         lookupOk: false as const,
         authUserId: byEmail,
         hasPasswordProvider: false,
+        externalProviders: [] as ExternalProvider[],
       };
     }
+    const snapshot = readAuthUserProviderSnapshot(data?.user || null);
     return {
       lookupOk: true as const,
       authUserId: byEmail,
-      hasPasswordProvider: readAuthUserHasPasswordProvider(data?.user || null),
+      hasPasswordProvider: snapshot.hasPasswordProvider,
+      externalProviders: snapshot.externalProviders,
     };
   } catch {
     return {
       lookupOk: false as const,
       authUserId: byEmail,
       hasPasswordProvider: false,
+      externalProviders: [] as ExternalProvider[],
     };
   }
 }
@@ -441,19 +478,53 @@ async function updateWzUsersFlagsBestEffort(params: {
 }
 
 function pickPrimaryProvider(params: {
-  authProvider: string | null;
+  authProvider: LoginProvider;
+  sessionProvider: LoginProvider;
   hasPasswordFingerprint: boolean;
-  firstExternalProvider: ExternalProvider | null;
+  preferredExternalProvider: ExternalProvider | null;
 }) {
-  const byColumn = normalizeLoginProvider(params.authProvider || "unknown");
-  if (byColumn !== "unknown") {
-    if (byColumn === "password" && !params.hasPasswordFingerprint && params.firstExternalProvider) {
-      return params.firstExternalProvider;
-    }
-    return byColumn;
+  if (params.authProvider === "password" || params.sessionProvider === "password") {
+    return "password" as LoginProvider;
   }
-  if (params.firstExternalProvider) return params.firstExternalProvider;
-  return params.hasPasswordFingerprint ? ("password" as LoginProvider) : ("unknown" as LoginProvider);
+  if (params.preferredExternalProvider) return params.preferredExternalProvider;
+  if (!params.hasPasswordFingerprint && normalizeExternalProvider(params.authProvider)) {
+    return params.authProvider;
+  }
+  return "password" as LoginProvider;
+}
+
+function pickPreferredExternalProvider(params: {
+  authProvider: LoginProvider;
+  sessionProvider: LoginProvider;
+  persistedExternalProviders: ExternalProvider[];
+  authExternalProviders: ExternalProvider[];
+}) {
+  const ordered = new Set<ExternalProvider>();
+
+  const sessionExternal = normalizeExternalProvider(params.sessionProvider);
+  if (sessionExternal) {
+    ordered.add(sessionExternal);
+  }
+
+  const authExternal = normalizeExternalProvider(params.authProvider);
+  if (
+    authExternal &&
+    (sessionExternal === authExternal ||
+      params.persistedExternalProviders.includes(authExternal) ||
+      params.authExternalProviders.includes(authExternal))
+  ) {
+    ordered.add(authExternal);
+  }
+
+  for (const provider of params.authExternalProviders) {
+    ordered.add(provider);
+  }
+
+  for (const provider of params.persistedExternalProviders) {
+    ordered.add(provider);
+  }
+
+  return EXTERNAL_PROVIDER_ORDER.find((provider) => ordered.has(provider)) || null;
 }
 
 export async function GET(req: NextRequest) {
@@ -581,13 +652,18 @@ export async function GET(req: NextRequest) {
     const hasPersistedPasswordProvider = providerRows.some(
       (row) => row.provider === "password",
     );
-    const firstExternalProvider = [...providerRows]
+    const persistedExternalProviders = Array.from(
+      new Set(
+        [...providerRows]
       .map((row) => ({
         provider: normalizeExternalProvider(row.provider),
         rank: parseIsoMs(row.lastLoginAt || row.linkedAt),
       }))
       .filter((row): row is { provider: ExternalProvider; rank: number } => Boolean(row.provider))
-      .sort((a, b) => b.rank - a.rank)[0]?.provider || null;
+      .sort((a, b) => b.rank - a.rank)
+      .map((row) => row.provider),
+      ),
+    );
 
     const hasAuthPasswordProvider = Boolean(earlyAuthSignals.hasPasswordProvider);
     const hasPasswordByProfileFlags =
@@ -624,17 +700,48 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const authProviderNormalized = normalizeLoginProvider(canonicalRow.auth_provider || "unknown");
+    const authExternalProvider = normalizeExternalProvider(authProviderNormalized);
+    const sessionProvider =
+      authProviderNormalized === "password" ? "password" : "unknown";
+    const preferredExternalProvider = pickPreferredExternalProvider({
+      authProvider: authProviderNormalized,
+      sessionProvider,
+      persistedExternalProviders,
+      authExternalProviders: earlyAuthSignals.externalProviders || [],
+    });
     const providerForSetup =
-      normalizeExternalProvider(canonicalRow.auth_provider) || firstExternalProvider;
+      preferredExternalProvider ||
+      (!hasPasswordFingerprint ? authExternalProvider : null);
+
+    const canNormalizeStaleExternalProviderToPassword =
+      Boolean(authExternalProvider) &&
+      hasPasswordFingerprint &&
+      earlyAuthSignals.lookupOk &&
+      (earlyAuthSignals.externalProviders || []).length === 0 &&
+      Boolean(authExternalProvider) &&
+      !persistedExternalProviders.includes(authExternalProvider as ExternalProvider);
+
+    if (canNormalizeStaleExternalProviderToPassword) {
+      await updateWzUsersFlagsBestEffort({
+        sb,
+        userIds: candidateUserIds,
+        patch: {
+          auth_provider: "password",
+        },
+      });
+    }
+
     const shouldRequireSetup =
       !hasPasswordFingerprint &&
       (canonicalRow.must_create_password === true || canonicalRow.password_created === false) &&
       Boolean(providerForSetup);
 
     const primaryProvider = pickPrimaryProvider({
-      authProvider: canonicalRow.auth_provider,
+      authProvider: authProviderNormalized,
+      sessionProvider,
       hasPasswordFingerprint,
-      firstExternalProvider,
+      preferredExternalProvider,
     });
 
     return NextResponse.json(
