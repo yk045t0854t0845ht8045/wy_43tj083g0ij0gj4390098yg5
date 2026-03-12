@@ -73,6 +73,7 @@ type OverviewMainProps = {
   primaryOnboardingState?: PrimaryOnboardingSnapshot | null;
   syncToken?: number;
   primarySystemReadyToken?: number;
+  onPrimarySystemSetupLockChange?: (locked: boolean) => void;
   onRequestAddSystemOnboarding?: () => Promise<void> | void;
   onConsumePendingCompanySystem?: (companyOnboardingId: string) => void;
 };
@@ -565,6 +566,7 @@ export default function OverviewMain({
   primaryOnboardingState = null,
   syncToken = 0,
   primarySystemReadyToken = 0,
+  onPrimarySystemSetupLockChange,
   onRequestAddSystemOnboarding,
   onConsumePendingCompanySystem,
 }: OverviewMainProps) {
@@ -590,6 +592,7 @@ export default function OverviewMain({
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<SystemConfigForm>(createDefaultForm());
+  const [configResolvedOnce, setConfigResolvedOnce] = useState(false);
   const silentRefreshInFlightRef = useRef(false);
   const lastSilentRefreshAtRef = useRef(0);
   const lastHandledSyncTokenRef = useRef(0);
@@ -630,6 +633,9 @@ export default function OverviewMain({
       setSystems(normalizeSystemSummaries(payload.systems));
       setActiveSystemId(String(payload.activeSystemId || "").trim() || null);
       setSavedAt(String(payload.updatedAt || payload.createdAt || "") || null);
+      if (!silent) {
+        setConfigResolvedOnce(true);
+      }
 
       if (payload.systemConfig) {
         setForm(normalizeIncomingConfig(payload.systemConfig));
@@ -771,6 +777,39 @@ export default function OverviewMain({
     openWizardForNewSystem,
     onConsumePendingCompanySystem,
     pendingCompanySystemContext,
+  ]);
+
+  const requiresInitialPrimarySystemSetup = Boolean(
+    !onboardingLocked &&
+      configResolvedOnce &&
+      primaryOnboardingState?.completed &&
+      primaryOnboardingState?.whatsappConnected &&
+      !hasSystem,
+  );
+
+  useEffect(() => {
+    onPrimarySystemSetupLockChange?.(requiresInitialPrimarySystemSetup);
+  }, [onPrimarySystemSetupLockChange, requiresInitialPrimarySystemSetup]);
+
+  useEffect(() => {
+    return () => {
+      onPrimarySystemSetupLockChange?.(false);
+    };
+  }, [onPrimarySystemSetupLockChange]);
+
+  useEffect(() => {
+    if (!requiresInitialPrimarySystemSetup) return;
+    if (mode !== "cards") return;
+
+    openWizardForNewSystem({
+      companyName: String(primaryOnboardingState?.companyName || companyName || "").trim() || null,
+    });
+  }, [
+    companyName,
+    mode,
+    openWizardForNewSystem,
+    primaryOnboardingState?.companyName,
+    requiresInitialPrimarySystemSetup,
   ]);
 
   const handleCreateClick = useCallback(async () => {
@@ -985,6 +1024,7 @@ export default function OverviewMain({
     setError(null);
 
     if (activeTopic === "messages") {
+      if (requiresInitialPrimarySystemSetup) return;
       setMode("cards");
       return;
     }
@@ -1012,7 +1052,6 @@ export default function OverviewMain({
       } as SystemSummary,
     ];
   }, [activeSystemId, companyName, hasSystem, savedAt, systems]);
-  const primaryCompanyLabel = String(primaryOnboardingState?.companyName || companyName || "").trim();
   const canCreatePrimarySystem =
     !loadingConfig &&
     !saving &&
@@ -1026,6 +1065,7 @@ export default function OverviewMain({
     !onboardingLocked &&
     !requestingCreateFlow &&
     !requestingAdditionalCompany;
+  const canLeaveWizardToCards = activeTopic !== "messages" || !requiresInitialPrimarySystemSetup;
 
   return (
     <section className="w-full px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
@@ -1052,6 +1092,29 @@ export default function OverviewMain({
           background: linear-gradient(120deg, transparent 22%, rgba(255, 255, 255, 0.2) 50%, transparent 78%);
           animation: overviewSkeletonSheen 5.4s ease-in-out infinite;
           pointer-events: none;
+        }
+
+        .overview-skeleton-panel {
+          background:
+            linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(255,255,255,0.66) 100%);
+          border: 1px solid rgba(16, 20, 26, 0.07);
+          box-shadow: 0 14px 30px rgba(0, 0, 0, 0.05);
+        }
+
+        .overview-skeleton-line {
+          border-radius: 999px;
+          background: rgba(18, 24, 30, 0.11);
+          animation: overviewSkeletonPulse 2.8s ease-in-out infinite;
+        }
+
+        .overview-skeleton-line[data-tone="soft"] {
+          background: rgba(18, 24, 30, 0.07);
+        }
+
+        .overview-skeleton-orb {
+          border-radius: 999px;
+          background: rgba(18, 24, 30, 0.08);
+          animation: overviewSkeletonPulse 3.1s ease-in-out infinite;
         }
 
         @keyframes overviewSuccessPulse {
@@ -1085,7 +1148,30 @@ export default function OverviewMain({
               className="space-y-4"
             >
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {hasSystem ? (
+                {loadingConfig ? (
+                  Array.from({ length: 8 }, (_, index) => (
+                    <article
+                      key={`overview-loading-card-${index}`}
+                      className="overview-skeleton-card overview-skeleton-panel relative min-h-[172px] overflow-hidden rounded-[22px] px-5 py-4"
+                    >
+                      <div className="relative z-[1] flex h-full flex-col justify-between gap-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="overview-skeleton-line h-5 w-[96px]" />
+                          <div className="overview-skeleton-orb h-8 w-8" />
+                        </div>
+                        <div className="space-y-2.5">
+                          <div className="overview-skeleton-line h-6 w-[78%]" />
+                          <div className="overview-skeleton-line h-4 w-[56%]" data-tone="soft" />
+                          <div className="overview-skeleton-line h-4 w-[68%]" data-tone="soft" />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="overview-skeleton-orb h-4 w-4" />
+                          <div className="overview-skeleton-line h-4 w-[124px]" data-tone="soft" />
+                        </div>
+                      </div>
+                    </article>
+                  ))
+                ) : hasSystem ? (
                   <>
                     {resolvedSystems.map((system, index) => {
                       const systemUpdatedAtLabel = formatSavedAt(system.updatedAt || null);
@@ -1180,16 +1266,11 @@ export default function OverviewMain({
                       aria-label="Criar meu sistema"
                     >
                       <span className="relative z-[1] flex h-full flex-col items-center justify-center gap-3.5">
-                        {primaryCompanyLabel ? (
-                          <span className="inline-flex max-w-full rounded-full border border-white/18 bg-white/10 px-2.5 py-1 text-[10px] font-semibold tracking-[0.03em] text-white/90">
-                            <span className="truncate">{primaryCompanyLabel}</span>
-                          </span>
-                        ) : null}
                         <span className="inline-flex h-[76px] w-[76px] items-center justify-center rounded-full border border-white/18">
                           <Plus className="h-[44px] w-[44px] text-white" strokeWidth={2.1} />
                         </span>
                         <span className="text-[13px] font-semibold tracking-[0.01em] text-white/96">
-                          {primaryCompanyLabel ? "Criar sistema desta empresa" : "Criar meu sistema"}
+                          Criar meu sistema
                         </span>
                       </span>
                     </button>
@@ -1207,11 +1288,6 @@ export default function OverviewMain({
                 )}
               </div>
 
-              {error && (
-                <p className="rounded-xl border border-[#e3524b]/25 bg-[#e3524b]/8 px-3 py-2 text-[13px] font-medium text-[#b2433e]">
-                  {error}
-                </p>
-              )}
             </motion.div>
           ) : mode === "wizard" ? (
             <motion.div
@@ -1772,11 +1848,15 @@ export default function OverviewMain({
                     <button
                       type="button"
                       onClick={handleBackAction}
-                      disabled={saving}
+                      disabled={saving || !canLeaveWizardToCards}
                       className="inline-flex h-11 items-center gap-2 rounded-xl border border-black/12 bg-white px-4 text-[13px] font-semibold text-black/76 transition-colors hover:bg-black/[0.03] disabled:cursor-not-allowed disabled:opacity-55"
                     >
                       <ChevronLeft className="h-4 w-4" />
-                      {activeTopic === "messages" ? "Voltar para visao geral" : "Voltar"}
+                      {activeTopic === "messages"
+                        ? requiresInitialPrimarySystemSetup
+                          ? "Configuracao obrigatoria"
+                          : "Voltar para visao geral"
+                        : "Voltar"}
                     </button>
 
                     <button

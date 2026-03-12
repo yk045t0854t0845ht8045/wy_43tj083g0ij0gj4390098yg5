@@ -367,6 +367,7 @@ type Props = {
   userPhotoLink?: string | null;
   onOpenConfig?: (section?: ConfigSectionId) => void;
   locked?: boolean;
+  lockMessage?: string;
 };
 
 const SIDEBAR_COLLAPSE_STORAGE_KEY = "dashboard-sidebar-collapsed-v1";
@@ -397,6 +398,7 @@ export default function Sidebar({
   userPhotoLink = null,
   onOpenConfig,
   locked = false,
+  lockMessage = "Conclua o onboarding para liberar a navegacao",
 }: Props) {
   const [transactionsOpen, setTransactionsOpen] = useState(
     () => activeMain === "transactions"
@@ -815,6 +817,39 @@ export default function Sidebar({
 
   return (
     <>
+      <style>{`
+        @keyframes sidebarLockPulse {
+          0%, 100% { opacity: 0.42; transform: scale(1); }
+          50% { opacity: 0.88; transform: scale(1.018); }
+        }
+
+        @keyframes sidebarLockSheen {
+          0% { transform: translateX(-18%); opacity: 0.05; }
+          50% { transform: translateX(10%); opacity: 0.14; }
+          100% { transform: translateX(28%); opacity: 0.05; }
+        }
+
+        .sidebar-lock-shell {
+          background:
+            radial-gradient(circle at 16% 12%, rgba(255,255,255,0.58), transparent 32%),
+            linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(246,246,247,0.96) 100%);
+        }
+
+        .sidebar-lock-block {
+          position: relative;
+          overflow: hidden;
+          background: rgba(16, 20, 26, 0.085);
+          animation: sidebarLockPulse 3.2s ease-in-out infinite;
+        }
+
+        .sidebar-lock-block::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(120deg, transparent 20%, rgba(255,255,255,0.24) 50%, transparent 80%);
+          animation: sidebarLockSheen 4.8s ease-in-out infinite;
+        }
+      `}</style>
       <Script src="https://cdn.lordicon.com/lordicon.js" strategy="afterInteractive" />
 
       {!mobileMenuOpen && !interactionsLocked && (
@@ -1470,16 +1505,15 @@ export default function Sidebar({
         </div>
 
         {interactionsLocked && (
-          <div className="pointer-events-auto absolute inset-0 z-[180] flex flex-col bg-[#f6f6f7]/95 backdrop-blur-[2px]">
+          <div className="sidebar-lock-shell pointer-events-auto absolute inset-0 z-[180] flex flex-col backdrop-blur-[3px]">
             <div
               className={cx(
                 "pt-2.5",
                 "transition-[padding] duration-[300ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
                 isCollapsed ? "px-3" : "px-2"
               )}
-              aria-hidden="true"
             >
-              <div className="h-[44px] rounded-xl bg-black/[0.09] animate-pulse" />
+              <div className="sidebar-lock-block h-[44px] rounded-xl" />
               <div className="mt-2 border-t border-dashed border-black/15" />
             </div>
 
@@ -1488,15 +1522,14 @@ export default function Sidebar({
                 "mt-3 flex-1 overscroll-contain",
                 isCollapsed ? "px-3" : "px-2"
               )}
-              aria-hidden="true"
             >
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 {Array.from({ length: isCollapsed ? 7 : 9 }).map((_, index) => (
                   <div
                     key={`sidebar-lock-skeleton-${index}`}
                     className={cx(
-                      "h-[40px] rounded-xl bg-black/[0.09] animate-pulse",
-                      isCollapsed ? "mx-auto w-[42px]" : "w-full"
+                      "sidebar-lock-block h-[40px] rounded-xl",
+                      isCollapsed ? "mx-auto w-[42px]" : index % 3 === 2 ? "w-[84%]" : "w-full"
                     )}
                   />
                 ))}
@@ -1508,12 +1541,13 @@ export default function Sidebar({
                 "shrink-0 pb-3 pt-2",
                 isCollapsed ? "px-3" : "px-2"
               )}
-              aria-hidden="true"
             >
-              <div className={cx("h-[44px] rounded-2xl bg-black/[0.09] animate-pulse", isCollapsed && "mx-auto w-[42px]")} />
+              <div className={cx("sidebar-lock-block h-[44px] rounded-2xl", isCollapsed && "mx-auto w-[42px]")} aria-hidden="true" />
               {!isCollapsed && (
-                <p className="mt-2 text-center text-[11px] font-semibold tracking-[0.02em] text-black/52">
-                  Conclua o onboarding para liberar a navegação
+                <p className="mt-3 text-center text-[11px] font-semibold tracking-[0.02em] text-black/58">
+                  <span className="inline-flex rounded-2xl border border-black/8 bg-white/74 px-3 py-3 shadow-[0_12px_26px_rgba(0,0,0,0.05)]">
+                    {lockMessage}
+                  </span>
                 </p>
               )}
             </div>

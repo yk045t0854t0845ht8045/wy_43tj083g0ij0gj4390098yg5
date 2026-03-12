@@ -155,6 +155,7 @@ export default function DashboardShell({
     useState<PendingCompanySystemContext | null>(null);
   const [overviewSyncToken, setOverviewSyncToken] = useState(0);
   const [primarySystemReadyToken, setPrimarySystemReadyToken] = useState(0);
+  const [primarySystemSetupLocked, setPrimarySystemSetupLocked] = useState(false);
   const redirectingRef = useRef(false);
   const queryBootstrapHandledRef = useRef(false);
   const additionalCompanyStartLockRef = useRef(false);
@@ -162,6 +163,10 @@ export default function DashboardShell({
   const pendingCompanyContextValidationRef = useRef(false);
   const onboardingRequired = Boolean(onboardingData && !onboardingData.completed);
   const onboardingUiLocked = onboardingLoading || onboardingRequired;
+  const dashboardNavigationLocked = onboardingUiLocked || primarySystemSetupLocked;
+  const sidebarLockMessage = onboardingUiLocked
+    ? "Conclua o onboarding para liberar a navegacao"
+    : "Finalize a configuracao inicial do sistema para liberar a navegacao";
 
   const bumpOverviewSyncToken = useCallback(() => {
     setOverviewSyncToken((current) => current + 1);
@@ -804,12 +809,12 @@ export default function DashboardShell({
   }, [onboardingOpen, onboardingRequired]);
 
   useEffect(() => {
-    if (!onboardingUiLocked) return;
+    if (!dashboardNavigationLocked) return;
     if (configOpen) {
       setConfigOpen(false);
       setAutoOpenPasswordModalToken(0);
     }
-  }, [configOpen, onboardingUiLocked]);
+  }, [configOpen, dashboardNavigationLocked]);
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
@@ -954,7 +959,8 @@ export default function DashboardShell({
         userEmail={profileEmail}
         userPhotoLink={profilePhotoLink}
         onOpenConfig={handleOpenConfig}
-        locked={onboardingUiLocked}
+        locked={dashboardNavigationLocked}
+        lockMessage={sidebarLockMessage}
       />
 
       <div className="relative flex-1 overflow-y-auto bg-[#eff0f2]">
@@ -965,6 +971,7 @@ export default function DashboardShell({
           primaryOnboardingState={onboardingData}
           syncToken={overviewSyncToken}
           primarySystemReadyToken={primarySystemReadyToken}
+          onPrimarySystemSetupLockChange={setPrimarySystemSetupLocked}
           onRequestAddSystemOnboarding={startAdditionalCompanyOnboarding}
           onConsumePendingCompanySystem={handleConsumePendingCompanySystem}
         />
