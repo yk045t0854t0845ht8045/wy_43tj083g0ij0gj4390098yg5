@@ -601,10 +601,13 @@ export default function OverviewMain({
   const [configResolvedOnce, setConfigResolvedOnce] = useState(false);
   const [requiresPrimarySystemSetupServer, setRequiresPrimarySystemSetupServer] = useState(false);
   const [statusRevision, setStatusRevision] = useState<string>("");
+  const [wizardResumeAvailable, setWizardResumeAvailable] = useState(false);
+  const [primarySetupAutoOpenPending, setPrimarySetupAutoOpenPending] = useState(false);
   const silentRefreshInFlightRef = useRef(false);
   const lastSilentRefreshAtRef = useRef(0);
   const lastHandledSyncTokenRef = useRef(0);
   const lastHandledPrimaryReadyTokenRef = useRef(0);
+  const previousPrimarySetupRequiredRef = useRef(false);
 
   const loadConfig = useCallback(async (
     systemId?: string | null,
@@ -645,13 +648,17 @@ export default function OverviewMain({
       setSystems(normalizeSystemSummaries(payload.systems));
       setActiveSystemId(String(payload.activeSystemId || "").trim() || null);
       setSavedAt(String(payload.updatedAt || payload.createdAt || "") || null);
+      if (payload.hasSystem) {
+        setWizardResumeAvailable(false);
+        setPrimarySetupAutoOpenPending(false);
+      }
       if (!silent) {
         setConfigResolvedOnce(true);
       }
 
       if (payload.systemConfig) {
         setForm(normalizeIncomingConfig(payload.systemConfig));
-      } else if (!payload.hasSystem) {
+      } else if (!payload.hasSystem && !silent) {
         setForm(createDefaultForm());
       }
       return true;
@@ -695,6 +702,8 @@ export default function OverviewMain({
     setDraftCompanyName(String(opts?.companyName || "").trim() || null);
     setForm(createDefaultForm());
     setActiveTopic("messages");
+    setWizardResumeAvailable(false);
+    setPrimarySetupAutoOpenPending(false);
     setMode("wizard");
   }, []);
 
@@ -733,20 +742,8 @@ export default function OverviewMain({
     if (lastHandledPrimaryReadyTokenRef.current === primarySystemReadyToken) return;
     lastHandledPrimaryReadyTokenRef.current = primarySystemReadyToken;
     requestSilentRefresh(activeSystemId, { force: true });
-    if (hasSystem || activeSystemId || mode === "wizard") return;
-    if (!primaryOnboardingState?.completed || !primaryOnboardingState?.whatsappConnected) return;
-
-    openWizardForNewSystem({
-      companyName: String(primaryOnboardingState.companyName || "").trim() || null,
-    });
   }, [
     activeSystemId,
-    hasSystem,
-    mode,
-    openWizardForNewSystem,
-    primaryOnboardingState?.companyName,
-    primaryOnboardingState?.completed,
-    primaryOnboardingState?.whatsappConnected,
     requestSilentRefresh,
     primarySystemReadyToken,
   ]);
@@ -827,9 +824,25 @@ export default function OverviewMain({
   }, [onPrimarySystemSetupLockChange]);
 
   useEffect(() => {
+    const wasRequired = previousPrimarySetupRequiredRef.current;
+    if (requiresInitialPrimarySystemSetup && !wasRequired) {
+      setPrimarySetupAutoOpenPending(true);
+    }
+    if (!requiresInitialPrimarySystemSetup && wasRequired) {
+      setPrimarySetupAutoOpenPending(false);
+      setWizardResumeAvailable(false);
+    }
+    previousPrimarySetupRequiredRef.current = requiresInitialPrimarySystemSetup;
+  }, [
+    requiresInitialPrimarySystemSetup,
+  ]);
+
+  useEffect(() => {
+    if (!primarySetupAutoOpenPending) return;
     if (!requiresInitialPrimarySystemSetup) return;
     if (mode !== "cards") return;
 
+    setPrimarySetupAutoOpenPending(false);
     openWizardForNewSystem({
       companyName: String(primaryOnboardingState?.companyName || companyName || "").trim() || null,
     });
@@ -838,6 +851,7 @@ export default function OverviewMain({
     mode,
     openWizardForNewSystem,
     primaryOnboardingState?.companyName,
+    primarySetupAutoOpenPending,
     requiresInitialPrimarySystemSetup,
   ]);
 
@@ -866,6 +880,12 @@ export default function OverviewMain({
       return;
     }
 
+    if (wizardResumeAvailable) {
+      setError(null);
+      setMode("wizard");
+      return;
+    }
+
     if (!whatsappConnected) return;
 
     openWizardForNewSystem({
@@ -882,6 +902,7 @@ export default function OverviewMain({
     requestingAdditionalCompany,
     requestingCreateFlow,
     saving,
+    wizardResumeAvailable,
     whatsappConnected,
   ]);
 
@@ -895,6 +916,7 @@ export default function OverviewMain({
       setError(null);
       setDraftCompanyOnboardingId(null);
       setDraftCompanyName(null);
+      setWizardResumeAvailable(false);
       setActiveTopic("messages");
       setMode("wizard");
     },
@@ -1005,11 +1027,16 @@ export default function OverviewMain({
       }
 
       setHasSystem(true);
+      setWhatsappConnected(Boolean(payload.whatsappConnected));
       setForm(normalizeIncomingConfig(payload.systemConfig));
-      setCompanyName(String(payload.companyName || "").trim());
+      setCompanyName(String(payload.companyName || payload.primaryCompanyName || "").trim());
+      setRequiresPrimarySystemSetupServer(Boolean(payload.requiresPrimarySystemSetup));
+      setStatusRevision(String(payload.statusRevision || payload.updatedAt || "").trim());
       setSystems(normalizeSystemSummaries(payload.systems));
       setActiveSystemId(String(payload.activeSystemId || "").trim() || activeSystemId || null);
       setSavedAt(String(payload.updatedAt || payload.createdAt || "") || null);
+      setPrimarySetupAutoOpenPending(false);
+      setWizardResumeAvailable(false);
       if (!activeSystemId && normalizedDraftCompanyOnboardingId) {
         onConsumePendingCompanySystem?.(normalizedDraftCompanyOnboardingId);
       }
@@ -1053,7 +1080,10 @@ export default function OverviewMain({
     setError(null);
 
     if (activeTopic === "messages") {
-      if (requiresInitialPrimarySystemSetup) return;
+      setPrimarySetupAutoOpenPending(false);
+      if (!activeSystemId) {
+        setWizardResumeAvailable(true);
+      }
       setMode("cards");
       return;
     }
@@ -1066,6 +1096,9 @@ export default function OverviewMain({
     : { duration: 0.36, ease: [0.22, 1, 0.36, 1] as const };
 
   const savedAtLabel = formatSavedAt(savedAt || statusRevision || null);
+  const primaryCompanyDisplayName =
+    String(draftCompanyName || companyName || primaryOnboardingState?.companyName || "").trim() ||
+    "Minha empresa";
   const resolvedSystems = useMemo(() => {
     if (systems.length) return systems;
     if (!hasSystem) return [];
@@ -1088,13 +1121,24 @@ export default function OverviewMain({
     !requestingCreateFlow &&
     !requestingAdditionalCompany &&
     whatsappConnected;
+  const canOpenPrimarySetupWizard =
+    !loadingConfig &&
+    !saving &&
+    !onboardingLocked &&
+    !requestingCreateFlow &&
+    !requestingAdditionalCompany &&
+    (whatsappConnected || wizardResumeAvailable);
   const canStartAdditionalSystemFlow =
     !loadingConfig &&
     !saving &&
     !onboardingLocked &&
     !requestingCreateFlow &&
     !requestingAdditionalCompany;
-  const canLeaveWizardToCards = activeTopic !== "messages" || !requiresInitialPrimarySystemSetup;
+  const showPrimarySetupPendingCards = Boolean(
+    !hasSystem &&
+      configResolvedOnce &&
+      (requiresPrimarySystemSetupServer || primaryOnboardingState?.completed),
+  );
 
   return (
     <section className="w-full px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
@@ -1267,6 +1311,94 @@ export default function OverviewMain({
                       </span>
                     </button>
                   </>
+                ) : showPrimarySetupPendingCards ? (
+                  <>
+                    <article
+                      className={cx(
+                        "relative min-h-[172px] overflow-hidden rounded-[22px] px-5 py-4",
+                        DARK_BUTTON_GRADIENT_CLASS,
+                        "shadow-[0_16px_34px_rgba(0,0,0,0.25)]",
+                      )}
+                    >
+                      <span className="relative z-[1] flex h-full flex-col justify-between gap-3">
+                        <span className="inline-flex w-fit rounded-full border border-white/14 bg-white/10 px-2.5 py-1 text-[10px] font-semibold tracking-[0.03em] text-white/90">
+                          Empresa criada
+                        </span>
+                        <span>
+                          <strong className="line-clamp-2 block text-[17px] font-semibold text-white/96">
+                            {primaryCompanyDisplayName}
+                          </strong>
+                          <span className="mt-1 block text-[12px] text-white/68">
+                            Etapa 1 concluida. Sua empresa ja esta pronta para a configuracao do sistema.
+                          </span>
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-white/76">
+                          <Check className="h-3.5 w-3.5" strokeWidth={2.4} />
+                          {whatsappConnected ? "WhatsApp conectado" : "WhatsApp aguardando conexao"}
+                        </span>
+                      </span>
+                    </article>
+
+                    <button
+                      type="button"
+                      onClick={() => void handleCreateClick()}
+                      disabled={!canOpenPrimarySetupWizard}
+                      className={cx(
+                        "relative min-h-[172px] overflow-hidden rounded-[22px] border border-black/[0.06] bg-black/[0.08] px-5 py-4 text-left",
+                        "shadow-[0_6px_14px_rgba(0,0,0,0.03)] transition-[background-color,box-shadow] duration-200 ease-out",
+                        "hover:bg-black/[0.11] hover:shadow-[0_10px_20px_rgba(0,0,0,0.06)]",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#eff0f2]",
+                        loadingConfig || saving || requestingCreateFlow || requestingAdditionalCompany
+                          ? "cursor-wait opacity-85"
+                          : !canOpenPrimarySetupWizard
+                            ? "cursor-not-allowed opacity-70"
+                            : "cursor-pointer",
+                      )}
+                      aria-label={
+                        wizardResumeAvailable
+                          ? "Continuar configuracao do sistema WhatsApp"
+                          : "Configurar sistema WhatsApp"
+                      }
+                    >
+                      <span className="relative z-[1] flex h-full flex-col justify-between gap-3">
+                        <span className="inline-flex w-fit rounded-full border border-black/10 bg-white/55 px-2.5 py-1 text-[10px] font-semibold tracking-[0.03em] text-black/72">
+                          {wizardResumeAvailable ? "Etapa 2 em andamento" : "Etapa 2"}
+                        </span>
+                        <span>
+                          <strong className="block text-[17px] font-semibold text-black/84">
+                            {wizardResumeAvailable
+                              ? "Continuar configuracao do WhatsApp"
+                              : "Configurar Sistema WhatsApp"}
+                          </strong>
+                          <span className="mt-1 block text-[12px] text-black/58">
+                            {wizardResumeAvailable
+                              ? "Retome do ponto em que voce parou para finalizar o sistema inicial."
+                              : "Finalize o sistema inicial para liberar a sidebar e os modulos do painel."}
+                          </span>
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-black/68">
+                          <ChevronRight className="h-3.5 w-3.5" strokeWidth={2.4} />
+                          {wizardResumeAvailable
+                            ? "Retomar configuracao"
+                            : whatsappConnected
+                              ? "Abrir configuracao"
+                              : "Aguardando WhatsApp"}
+                        </span>
+                      </span>
+                    </button>
+
+                    <div className="hidden sm:contents" aria-hidden="true">
+                      {skeletonOpacities
+                        .slice(0, Math.max(0, SKELETON_CARD_COUNT - 2))
+                        .map((opacity, index) => (
+                          <article
+                            key={`overview-pending-skeleton-${index}`}
+                            className="overview-skeleton-card relative min-h-[172px] overflow-hidden rounded-[22px]"
+                            style={{ opacity }}
+                          />
+                        ))}
+                    </div>
+                  </>
                 ) : (
                   <>
                     <button
@@ -1285,14 +1417,14 @@ export default function OverviewMain({
                             ? "cursor-not-allowed opacity-70"
                             : "cursor-pointer",
                       )}
-                      aria-label="Criar meu sistema"
+                      aria-label="Criar empresa"
                     >
                       <span className="relative z-[1] flex h-full flex-col items-center justify-center gap-3.5">
                         <span className="inline-flex h-[76px] w-[76px] items-center justify-center rounded-full border border-white/18">
                           <Plus className="h-[44px] w-[44px] text-white" strokeWidth={2.1} />
                         </span>
                         <span className="text-[13px] font-semibold tracking-[0.01em] text-white/96">
-                          Criar meu sistema
+                          Criar empresa
                         </span>
                       </span>
                     </button>
@@ -1870,15 +2002,11 @@ export default function OverviewMain({
                     <button
                       type="button"
                       onClick={handleBackAction}
-                      disabled={saving || !canLeaveWizardToCards}
+                      disabled={saving}
                       className="inline-flex h-11 items-center gap-2 rounded-xl border border-black/12 bg-white px-4 text-[13px] font-semibold text-black/76 transition-colors hover:bg-black/[0.03] disabled:cursor-not-allowed disabled:opacity-55"
                     >
                       <ChevronLeft className="h-4 w-4" />
-                      {activeTopic === "messages"
-                        ? requiresInitialPrimarySystemSetup
-                          ? "Configuracao obrigatoria"
-                          : "Voltar para visao geral"
-                        : "Voltar"}
+                      {activeTopic === "messages" ? "Voltar para visao geral" : "Voltar"}
                     </button>
 
                     <button
@@ -1934,7 +2062,11 @@ export default function OverviewMain({
                   <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
                     <button
                       type="button"
-                      onClick={() => setMode("cards")}
+                      onClick={() => {
+                        setPrimarySetupAutoOpenPending(false);
+                        setWizardResumeAvailable(false);
+                        setMode("cards");
+                      }}
                       className="inline-flex h-11 items-center rounded-xl border border-white/18 bg-white/10 px-4 text-[13px] font-semibold text-white transition-colors hover:bg-white/16"
                     >
                       Voltar para visao geral
