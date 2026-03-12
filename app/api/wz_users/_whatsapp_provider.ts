@@ -64,6 +64,7 @@ declare global {
   var __wzLocalWhatsAppInstances: Map<string, LocalWhatsAppInstance> | undefined;
   var __wzLocalWhatsAppBootstrapPromise: Promise<void> | undefined;
   var __wzLocalWhatsAppBootstrapAt: number | undefined;
+  var __wzLocalWhatsAppBootstrapToken: symbol | undefined;
 }
 
 const RECONNECT_DELAY_MS = 1800;
@@ -333,6 +334,8 @@ async function ensurePersistedInstancesBootstrapped() {
     return;
   }
 
+  const bootstrapToken = Symbol("wz-whatsapp-bootstrap");
+  globalThis.__wzLocalWhatsAppBootstrapToken = bootstrapToken;
   const bootstrapRun = (async () => {
     try {
       const authRootDir = resolveAuthRootDir();
@@ -359,8 +362,9 @@ async function ensurePersistedInstancesBootstrapped() {
       }
     } finally {
       globalThis.__wzLocalWhatsAppBootstrapAt = Date.now();
-      if (globalThis.__wzLocalWhatsAppBootstrapPromise === bootstrapRun) {
+      if (globalThis.__wzLocalWhatsAppBootstrapToken === bootstrapToken) {
         globalThis.__wzLocalWhatsAppBootstrapPromise = undefined;
+        globalThis.__wzLocalWhatsAppBootstrapToken = undefined;
       }
     }
   })();
