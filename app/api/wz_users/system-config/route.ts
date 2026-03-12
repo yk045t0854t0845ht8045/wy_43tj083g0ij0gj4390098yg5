@@ -596,13 +596,17 @@ export async function GET(req: NextRequest) {
     const summary = row ? mapDbRowToSummary(row) : null;
     const systemConfig = row ? mapDbRowToConfig(row) : null;
     const activeSystemId = summary?.id || list.systems[0]?.id || null;
+    const resolvedWhatsappConnected = summary
+      ? Boolean(summary.whatsappConnected)
+      : Boolean(ctx.onboarding.whatsappConnected);
+    const resolvedCompanyName = summary?.companyName ?? ctx.onboarding.companyName ?? null;
 
     return NextResponse.json(
       {
         ok: true,
-        whatsappConnected: Boolean(summary?.whatsappConnected || ctx.onboarding.whatsappConnected),
+        whatsappConnected: resolvedWhatsappConnected,
         hasSystem: Boolean(list.systems.length),
-        companyName: summary?.companyName || ctx.onboarding.companyName || null,
+        companyName: resolvedCompanyName,
         activeSystemId,
         activeCompanyOnboardingId: summary?.companyOnboardingId || null,
         systems: list.systems,

@@ -153,6 +153,8 @@ export default function DashboardShell({
   const [companyOnboardingId, setCompanyOnboardingId] = useState<string | null>(null);
   const [pendingCompanySystemContext, setPendingCompanySystemContext] =
     useState<PendingCompanySystemContext | null>(null);
+  const [overviewSyncToken, setOverviewSyncToken] = useState(0);
+  const [primarySystemReadyToken, setPrimarySystemReadyToken] = useState(0);
   const redirectingRef = useRef(false);
   const queryBootstrapHandledRef = useRef(false);
   const additionalCompanyStartLockRef = useRef(false);
@@ -160,6 +162,10 @@ export default function DashboardShell({
   const pendingCompanyContextValidationRef = useRef(false);
   const onboardingRequired = Boolean(onboardingData && !onboardingData.completed);
   const onboardingUiLocked = onboardingLoading || onboardingRequired;
+
+  const bumpOverviewSyncToken = useCallback(() => {
+    setOverviewSyncToken((current) => current + 1);
+  }, []);
 
   const normalizedInitialPhotoLink = useMemo(() => {
     const clean = String(userPhotoLink || "").trim();
@@ -353,6 +359,7 @@ export default function DashboardShell({
 
   const handleOnboardingUpdated = useCallback((next: OnboardingState) => {
     setOnboardingData(next);
+    bumpOverviewSyncToken();
     if (next.completed) {
       setOnboardingOpen(false);
       syncOnboardingRequiredHint(false, [next.userId, next.email]);
@@ -360,13 +367,15 @@ export default function DashboardShell({
     }
     syncOnboardingRequiredHint(true, [next.userId, next.email]);
     setOnboardingOpen(true);
-  }, [syncOnboardingRequiredHint]);
+  }, [bumpOverviewSyncToken, syncOnboardingRequiredHint]);
 
   const handleOnboardingCompleted = useCallback((next: OnboardingState) => {
     setOnboardingData(next);
     setOnboardingOpen(false);
+    bumpOverviewSyncToken();
+    setPrimarySystemReadyToken((current) => current + 1);
     syncOnboardingRequiredHint(false, [next.userId, next.email]);
-  }, [syncOnboardingRequiredHint]);
+  }, [bumpOverviewSyncToken, syncOnboardingRequiredHint]);
 
   const syncCompanyOnboardingActiveHint = useCallback(
     (id: string | null | undefined, identities?: Array<string | null | undefined>) => {
@@ -488,6 +497,7 @@ export default function DashboardShell({
       }
       setCompanyOnboardingData(next);
       setCompanyOnboardingId(normalizedId);
+      bumpOverviewSyncToken();
       if (next.completed) {
         setCompanyOnboardingOpen(false);
         syncCompanyOnboardingActiveHint(null, [next.userId, next.email]);
@@ -496,7 +506,7 @@ export default function DashboardShell({
       syncCompanyOnboardingActiveHint(normalizedId, [next.userId, next.email]);
       setCompanyOnboardingOpen(true);
     },
-    [syncCompanyOnboardingActiveHint],
+    [bumpOverviewSyncToken, syncCompanyOnboardingActiveHint],
   );
 
   const handleCompanyOnboardingCompleted = useCallback(
@@ -511,10 +521,11 @@ export default function DashboardShell({
       setCompanyOnboardingId(normalizedId);
       setPendingCompanySystemContext(payload);
       setCompanyOnboardingOpen(false);
+      bumpOverviewSyncToken();
       syncCompanyOnboardingActiveHint(null, [next.userId, next.email]);
       syncPendingCompanySystemHint(payload, [next.userId, next.email]);
     },
-    [syncCompanyOnboardingActiveHint, syncPendingCompanySystemHint],
+    [bumpOverviewSyncToken, syncCompanyOnboardingActiveHint, syncPendingCompanySystemHint],
   );
 
   const handleConsumePendingCompanySystem = useCallback(
@@ -951,6 +962,9 @@ export default function DashboardShell({
           onboardingLocked={onboardingUiLocked}
           requestingAdditionalCompany={companyOnboardingLoading}
           pendingCompanySystemContext={pendingCompanySystemContext}
+          primaryOnboardingState={onboardingData}
+          syncToken={overviewSyncToken}
+          primarySystemReadyToken={primarySystemReadyToken}
           onRequestAddSystemOnboarding={startAdditionalCompanyOnboarding}
           onConsumePendingCompanySystem={handleConsumePendingCompanySystem}
         />

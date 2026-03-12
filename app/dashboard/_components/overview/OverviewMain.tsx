@@ -60,10 +60,19 @@ type PendingCompanySystemContext = {
   companyName: string | null;
 };
 
+type PrimaryOnboardingSnapshot = {
+  companyName?: string | null;
+  whatsappConnected?: boolean;
+  completed?: boolean;
+};
+
 type OverviewMainProps = {
   onboardingLocked?: boolean;
   requestingAdditionalCompany?: boolean;
   pendingCompanySystemContext?: PendingCompanySystemContext | null;
+  primaryOnboardingState?: PrimaryOnboardingSnapshot | null;
+  syncToken?: number;
+  primarySystemReadyToken?: number;
   onRequestAddSystemOnboarding?: () => Promise<void> | void;
   onConsumePendingCompanySystem?: (companyOnboardingId: string) => void;
 };
@@ -553,6 +562,9 @@ export default function OverviewMain({
   onboardingLocked = false,
   requestingAdditionalCompany = false,
   pendingCompanySystemContext = null,
+  primaryOnboardingState = null,
+  syncToken = 0,
+  primarySystemReadyToken = 0,
   onRequestAddSystemOnboarding,
   onConsumePendingCompanySystem,
 }: OverviewMainProps) {
@@ -578,10 +590,24 @@ export default function OverviewMain({
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<SystemConfigForm>(createDefaultForm());
+  const silentRefreshInFlightRef = useRef(false);
+  const lastSilentRefreshAtRef = useRef(0);
+  const lastHandledSyncTokenRef = useRef(0);
+  const lastHandledPrimaryReadyTokenRef = useRef(0);
 
-  const loadConfig = useCallback(async (systemId?: string | null) => {
-    setLoadingConfig(true);
-    setError(null);
+  const loadConfig = useCallback(async (
+    systemId?: string | null,
+    opts?: { silent?: boolean },
+  ) => {
+    const silent = Boolean(opts?.silent);
+    if (silent && silentRefreshInFlightRef.current) return false;
+
+    if (silent) {
+      silentRefreshInFlightRef.current = true;
+    } else {
+      setLoadingConfig(true);
+      setError(null);
+    }
 
     try {
       const endpoint = systemId
@@ -597,6 +623,7 @@ export default function OverviewMain({
         throw new Error(String(payload?.error || "Nao foi possivel carregar configuracao do sistema."));
       }
 
+      setError(null);
       setWhatsappConnected(Boolean(payload.whatsappConnected));
       setHasSystem(Boolean(payload.hasSystem));
       setCompanyName(String(payload.companyName || "").trim());
@@ -611,14 +638,20 @@ export default function OverviewMain({
       }
       return true;
     } catch (fetchError) {
-      setError(
-        fetchError instanceof Error
-          ? fetchError.message
-          : "Falha ao carregar configuracao do sistema.",
-      );
+      if (!silent) {
+        setError(
+          fetchError instanceof Error
+            ? fetchError.message
+            : "Falha ao carregar configuracao do sistema.",
+        );
+      }
       return false;
     } finally {
-      setLoadingConfig(false);
+      if (silent) {
+        silentRefreshInFlightRef.current = false;
+      } else {
+        setLoadingConfig(false);
+      }
     }
   }, []);
 
@@ -646,6 +679,78 @@ export default function OverviewMain({
     setActiveTopic("messages");
     setMode("wizard");
   }, []);
+
+  const requestSilentRefresh = useCallback((systemId?: string | null) => {
+    if (mode === "wizard") return;
+    const now = Date.now();
+    if (now - lastSilentRefreshAtRef.current < 1200) return;
+    lastSilentRefreshAtRef.current = now;
+    void loadConfig(systemId, { silent: true });
+  }, [loadConfig, mode]);
+
+  useEffect(() => {
+    if (hasSystem) return;
+    setCompanyName(String(primaryOnboardingState?.companyName || "").trim());
+    if (typeof primaryOnboardingState?.whatsappConnected === "boolean") {
+      setWhatsappConnected(Boolean(primaryOnboardingState.whatsappConnected));
+    }
+  }, [
+    hasSystem,
+    primaryOnboardingState?.companyName,
+    primaryOnboardingState?.whatsappConnected,
+  ]);
+
+  useEffect(() => {
+    if (!syncToken) return;
+    if (lastHandledSyncTokenRef.current === syncToken) return;
+    lastHandledSyncTokenRef.current = syncToken;
+    requestSilentRefresh(activeSystemId);
+  }, [activeSystemId, requestSilentRefresh, syncToken]);
+
+  useEffect(() => {
+    if (!primarySystemReadyToken) return;
+    if (lastHandledPrimaryReadyTokenRef.current === primarySystemReadyToken) return;
+    lastHandledPrimaryReadyTokenRef.current = primarySystemReadyToken;
+    if (hasSystem || activeSystemId || mode === "wizard") return;
+    if (!primaryOnboardingState?.completed || !primaryOnboardingState?.whatsappConnected) return;
+
+    openWizardForNewSystem({
+      companyName: String(primaryOnboardingState.companyName || "").trim() || null,
+    });
+  }, [
+    activeSystemId,
+    hasSystem,
+    mode,
+    openWizardForNewSystem,
+    primaryOnboardingState?.companyName,
+    primaryOnboardingState?.completed,
+    primaryOnboardingState?.whatsappConnected,
+    primarySystemReadyToken,
+  ]);
+
+  useEffect(() => {
+    if (mode === "wizard") return;
+
+    const refresh = () => {
+      requestSilentRefresh(activeSystemId);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      refresh();
+    };
+
+    window.addEventListener("focus", refresh);
+    window.addEventListener("pageshow", refresh);
+    window.addEventListener("online", refresh);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("pageshow", refresh);
+      window.removeEventListener("online", refresh);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [activeSystemId, mode, requestSilentRefresh]);
 
   useEffect(() => {
     if (!pendingCompanySystemContext?.id) return;
@@ -693,18 +798,19 @@ export default function OverviewMain({
       return;
     }
 
-    if (!whatsappConnected) {
-      setError("Conecte seu WhatsApp no onboarding antes de criar o sistema.");
-      return;
-    }
+    if (!whatsappConnected) return;
 
-    openWizardForNewSystem();
+    openWizardForNewSystem({
+      companyName: String(primaryOnboardingState?.companyName || companyName || "").trim() || null,
+    });
   }, [
+    companyName,
     hasSystem,
     loadingConfig,
     onRequestAddSystemOnboarding,
     onboardingLocked,
     openWizardForNewSystem,
+    primaryOnboardingState?.companyName,
     requestingAdditionalCompany,
     requestingCreateFlow,
     saving,
@@ -715,10 +821,6 @@ export default function OverviewMain({
     async (systemId: string) => {
       if (loadingConfig || saving) return;
       if (!systemId) return;
-      if (!whatsappConnected) {
-        setError("Conecte seu WhatsApp no onboarding antes de abrir o sistema.");
-        return;
-      }
 
       const ok = await loadConfig(systemId);
       if (!ok) return;
@@ -728,7 +830,7 @@ export default function OverviewMain({
       setActiveTopic("messages");
       setMode("wizard");
     },
-    [loadingConfig, loadConfig, saving, whatsappConnected],
+    [loadingConfig, loadConfig, saving],
   );
 
   const updateDaySchedule = (day: ScheduleDay, patch: Partial<DaySchedule>) => {
@@ -910,6 +1012,20 @@ export default function OverviewMain({
       } as SystemSummary,
     ];
   }, [activeSystemId, companyName, hasSystem, savedAt, systems]);
+  const primaryCompanyLabel = String(primaryOnboardingState?.companyName || companyName || "").trim();
+  const canCreatePrimarySystem =
+    !loadingConfig &&
+    !saving &&
+    !onboardingLocked &&
+    !requestingCreateFlow &&
+    !requestingAdditionalCompany &&
+    whatsappConnected;
+  const canStartAdditionalSystemFlow =
+    !loadingConfig &&
+    !saving &&
+    !onboardingLocked &&
+    !requestingCreateFlow &&
+    !requestingAdditionalCompany;
 
   return (
     <section className="w-full px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
@@ -978,14 +1094,18 @@ export default function OverviewMain({
                           key={system.id || `system-card-${index}`}
                           type="button"
                           onClick={() => void handleOpenExistingSystem(system.id)}
-                          disabled={loadingConfig}
+                          disabled={loadingConfig || saving || !system.whatsappConnected}
                           className={cx(
                             "relative min-h-[172px] overflow-hidden rounded-[22px] px-5 py-4 text-left",
                             DARK_BUTTON_GRADIENT_CLASS,
                             "shadow-[0_16px_34px_rgba(0,0,0,0.25)] transition-[box-shadow,filter] duration-200 ease-out",
                             "hover:brightness-[1.04] hover:shadow-[0_20px_38px_rgba(0,0,0,0.28)]",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#eff0f2]",
-                            loadingConfig ? "cursor-wait opacity-85" : "cursor-pointer",
+                            loadingConfig || saving
+                              ? "cursor-wait opacity-85"
+                              : !system.whatsappConnected
+                                ? "cursor-not-allowed opacity-78"
+                                : "cursor-pointer",
                           )}
                           aria-label={`Abrir sistema ${system.companyName || companyName || "Minha empresa"}`}
                         >
@@ -1015,13 +1135,7 @@ export default function OverviewMain({
                     <button
                       type="button"
                       onClick={() => void handleCreateClick()}
-                      disabled={
-                        loadingConfig ||
-                        saving ||
-                        onboardingLocked ||
-                        requestingCreateFlow ||
-                        requestingAdditionalCompany
-                      }
+                      disabled={!canStartAdditionalSystemFlow}
                       className={cx(
                         "relative min-h-[172px] overflow-hidden rounded-[22px] border border-black/[0.06] bg-black/[0.08] px-5 py-4 text-left",
                         "shadow-[0_6px_14px_rgba(0,0,0,0.03)] transition-[background-color,box-shadow] duration-200 ease-out",
@@ -1042,11 +1156,6 @@ export default function OverviewMain({
                         <span className="text-[13px] font-semibold tracking-[0.01em] text-black/78">
                           Adicionar novo sistema
                         </span>
-                        {!loadingConfig && onboardingLocked && (
-                          <span className="max-w-[220px] text-center text-[11px] font-medium text-[#b2433e]">
-                            Conclua o onboarding principal para continuar.
-                          </span>
-                        )}
                       </span>
                     </button>
                   </>
@@ -1055,33 +1164,33 @@ export default function OverviewMain({
                     <button
                       type="button"
                       onClick={() => void handleCreateClick()}
-                      disabled={loadingConfig || onboardingLocked}
+                      disabled={!canCreatePrimarySystem}
                       className={cx(
                         "relative min-h-[172px] overflow-hidden rounded-[22px] px-5 py-4 text-left",
                         DARK_BUTTON_GRADIENT_CLASS,
                         "shadow-[0_16px_34px_rgba(0,0,0,0.25)] transition-[box-shadow,filter] duration-200 ease-out",
                         "hover:brightness-[1.04] hover:shadow-[0_20px_38px_rgba(0,0,0,0.28)]",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#eff0f2]",
-                        loadingConfig
+                        loadingConfig || saving || requestingCreateFlow || requestingAdditionalCompany
                           ? "cursor-wait opacity-85"
-                          : onboardingLocked
+                          : !canCreatePrimarySystem
                             ? "cursor-not-allowed opacity-70"
                             : "cursor-pointer",
                       )}
                       aria-label="Criar meu sistema"
                     >
                       <span className="relative z-[1] flex h-full flex-col items-center justify-center gap-3.5">
+                        {primaryCompanyLabel ? (
+                          <span className="inline-flex max-w-full rounded-full border border-white/18 bg-white/10 px-2.5 py-1 text-[10px] font-semibold tracking-[0.03em] text-white/90">
+                            <span className="truncate">{primaryCompanyLabel}</span>
+                          </span>
+                        ) : null}
                         <span className="inline-flex h-[76px] w-[76px] items-center justify-center rounded-full border border-white/18">
                           <Plus className="h-[44px] w-[44px] text-white" strokeWidth={2.1} />
                         </span>
                         <span className="text-[13px] font-semibold tracking-[0.01em] text-white/96">
-                          Criar meu sistema
+                          {primaryCompanyLabel ? "Criar sistema desta empresa" : "Criar meu sistema"}
                         </span>
-                        {!loadingConfig && !whatsappConnected && (
-                          <span className="max-w-[220px] text-center text-[11px] font-medium text-[#ffb0b0]">
-                            Conecte o WhatsApp no onboarding para ativar.
-                          </span>
-                        )}
                       </span>
                     </button>
 
