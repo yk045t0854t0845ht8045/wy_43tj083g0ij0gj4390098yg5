@@ -49,6 +49,7 @@ type ConfigMainProps = {
   onClose: () => void;
   activeSection: ConfigSectionId;
   onSectionChange: (section: ConfigSectionId) => void;
+  elevated?: boolean;
   autoOpenPasswordModalToken?: number;
   userNickname?: string;
   userFullName?: string;
@@ -7066,6 +7067,7 @@ export default function ConfigMain({
   onClose,
   activeSection,
   onSectionChange,
+  elevated = false,
   autoOpenPasswordModalToken = 0,
   userNickname = "Usuário",
   userFullName,
@@ -7198,7 +7200,8 @@ export default function ConfigMain({
       {open && (
         <motion.div
           className={cx(
-            "fixed inset-0 z-[190]",
+            "fixed inset-0",
+            elevated ? "z-[260]" : "z-[190]",
             isMobileConfigLayout ? "p-0" : "flex items-center justify-center p-4 sm:p-6",
           )}
           initial={{ opacity: 0 }}

@@ -1246,7 +1246,7 @@ export default function OverviewMain({
                           key={system.id || `system-card-${index}`}
                           type="button"
                           onClick={() => void handleOpenExistingSystem(system.id)}
-                          disabled={loadingConfig || saving || !system.whatsappConnected}
+                          disabled={loadingConfig || saving}
                           className={cx(
                             "relative min-h-[172px] overflow-hidden rounded-[22px] px-5 py-4 text-left",
                             DARK_BUTTON_GRADIENT_CLASS,
@@ -1255,9 +1255,7 @@ export default function OverviewMain({
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#eff0f2]",
                             loadingConfig || saving
                               ? "cursor-wait opacity-85"
-                              : !system.whatsappConnected
-                                ? "cursor-not-allowed opacity-78"
-                                : "cursor-pointer",
+                              : "cursor-pointer",
                           )}
                           aria-label={`Abrir sistema ${system.companyName || companyName || "Minha empresa"}`}
                         >
@@ -2012,7 +2010,7 @@ export default function OverviewMain({
                     <button
                       type="button"
                       onClick={() => void handlePrimaryAction()}
-                      disabled={saving || !whatsappConnected || onboardingLocked}
+                      disabled={saving || onboardingLocked}
                       className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#131417] px-5 text-[13px] font-semibold text-white transition-colors hover:bg-[#1d2129] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {saving

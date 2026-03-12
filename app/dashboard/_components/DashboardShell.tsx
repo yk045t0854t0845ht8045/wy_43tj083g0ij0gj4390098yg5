@@ -44,10 +44,18 @@ const SESSION_CHECK_MIN_GAP_MS = 1200;
 const ONBOARDING_REQUIRED_STORAGE_PREFIX = "wz:onboarding:required:";
 const COMPANY_ONBOARDING_ACTIVE_STORAGE_PREFIX = "wz:company-onboarding:active:";
 const COMPANY_ONBOARDING_SYSTEM_PENDING_PREFIX = "wz:company-onboarding:pending-system:";
+const PASSWORD_SETUP_PROMPT_STORAGE_PREFIX = "wz:password-setup:prompt-shown:";
 
 type PendingCompanySystemContext = {
   id: string;
   companyName: string | null;
+};
+
+type PendingConfigBootstrapRequest = {
+  section: ConfigSectionId;
+  openPasswordModal?: boolean;
+  allowWhileLocked?: boolean;
+  passwordPromptIdentities?: string[];
 };
 
 function normalizeConfigSectionFromQuery(value: string): ConfigSectionId | null {
@@ -142,6 +150,11 @@ export default function DashboardShell({
     normalizeIsoDatetime(userTwoFactorDisabledAt)
   );
   const [autoOpenPasswordModalToken, setAutoOpenPasswordModalToken] = useState(0);
+  const [configLockBypassReason, setConfigLockBypassReason] = useState<"password-setup" | null>(
+    null,
+  );
+  const [pendingConfigBootstrapRequest, setPendingConfigBootstrapRequest] =
+    useState<PendingConfigBootstrapRequest | null>(null);
   const [sessionDisconnected, setSessionDisconnected] = useState(false);
   const [disconnectCountdown, setDisconnectCountdown] = useState(0);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -290,11 +303,13 @@ export default function DashboardShell({
   }, []);
 
   const handleOpenConfig = useCallback((section: ConfigSectionId = "my-account") => {
+    setConfigLockBypassReason(null);
     setConfigSection(section);
     setConfigOpen(true);
   }, []);
 
   const handleCloseConfig = useCallback(() => {
+    setConfigLockBypassReason(null);
     setConfigOpen(false);
     setAutoOpenPasswordModalToken(0);
   }, []);
@@ -322,6 +337,77 @@ export default function DashboardShell({
     },
     [profileEmail],
   );
+
+  const getPasswordSetupPromptKey = useCallback(
+    (identity?: string | null) => {
+      const base = String(identity || "").trim() || String(profileEmail || "").trim().toLowerCase();
+      return `${PASSWORD_SETUP_PROMPT_STORAGE_PREFIX}${base || "unknown"}`;
+    },
+    [profileEmail],
+  );
+
+  const hasSeenPasswordSetupPrompt = useCallback(
+    (identities?: Array<string | null | undefined>) => {
+      const keys = new Set<string>();
+      keys.add(getPasswordSetupPromptKey());
+      for (const identity of identities || []) {
+        keys.add(getPasswordSetupPromptKey(identity));
+      }
+
+      try {
+        for (const key of keys) {
+          if (window.localStorage.getItem(key) === "1") {
+            return true;
+          }
+        }
+      } catch {
+        return false;
+      }
+
+      return false;
+    },
+    [getPasswordSetupPromptKey],
+  );
+
+  const markPasswordSetupPromptSeen = useCallback(
+    (identities?: Array<string | null | undefined>) => {
+      const keys = new Set<string>();
+      keys.add(getPasswordSetupPromptKey());
+      for (const identity of identities || []) {
+        keys.add(getPasswordSetupPromptKey(identity));
+      }
+
+      try {
+        for (const key of keys) {
+          window.localStorage.setItem(key, "1");
+        }
+      } catch {
+        // noop
+      }
+    },
+    [getPasswordSetupPromptKey],
+  );
+
+  const queueConfigBootstrapRequest = useCallback((next: PendingConfigBootstrapRequest) => {
+    setPendingConfigBootstrapRequest((current) => {
+      if (!current) return next;
+
+      const mergedPromptIdentities = Array.from(
+        new Set(
+          [...(current.passwordPromptIdentities || []), ...(next.passwordPromptIdentities || [])]
+            .map((value) => String(value || "").trim())
+            .filter(Boolean),
+        ),
+      );
+
+      return {
+        section: next.section || current.section,
+        openPasswordModal: Boolean(current.openPasswordModal || next.openPasswordModal),
+        allowWhileLocked: Boolean(current.allowWhileLocked || next.allowWhileLocked),
+        passwordPromptIdentities: mergedPromptIdentities,
+      };
+    });
+  }, []);
 
   const syncOnboardingRequiredHint = useCallback(
     (required: boolean, identities?: Array<string | null | undefined>) => {
@@ -738,18 +824,93 @@ export default function DashboardShell({
     }
     if (shouldOpenPasswordModal) {
       targetSection = "my-account";
-      setAutoOpenPasswordModalToken((current) => current + 1);
     }
 
-    setConfigSection(targetSection);
-    setConfigOpen(true);
+    queueConfigBootstrapRequest({
+      section: targetSection,
+      openPasswordModal: shouldOpenPasswordModal,
+      allowWhileLocked: shouldOpenPasswordModal,
+      passwordPromptIdentities: shouldOpenPasswordModal ? [profileEmail] : [],
+    });
 
     url.searchParams.delete("openConfig");
     url.searchParams.delete("openPasswordModal");
     url.searchParams.delete("passwordSetupFlow");
     url.searchParams.delete("passwordSetupProvider");
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
-  }, []);
+  }, [profileEmail, queueConfigBootstrapRequest]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    let cancelled = false;
+    const controller = new AbortController();
+
+    const checkPasswordSetupPrompt = async () => {
+      try {
+        const res = await fetch("/api/wz_users/password-state", {
+          method: "GET",
+          cache: "no-store",
+          credentials: "include",
+          signal: controller.signal,
+          headers: {
+            "Cache-Control": "no-store",
+            Pragma: "no-cache",
+          },
+        });
+        const payload = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          resolvedUserId?: string | null;
+          mustCreatePassword?: boolean;
+          passwordCreated?: boolean;
+        } | null;
+        if (!res.ok || !payload?.ok || cancelled) return;
+
+        const resolvedUserId = String(payload.resolvedUserId || "").trim();
+        const identities = [resolvedUserId, profileEmail].filter(Boolean);
+        const shouldPrompt =
+          Boolean(payload.mustCreatePassword) && !Boolean(payload.passwordCreated);
+
+        if (!shouldPrompt) return;
+        if (hasSeenPasswordSetupPrompt(identities)) return;
+
+        queueConfigBootstrapRequest({
+          section: "my-account",
+          openPasswordModal: true,
+          allowWhileLocked: true,
+          passwordPromptIdentities: identities,
+        });
+      } catch {
+        // noop
+      }
+    };
+
+    void checkPasswordSetupPrompt();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [hasSeenPasswordSetupPrompt, profileEmail, queueConfigBootstrapRequest]);
+
+  useEffect(() => {
+    if (!pendingConfigBootstrapRequest) return;
+    if (dashboardNavigationLocked && !pendingConfigBootstrapRequest.allowWhileLocked) return;
+
+    setConfigSection(pendingConfigBootstrapRequest.section);
+    setConfigLockBypassReason(
+      pendingConfigBootstrapRequest.openPasswordModal ? "password-setup" : null,
+    );
+    setConfigOpen(true);
+    if (pendingConfigBootstrapRequest.openPasswordModal) {
+      setAutoOpenPasswordModalToken((current) => current + 1);
+      markPasswordSetupPromptSeen(pendingConfigBootstrapRequest.passwordPromptIdentities);
+    }
+    setPendingConfigBootstrapRequest(null);
+  }, [
+    dashboardNavigationLocked,
+    markPasswordSetupPromptSeen,
+    pendingConfigBootstrapRequest,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -810,11 +971,12 @@ export default function DashboardShell({
 
   useEffect(() => {
     if (!dashboardNavigationLocked) return;
+    if (configLockBypassReason === "password-setup") return;
     if (configOpen) {
       setConfigOpen(false);
       setAutoOpenPasswordModalToken(0);
     }
-  }, [configOpen, dashboardNavigationLocked]);
+  }, [configLockBypassReason, configOpen, dashboardNavigationLocked]);
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
@@ -983,6 +1145,7 @@ export default function DashboardShell({
         onClose={handleCloseConfig}
         activeSection={configSection}
         onSectionChange={setConfigSection}
+        elevated={configLockBypassReason === "password-setup"}
         autoOpenPasswordModalToken={autoOpenPasswordModalToken}
         userNickname={userNickname}
         userFullName={userFullName}
