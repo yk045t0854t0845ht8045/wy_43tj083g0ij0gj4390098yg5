@@ -272,6 +272,15 @@ function mapDbRowToConfig(row: Record<string, unknown>): SystemConfig {
   };
 }
 
+type RealtimeSetupState = {
+  requiresPrimarySystemSetup: boolean;
+  primaryOnboardingCompleted: boolean;
+  primaryWhatsappConnected: boolean;
+  primaryCompanyName: string | null;
+  systemCount: number;
+  statusRevision: string;
+};
+
 function mapDbRowToSummary(row: Record<string, unknown>): SystemSummary | null {
   const id = normalizeOptionalText(String(row.id || ""));
   if (!id) return null;
@@ -284,6 +293,66 @@ function mapDbRowToSummary(row: Record<string, unknown>): SystemSummary | null {
     whatsappConnected: normalizeBoolean(row.whatsapp_connected),
     createdAt: String((row.created_at as string | undefined) || ""),
     updatedAt: String((row.updated_at as string | undefined) || ""),
+  };
+}
+
+function normalizeIsoCandidate(value: unknown) {
+  const clean = String(value || "").trim();
+  if (!clean) return "";
+  const parsed = Date.parse(clean);
+  if (!Number.isFinite(parsed)) return "";
+  return new Date(parsed).toISOString();
+}
+
+function resolveLatestStatusRevision(candidates: unknown[]) {
+  let latestIso = "";
+  let latestMs = 0;
+
+  for (const candidate of candidates) {
+    const normalized = normalizeIsoCandidate(candidate);
+    if (!normalized) continue;
+    const parsed = Date.parse(normalized);
+    if (!Number.isFinite(parsed)) continue;
+    if (!latestIso || parsed > latestMs) {
+      latestIso = normalized;
+      latestMs = parsed;
+    }
+  }
+
+  return latestIso;
+}
+
+function buildRealtimeSetupState(params: {
+  onboarding: {
+    completed?: boolean | null;
+    whatsappConnected?: boolean | null;
+    companyName?: string | null;
+    updatedAt?: string | null;
+    completedAt?: string | null;
+    createdAt?: string | null;
+  };
+  systems: SystemSummary[];
+  activeSummary?: SystemSummary | null;
+}): RealtimeSetupState {
+  const primaryOnboardingCompleted = Boolean(params.onboarding.completed);
+  const primaryWhatsappConnected = Boolean(params.onboarding.whatsappConnected);
+  const systemCount = params.systems.length;
+
+  return {
+    requiresPrimarySystemSetup:
+      primaryOnboardingCompleted && primaryWhatsappConnected && systemCount === 0,
+    primaryOnboardingCompleted,
+    primaryWhatsappConnected,
+    primaryCompanyName: normalizeOptionalText(String(params.onboarding.companyName || "")),
+    systemCount,
+    statusRevision:
+      resolveLatestStatusRevision([
+        params.activeSummary?.updatedAt,
+        params.systems[0]?.updatedAt,
+        params.onboarding.updatedAt,
+        params.onboarding.completedAt,
+        params.onboarding.createdAt,
+      ]) || new Date(0).toISOString(),
   };
 }
 
@@ -543,12 +612,23 @@ export async function GET(req: NextRequest) {
     const fallbackSystemId = list.systems[0]?.id || null;
     const targetSystemId = requestedSystemId || fallbackSystemId;
     if (!targetSystemId) {
+      const realtimeState = buildRealtimeSetupState({
+        onboarding: ctx.onboarding,
+        systems: list.systems,
+        activeSummary: null,
+      });
       return NextResponse.json(
         {
           ok: true,
           whatsappConnected: Boolean(ctx.onboarding.whatsappConnected),
           hasSystem: false,
           companyName: ctx.onboarding.companyName || null,
+          primaryCompanyName: realtimeState.primaryCompanyName,
+          requiresPrimarySystemSetup: realtimeState.requiresPrimarySystemSetup,
+          primaryOnboardingCompleted: realtimeState.primaryOnboardingCompleted,
+          primaryWhatsappConnected: realtimeState.primaryWhatsappConnected,
+          systemCount: realtimeState.systemCount,
+          statusRevision: realtimeState.statusRevision,
           activeSystemId: null,
           activeCompanyOnboardingId: null,
           systems: [],
@@ -600,6 +680,11 @@ export async function GET(req: NextRequest) {
       ? Boolean(summary.whatsappConnected)
       : Boolean(ctx.onboarding.whatsappConnected);
     const resolvedCompanyName = summary?.companyName ?? ctx.onboarding.companyName ?? null;
+    const realtimeState = buildRealtimeSetupState({
+      onboarding: ctx.onboarding,
+      systems: list.systems,
+      activeSummary: summary,
+    });
 
     return NextResponse.json(
       {
@@ -607,6 +692,12 @@ export async function GET(req: NextRequest) {
         whatsappConnected: resolvedWhatsappConnected,
         hasSystem: Boolean(list.systems.length),
         companyName: resolvedCompanyName,
+        primaryCompanyName: realtimeState.primaryCompanyName,
+        requiresPrimarySystemSetup: realtimeState.requiresPrimarySystemSetup,
+        primaryOnboardingCompleted: realtimeState.primaryOnboardingCompleted,
+        primaryWhatsappConnected: realtimeState.primaryWhatsappConnected,
+        systemCount: realtimeState.systemCount,
+        statusRevision: realtimeState.statusRevision,
         activeSystemId,
         activeCompanyOnboardingId: summary?.companyOnboardingId || null,
         systems: list.systems,
@@ -870,11 +961,22 @@ export async function POST(req: NextRequest) {
     }
 
     const savedSummary = mapDbRowToSummary(row);
+    const realtimeState = buildRealtimeSetupState({
+      onboarding: ctx.onboarding,
+      systems: list.systems,
+      activeSummary: savedSummary,
+    });
     return NextResponse.json(
       {
         ok: true,
         hasSystem: true,
         companyName: savedSummary?.companyName || source.source.companyName || null,
+        primaryCompanyName: realtimeState.primaryCompanyName,
+        requiresPrimarySystemSetup: realtimeState.requiresPrimarySystemSetup,
+        primaryOnboardingCompleted: realtimeState.primaryOnboardingCompleted,
+        primaryWhatsappConnected: realtimeState.primaryWhatsappConnected,
+        systemCount: realtimeState.systemCount,
+        statusRevision: realtimeState.statusRevision,
         activeSystemId: savedSummary?.id || null,
         activeCompanyOnboardingId:
           savedSummary?.companyOnboardingId || source.source.companyOnboardingId || null,

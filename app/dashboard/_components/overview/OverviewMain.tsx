@@ -46,6 +46,12 @@ type SystemConfigApiPayload = {
   whatsappConnected?: boolean;
   hasSystem?: boolean;
   companyName?: string | null;
+  primaryCompanyName?: string | null;
+  requiresPrimarySystemSetup?: boolean;
+  primaryOnboardingCompleted?: boolean;
+  primaryWhatsappConnected?: boolean;
+  systemCount?: number;
+  statusRevision?: string;
   activeSystemId?: string;
   activeCompanyOnboardingId?: string | null;
   recoveredCompanyContext?: boolean;
@@ -593,6 +599,8 @@ export default function OverviewMain({
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<SystemConfigForm>(createDefaultForm());
   const [configResolvedOnce, setConfigResolvedOnce] = useState(false);
+  const [requiresPrimarySystemSetupServer, setRequiresPrimarySystemSetupServer] = useState(false);
+  const [statusRevision, setStatusRevision] = useState<string>("");
   const silentRefreshInFlightRef = useRef(false);
   const lastSilentRefreshAtRef = useRef(0);
   const lastHandledSyncTokenRef = useRef(0);
@@ -629,7 +637,11 @@ export default function OverviewMain({
       setError(null);
       setWhatsappConnected(Boolean(payload.whatsappConnected));
       setHasSystem(Boolean(payload.hasSystem));
-      setCompanyName(String(payload.companyName || "").trim());
+      setCompanyName(
+        String(payload.companyName || payload.primaryCompanyName || "").trim(),
+      );
+      setRequiresPrimarySystemSetupServer(Boolean(payload.requiresPrimarySystemSetup));
+      setStatusRevision(String(payload.statusRevision || "").trim());
       setSystems(normalizeSystemSummaries(payload.systems));
       setActiveSystemId(String(payload.activeSystemId || "").trim() || null);
       setSavedAt(String(payload.updatedAt || payload.createdAt || "") || null);
@@ -686,10 +698,13 @@ export default function OverviewMain({
     setMode("wizard");
   }, []);
 
-  const requestSilentRefresh = useCallback((systemId?: string | null) => {
+  const requestSilentRefresh = useCallback((
+    systemId?: string | null,
+    opts?: { force?: boolean },
+  ) => {
     if (mode === "wizard") return;
     const now = Date.now();
-    if (now - lastSilentRefreshAtRef.current < 1200) return;
+    if (!opts?.force && now - lastSilentRefreshAtRef.current < 1200) return;
     lastSilentRefreshAtRef.current = now;
     void loadConfig(systemId, { silent: true });
   }, [loadConfig, mode]);
@@ -710,13 +725,14 @@ export default function OverviewMain({
     if (!syncToken) return;
     if (lastHandledSyncTokenRef.current === syncToken) return;
     lastHandledSyncTokenRef.current = syncToken;
-    requestSilentRefresh(activeSystemId);
+    requestSilentRefresh(activeSystemId, { force: true });
   }, [activeSystemId, requestSilentRefresh, syncToken]);
 
   useEffect(() => {
     if (!primarySystemReadyToken) return;
     if (lastHandledPrimaryReadyTokenRef.current === primarySystemReadyToken) return;
     lastHandledPrimaryReadyTokenRef.current = primarySystemReadyToken;
+    requestSilentRefresh(activeSystemId, { force: true });
     if (hasSystem || activeSystemId || mode === "wizard") return;
     if (!primaryOnboardingState?.completed || !primaryOnboardingState?.whatsappConnected) return;
 
@@ -731,6 +747,7 @@ export default function OverviewMain({
     primaryOnboardingState?.companyName,
     primaryOnboardingState?.completed,
     primaryOnboardingState?.whatsappConnected,
+    requestSilentRefresh,
     primarySystemReadyToken,
   ]);
 
@@ -759,6 +776,17 @@ export default function OverviewMain({
   }, [activeSystemId, mode, requestSilentRefresh]);
 
   useEffect(() => {
+    if (mode !== "cards") return;
+    const intervalMs = requiresPrimarySystemSetupServer ? 1800 : 4200;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      requestSilentRefresh(activeSystemId, { force: true });
+    }, intervalMs);
+
+    return () => window.clearInterval(timer);
+  }, [activeSystemId, mode, requestSilentRefresh, requiresPrimarySystemSetupServer]);
+
+  useEffect(() => {
     if (!pendingCompanySystemContext?.id) return;
     const pendingId = String(pendingCompanySystemContext.id || "").trim();
     if (!isUuidLike(pendingId)) {
@@ -782,9 +810,10 @@ export default function OverviewMain({
   const requiresInitialPrimarySystemSetup = Boolean(
     !onboardingLocked &&
       configResolvedOnce &&
-      primaryOnboardingState?.completed &&
-      primaryOnboardingState?.whatsappConnected &&
-      !hasSystem,
+      (requiresPrimarySystemSetupServer ||
+        (primaryOnboardingState?.completed &&
+          primaryOnboardingState?.whatsappConnected &&
+          !hasSystem)),
   );
 
   useEffect(() => {
@@ -1036,7 +1065,7 @@ export default function OverviewMain({
     ? { duration: 0 }
     : { duration: 0.36, ease: [0.22, 1, 0.36, 1] as const };
 
-  const savedAtLabel = formatSavedAt(savedAt);
+  const savedAtLabel = formatSavedAt(savedAt || statusRevision || null);
   const resolvedSystems = useMemo(() => {
     if (systems.length) return systems;
     if (!hasSystem) return [];
@@ -1081,8 +1110,8 @@ export default function OverviewMain({
         }
 
         .overview-skeleton-card {
-          background: rgba(20, 24, 30, 0.08);
-          animation: overviewSkeletonPulse 3.6s ease-in-out infinite;
+          background: rgba(20, 24, 30, 0.075);
+          animation: overviewSkeletonPulse 2.9s ease-in-out infinite;
         }
 
         .overview-skeleton-card::after {
@@ -1095,26 +1124,19 @@ export default function OverviewMain({
         }
 
         .overview-skeleton-panel {
-          background:
-            linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(255,255,255,0.66) 100%);
-          border: 1px solid rgba(16, 20, 26, 0.07);
-          box-shadow: 0 14px 30px rgba(0, 0, 0, 0.05);
+          background: rgba(16, 20, 26, 0.055);
+          border: 1px solid rgba(16, 20, 26, 0.05);
+          box-shadow: 0 12px 24px rgba(0, 0, 0, 0.035);
         }
 
         .overview-skeleton-line {
           border-radius: 999px;
-          background: rgba(18, 24, 30, 0.11);
+          background: rgba(18, 24, 30, 0.105);
           animation: overviewSkeletonPulse 2.8s ease-in-out infinite;
         }
 
         .overview-skeleton-line[data-tone="soft"] {
-          background: rgba(18, 24, 30, 0.07);
-        }
-
-        .overview-skeleton-orb {
-          border-radius: 999px;
-          background: rgba(18, 24, 30, 0.08);
-          animation: overviewSkeletonPulse 3.1s ease-in-out infinite;
+          background: rgba(18, 24, 30, 0.075);
         }
 
         @keyframes overviewSuccessPulse {
@@ -1153,20 +1175,20 @@ export default function OverviewMain({
                     <article
                       key={`overview-loading-card-${index}`}
                       className="overview-skeleton-card overview-skeleton-panel relative min-h-[172px] overflow-hidden rounded-[22px] px-5 py-4"
+                      style={{ animationDelay: `${index * 0.09}s` }}
                     >
                       <div className="relative z-[1] flex h-full flex-col justify-between gap-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="overview-skeleton-line h-5 w-[96px]" />
-                          <div className="overview-skeleton-orb h-8 w-8" />
-                        </div>
                         <div className="space-y-2.5">
-                          <div className="overview-skeleton-line h-6 w-[78%]" />
-                          <div className="overview-skeleton-line h-4 w-[56%]" data-tone="soft" />
-                          <div className="overview-skeleton-line h-4 w-[68%]" data-tone="soft" />
+                          <div className="overview-skeleton-line h-4 w-[92px]" />
+                          <div className="overview-skeleton-line h-6 w-[74%]" />
                         </div>
-                        <div className="flex items-center gap-2">
-                          <div className="overview-skeleton-orb h-4 w-4" />
-                          <div className="overview-skeleton-line h-4 w-[124px]" data-tone="soft" />
+                        <div className="space-y-3">
+                          <div className="overview-skeleton-line h-[18px] w-[62%]" data-tone="soft" />
+                          <div className="overview-skeleton-line h-[18px] w-[48%]" data-tone="soft" />
+                        </div>
+                        <div className="space-y-2">
+                          <div className="overview-skeleton-line h-3.5 w-[54%]" data-tone="soft" />
+                          <div className="overview-skeleton-line h-3.5 w-[36%]" data-tone="soft" />
                         </div>
                       </div>
                     </article>
