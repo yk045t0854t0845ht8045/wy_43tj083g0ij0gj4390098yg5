@@ -10,6 +10,8 @@ import makeWASocket, {
   type WASocket,
 } from "@whiskeysockets/baileys";
 import pino from "pino";
+import { handleInboundWhatsAppMessage } from "@/whatsapp-sistema/engine";
+import { buildWhatsAppInstanceName } from "@/whatsapp-sistema/instance-name";
 
 export type LocalWhatsAppState =
   | "idle"
@@ -60,15 +62,23 @@ type EnsureOwnWhatsAppInstanceOptions = {
 
 declare global {
   var __wzLocalWhatsAppInstances: Map<string, LocalWhatsAppInstance> | undefined;
+  var __wzLocalWhatsAppBootstrapPromise: Promise<void> | undefined;
+  var __wzLocalWhatsAppBootstrapAt: number | undefined;
 }
 
 const RECONNECT_DELAY_MS = 1800;
 const WAIT_QR_TIMEOUT_MS = 14000;
+const BOOTSTRAP_RESCAN_MS = 1000 * 45;
 const DISABLED_VALUES = new Set(["0", "false", "off", "no", "disabled"]);
 const WRITABLE_FS_ERROR_CODES = new Set(["ENOENT", "EACCES", "EPERM", "EROFS"]);
 
 const localInstances =
   globalThis.__wzLocalWhatsAppInstances || (globalThis.__wzLocalWhatsAppInstances = new Map());
+
+function isMissingPathError(error: unknown) {
+  const code = String((error as { code?: unknown } | null)?.code || "").trim().toUpperCase();
+  return code === "ENOENT";
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -84,12 +94,6 @@ function resolveBooleanEnv(value: string | undefined, fallback: boolean) {
   if (!clean) return fallback;
   if (DISABLED_VALUES.has(clean)) return false;
   return true;
-}
-
-function resolveLocalInstancePrefix() {
-  const configured = String(process.env.WHATSAPP_INSTANCE_PREFIX || "wyzer").trim().toLowerCase();
-  const sanitized = configured.replace(/[^a-z0-9-_]/g, "");
-  return sanitized || "wyzer";
 }
 
 function isServerlessRuntime() {
@@ -118,15 +122,6 @@ function resolveAuthRootDir() {
 
 function buildAuthDir(instanceName: string) {
   return path.join(resolveAuthRootDir(), instanceName);
-}
-
-function sanitizeInstanceToken(value: string) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-_]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
 
 function toSnapshot(instance: LocalWhatsAppInstance): LocalWhatsAppSnapshot {
@@ -285,6 +280,95 @@ async function waitForSnapshot(
   });
 }
 
+function unwrapMessageContent(message: unknown): Record<string, unknown> | null {
+  if (!message || typeof message !== "object" || Array.isArray(message)) return null;
+  const record = message as Record<string, unknown>;
+  const nestedKeys = [
+    "ephemeralMessage",
+    "viewOnceMessage",
+    "viewOnceMessageV2",
+    "viewOnceMessageV2Extension",
+    "documentWithCaptionMessage",
+  ];
+
+  for (const key of nestedKeys) {
+    const nested = record[key];
+    if (!nested || typeof nested !== "object" || Array.isArray(nested)) continue;
+    const nestedMessage = (nested as Record<string, unknown>).message;
+    const unwrapped = unwrapMessageContent(nestedMessage);
+    if (unwrapped) return unwrapped;
+  }
+
+  return record;
+}
+
+function extractInboundText(message: unknown) {
+  const content = unwrapMessageContent(message);
+  if (!content) return "";
+
+  const direct =
+    String(content.conversation || "").trim() ||
+    String((content.extendedTextMessage as { text?: unknown } | undefined)?.text || "").trim() ||
+    String((content.imageMessage as { caption?: unknown } | undefined)?.caption || "").trim() ||
+    String((content.videoMessage as { caption?: unknown } | undefined)?.caption || "").trim() ||
+    String((content.documentMessage as { caption?: unknown } | undefined)?.caption || "").trim();
+
+  return direct;
+}
+
+async function ensurePersistedInstancesBootstrapped() {
+  if (!isOwnWhatsAppProviderConfigured()) return;
+
+  const lastBootstrapAt = Number(globalThis.__wzLocalWhatsAppBootstrapAt || 0);
+  if (lastBootstrapAt && Date.now() - lastBootstrapAt < BOOTSTRAP_RESCAN_MS) {
+    const existing = globalThis.__wzLocalWhatsAppBootstrapPromise;
+    if (existing) {
+      await existing.catch(() => undefined);
+    }
+    return;
+  }
+
+  if (globalThis.__wzLocalWhatsAppBootstrapPromise) {
+    await globalThis.__wzLocalWhatsAppBootstrapPromise.catch(() => undefined);
+    return;
+  }
+
+  const bootstrapRun = (async () => {
+    try {
+      const authRootDir = resolveAuthRootDir();
+      await fs.mkdir(authRootDir, { recursive: true });
+      const entries = await fs.readdir(authRootDir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const instanceName = String(entry.name || "").trim();
+        if (!instanceName) continue;
+
+        const instance = getOrCreateInstance(instanceName);
+        if (instance.socket || instance.connectPromise) continue;
+        void startInstance(instance).catch((error) => {
+          console.error(
+            `[whatsapp-sistema] failed to bootstrap instance "${instanceName}":`,
+            error,
+          );
+        });
+      }
+    } catch (error) {
+      if (!isMissingPathError(error)) {
+        console.error("[whatsapp-sistema] failed to bootstrap persisted instances:", error);
+      }
+    } finally {
+      globalThis.__wzLocalWhatsAppBootstrapAt = Date.now();
+      if (globalThis.__wzLocalWhatsAppBootstrapPromise === bootstrapRun) {
+        globalThis.__wzLocalWhatsAppBootstrapPromise = undefined;
+      }
+    }
+  })();
+
+  globalThis.__wzLocalWhatsAppBootstrapPromise = bootstrapRun;
+  await bootstrapRun;
+}
+
 async function startInstance(instance: LocalWhatsAppInstance) {
   if (instance.connectPromise) {
     await instance.connectPromise;
@@ -330,6 +414,60 @@ async function startInstance(instance: LocalWhatsAppInstance) {
     socket.ev.on("creds.update", () => {
       if (instance.socketGeneration !== socketGeneration) return;
       void saveCreds();
+    });
+    socket.ev.on("messages.upsert", (payload) => {
+      if (instance.socketGeneration !== socketGeneration) return;
+      if (String((payload as { type?: unknown } | null)?.type || "").trim().toLowerCase() !== "notify") {
+        return;
+      }
+
+      const messages = Array.isArray(payload.messages) ? payload.messages : [];
+      for (const inbound of messages) {
+        const key = inbound?.key as
+          | {
+              id?: string | null;
+              remoteJid?: string | null;
+              fromMe?: boolean | null;
+            }
+          | undefined;
+
+        if (!key || key.fromMe) continue;
+
+        const messageId = String(key.id || "").trim();
+        const remoteJid = String(key.remoteJid || "").trim();
+        const text = extractInboundText((inbound as { message?: unknown } | null)?.message);
+        if (!messageId || !remoteJid || !text) continue;
+
+        const pushName = String((inbound as { pushName?: unknown } | null)?.pushName || "").trim() || null;
+        void handleInboundWhatsAppMessage({
+          instanceName: instance.instanceName,
+          messageId,
+          remoteJid,
+          text,
+          pushName,
+          receivedAt: nowIso(),
+          sendText: async (targetJid, outboundText) => {
+            if (instance.socketGeneration !== socketGeneration || !instance.socket) {
+              return {
+                ok: false,
+                error: "Socket do WhatsApp indisponivel para envio.",
+              };
+            }
+
+            try {
+              await instance.socket.sendMessage(targetJid, { text: outboundText });
+              return { ok: true };
+            } catch (error) {
+              return {
+                ok: false,
+                error: normalizeError(error, "Nao foi possivel enviar mensagem automatica."),
+              };
+            }
+          },
+        }).catch((error) => {
+          console.error("[whatsapp-sistema] failed to process inbound message:", error);
+        });
+      }
     });
     socket.ev.on("connection.update", (update) => {
       if (instance.socketGeneration !== socketGeneration) return;
@@ -410,12 +548,12 @@ export function isOwnWhatsAppProviderConfigured() {
   return resolveBooleanEnv(process.env.WHATSAPP_SELF_HOSTED_ENABLED, true);
 }
 
+export async function ensurePersistedWhatsAppInstancesBootstrapped() {
+  await ensurePersistedInstancesBootstrapped();
+}
+
 export function buildOwnWhatsAppInstanceName(userId: string, scopeId?: string | null) {
-  const prefix = resolveLocalInstancePrefix();
-  const userToken = sanitizeInstanceToken(userId) || "unknown";
-  const scopeToken = sanitizeInstanceToken(String(scopeId || ""));
-  const scoped = scopeToken ? `${prefix}-${userToken}-${scopeToken}` : `${prefix}-${userToken}`;
-  return scoped.slice(0, 64);
+  return buildWhatsAppInstanceName(userId, scopeId);
 }
 
 export async function ensureOwnWhatsAppInstance(
@@ -428,6 +566,8 @@ export async function ensureOwnWhatsAppInstance(
       error: "Provider proprio de WhatsApp desativado no ambiente.",
     };
   }
+
+  await ensurePersistedInstancesBootstrapped();
 
   const instance = getOrCreateInstance(instanceName);
   try {

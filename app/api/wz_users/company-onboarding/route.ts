@@ -23,6 +23,7 @@ import {
   type LocalWhatsAppSnapshot,
   waitForOwnWhatsAppQr,
 } from "@/app/api/wz_users/_whatsapp_provider";
+import { registerWhatsAppInstanceBinding } from "@/whatsapp-sistema/instance-registry";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -440,6 +441,13 @@ async function syncWhatsAppWithProvider(params: {
     params.ctx.onboarding.userId,
     params.ctx.onboarding.id,
   );
+  registerWhatsAppInstanceBinding({
+    instanceName,
+    userId: params.ctx.onboarding.userId,
+    onboardingId: null,
+    companyOnboardingId: params.ctx.onboarding.id,
+    companyName: params.ctx.onboarding.companyName || null,
+  });
   const ensured = await ensureOwnWhatsAppInstance(instanceName);
   if (!ensured.ok) {
     return {

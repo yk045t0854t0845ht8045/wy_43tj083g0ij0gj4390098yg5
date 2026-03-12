@@ -6,6 +6,7 @@ import {
   normalizeEmail,
   normalizeOptionalText,
 } from "@/app/api/wz_users/_onboarding";
+import { ensurePersistedWhatsAppInstancesBootstrapped } from "@/app/api/wz_users/_whatsapp_provider";
 import {
   COMPANY_ONBOARDING_SCHEMA_HINT,
   ensureCompanyOnboardingRecord,
@@ -66,6 +67,10 @@ const BOT_SYSTEM_CONFIG_COLUMNS =
 
 const BOT_SYSTEM_SUMMARY_COLUMNS =
   "id,company_onboarding_id,company_name,status,whatsapp_connected,created_at,updated_at";
+const DEFAULT_AI_INSTRUCTIONS =
+  "Atue no modo basico de atendimento: confirme o recebimento, mantenha tom profissional e colete apenas os dados marcados na configuracao.";
+const DEFAULT_AI_FALLBACK_MESSAGE =
+  "Recebemos sua mensagem e seguimos com o atendimento pelo fluxo padrao da empresa.";
 
 function getErrorMessage(error: unknown, fallback: string) {
   const message = String((error as { message?: unknown } | null)?.message || "").trim();
@@ -212,8 +217,9 @@ function parseIncomingConfig(value: unknown) {
     closingMessage: normalizeLongText(raw.closingMessage, 1200),
     outOfHoursMessage: normalizeLongText(raw.outOfHoursMessage, 1200),
     weeklySchedule: normalizeSchedule(raw.weeklySchedule),
-    aiInstructions: normalizeLongText(raw.aiInstructions, 2400),
-    aiFallbackMessage: normalizeLongText(raw.aiFallbackMessage, 1200),
+    aiInstructions: normalizeLongText(raw.aiInstructions, 2400) || DEFAULT_AI_INSTRUCTIONS,
+    aiFallbackMessage:
+      normalizeLongText(raw.aiFallbackMessage, 1200) || DEFAULT_AI_FALLBACK_MESSAGE,
     aiResponseTone: normalizeTone(raw.aiResponseTone),
     aiResponseSize: normalizeResponseSize(raw.aiResponseSize),
     aiCollectName: normalizeBoolean(raw.aiCollectName),
@@ -245,13 +251,6 @@ function parseIncomingConfig(value: unknown) {
     }
   }
 
-  if (!config.aiInstructions) {
-    return { ok: false as const, error: "Informe as instrucoes principais para a IA." };
-  }
-  if (!config.aiFallbackMessage) {
-    return { ok: false as const, error: "Informe a mensagem quando a IA nao entender o cliente." };
-  }
-
   return { ok: true as const, config };
 }
 
@@ -261,8 +260,9 @@ function mapDbRowToConfig(row: Record<string, unknown>): SystemConfig {
     closingMessage: normalizeLongText(row.closing_message, 1200),
     outOfHoursMessage: normalizeLongText(row.out_of_hours_message, 1200),
     weeklySchedule: normalizeSchedule(row.weekly_schedule),
-    aiInstructions: normalizeLongText(row.ai_instructions, 2400),
-    aiFallbackMessage: normalizeLongText(row.ai_fallback_message, 1200),
+    aiInstructions: normalizeLongText(row.ai_instructions, 2400) || DEFAULT_AI_INSTRUCTIONS,
+    aiFallbackMessage:
+      normalizeLongText(row.ai_fallback_message, 1200) || DEFAULT_AI_FALLBACK_MESSAGE,
     aiResponseTone: normalizeTone(row.ai_response_tone),
     aiResponseSize: normalizeResponseSize(row.ai_response_size),
     aiCollectName: normalizeBoolean(row.ai_collect_name),
@@ -582,6 +582,7 @@ export async function GET(req: NextRequest) {
   try {
     const ctx = await withContext(req);
     if (!ctx.ok) return ctx.response;
+    void ensurePersistedWhatsAppInstancesBootstrapped();
 
     const requestedSystemId = normalizeOptionalText(req.nextUrl.searchParams.get("systemId"));
     if (requestedSystemId && !isUuidLike(requestedSystemId)) {
@@ -719,6 +720,7 @@ export async function POST(req: NextRequest) {
   try {
     const ctx = await withContext(req);
     if (!ctx.ok) return ctx.response;
+    void ensurePersistedWhatsAppInstancesBootstrapped();
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const action = String(body.action || "").trim().toLowerCase();
