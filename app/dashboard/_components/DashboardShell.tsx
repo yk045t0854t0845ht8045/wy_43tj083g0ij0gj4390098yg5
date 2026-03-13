@@ -254,7 +254,7 @@ export default function DashboardShell({
   const dashboardNavigationLocked = onboardingUiLocked || primarySystemSetupLocked;
   const sidebarLockMessage = onboardingUiLocked
     ? "Conclua o onboarding para liberar a navegacao"
-    : "Finalize a configuracao inicial do sistema para liberar a navegacao";
+    : "";
 
   const bumpOverviewSyncToken = useCallback(() => {
     setOverviewSyncToken((current) => current + 1);
@@ -1224,7 +1224,7 @@ export default function DashboardShell({
         lockMessage={sidebarLockMessage}
       />
 
-      <div className="relative flex-1 overflow-y-auto bg-[#eff0f2]">
+      <div className="relative flex-1 overflow-y-auto bg-[#eff0f2] pt-[82px] lg:pt-0">
         <OverviewMain
           onboardingLocked={onboardingUiLocked}
           requestingAdditionalCompany={companyOnboardingLoading}

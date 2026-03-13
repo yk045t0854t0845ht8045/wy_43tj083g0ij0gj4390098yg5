@@ -581,11 +581,7 @@ export default function OverviewMain({
   onConsumePendingCompanySystem,
 }: OverviewMainProps) {
   const reduceMotion = useReducedMotion();
-  const skeletonOpacities = useMemo(
-    () =>
-      Array.from({ length: SKELETON_CARD_COUNT }, (_, index) => Math.max(0.22, 0.84 - index * 0.09)),
-    [],
-  );
+  const skeletonCardIndices = useMemo(() => Array.from({ length: SKELETON_CARD_COUNT }, (_, index) => index), []);
 
   const [mode, setMode] = useState<"cards" | "wizard" | "success">("cards");
   const [activeTopic, setActiveTopic] = useState<WizardTopic>("messages");
@@ -1148,43 +1144,38 @@ export default function OverviewMain({
     <section className="w-full px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
       <style>{`
         @keyframes overviewSkeletonPulse {
-          0%, 100% { background-color: rgba(20, 24, 30, 0.07); }
-          50% { background-color: rgba(20, 24, 30, 0.12); }
+          0%, 100% { opacity: 0.78; }
+          50% { opacity: 1; }
         }
 
         @keyframes overviewSkeletonSheen {
-          0%, 100% { transform: translateX(-10%); opacity: 0.07; }
-          50% { transform: translateX(10%); opacity: 0.16; }
+          0% { transform: translateX(-62%); opacity: 0; }
+          18% { opacity: 0.06; }
+          50% { opacity: 0.16; }
+          82% { opacity: 0.06; }
+          100% { transform: translateX(62%); opacity: 0; }
         }
 
         .overview-skeleton-card {
-          background: rgba(20, 24, 30, 0.075);
-          animation: overviewSkeletonPulse 2.9s ease-in-out infinite;
+          background: rgba(16, 20, 26, 0.085);
+          animation: overviewSkeletonPulse 3s ease-in-out infinite;
         }
 
         .overview-skeleton-card::after {
           content: "";
           position: absolute;
-          inset: 0;
-          background: linear-gradient(120deg, transparent 22%, rgba(255, 255, 255, 0.2) 50%, transparent 78%);
-          animation: overviewSkeletonSheen 5.4s ease-in-out infinite;
+          inset: -36%;
+          border-radius: inherit;
+          background: linear-gradient(
+            120deg,
+            rgba(255,255,255,0) 28%,
+            rgba(255,255,255,0.14) 45%,
+            rgba(255,255,255,0.24) 50%,
+            rgba(255,255,255,0.14) 55%,
+            rgba(255,255,255,0) 72%
+          );
+          animation: overviewSkeletonSheen 5s ease-in-out infinite;
           pointer-events: none;
-        }
-
-        .overview-skeleton-panel {
-          background: rgba(16, 20, 26, 0.055);
-          border: 1px solid rgba(16, 20, 26, 0.05);
-          box-shadow: 0 12px 24px rgba(0, 0, 0, 0.035);
-        }
-
-        .overview-skeleton-line {
-          border-radius: 999px;
-          background: rgba(18, 24, 30, 0.105);
-          animation: overviewSkeletonPulse 2.8s ease-in-out infinite;
-        }
-
-        .overview-skeleton-line[data-tone="soft"] {
-          background: rgba(18, 24, 30, 0.075);
         }
 
         @keyframes overviewSuccessPulse {
@@ -1219,27 +1210,13 @@ export default function OverviewMain({
             >
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {loadingConfig ? (
-                  Array.from({ length: 8 }, (_, index) => (
+                  skeletonCardIndices.map((index) => (
                     <article
                       key={`overview-loading-card-${index}`}
-                      className="overview-skeleton-card overview-skeleton-panel relative min-h-[172px] overflow-hidden rounded-[22px] px-5 py-4"
+                      className="overview-skeleton-card relative min-h-[172px] overflow-hidden rounded-[22px]"
                       style={{ animationDelay: `${index * 0.09}s` }}
-                    >
-                      <div className="relative z-[1] flex h-full flex-col justify-between gap-4">
-                        <div className="space-y-2.5">
-                          <div className="overview-skeleton-line h-4 w-[92px]" />
-                          <div className="overview-skeleton-line h-6 w-[74%]" />
-                        </div>
-                        <div className="space-y-3">
-                          <div className="overview-skeleton-line h-[18px] w-[62%]" data-tone="soft" />
-                          <div className="overview-skeleton-line h-[18px] w-[48%]" data-tone="soft" />
-                        </div>
-                        <div className="space-y-2">
-                          <div className="overview-skeleton-line h-3.5 w-[54%]" data-tone="soft" />
-                          <div className="overview-skeleton-line h-3.5 w-[36%]" data-tone="soft" />
-                        </div>
-                      </div>
-                    </article>
+                      aria-hidden="true"
+                    />
                   ))
                 ) : hasSystem ? (
                   <>
@@ -1390,13 +1367,12 @@ export default function OverviewMain({
                     </button>
 
                     <div className="hidden sm:contents" aria-hidden="true">
-                      {skeletonOpacities
+                      {skeletonCardIndices
                         .slice(0, Math.max(0, SKELETON_CARD_COUNT - 2))
-                        .map((opacity, index) => (
+                        .map((index) => (
                           <article
                             key={`overview-pending-skeleton-${index}`}
                             className="overview-skeleton-card relative min-h-[172px] overflow-hidden rounded-[22px]"
-                            style={{ opacity }}
                           />
                         ))}
                     </div>
@@ -1432,11 +1408,10 @@ export default function OverviewMain({
                     </button>
 
                     <div className="hidden sm:contents" aria-hidden="true">
-                      {skeletonOpacities.map((opacity, index) => (
+                      {skeletonCardIndices.map((index) => (
                         <article
                           key={`overview-skeleton-${index}`}
                           className="overview-skeleton-card relative min-h-[172px] overflow-hidden rounded-[22px]"
-                          style={{ opacity }}
                         />
                       ))}
                     </div>
@@ -2074,6 +2049,11 @@ export default function OverviewMain({
                       {!saving && <ChevronRight className="h-4 w-4" />}
                     </button>
                   </div>
+
+                  <div
+                    aria-hidden="true"
+                    className="h-24 shrink-0 sm:h-28 lg:h-20"
+                  />
                 </div>
               </div>
             </motion.div>

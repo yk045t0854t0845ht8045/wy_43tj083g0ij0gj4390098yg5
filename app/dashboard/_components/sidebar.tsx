@@ -73,20 +73,20 @@ function UserAvatar({
   );
 }
 
-function useIsMobileSm() {
-  const [isMobile, setIsMobile] = useState(false);
+function useIsCompactSidebarViewport() {
+  const [isCompactViewport, setIsCompactViewport] = useState(false);
 
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 639px)");
+    const mq = window.matchMedia("(max-width: 1023px)");
 
-    const apply = () => setIsMobile(mq.matches);
+    const apply = () => setIsCompactViewport(mq.matches);
     apply();
 
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
   }, []);
 
-  return isMobile;
+  return isCompactViewport;
 }
 
 type LordIconProps = React.HTMLAttributes<HTMLElement> & {
@@ -403,7 +403,7 @@ export default function Sidebar({
   const [transactionsOpen, setTransactionsOpen] = useState(
     () => activeMain === "transactions"
   );
-  const isMobile = useIsMobileSm();
+  const isCompactViewport = useIsCompactSidebarViewport();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [collapseLoaded, setCollapseLoaded] = useState(false);
@@ -419,8 +419,8 @@ export default function Sidebar({
   const [activeMainState, setActiveMainState] = useState<MainItemId>(activeMain);
   const [activeSubState, setActiveSubState] = useState<SubItemId | null>(activeSub);
   const interactionsLocked = Boolean(locked);
-  const isCollapsed = !isMobile && desktopCollapsed;
-  const showCollapsedTooltips = isCollapsed && !isMobile;
+  const isCollapsed = !isCompactViewport && desktopCollapsed;
+  const showCollapsedTooltips = isCollapsed && !isCompactViewport;
   const expandedSidebarLogoSrc = "/lg/topj4390tjg83gh43g.svg";
   const collapsedSidebarLogoSrc = "/logo-m.svg";
   const preferredSidebarLogoSrc = isCollapsed
@@ -527,7 +527,6 @@ export default function Sidebar({
 
   useEffect(() => {
     if (!interactionsLocked) return;
-    setMobileMenuOpen(false);
     setProfileMenuOpen(false);
     setHelpModalOpen(false);
     setPaymentsTooltipOpen(false);
@@ -547,11 +546,11 @@ export default function Sidebar({
       didMountRef.current = true;
       return;
     }
-    if (!isMobile) setMobileMenuOpen(false);
-  }, [isMobile]);
+    if (!isCompactViewport) setMobileMenuOpen(false);
+  }, [isCompactViewport]);
 
   useEffect(() => {
-    if (!isMobile || !mobileMenuOpen) return;
+    if (!isCompactViewport || !mobileMenuOpen) return;
 
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -565,7 +564,7 @@ export default function Sidebar({
       document.body.style.overflow = prevOverflow;
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [isMobile, mobileMenuOpen]);
+  }, [isCompactViewport, mobileMenuOpen]);
 
   useEffect(() => {
     if (!helpModalOpen) return;
@@ -726,6 +725,9 @@ export default function Sidebar({
   const openHelpModal = () => {
     if (interactionsLocked) return;
     setProfileMenuOpen(false);
+    if (isCompactViewport) {
+      setMobileMenuOpen(false);
+    }
     setHelpModalOpen(true);
   };
 
@@ -775,7 +777,7 @@ export default function Sidebar({
 
   const toggleSidebarCollapse = () => {
     if (interactionsLocked) return;
-    if (isMobile) return;
+    if (isCompactViewport) return;
     setDesktopCollapsed((v) => !v);
   };
 
@@ -819,105 +821,176 @@ export default function Sidebar({
     <>
       <style>{`
         @keyframes sidebarLockPulse {
-          0%, 100% { opacity: 0.42; transform: scale(1); }
-          50% { opacity: 0.88; transform: scale(1.018); }
+          0%, 100% { opacity: 0.78; }
+          50% { opacity: 1; }
         }
 
         @keyframes sidebarLockSheen {
-          0% { transform: translateX(-18%); opacity: 0.05; }
-          50% { transform: translateX(10%); opacity: 0.14; }
-          100% { transform: translateX(28%); opacity: 0.05; }
+          0% { transform: translateX(-62%); opacity: 0; }
+          18% { opacity: 0.06; }
+          50% { opacity: 0.16; }
+          82% { opacity: 0.06; }
+          100% { transform: translateX(62%); opacity: 0; }
         }
 
         .sidebar-lock-shell {
           background:
-            radial-gradient(circle at 16% 12%, rgba(255,255,255,0.58), transparent 32%),
-            linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(246,246,247,0.96) 100%);
+            radial-gradient(circle at 16% 12%, rgba(255,255,255,0.72), transparent 34%),
+            linear-gradient(180deg, rgba(245,245,246,0.995) 0%, rgba(243,243,244,0.998) 100%);
         }
 
         .sidebar-lock-block {
           position: relative;
           overflow: hidden;
           background: rgba(16, 20, 26, 0.085);
-          animation: sidebarLockPulse 3.2s ease-in-out infinite;
+          animation: sidebarLockPulse 3s ease-in-out infinite;
         }
 
         .sidebar-lock-block::after {
           content: "";
           position: absolute;
-          inset: 0;
-          background: linear-gradient(120deg, transparent 20%, rgba(255,255,255,0.24) 50%, transparent 80%);
-          animation: sidebarLockSheen 4.8s ease-in-out infinite;
+          inset: -36%;
+          border-radius: inherit;
+          background: linear-gradient(
+            120deg,
+            rgba(255,255,255,0) 28%,
+            rgba(255,255,255,0.14) 45%,
+            rgba(255,255,255,0.24) 50%,
+            rgba(255,255,255,0.14) 55%,
+            rgba(255,255,255,0) 72%
+          );
+          animation: sidebarLockSheen 5s ease-in-out infinite;
         }
       `}</style>
       <Script src="https://cdn.lordicon.com/lordicon.js" strategy="afterInteractive" />
 
-      {!mobileMenuOpen && !interactionsLocked && (
-        <button
-          type="button"
-          onClick={() => setMobileMenuOpen(true)}
-          className={cx(
-            "sm:hidden",
-            "fixed left-3 top-3 z-[60]",
-            "h-[44px] w-[44px] rounded-full bg-white",
-            "border border-black/10",
-            "shadow-[0_10px_24px_rgba(0,0,0,0.14)]",
-            "flex items-center justify-center",
-            "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.98]"
-          )}
-          aria-label="Open menu"
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.9"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="text-black/80"
-            aria-hidden="true"
-          >
-            <path d="M4 7h16" />
-            <path d="M4 12h16" />
-            <path d="M4 17h16" />
-          </svg>
-        </button>
+      {isCompactViewport && (
+        <div className="fixed inset-x-0 top-0 z-[90] lg:hidden">
+          <div className="border-b border-white/10 bg-[#0b0d11]/94 text-white shadow-[0_18px_44px_rgba(0,0,0,0.26)] backdrop-blur-[18px]">
+            <div
+              className="mx-auto flex items-center justify-between gap-3 px-3 pb-3 sm:px-4"
+              style={{ paddingTop: "calc(env(safe-area-inset-top) + 10px)" }}
+            >
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen((current) => !current)}
+                className={cx(
+                  "inline-flex h-[44px] w-[44px] items-center justify-center rounded-2xl border border-white/12 bg-white/8",
+                  "transition-[transform,background-color,border-color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+                  "active:scale-[0.98]",
+                  mobileMenuOpen && "bg-white/12 border-white/18",
+                )}
+                aria-label={mobileMenuOpen ? "Fechar menu" : "Abrir menu"}
+                aria-expanded={mobileMenuOpen}
+                aria-controls="dashboard-mobile-sidebar"
+              >
+                <span className="relative h-[18px] w-[18px]" aria-hidden="true">
+                  <span
+                    className={cx(
+                      "absolute left-0 h-[2px] w-full rounded-full bg-white transition-[transform,top,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                      mobileMenuOpen ? "top-[8px] rotate-45" : "top-[2px]",
+                    )}
+                  />
+                  <span
+                    className={cx(
+                      "absolute left-0 top-[8px] h-[2px] w-full rounded-full bg-white transition-opacity duration-200 ease-out",
+                      mobileMenuOpen ? "opacity-0" : "opacity-100",
+                    )}
+                  />
+                  <span
+                    className={cx(
+                      "absolute left-0 h-[2px] w-full rounded-full bg-white transition-[transform,top,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                      mobileMenuOpen ? "top-[8px] -rotate-45" : "top-[14px]",
+                    )}
+                  />
+                </span>
+              </button>
+
+              <div className="flex min-w-0 flex-1 items-center justify-center">
+                <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/6 px-3 py-2">
+                  <Image
+                    src={expandedSidebarLogoSrc}
+                    alt="Wyzer"
+                    width={104}
+                    height={28}
+                    className="h-6 w-auto brightness-0 invert"
+                    priority
+                  />
+                </span>
+              </div>
+
+              <span className="inline-flex h-[44px] w-[44px] items-center justify-center rounded-2xl border border-transparent">
+                <UserAvatar
+                  photoLink={resolvedUserPhotoLink}
+                  initial={profileInitial}
+                  sizeClass="h-[34px] w-[34px]"
+                  roundedClass="rounded-xl"
+                  textClass="text-[12px]"
+                  backgroundClass="bg-white/18"
+                />
+              </span>
+            </div>
+          </div>
+        </div>
       )}
 
-      {mobileMenuOpen && (
-        <div
-          className="sm:hidden fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px]"
+      {isCompactViewport && (
+        <button
+          type="button"
           onClick={() => setMobileMenuOpen(false)}
-          aria-hidden="true"
+          className={cx(
+            "fixed inset-0 z-[79] bg-[#050608]/36 backdrop-blur-[10px] transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:hidden",
+            mobileMenuOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+          )}
+          aria-hidden={!mobileMenuOpen}
+          tabIndex={mobileMenuOpen ? 0 : -1}
         />
       )}
 
       <aside
+        id={isCompactViewport ? "dashboard-mobile-sidebar" : undefined}
+        role={isCompactViewport ? "dialog" : undefined}
+        aria-modal={isCompactViewport ? true : undefined}
+        aria-label={isCompactViewport ? "Menu principal" : undefined}
         className={cx(
-          "fixed sm:static",
-          "inset-y-0 left-0 sm:inset-auto sm:left-auto",
-          "z-50 sm:z-auto",
-          "w-[308px]",
-          "max-w-[calc(100vw-24px)]",
-          isCollapsed
-            ? "sm:w-[92px] sm:min-w-[92px] sm:max-w-[92px]"
-            : "sm:w-[308px] sm:min-w-[308px] sm:max-w-[308px]",
-          "min-h-svh bg-[#f6f6f7] text-black",
-          "relative flex flex-col overflow-visible",
-          "shadow-[0_20px_50px_rgba(0,0,0,0.18)] sm:shadow-none",
-          "transform-gpu transition-[transform,width,min-width,max-width] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-          mobileMenuOpen ? "translate-x-0" : "-translate-x-full sm:translate-x-0"
+          "relative flex flex-col overflow-visible text-black",
+          isCompactViewport
+            ? cx(
+                "fixed inset-x-3 top-[76px] z-[85] max-h-[calc(100dvh-92px)]",
+                "rounded-[30px] border border-white/14 bg-[#f6f6f7]/98 backdrop-blur-[18px]",
+                "shadow-[0_28px_80px_rgba(0,0,0,0.34)]",
+                "transform-gpu transition-[transform,opacity] duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
+                mobileMenuOpen
+                  ? "pointer-events-auto translate-y-0 opacity-100"
+                  : "pointer-events-none -translate-y-6 opacity-0",
+              )
+            : cx(
+                "fixed lg:static",
+                "inset-y-0 left-0 lg:inset-auto lg:left-auto",
+                "z-50 lg:z-auto",
+                "w-[308px]",
+                "max-w-[calc(100vw-24px)]",
+                isCollapsed
+                  ? "lg:w-[92px] lg:min-w-[92px] lg:max-w-[92px]"
+                  : "lg:w-[308px] lg:min-w-[308px] lg:max-w-[308px]",
+                "min-h-svh bg-[#f6f6f7]",
+                "shadow-[0_20px_50px_rgba(0,0,0,0.18)] lg:shadow-none",
+                "transform-gpu transition-[width,min-width,max-width] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+              ),
         )}
       >
         <div
           className={cx(
-            "pt-2.5",
+            isCompactViewport ? "px-3 pb-0 pt-3 sm:px-4" : "pt-2.5",
             "transition-[padding] duration-[300ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-            isCollapsed ? "px-3" : "px-2"
+            !isCompactViewport && (isCollapsed ? "px-3" : "px-2"),
           )}
         >
+          {isCompactViewport && (
+            <div className="mb-3 flex justify-center">
+              <span className="h-1.5 w-11 rounded-full bg-black/14" aria-hidden="true" />
+            </div>
+          )}
           <div
             className={cx(
               "flex items-center gap-2",
@@ -929,7 +1002,11 @@ export default function Sidebar({
                 "h-[44px]",
                 "flex items-center overflow-hidden",
                 "transition-[width,padding] duration-[320ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-                isCollapsed ? "w-[44px] px-0 justify-center" : "flex-1 px-3",
+                isCompactViewport
+                  ? "flex-1 justify-start px-2"
+                  : isCollapsed
+                    ? "w-[44px] px-0 justify-center"
+                    : "flex-1 px-3",
                 showCollapsedTooltips && "cursor-pointer"
               )}
               aria-label="Wyzer"
@@ -952,7 +1029,11 @@ export default function Sidebar({
                 className={cx(
                   "object-contain shrink-0",
                   "transition-[width,height,transform] duration-[320ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-                  isCollapsed ? "h-7 w-7" : "h-10 w-auto max-w-[100px]"
+                  isCompactViewport
+                    ? "h-9 w-auto max-w-[132px]"
+                    : isCollapsed
+                      ? "h-7 w-7"
+                      : "h-10 w-auto max-w-[100px]"
                 )}
                 onError={() => setSidebarLogoFallback(true)}
                 priority
@@ -964,7 +1045,7 @@ export default function Sidebar({
                 type="button"
                 onClick={toggleSidebarCollapse}
                 className={cx(
-                  "hidden sm:flex",
+                  "hidden lg:flex",
                   "h-[36px] w-[36px]",
                   "items-center justify-center",
                   "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
@@ -981,9 +1062,9 @@ export default function Sidebar({
               type="button"
               onClick={() => setMobileMenuOpen(false)}
               className={cx(
-                "sm:hidden",
+                isCompactViewport ? "flex" : "hidden",
                 "h-[44px] w-[44px] rounded-xl",
-                "flex items-center justify-center",
+                "items-center justify-center",
                 "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.98]"
               )}
               aria-label="Close menu"
@@ -999,7 +1080,7 @@ export default function Sidebar({
           className={cx(
             "mt-3 flex-1 overscroll-contain",
             showCollapsedTooltips ? "overflow-visible" : "overflow-y-auto",
-            isCollapsed ? "px-3" : "px-2"
+            isCompactViewport ? "px-3 pb-1 sm:px-4" : isCollapsed ? "px-3" : "px-2"
           )}
         >
           <LayoutGroup id="sidebar-active-pills">
@@ -1291,7 +1372,12 @@ export default function Sidebar({
           </LayoutGroup>
         </nav>
 
-        <div className={cx("shrink-0 px-2 pb-3 pt-2", isCollapsed ? "sm:px-3" : "sm:px-2")}>
+        <div
+          className={cx(
+            "shrink-0 px-2 pb-3 pt-2",
+            isCompactViewport ? "px-3 sm:px-4" : isCollapsed ? "lg:px-3" : "lg:px-2",
+          )}
+        >
           <ul className="mb-2 space-y-[2px]">
             <li className={cx("relative", showCollapsedTooltips && "group")}>
               <motion.button
@@ -1348,7 +1434,7 @@ export default function Sidebar({
               type="button"
               onClick={() => setDesktopCollapsed(false)}
               className={cx(
-                "mx-auto hidden sm:flex h-[42px] w-[42px] rounded-xl",
+                "mx-auto hidden lg:flex h-[42px] w-[42px] rounded-xl",
                 "items-center justify-center",
                 "transition-colors duration-200 ease-out hover:bg-white"
               )}
@@ -1505,7 +1591,10 @@ export default function Sidebar({
         </div>
 
         {interactionsLocked && (
-          <div className="sidebar-lock-shell pointer-events-auto absolute inset-0 z-[180] flex flex-col backdrop-blur-[3px]">
+          <div
+            className="sidebar-lock-shell pointer-events-auto absolute inset-0 z-[180] flex flex-col backdrop-blur-[6px]"
+            title={lockMessage}
+          >
             <div
               className={cx(
                 "pt-2.5",
@@ -1543,13 +1632,6 @@ export default function Sidebar({
               )}
             >
               <div className={cx("sidebar-lock-block h-[44px] rounded-2xl", isCollapsed && "mx-auto w-[42px]")} aria-hidden="true" />
-              {!isCollapsed && (
-                <p className="mt-3 text-center text-[11px] font-semibold tracking-[0.02em] text-black/58">
-                  <span className="inline-flex rounded-2xl border border-black/8 bg-white/74 px-3 py-3 shadow-[0_12px_26px_rgba(0,0,0,0.05)]">
-                    {lockMessage}
-                  </span>
-                </p>
-              )}
             </div>
           </div>
         )}
