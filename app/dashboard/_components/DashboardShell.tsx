@@ -1222,7 +1222,7 @@ export default function DashboardShell({
     <div className="min-h-screen overflow-x-hidden bg-[#eff0f2]">
       <LoadingBase />
 
-      <div className="flex min-h-screen flex-col min-[901px]:flex-row">
+      <div className="min-h-screen min-[901px]:flex min-[901px]:items-stretch">
         <Sidebar
           activeMain="overview"
           userNickname={userNickname}
@@ -1234,7 +1234,7 @@ export default function DashboardShell({
           lockVariant={sidebarLockVariant}
         />
 
-        <main className="min-w-0 flex-1 px-3 pb-4 pt-3 sm:px-5 sm:pb-6 sm:pt-4 lg:px-6 lg:py-6">
+        <main className="w-full px-3 pb-4 pt-3 sm:px-5 sm:pb-6 sm:pt-4 lg:px-6 lg:py-6 min-[901px]:min-w-0 min-[901px]:flex-1">
           <OverviewMain
             onboardingLocked={onboardingUiLocked}
             requestingAdditionalCompany={companyOnboardingLoading}
