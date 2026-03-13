@@ -1139,6 +1139,23 @@ export default function OverviewMain({
       configResolvedOnce &&
       (requiresPrimarySystemSetupServer || primaryOnboardingState?.completed),
   );
+  const overviewCardsGridClassName = useMemo(() => {
+    if (!hasSystem || loadingConfig) {
+      return "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4";
+    }
+
+    const visibleCardCount = resolvedSystems.length + 1;
+
+    if (visibleCardCount <= 2) {
+      return "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-2";
+    }
+
+    if (visibleCardCount === 3) {
+      return "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3";
+    }
+
+    return "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4";
+  }, [hasSystem, loadingConfig, resolvedSystems.length]);
 
   return (
     <section className="w-full px-3 pb-4 pt-2 sm:px-5 sm:pb-6 sm:pt-3 lg:px-6 lg:py-6">
@@ -1208,7 +1225,7 @@ export default function OverviewMain({
               transition={panelTransition}
               className="space-y-4"
             >
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className={overviewCardsGridClassName}>
                 {loadingConfig ? (
                   skeletonCardIndices.map((index) => (
                     <article

@@ -1212,32 +1212,35 @@ export default function DashboardShell({
   }, [disconnectCountdown, sessionDisconnected]);
 
   return (
-    <div className="min-h-screen bg-[#eff0f2] flex flex-col min-[901px]:flex-row">
+    <div className="min-h-screen bg-[#eff0f2]">
       <LoadingBase />
-      <Sidebar
-        activeMain="overview"
-        userNickname={userNickname}
-        userEmail={profileEmail}
-        userPhotoLink={profilePhotoLink}
-        onOpenConfig={handleOpenConfig}
-        locked={dashboardNavigationLocked}
-        lockMessage={sidebarLockMessage}
-      />
 
-      <main className="min-w-0 flex-1">
-        <OverviewMain
-          onboardingLocked={onboardingUiLocked}
-          requestingAdditionalCompany={companyOnboardingLoading}
-          pendingCompanySystemContext={pendingCompanySystemContext}
-          primaryOnboardingState={onboardingData}
-          syncToken={overviewSyncToken}
-          primarySystemReadyToken={primarySystemReadyToken}
-          onPrimarySystemSetupLockChange={setPrimarySystemSetupLocked}
-          onRequestAddSystemOnboarding={startAdditionalCompanyOnboarding}
-          onConsumePendingCompanySystem={handleConsumePendingCompanySystem}
+      <div className="min-h-screen min-[901px]:flex min-[901px]:items-stretch">
+        <Sidebar
+          activeMain="overview"
+          userNickname={userNickname}
+          userEmail={profileEmail}
+          userPhotoLink={profilePhotoLink}
+          onOpenConfig={handleOpenConfig}
+          locked={dashboardNavigationLocked}
+          lockMessage={sidebarLockMessage}
         />
-        <WyzerAIWidget />
-      </main>
+
+        <main className="min-w-0 w-full min-[901px]:flex-1">
+          <OverviewMain
+            onboardingLocked={onboardingUiLocked}
+            requestingAdditionalCompany={companyOnboardingLoading}
+            pendingCompanySystemContext={pendingCompanySystemContext}
+            primaryOnboardingState={onboardingData}
+            syncToken={overviewSyncToken}
+            primarySystemReadyToken={primarySystemReadyToken}
+            onPrimarySystemSetupLockChange={setPrimarySystemSetupLocked}
+            onRequestAddSystemOnboarding={startAdditionalCompanyOnboarding}
+            onConsumePendingCompanySystem={handleConsumePendingCompanySystem}
+          />
+          <WyzerAIWidget />
+        </main>
+      </div>
 
       <ConfigMain
         open={configOpen}
