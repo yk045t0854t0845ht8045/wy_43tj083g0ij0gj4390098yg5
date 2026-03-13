@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import {
+  ONBOARDING_REMINDER_TTL_MS,
   ONBOARDING_ABANDONMENT_TTL_MS,
-  pruneAbandonedOnboarding,
+  runOnboardingMaintenanceSweep,
 } from "@/app/api/wz_users/_onboarding_maintenance";
 
 export const dynamic = "force-dynamic";
@@ -71,6 +72,10 @@ async function parseRequestOptions(req: NextRequest) {
   return {
     dryRun: normalizeBoolean(body.dryRun ?? req.nextUrl.searchParams.get("dryRun")),
     limit: normalizePositiveInteger(body.limit || req.nextUrl.searchParams.get("limit"), 100),
+    reminderMinutes: normalizePositiveInteger(
+      body.reminderMinutes || req.nextUrl.searchParams.get("reminderMinutes"),
+      Math.round(ONBOARDING_REMINDER_TTL_MS / 60000),
+    ),
     ttlMinutes: normalizePositiveInteger(
       body.ttlMinutes || req.nextUrl.searchParams.get("ttlMinutes"),
       Math.round(ONBOARDING_ABANDONMENT_TTL_MS / 60000),
@@ -101,12 +106,15 @@ async function handleMaintenance(req: NextRequest) {
 
   const options = await parseRequestOptions(req);
   const sb = supabaseAdmin();
-  const ttlMs = options.ttlMinutes * 60 * 1000;
-  const prune = await pruneAbandonedOnboarding({
+  const maintenance = await runOnboardingMaintenanceSweep({
     sb,
+    force: true,
     dryRun: options.dryRun,
-    ttlMs,
-    limit: options.limit,
+    reason: "internal-route",
+    reminderTtlMs: options.reminderMinutes * 60 * 1000,
+    abandonmentTtlMs: options.ttlMinutes * 60 * 1000,
+    reminderLimit: options.limit,
+    pruneLimit: options.limit,
   });
 
   return NextResponse.json(
@@ -114,9 +122,10 @@ async function handleMaintenance(req: NextRequest) {
       ok: true,
       executedAt: new Date().toISOString(),
       dryRun: options.dryRun,
+      reminderMinutes: options.reminderMinutes,
       ttlMinutes: options.ttlMinutes,
       limit: options.limit,
-      prune,
+      maintenance,
     },
     {
       status: 200,
@@ -131,7 +140,7 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     console.error("[onboarding-maintenance] GET error:", error);
     return NextResponse.json(
-      { ok: false, error: "Erro inesperado ao executar limpeza de onboarding abandonado." },
+      { ok: false, error: "Erro inesperado ao executar a manutencao do onboarding." },
       { status: 500, headers: NO_STORE_HEADERS },
     );
   }
@@ -143,7 +152,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error("[onboarding-maintenance] POST error:", error);
     return NextResponse.json(
-      { ok: false, error: "Erro inesperado ao executar limpeza de onboarding abandonado." },
+      { ok: false, error: "Erro inesperado ao executar a manutencao do onboarding." },
       { status: 500, headers: NO_STORE_HEADERS },
     );
   }

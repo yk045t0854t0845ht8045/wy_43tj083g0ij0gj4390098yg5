@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { readActiveSessionFromRequest } from "@/app/api/wz_AuthLogin/_active_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import {
@@ -6,6 +6,7 @@ import {
   normalizeEmail,
   normalizeOptionalText,
 } from "@/app/api/wz_users/_onboarding";
+import { runOnboardingMaintenanceSweep } from "@/app/api/wz_users/_onboarding_maintenance";
 import { ensurePersistedWhatsAppInstancesBootstrapped } from "@/app/api/wz_users/_whatsapp_provider";
 import {
   COMPANY_ONBOARDING_SCHEMA_HINT,
@@ -75,6 +76,23 @@ const DEFAULT_AI_FALLBACK_MESSAGE =
 function getErrorMessage(error: unknown, fallback: string) {
   const message = String((error as { message?: unknown } | null)?.message || "").trim();
   return message || fallback;
+}
+
+function scheduleOnboardingMaintenance(params: {
+  reason: string;
+  onboardingId?: string | null;
+}) {
+  const onboardingId = normalizeOptionalText(params.onboardingId || "");
+  after(async () => {
+    try {
+      await runOnboardingMaintenanceSweep({
+        reason: params.reason,
+        suppressPrimaryIds: onboardingId ? [onboardingId] : [],
+      });
+    } catch (error) {
+      console.error("[system-config] background maintenance error:", error);
+    }
+  });
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -588,6 +606,10 @@ export async function GET(req: NextRequest) {
   try {
     const ctx = await withContext(req);
     if (!ctx.ok) return ctx.response;
+    scheduleOnboardingMaintenance({
+      reason: "system-config-get",
+      onboardingId: ctx.onboarding.id,
+    });
     void ensurePersistedWhatsAppInstancesBootstrapped();
 
     const requestedSystemId = normalizeOptionalText(req.nextUrl.searchParams.get("systemId"));
@@ -726,6 +748,10 @@ export async function POST(req: NextRequest) {
   try {
     const ctx = await withContext(req);
     if (!ctx.ok) return ctx.response;
+    scheduleOnboardingMaintenance({
+      reason: "system-config-post",
+      onboardingId: ctx.onboarding.id,
+    });
     void ensurePersistedWhatsAppInstancesBootstrapped();
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;

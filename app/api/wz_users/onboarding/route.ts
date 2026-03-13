@@ -1,5 +1,5 @@
 ﻿import QRCode from "qrcode";
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { readActiveSessionFromRequest } from "@/app/api/wz_AuthLogin/_active_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import {
@@ -18,6 +18,7 @@ import {
   type OnboardingRecord,
   type OnboardingUiStep,
 } from "@/app/api/wz_users/_onboarding";
+import { runOnboardingMaintenanceSweep } from "@/app/api/wz_users/_onboarding_maintenance";
 import {
   buildOwnWhatsAppInstanceName,
   ensureOwnWhatsAppInstance,
@@ -97,6 +98,23 @@ const ONBOARDING_ALLOWED_STEPS = new Set<OnboardingUiStep>([
 function getErrorMessage(error: unknown, fallback: string) {
   const message = String((error as { message?: unknown } | null)?.message || "").trim();
   return message || fallback;
+}
+
+function scheduleOnboardingMaintenance(params: {
+  reason: string;
+  onboardingId?: string | null;
+}) {
+  const onboardingId = normalizeOptionalText(params.onboardingId || "");
+  after(async () => {
+    try {
+      await runOnboardingMaintenanceSweep({
+        reason: params.reason,
+        suppressPrimaryIds: onboardingId ? [onboardingId] : [],
+      });
+    } catch (error) {
+      console.error("[onboarding] background maintenance error:", error);
+    }
+  });
 }
 
 function normalizeTeamAgentsCount(value: unknown) {
@@ -656,6 +674,10 @@ export async function GET(req: NextRequest) {
   try {
     const ctx = await withOnboardingContext(req);
     if (!ctx.ok) return ctx.response;
+    scheduleOnboardingMaintenance({
+      reason: "onboarding-get",
+      onboardingId: ctx.onboarding.id,
+    });
 
     let onboarding = ctx.onboarding;
     let qrCodeDataUrl: string | undefined;
@@ -676,12 +698,16 @@ export async function GET(req: NextRequest) {
         },
         requireQr: false,
       });
-      if (!sync.ok) return sync.response;
-      onboarding = sync.onboarding;
-      whatsappState = sync.whatsappState;
-      qrCodeDataUrl = sync.qrCodeDataUrl;
-      pairingCode = sync.pairingCode;
-      pairingExpiresAt = sync.pairingExpiresAt;
+      if (!sync.ok) {
+        console.error("[onboarding] soft WhatsApp sync failure on GET");
+        whatsappState = onboarding.whatsappConnected ? "open" : "error";
+      } else {
+        onboarding = sync.onboarding;
+        whatsappState = sync.whatsappState;
+        qrCodeDataUrl = sync.qrCodeDataUrl;
+        pairingCode = sync.pairingCode;
+        pairingExpiresAt = sync.pairingExpiresAt;
+      }
     }
 
     return NextResponse.json(
@@ -710,6 +736,10 @@ export async function POST(req: NextRequest) {
   try {
     const ctx = await withOnboardingContext(req);
     if (!ctx.ok) return ctx.response;
+    scheduleOnboardingMaintenance({
+      reason: "onboarding-post",
+      onboardingId: ctx.onboarding.id,
+    });
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const action = String(body?.action || "").trim().toLowerCase() as OnboardingAction;
@@ -890,7 +920,19 @@ export async function POST(req: NextRequest) {
         },
         requireQr: true,
       });
-      if (!sync.ok) return sync.response;
+      if (!sync.ok) {
+        console.error("[onboarding] soft WhatsApp bootstrap failure after save-team");
+        return NextResponse.json(
+          {
+            ok: true,
+            onboarding: patched.onboarding,
+            whatsappState: "error",
+            whatsappProvider: WHATSAPP_PROVIDER_NAME,
+            providerConfigured: isOwnWhatsAppProviderConfigured(),
+          },
+          { status: 200, headers: NO_STORE_HEADERS },
+        );
+      }
 
       return NextResponse.json(
         {

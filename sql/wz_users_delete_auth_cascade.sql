@@ -90,6 +90,14 @@ begin
       or (v_email is not null and lower(email) = v_email);
   end if;
 
+  if to_regclass('public.wz_onboarding_reminders') is not null then
+    delete from public.wz_onboarding_reminders
+    where
+      (v_wz_user_id is not null and user_id = v_wz_user_id)
+      or (v_auth_user_id is not null and user_id = v_auth_user_id)
+      or (v_email is not null and lower(email) = v_email);
+  end if;
+
   if to_regclass('public.wz_company_onboarding') is not null then
     delete from public.wz_company_onboarding
     where

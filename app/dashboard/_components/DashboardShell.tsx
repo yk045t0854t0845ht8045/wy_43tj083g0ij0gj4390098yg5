@@ -46,6 +46,8 @@ const COMPANY_ONBOARDING_ACTIVE_STORAGE_PREFIX = "wz:company-onboarding:active:"
 const COMPANY_ONBOARDING_SYSTEM_PENDING_PREFIX = "wz:company-onboarding:pending-system:";
 const PASSWORD_SETUP_PROMPT_STORAGE_PREFIX = "wz:password-setup:prompt-shown:";
 const DASHBOARD_REQUEST_TIMEOUT_MS = 12000;
+const DASHBOARD_FETCH_MAX_ATTEMPTS = 3;
+const DASHBOARD_FETCH_RETRY_DELAY_MS = 900;
 
 type PendingCompanySystemContext = {
   id: string;
@@ -101,6 +103,78 @@ function buildLoginRedirectUrlClient() {
   url.searchParams.set("returnTo", window.location.href);
   url.searchParams.set("forceLogin", "1");
   return url.toString();
+}
+
+async function waitFor(ms: number) {
+  await new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function fetchJsonWithRetry<T>(params: {
+  input: string;
+  init?: RequestInit;
+  timeoutMs: number;
+  attempts?: number;
+  retryDelayMs?: number;
+  externalSignal?: AbortSignal;
+  shouldCancel?: () => boolean;
+}) {
+  const attempts =
+    typeof params.attempts === "number" && Number.isFinite(params.attempts) && params.attempts > 0
+      ? Math.trunc(params.attempts)
+      : DASHBOARD_FETCH_MAX_ATTEMPTS;
+  const retryDelayMs =
+    typeof params.retryDelayMs === "number" && Number.isFinite(params.retryDelayMs) && params.retryDelayMs > 0
+      ? Math.trunc(params.retryDelayMs)
+      : DASHBOARD_FETCH_RETRY_DELAY_MS;
+
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (params.shouldCancel?.()) return null;
+    if (params.externalSignal?.aborted) return null;
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), params.timeoutMs);
+    const abortHandler = () => controller.abort();
+    params.externalSignal?.addEventListener("abort", abortHandler, { once: true });
+
+    try {
+      const res = await fetch(params.input, {
+        ...params.init,
+        signal: controller.signal,
+      });
+      const payload = (await res.json().catch(() => null)) as T | null;
+      if (res.ok) {
+        return {
+          ok: true,
+          response: res,
+          payload,
+        };
+      }
+
+      lastError = new Error(`HTTP_${res.status}`);
+      if (attempt >= attempts - 1) {
+        return {
+          ok: false,
+          response: res,
+          payload,
+        };
+      }
+      await waitFor(retryDelayMs * (attempt + 1));
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts - 1) {
+        throw error;
+      }
+      await waitFor(retryDelayMs * (attempt + 1));
+    } finally {
+      window.clearTimeout(timeoutId);
+      params.externalSignal?.removeEventListener("abort", abortHandler);
+    }
+  }
+
+  if (lastError) throw lastError;
+  return null;
 }
 
 export default function DashboardShell({
@@ -661,30 +735,34 @@ export default function DashboardShell({
 
     let cancelled = false;
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), DASHBOARD_REQUEST_TIMEOUT_MS);
     const restore = async () => {
       companyOnboardingRestoreInFlightRef.current = true;
       setCompanyOnboardingLoading(true);
       try {
         const endpoint = `/api/wz_users/company-onboarding?companyOnboardingId=${encodeURIComponent(activeId)}`;
-        const res = await fetch(endpoint, {
-          method: "GET",
-          cache: "no-store",
-          credentials: "include",
-          headers: {
-            "Cache-Control": "no-store",
-            Pragma: "no-cache",
+        const result = await fetchJsonWithRetry<{
+          ok?: boolean;
+          onboarding?: OnboardingState;
+        }>({
+          input: endpoint,
+          timeoutMs: DASHBOARD_REQUEST_TIMEOUT_MS,
+          externalSignal: controller.signal,
+          shouldCancel: () => cancelled,
+          init: {
+            method: "GET",
+            cache: "no-store",
+            credentials: "include",
+            headers: {
+              "Cache-Control": "no-store",
+              Pragma: "no-cache",
+            },
           },
-          signal: controller.signal,
         });
-        if (!res.ok) {
+        if (!result?.ok) {
           syncCompanyOnboardingActiveHint(null);
           return;
         }
-        const payload = (await res.json().catch(() => null)) as {
-          ok?: boolean;
-          onboarding?: OnboardingState;
-        } | null;
+        const payload = result.payload || null;
         if (!payload?.ok || !payload.onboarding || cancelled) {
           syncCompanyOnboardingActiveHint(null);
           return;
@@ -711,7 +789,6 @@ export default function DashboardShell({
       } catch {
         syncCompanyOnboardingActiveHint(null);
       } finally {
-        window.clearTimeout(timeoutId);
         if (!cancelled) {
           setCompanyOnboardingLoading(false);
         }
@@ -723,7 +800,6 @@ export default function DashboardShell({
     return () => {
       cancelled = true;
       controller.abort();
-      window.clearTimeout(timeoutId);
     };
   }, [
     companyOnboardingData,
@@ -758,29 +834,33 @@ export default function DashboardShell({
 
     let cancelled = false;
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), DASHBOARD_REQUEST_TIMEOUT_MS);
     const validate = async () => {
       pendingCompanyContextValidationRef.current = true;
       try {
         const endpoint = `/api/wz_users/company-onboarding?companyOnboardingId=${encodeURIComponent(pendingId)}`;
-        const res = await fetch(endpoint, {
-          method: "GET",
-          cache: "no-store",
-          credentials: "include",
-          headers: {
-            "Cache-Control": "no-store",
-            Pragma: "no-cache",
+        const result = await fetchJsonWithRetry<{
+          ok?: boolean;
+          onboarding?: OnboardingState;
+        }>({
+          input: endpoint,
+          timeoutMs: DASHBOARD_REQUEST_TIMEOUT_MS,
+          externalSignal: controller.signal,
+          shouldCancel: () => cancelled,
+          init: {
+            method: "GET",
+            cache: "no-store",
+            credentials: "include",
+            headers: {
+              "Cache-Control": "no-store",
+              Pragma: "no-cache",
+            },
           },
-          signal: controller.signal,
         });
-        if (!res.ok) {
+        if (!result?.ok) {
           syncPendingCompanySystemHint(null);
           return;
         }
-        const payload = (await res.json().catch(() => null)) as {
-          ok?: boolean;
-          onboarding?: OnboardingState;
-        } | null;
+        const payload = result.payload || null;
         if (!payload?.ok || !payload.onboarding || !payload.onboarding.completed) {
           syncPendingCompanySystemHint(null);
           return;
@@ -794,7 +874,6 @@ export default function DashboardShell({
       } catch {
         syncPendingCompanySystemHint(null);
       } finally {
-        window.clearTimeout(timeoutId);
         pendingCompanyContextValidationRef.current = false;
       }
     };
@@ -803,7 +882,6 @@ export default function DashboardShell({
     return () => {
       cancelled = true;
       controller.abort();
-      window.clearTimeout(timeoutId);
     };
   }, [getCompanyPendingSystemKey, syncPendingCompanySystemHint]);
 
@@ -928,27 +1006,31 @@ export default function DashboardShell({
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), DASHBOARD_REQUEST_TIMEOUT_MS);
 
     const checkOnboarding = async () => {
       setOnboardingLoading(true);
       try {
-        const res = await fetch("/api/wz_users/onboarding", {
-          method: "GET",
-          cache: "no-store",
-          credentials: "include",
-          headers: {
-            "Cache-Control": "no-store",
-            Pragma: "no-cache",
-          },
-          signal: controller.signal,
-        });
-        if (!res.ok) return;
-
-        const payload = (await res.json().catch(() => null)) as {
+        const result = await fetchJsonWithRetry<{
           ok?: boolean;
           onboarding?: OnboardingState;
-        } | null;
+        }>({
+          input: "/api/wz_users/onboarding",
+          timeoutMs: DASHBOARD_REQUEST_TIMEOUT_MS,
+          externalSignal: controller.signal,
+          shouldCancel: () => cancelled,
+          init: {
+            method: "GET",
+            cache: "no-store",
+            credentials: "include",
+            headers: {
+              "Cache-Control": "no-store",
+              Pragma: "no-cache",
+            },
+          },
+        });
+        if (!result?.ok) return;
+
+        const payload = result.payload || null;
         if (!payload?.ok || !payload.onboarding || cancelled) return;
 
         setOnboardingData(payload.onboarding);
@@ -965,7 +1047,6 @@ export default function DashboardShell({
       } catch {
         // noop
       } finally {
-        window.clearTimeout(timeoutId);
         if (!cancelled) {
           setOnboardingLoading(false);
         }
@@ -977,7 +1058,6 @@ export default function DashboardShell({
     return () => {
       cancelled = true;
       controller.abort();
-      window.clearTimeout(timeoutId);
     };
   }, [syncOnboardingRequiredHint]);
 

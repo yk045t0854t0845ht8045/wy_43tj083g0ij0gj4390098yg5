@@ -1,5 +1,5 @@
 import QRCode from "qrcode";
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { readActiveSessionFromRequest } from "@/app/api/wz_AuthLogin/_active_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import {
@@ -20,6 +20,7 @@ import {
   patchCompanyOnboardingRecord,
   type CompanyOnboardingRecord,
 } from "@/app/api/wz_users/_company_onboarding";
+import { runOnboardingMaintenanceSweep } from "@/app/api/wz_users/_onboarding_maintenance";
 import {
   buildOwnWhatsAppInstanceName,
   ensureOwnWhatsAppInstance,
@@ -100,6 +101,26 @@ const ONBOARDING_ALLOWED_STEPS = new Set<OnboardingUiStep>([
 function getErrorMessage(error: unknown, fallback: string) {
   const message = String((error as { message?: unknown } | null)?.message || "").trim();
   return message || fallback;
+}
+
+function scheduleOnboardingMaintenance(params: {
+  reason: string;
+  companyOnboardingId?: string | null;
+  primaryOnboardingId?: string | null;
+}) {
+  const companyOnboardingId = normalizeOptionalText(params.companyOnboardingId || "");
+  const primaryOnboardingId = normalizeOptionalText(params.primaryOnboardingId || "");
+  after(async () => {
+    try {
+      await runOnboardingMaintenanceSweep({
+        reason: params.reason,
+        suppressPrimaryIds: primaryOnboardingId ? [primaryOnboardingId] : [],
+        suppressCompanyIds: companyOnboardingId ? [companyOnboardingId] : [],
+      });
+    } catch (error) {
+      console.error("[company-onboarding] background maintenance error:", error);
+    }
+  });
 }
 
 function normalizeTeamAgentsCount(value: unknown) {
@@ -696,6 +717,11 @@ export async function GET(req: NextRequest) {
       createIfMissing: false,
     });
     if (!ctx.ok) return ctx.response;
+    scheduleOnboardingMaintenance({
+      reason: "company-onboarding-get",
+      companyOnboardingId: ctx.onboarding.id,
+      primaryOnboardingId: ctx.onboarding.primaryOnboardingId,
+    });
 
     let onboarding = ctx.onboarding;
     let qrCodeDataUrl: string | undefined;
@@ -716,12 +742,16 @@ export async function GET(req: NextRequest) {
         },
         requireQr: false,
       });
-      if (!sync.ok) return sync.response;
-      onboarding = sync.onboarding;
-      whatsappState = sync.whatsappState;
-      qrCodeDataUrl = sync.qrCodeDataUrl;
-      pairingCode = sync.pairingCode;
-      pairingExpiresAt = sync.pairingExpiresAt;
+      if (!sync.ok) {
+        console.error("[company-onboarding] soft WhatsApp sync failure on GET");
+        whatsappState = onboarding.whatsappConnected ? "open" : "error";
+      } else {
+        onboarding = sync.onboarding;
+        whatsappState = sync.whatsappState;
+        qrCodeDataUrl = sync.qrCodeDataUrl;
+        pairingCode = sync.pairingCode;
+        pairingExpiresAt = sync.pairingExpiresAt;
+      }
     }
 
     return NextResponse.json(
@@ -779,6 +809,11 @@ export async function POST(req: NextRequest) {
       createIfMissing: action === "start-additional-company",
     });
     if (!ctx.ok) return ctx.response;
+    scheduleOnboardingMaintenance({
+      reason: "company-onboarding-post",
+      companyOnboardingId: ctx.onboarding.id,
+      primaryOnboardingId: ctx.onboarding.primaryOnboardingId,
+    });
 
     if (action === "start-additional-company") {
       let onboarding = ctx.onboarding;
@@ -992,7 +1027,19 @@ export async function POST(req: NextRequest) {
         },
         requireQr: true,
       });
-      if (!sync.ok) return sync.response;
+      if (!sync.ok) {
+        console.error("[company-onboarding] soft WhatsApp bootstrap failure after save-team");
+        return NextResponse.json(
+          {
+            ok: true,
+            onboarding: patched.onboarding,
+            whatsappState: "error",
+            whatsappProvider: WHATSAPP_PROVIDER_NAME,
+            providerConfigured: isOwnWhatsAppProviderConfigured(),
+          },
+          { status: 200, headers: NO_STORE_HEADERS },
+        );
+      }
 
       return NextResponse.json(
         {
