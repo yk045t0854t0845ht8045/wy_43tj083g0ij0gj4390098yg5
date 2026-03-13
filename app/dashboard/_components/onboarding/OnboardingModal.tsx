@@ -209,12 +209,35 @@ type OnboardingDraft = {
   updatedAt: string;
 };
 
+type TeamStepSnapshot = {
+  teamAgentsCount: string;
+  onboardingGoal: string;
+  monthlyConversationsTier: string;
+};
+
 function normalizeStepFromOnboarding(onboarding?: OnboardingState | null): WizardStep {
   if (!onboarding) return "company";
   if (onboarding.completed || onboarding.uiStep === "final") return "final";
   if (onboarding.uiStep === "whatsapp") return "whatsapp";
   if (onboarding.uiStep === "team") return "team";
   return "company";
+}
+
+function buildTeamSnapshotFromOnboarding(onboarding?: OnboardingState | null): TeamStepSnapshot {
+  return {
+    teamAgentsCount: normalizeTeamBucketFromCount(onboarding?.teamAgentsCount),
+    onboardingGoal: String(onboarding?.onboardingGoal || ""),
+    monthlyConversationsTier: String(onboarding?.monthlyConversationsTier || ""),
+  };
+}
+
+function hasCompleteTeamSnapshot(snapshot?: TeamStepSnapshot | null) {
+  if (!snapshot) return false;
+  return (
+    isValidTeamCount(snapshot.teamAgentsCount) &&
+    isValidOnboardingGoal(snapshot.onboardingGoal) &&
+    isValidMonthlyConversationTier(snapshot.monthlyConversationsTier)
+  );
 }
 
 function toLocalStepIndex(step: WizardStep) {
@@ -736,6 +759,11 @@ export default function OnboardingModal({
   const qrGenerationInFlightRef = useRef(false);
   const lastQrGenerationAtRef = useRef(0);
   const onboardingHeartbeatInFlightRef = useRef(false);
+  const lastSavedTeamSnapshotRef = useRef<TeamStepSnapshot | null>(
+    hasCompleteTeamSnapshot(buildTeamSnapshotFromOnboarding(initialData))
+      ? buildTeamSnapshotFromOnboarding(initialData)
+      : null,
+  );
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -831,11 +859,14 @@ export default function OnboardingModal({
   }, [onboarding]);
 
   const restoreTeamFormFromOnboarding = useCallback((source?: OnboardingState | null) => {
-    const next = source || onboarding;
-    if (!next) return;
-    setTeamAgentsCount(normalizeTeamBucketFromCount(next.teamAgentsCount));
-    setOnboardingGoal(String(next.onboardingGoal || ""));
-    setMonthlyConversationsTier(String(next.monthlyConversationsTier || ""));
+    const sourceSnapshot = buildTeamSnapshotFromOnboarding(source || onboarding);
+    const snapshotToApply = hasCompleteTeamSnapshot(sourceSnapshot)
+      ? sourceSnapshot
+      : lastSavedTeamSnapshotRef.current;
+    if (!snapshotToApply) return;
+    setTeamAgentsCount(snapshotToApply.teamAgentsCount);
+    setOnboardingGoal(snapshotToApply.onboardingGoal);
+    setMonthlyConversationsTier(snapshotToApply.monthlyConversationsTier);
   }, [onboarding]);
 
   const navigateToStep = useCallback((nextStep: WizardStep) => {
@@ -966,6 +997,10 @@ export default function OnboardingModal({
       const allowCompanySync = !respectDirty || !companyFormDirtyRef.current;
       const allowTeamSync = !respectDirty || !teamFormDirtyRef.current;
       const addressParts = splitAddressAndNumber(next.companyAddress || "");
+      const nextTeamSnapshot = buildTeamSnapshotFromOnboarding(next);
+      if (hasCompleteTeamSnapshot(nextTeamSnapshot)) {
+        lastSavedTeamSnapshotRef.current = nextTeamSnapshot;
+      }
       setOnboarding(next);
       setCompanyLogoUrl(String(next.companyLogoUrl || ""));
       if (String(next.companyLogoUrl || "").trim()) {
@@ -984,9 +1019,12 @@ export default function OnboardingModal({
         lastResolvedPostalCodeRef.current = normalizePostalCodeDigits(next.companyPostalCode || "");
       }
       if (allowTeamSync) {
-        setTeamAgentsCount(normalizeTeamBucketFromCount(next.teamAgentsCount));
-        setOnboardingGoal(String(next.onboardingGoal || ""));
-        setMonthlyConversationsTier(String(next.monthlyConversationsTier || ""));
+        const teamSnapshotToApply = hasCompleteTeamSnapshot(nextTeamSnapshot)
+          ? nextTeamSnapshot
+          : lastSavedTeamSnapshotRef.current;
+        setTeamAgentsCount(String(teamSnapshotToApply?.teamAgentsCount || ""));
+        setOnboardingGoal(String(teamSnapshotToApply?.onboardingGoal || ""));
+        setMonthlyConversationsTier(String(teamSnapshotToApply?.monthlyConversationsTier || ""));
       }
       setActiveStep(normalizeStepFromOnboarding(next));
       setPairingExpiresAt(next.whatsappPairingExpiresAt || null);
@@ -1613,7 +1651,16 @@ export default function OnboardingModal({
         companyState: isOnlineBusiness ? null : String(companyState || "").trim().toUpperCase(),
         companyPostalCode: isOnlineBusiness ? null : String(companyPostalCode || "").replace(/\D+/g, ""),
       }, { respectDirty: false });
-      setActiveStep(normalizeStepFromOnboarding(payload.onboarding));
+      const nextStep = normalizeStepFromOnboarding(payload.onboarding);
+      const savedTeamSnapshot = buildTeamSnapshotFromOnboarding(payload.onboarding);
+      const shouldRevisitSavedTeam =
+        hasCompleteTeamSnapshot(savedTeamSnapshot) || hasCompleteTeamSnapshot(lastSavedTeamSnapshotRef.current);
+      if (nextStep === "team" || shouldRevisitSavedTeam) {
+        restoreTeamFormFromOnboarding(payload.onboarding);
+        navigateToStep("team");
+      } else {
+        setActiveStep(nextStep);
+      }
     } catch (saveError) {
       const message =
         saveError instanceof Error ? saveError.message : "Nao foi possivel salvar dados da empresa.";
@@ -1637,7 +1684,9 @@ export default function OnboardingModal({
     companyState,
     industry,
     isOnlineBusiness,
+    navigateToStep,
     postAction,
+    restoreTeamFormFromOnboarding,
     showCompanyLogoError,
   ]);
 
@@ -1658,6 +1707,14 @@ export default function OnboardingModal({
 
     try {
       setSaving(true);
+      const currentTeamSnapshot: TeamStepSnapshot = {
+        teamAgentsCount: String(teamAgentsCount || ""),
+        onboardingGoal: String(onboardingGoal || ""),
+        monthlyConversationsTier: String(monthlyConversationsTier || ""),
+      };
+      if (hasCompleteTeamSnapshot(currentTeamSnapshot)) {
+        lastSavedTeamSnapshotRef.current = currentTeamSnapshot;
+      }
       const teamCountValue = Number.parseInt(teamAgentsCount, 10);
       const payload = await postAction({
         action: "save-team",

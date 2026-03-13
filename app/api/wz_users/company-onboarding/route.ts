@@ -240,6 +240,12 @@ function hasCompleteTeamData(onboarding: CompanyOnboardingRecord) {
   return Number.isFinite(team) && team >= 1 && team <= 5000 && Boolean(goal) && Boolean(volume);
 }
 
+function resolveUiStepAfterCompanySave(onboarding: CompanyOnboardingRecord): OnboardingUiStep {
+  if (onboarding.whatsappConnected) return "final";
+  if (hasCompleteTeamData(onboarding)) return "whatsapp";
+  return "team";
+}
+
 function normalizeProviderState(value: string) {
   const clean = String(value || "").trim().toLowerCase();
   if (!clean) return "unknown";
@@ -906,9 +912,9 @@ export async function POST(req: NextRequest) {
           company_state: isOnlineBusiness ? null : companyState,
           company_postal_code: isOnlineBusiness ? null : companyPostalCode,
           welcome_confirmed: true,
-          ui_step: "team",
-          completed: false,
-          completed_at: null,
+          ui_step: resolveUiStepAfterCompanySave(ctx.onboarding),
+          completed: ctx.onboarding.whatsappConnected ? ctx.onboarding.completed : false,
+          completed_at: ctx.onboarding.whatsappConnected ? ctx.onboarding.completedAt : null,
         },
         fallbackError: "Nao foi possivel salvar os dados da empresa.",
       });
