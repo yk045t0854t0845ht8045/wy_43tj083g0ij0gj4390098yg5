@@ -7336,16 +7336,16 @@ export default function ConfigMain({
                         className="sticky top-0 z-[8] border-b border-black/10 bg-[#f3f3f4]/95 backdrop-blur"
                         style={{ paddingTop: "env(safe-area-inset-top)" }}
                       >
-                        <div className="flex h-14 items-center justify-between px-2.5">
+                        <div className="grid h-14 grid-cols-[36px_minmax(0,1fr)_36px] items-center gap-2 px-2.5">
                           <button
                             type="button"
                             onClick={handleBackToMobileMenu}
-                            className="inline-flex h-10 items-center gap-1 rounded-lg px-2 text-[13px] font-semibold text-black/70 transition-colors hover:bg-black/5 hover:text-black/85"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-black/45 transition-colors hover:bg-black/5 hover:text-black/80"
+                            aria-label="Voltar"
                           >
-                            <ChevronLeft className="h-4 w-4" />
-                            Voltar
+                            <ChevronLeft className="h-5 w-5" />
                           </button>
-                          <h2 className="mx-2 truncate text-[16px] font-semibold text-black/78">
+                          <h2 className="truncate text-center text-[16px] font-semibold text-black/78">
                             {activeTitle}
                           </h2>
                           <button

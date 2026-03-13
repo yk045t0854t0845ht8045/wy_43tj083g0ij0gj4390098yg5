@@ -1212,7 +1212,7 @@ export default function DashboardShell({
   }, [disconnectCountdown, sessionDisconnected]);
 
   return (
-    <div className="min-h-screen bg-white flex flex-col xl:flex-row">
+    <div className="min-h-screen bg-white flex flex-col min-[901px]:flex-row">
       <LoadingBase />
       <Sidebar
         activeMain="overview"

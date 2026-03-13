@@ -74,10 +74,13 @@ function UserAvatar({
 }
 
 function useIsCompactSidebarViewport() {
-  const [isCompactViewport, setIsCompactViewport] = useState(false);
+  const [isCompactViewport, setIsCompactViewport] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(max-width: 900px)").matches;
+  });
 
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 1279px)");
+  useLayoutEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
 
     const apply = () => setIsCompactViewport(mq.matches);
     apply();
@@ -864,21 +867,19 @@ export default function Sidebar({
       `}</style>
       <Script src="https://cdn.lordicon.com/lordicon.js" strategy="afterInteractive" />
 
-      {isCompactViewport && (
-        <div className="relative z-[90] w-full shrink-0 xl:hidden">
-          <div className="border-b border-white/10 bg-[#0b0d11]/94 text-white shadow-[0_18px_44px_rgba(0,0,0,0.26)] backdrop-blur-[18px]">
+      <div className="relative z-[90] w-full shrink-0 min-[901px]:hidden">
+          <div className="border-b border-white/10 bg-[linear-gradient(135deg,#1a1b1f_0%,#0f1013_58%,#050608_100%)] text-white shadow-[0_18px_44px_rgba(0,0,0,0.26)]">
             <div
-              className="mx-auto flex items-center justify-between gap-3 px-3 pb-3 sm:px-4"
-              style={{ paddingTop: "calc(env(safe-area-inset-top) + 10px)" }}
+              className="mx-auto flex items-center justify-between gap-3 px-3 pb-2.5 sm:px-4"
+              style={{ paddingTop: "calc(env(safe-area-inset-top) + 8px)" }}
             >
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen((current) => !current)}
                 className={cx(
-                  "inline-flex h-[44px] w-[44px] items-center justify-center rounded-2xl border border-white/12 bg-white/8",
-                  "transition-[transform,background-color,border-color] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+                  "inline-flex h-[42px] w-[42px] items-center justify-center text-white/90",
+                  "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
                   "active:scale-[0.98]",
-                  mobileMenuOpen && "bg-white/12 border-white/18",
                 )}
                 aria-label={mobileMenuOpen ? "Fechar menu" : "Abrir menu"}
                 aria-expanded={mobileMenuOpen}
@@ -907,39 +908,38 @@ export default function Sidebar({
               </button>
 
               <div className="flex min-w-0 flex-1 items-center justify-center">
-                <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/6 px-3 py-2">
+                <span className="inline-flex items-center">
                   <Image
                     src={expandedSidebarLogoSrc}
                     alt="Wyzer"
-                    width={104}
-                    height={28}
-                    className="h-6 w-auto brightness-0 invert"
+                    width={92}
+                    height={24}
+                    className="h-5 w-auto brightness-0 invert"
                     priority
                   />
                 </span>
               </div>
 
-              <span className="inline-flex h-[44px] w-[44px] items-center justify-center rounded-2xl border border-transparent">
+              <span className="inline-flex h-[42px] w-[42px] items-center justify-center">
                 <UserAvatar
                   photoLink={resolvedUserPhotoLink}
                   initial={profileInitial}
-                  sizeClass="h-[34px] w-[34px]"
+                  sizeClass="h-[30px] w-[30px]"
                   roundedClass="rounded-xl"
-                  textClass="text-[12px]"
-                  backgroundClass="bg-white/18"
+                  textClass="text-[11px]"
+                  backgroundClass="bg-white/16"
                 />
               </span>
             </div>
           </div>
-        </div>
-      )}
+      </div>
 
       {isCompactViewport && mobileMenuOpen && (
         <button
           type="button"
           onClick={() => setMobileMenuOpen(false)}
           className={cx(
-            "fixed inset-0 z-[79] bg-[#050608]/36 opacity-100 backdrop-blur-[10px] transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] xl:hidden",
+            "fixed inset-0 z-[79] bg-[#050608]/36 backdrop-blur-[10px] transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] min-[901px]:hidden",
           )}
           aria-hidden="true"
           tabIndex={0}
@@ -952,40 +952,39 @@ export default function Sidebar({
         aria-modal={isCompactViewport ? true : undefined}
         aria-label={isCompactViewport ? "Menu principal" : undefined}
         className={cx(
+          !isCompactViewport && "max-[900px]:hidden",
           "relative flex flex-col overflow-visible text-black",
           isCompactViewport
             ? cx(
-                "fixed inset-x-3 top-[calc(env(safe-area-inset-top)+68px)] z-[85] max-h-[calc(100dvh-env(safe-area-inset-top)-84px)]",
-                "rounded-[30px] border border-white/14 bg-[#f6f6f7]/98 backdrop-blur-[18px]",
-                "shadow-[0_28px_80px_rgba(0,0,0,0.34)]",
+                "fixed inset-x-0 bottom-0 z-[85] max-h-[min(78dvh,720px)] w-full",
+                "rounded-t-[28px] border-t border-white/14 bg-[#f6f6f7]/98 backdrop-blur-[18px]",
+                "shadow-[0_-24px_60px_rgba(0,0,0,0.28)]",
                 "transform-gpu transition-[transform,opacity] duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
-                mobileMenuOpen ? "pointer-events-auto translate-y-0 opacity-100" : "hidden",
+                mobileMenuOpen
+                  ? "pointer-events-auto translate-y-0 opacity-100"
+                  : "pointer-events-none translate-y-full opacity-0",
               )
             : cx(
-                "fixed xl:static",
-                "inset-y-0 left-0 xl:inset-auto xl:left-auto",
-                "z-50 xl:z-auto",
-                "w-[308px]",
-                "max-w-[calc(100vw-24px)]",
+                "static z-0 shrink-0 self-stretch",
                 isCollapsed
-                  ? "xl:w-[92px] xl:min-w-[92px] xl:max-w-[92px]"
-                  : "xl:w-[308px] xl:min-w-[308px] xl:max-w-[308px]",
-                "min-h-svh bg-[#f6f6f7]",
-                "shadow-[0_20px_50px_rgba(0,0,0,0.18)] xl:shadow-none",
+                  ? "w-[92px] min-w-[92px] max-w-[92px]"
+                  : "w-[308px] min-w-[308px] max-w-[308px]",
+                "min-h-screen bg-[#f6f6f7]",
+                "shadow-none",
                 "transform-gpu transition-[width,min-width,max-width] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
               ),
         )}
       >
         <div
           className={cx(
-            isCompactViewport ? "px-3 pb-0 pt-3 sm:px-4" : "pt-2.5",
+            isCompactViewport ? "px-4 pb-0 pt-3" : "pt-2.5",
             "transition-[padding] duration-[300ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
             !isCompactViewport && (isCollapsed ? "px-3" : "px-2"),
           )}
         >
           {isCompactViewport && (
             <div className="mb-3 flex justify-center">
-              <span className="h-1.5 w-11 rounded-full bg-black/14" aria-hidden="true" />
+              <span className="h-1.5 w-12 rounded-full bg-black/14" aria-hidden="true" />
             </div>
           )}
           <div
@@ -1042,7 +1041,7 @@ export default function Sidebar({
                 type="button"
                 onClick={toggleSidebarCollapse}
                 className={cx(
-                  "hidden xl:flex",
+                  isCompactViewport ? "hidden" : "flex",
                   "h-[36px] w-[36px]",
                   "items-center justify-center",
                   "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
@@ -1077,7 +1076,7 @@ export default function Sidebar({
           className={cx(
             "mt-3 flex-1 overscroll-contain",
             showCollapsedTooltips ? "overflow-visible" : "overflow-y-auto",
-            isCompactViewport ? "px-3 pb-1 sm:px-4" : isCollapsed ? "px-3" : "px-2"
+            isCompactViewport ? "px-4 pb-2" : isCollapsed ? "px-3" : "px-2"
           )}
         >
           <LayoutGroup id="sidebar-active-pills">
@@ -1372,7 +1371,7 @@ export default function Sidebar({
         <div
           className={cx(
             "shrink-0 px-2 pb-3 pt-2",
-            isCompactViewport ? "px-3 sm:px-4" : isCollapsed ? "xl:px-3" : "xl:px-2",
+            isCompactViewport ? "px-4 pb-[max(16px,env(safe-area-inset-bottom))]" : isCollapsed ? "px-3" : "px-2",
           )}
         >
           <ul className="mb-2 space-y-[2px]">
@@ -1431,7 +1430,8 @@ export default function Sidebar({
               type="button"
               onClick={() => setDesktopCollapsed(false)}
               className={cx(
-                "mx-auto hidden xl:flex h-[42px] w-[42px] rounded-xl",
+                isCompactViewport ? "hidden" : "mx-auto flex",
+                "h-[42px] w-[42px] rounded-xl",
                 "items-center justify-center",
                 "transition-colors duration-200 ease-out hover:bg-white"
               )}
