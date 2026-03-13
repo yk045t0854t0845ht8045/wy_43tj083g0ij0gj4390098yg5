@@ -1219,22 +1219,22 @@ export default function DashboardShell({
   }, [disconnectCountdown, sessionDisconnected]);
 
   return (
-    <div className="min-h-screen bg-[#eff0f2]">
+    <div className="min-h-screen overflow-x-hidden bg-[#eff0f2]">
       <LoadingBase />
 
-      <div className="min-h-screen min-[901px]:flex min-[901px]:items-stretch">
+      <div className="flex min-h-screen flex-col min-[901px]:flex-row">
         <Sidebar
           activeMain="overview"
           userNickname={userNickname}
           userEmail={profileEmail}
-        userPhotoLink={profilePhotoLink}
-        onOpenConfig={handleOpenConfig}
-        locked={dashboardNavigationLocked}
-        lockMessage={sidebarLockMessage}
-        lockVariant={sidebarLockVariant}
-      />
+          userPhotoLink={profilePhotoLink}
+          onOpenConfig={handleOpenConfig}
+          locked={dashboardNavigationLocked}
+          lockMessage={sidebarLockMessage}
+          lockVariant={sidebarLockVariant}
+        />
 
-        <main className="min-w-0 w-full min-[901px]:flex-1">
+        <main className="flex min-w-0 flex-1 justify-center px-3 pb-4 pt-3 sm:px-5 sm:pb-6 sm:pt-4 lg:px-6 lg:py-6">
           <OverviewMain
             onboardingLocked={onboardingUiLocked}
             requestingAdditionalCompany={companyOnboardingLoading}

@@ -1216,17 +1216,16 @@ export default function OverviewMain({
         }
       `}</style>
 
-      <div className="mx-auto w-full max-w-[1380px] px-3 pb-4 sm:px-5 sm:pb-6 lg:px-6 lg:pb-6">
-        <AnimatePresence mode="wait" initial={false}>
-          {mode === "cards" ? (
-            <motion.div
-              key="overview-cards"
-              initial={reduceMotion ? false : { opacity: 0, y: 10, filter: "blur(4px)" }}
-              animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
-              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -8, filter: "blur(4px)" }}
-              transition={panelTransition}
-              className="mx-auto w-full space-y-4 min-[901px]:max-w-[1000px]"
-            >
+      <AnimatePresence mode="wait" initial={false}>
+        {mode === "cards" ? (
+          <motion.div
+            key="overview-cards"
+            initial={reduceMotion ? false : { opacity: 0, y: 10, filter: "blur(4px)" }}
+            animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
+            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -8, filter: "blur(4px)" }}
+            transition={panelTransition}
+            className="mx-auto w-full max-w-[1000px] space-y-4"
+          >
               <div className={overviewCardsGridClassName}>
                 {loadingConfig ? (
                   skeletonCardIndices.map((index) => (
@@ -1438,16 +1437,16 @@ export default function OverviewMain({
                 )}
               </div>
 
-            </motion.div>
-          ) : mode === "wizard" ? (
-            <motion.div
-              key="overview-wizard"
-              initial={reduceMotion ? false : { opacity: 0, y: 14, filter: "blur(6px)" }}
-              animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
-              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -10, filter: "blur(6px)" }}
-              transition={panelTransition}
-              className="w-full"
-            >
+          </motion.div>
+        ) : mode === "wizard" ? (
+          <motion.div
+            key="overview-wizard"
+            initial={reduceMotion ? false : { opacity: 0, y: 14, filter: "blur(6px)" }}
+            animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
+            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -10, filter: "blur(6px)" }}
+            transition={panelTransition}
+            className="mx-auto w-full max-w-[1180px]"
+          >
               <header className="mb-5">
                 <h2 className="text-[29px] font-semibold tracking-[-0.02em] text-black/86">
                   Configurar Sistema WhatsApp
@@ -1698,33 +1697,6 @@ export default function OverviewMain({
 
                       {activeTopic === "ai" && (
                         <>
-                          <div className="rounded-2xl bg-white/75 p-4 shadow-[0_12px_28px_rgba(0,0,0,0.05)] sm:p-5">
-                            <h3 className="text-[18px] font-semibold text-black/84">
-                              IA, fallback e coleta
-                            </h3>
-                            <p className="mt-1 text-[13px] text-black/60">
-                              Continue configurando todas as regras do atendimento. O sistema basico
-                              ja opera agora, e essas configuracoes avancadas continuam sendo
-                              coletadas e salvas para a proxima evolucao do fluxo.
-                            </p>
-                          </div>
-
-                          <div className="rounded-2xl border border-black/8 bg-black/[0.028] p-4 sm:p-5">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="inline-flex rounded-full border border-black/10 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-black/55">
-                                Modo ativo
-                              </span>
-                              <span className="text-[13px] font-medium text-black/62">
-                                Atendimento automatico basico sem IA generativa
-                              </span>
-                            </div>
-                            <p className="mt-3 text-[13px] leading-relaxed text-black/60">
-                              O atendimento basico usa mensagens, horario e coleta inicial. Mesmo
-                              assim, a etapa abaixo continua registrando instrucao, fallback, tom e
-                              regra de transferencia para deixar o sistema preparado.
-                            </p>
-                          </div>
-
                           <label className="block rounded-2xl bg-white/78 p-4 shadow-[0_10px_24px_rgba(0,0,0,0.045)] sm:p-5">
                             <span className="text-[13px] font-semibold text-black/70">
                               Instrucoes principais da IA
@@ -2064,17 +2036,17 @@ export default function OverviewMain({
                   />
                 </div>
               </div>
-            </motion.div>
-          ) : (
-            <motion.div
-              key="overview-success"
-              initial={reduceMotion ? false : { opacity: 0, y: 14, filter: "blur(6px)" }}
-              animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
-              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -8, filter: "blur(6px)" }}
-              transition={panelTransition}
-              className="w-full"
-            >
-              <div className="mx-auto flex w-full max-w-[860px] items-center justify-center py-6 sm:py-10">
+          </motion.div>
+        ) : (
+          <motion.div
+            key="overview-success"
+            initial={reduceMotion ? false : { opacity: 0, y: 14, filter: "blur(6px)" }}
+            animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
+            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -8, filter: "blur(6px)" }}
+            transition={panelTransition}
+            className="mx-auto w-full max-w-[860px]"
+          >
+              <div className="flex w-full items-center justify-center py-3 sm:py-8">
                 <div className="w-full overflow-hidden rounded-[28px] bg-[#0f1013] p-6 text-white shadow-[0_26px_52px_rgba(0,0,0,0.28)] sm:p-8">
                   <div className="relative mx-auto flex h-[132px] w-[132px] items-center justify-center">
                     <span className="overview-success-glow absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(111,215,102,0.5),rgba(111,215,102,0.05)_62%,transparent_74%)]" />
@@ -2122,10 +2094,9 @@ export default function OverviewMain({
                   </div>
                 </div>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
