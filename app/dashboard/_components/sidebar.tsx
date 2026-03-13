@@ -962,35 +962,42 @@ export default function Sidebar({
         />
       )}
 
-      <aside
-        id={isCompactViewport ? "dashboard-mobile-sidebar" : undefined}
-        role={isCompactViewport ? "dialog" : undefined}
-        aria-modal={isCompactViewport ? true : undefined}
-        aria-label={isCompactViewport ? "Menu principal" : undefined}
-        className={cx(
-          "relative flex flex-col overflow-visible text-black",
-          usesDimLock && "pointer-events-none select-none opacity-[0.52] saturate-[0.74]",
-          isCompactViewport
-            ? cx(
-                "fixed inset-x-0 bottom-0 z-[85] max-h-[min(78dvh,720px)] w-full",
-                "rounded-t-[28px] border-t border-white/14 bg-[#f6f6f7]/98 backdrop-blur-[18px]",
-                "shadow-[0_-24px_60px_rgba(0,0,0,0.28)]",
-                "transform-gpu transition-[transform,opacity] duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
-                mobileMenuOpen
-                  ? "pointer-events-auto translate-y-0 opacity-100"
-                  : "pointer-events-none translate-y-full opacity-0",
-              )
-            : cx(
-                "static z-0 shrink-0 self-stretch",
-                isCollapsed
-                  ? "w-[92px] min-w-[92px] max-w-[92px]"
-                  : "w-[308px] min-w-[308px] max-w-[308px]",
-                "min-h-screen bg-[#f6f6f7]",
-                "shadow-none",
-                "transform-gpu transition-[width,min-width,max-width] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-              ),
-        )}
-      >
+      <AnimatePresence initial={false}>
+        {(!isCompactViewport || mobileMenuOpen) && (
+          <motion.aside
+            id={isCompactViewport ? "dashboard-mobile-sidebar" : undefined}
+            role={isCompactViewport ? "dialog" : undefined}
+            aria-modal={isCompactViewport ? true : undefined}
+            aria-label={isCompactViewport ? "Menu principal" : undefined}
+            initial={isCompactViewport ? { y: "100%", opacity: 0 } : false}
+            animate={{ y: 0, opacity: 1 }}
+            exit={isCompactViewport ? { y: "100%", opacity: 0 } : undefined}
+            transition={
+              isCompactViewport
+                ? { duration: 0.28, ease: [0.22, 1, 0.36, 1] }
+                : { duration: 0.01 }
+            }
+            className={cx(
+              "relative flex flex-col overflow-visible text-black",
+              usesDimLock && "pointer-events-none select-none opacity-[0.52] saturate-[0.74]",
+              isCompactViewport
+                ? cx(
+                    "fixed inset-x-0 bottom-0 z-[85] max-h-[min(78dvh,720px)] w-full pointer-events-auto",
+                    "rounded-t-[28px] border-t border-white/14 bg-[#f6f6f7]/98 backdrop-blur-[18px]",
+                    "shadow-[0_-24px_60px_rgba(0,0,0,0.28)]",
+                    "will-change-transform"
+                  )
+                : cx(
+                    "static z-0 shrink-0 self-stretch",
+                    isCollapsed
+                      ? "w-[92px] min-w-[92px] max-w-[92px]"
+                      : "w-[308px] min-w-[308px] max-w-[308px]",
+                    "min-h-screen bg-[#f6f6f7]",
+                    "shadow-none",
+                    "transform-gpu transition-[width,min-width,max-width] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+                  ),
+            )}
+          >
         <div
           className={cx(
             isCompactViewport ? "px-4 pb-0 pt-3" : "pt-2.5",
@@ -1648,7 +1655,9 @@ export default function Sidebar({
             </div>
           </div>
         )}
-      </aside>
+          </motion.aside>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {helpModalOpen && (
