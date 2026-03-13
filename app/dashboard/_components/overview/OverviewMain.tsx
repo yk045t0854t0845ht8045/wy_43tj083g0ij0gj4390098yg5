@@ -1141,7 +1141,7 @@ export default function OverviewMain({
   );
 
   return (
-    <section className="w-full px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
+    <section className="w-full px-3 pb-4 pt-2 sm:px-5 sm:pb-6 sm:pt-3 lg:px-6 lg:py-6">
       <style>{`
         @keyframes overviewSkeletonPulse {
           0%, 100% { opacity: 0.78; }
