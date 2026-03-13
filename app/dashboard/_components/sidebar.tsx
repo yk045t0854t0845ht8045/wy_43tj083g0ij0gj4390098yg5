@@ -983,21 +983,13 @@ export default function Sidebar({
 
       {(() => {
         const sidebarPanelLayer = (
-          <AnimatePresence initial={false}>
+          <>
         {(!isCompactViewport || mobileMenuOpen) && (
-          <motion.aside
+          <aside
             id={isCompactViewport ? "dashboard-mobile-sidebar" : undefined}
             role={isCompactViewport ? "dialog" : undefined}
             aria-modal={isCompactViewport ? true : undefined}
             aria-label={isCompactViewport ? "Menu principal" : undefined}
-            initial={isCompactViewport ? { y: "100%", opacity: 0 } : false}
-            animate={{ y: 0, opacity: 1 }}
-            exit={isCompactViewport ? { y: "100%", opacity: 0 } : undefined}
-            transition={
-              isCompactViewport
-                ? { duration: 0.28, ease: [0.22, 1, 0.36, 1] }
-                : { duration: 0.01 }
-            }
             className={cx(
               "relative flex flex-col overflow-visible text-black",
               usesDimLock && "pointer-events-none select-none opacity-[0.52] saturate-[0.74]",
@@ -1677,9 +1669,9 @@ export default function Sidebar({
             </div>
           </div>
         )}
-          </motion.aside>
+          </aside>
         )}
-          </AnimatePresence>
+          </>
         );
 
         if (isCompactViewport && typeof document !== "undefined") {
