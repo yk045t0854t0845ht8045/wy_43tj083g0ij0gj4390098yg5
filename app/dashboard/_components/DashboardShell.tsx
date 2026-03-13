@@ -1234,7 +1234,7 @@ export default function DashboardShell({
           lockVariant={sidebarLockVariant}
         />
 
-        <main className="flex min-w-0 flex-1 justify-center px-3 pb-4 pt-3 sm:px-5 sm:pb-6 sm:pt-4 lg:px-6 lg:py-6">
+        <main className="min-w-0 flex-1 px-3 pb-4 pt-3 sm:px-5 sm:pb-6 sm:pt-4 lg:px-6 lg:py-6">
           <OverviewMain
             onboardingLocked={onboardingUiLocked}
             requestingAdditionalCompany={companyOnboardingLoading}
