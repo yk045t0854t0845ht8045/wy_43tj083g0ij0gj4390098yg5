@@ -12,6 +12,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import type { ConfigSectionId } from "./config/ConfigMain";
 
 type MainItemId =
@@ -965,19 +966,24 @@ export default function Sidebar({
           </div>
       </div>
 
-      {isCompactViewport && mobileMenuOpen && (
-        <button
-          type="button"
-          onClick={() => setMobileMenuOpen(false)}
-          className={cx(
-            "fixed inset-0 z-[79] bg-[#050608]/36 backdrop-blur-[10px] transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
-          )}
-          aria-hidden="true"
-          tabIndex={0}
-        />
-      )}
+      {isCompactViewport && mobileMenuOpen && typeof document !== "undefined"
+        ? createPortal(
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(false)}
+              className={cx(
+                "fixed inset-0 z-[940] bg-[#050608]/36 backdrop-blur-[10px] transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+              )}
+              aria-hidden="true"
+              tabIndex={0}
+            />,
+            document.body,
+          )
+        : null}
 
-      <AnimatePresence initial={false}>
+      {(() => {
+        const sidebarPanelLayer = (
+          <AnimatePresence initial={false}>
         {(!isCompactViewport || mobileMenuOpen) && (
           <motion.aside
             id={isCompactViewport ? "dashboard-mobile-sidebar" : undefined}
@@ -997,7 +1003,7 @@ export default function Sidebar({
               usesDimLock && "pointer-events-none select-none opacity-[0.52] saturate-[0.74]",
               isCompactViewport
                 ? cx(
-                    "fixed inset-x-0 bottom-0 z-[85] max-h-[min(78dvh,720px)] w-full pointer-events-auto",
+                    "fixed inset-x-0 bottom-0 z-[950] max-h-[min(78dvh,720px)] w-full pointer-events-auto",
                     "rounded-t-[28px] border-t border-white/14 bg-[#f6f6f7]/98 backdrop-blur-[18px]",
                     "shadow-[0_-24px_60px_rgba(0,0,0,0.28)]",
                     "will-change-transform"
@@ -1673,12 +1679,20 @@ export default function Sidebar({
         )}
           </motion.aside>
         )}
-      </AnimatePresence>
+          </AnimatePresence>
+        );
+
+        if (isCompactViewport && typeof document !== "undefined") {
+          return createPortal(sidebarPanelLayer, document.body);
+        }
+
+        return sidebarPanelLayer;
+      })()}
 
       <AnimatePresence>
         {helpModalOpen && (
           <motion.div
-            className="fixed inset-0 z-[220] flex items-center justify-center p-4 sm:p-6"
+            className="fixed inset-0 z-[1200] flex items-center justify-center p-4 sm:p-6"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
