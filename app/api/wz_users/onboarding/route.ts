@@ -3,6 +3,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { readActiveSessionFromRequest } from "@/app/api/wz_AuthLogin/_active_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import {
+  cleanupPrimaryOnboardingLogoFolder,
+  extractObjectPathFromPublicUrl,
+  ONBOARDING_LOGO_BUCKET,
+} from "@/app/api/wz_users/_managed_storage";
+import {
   ensureOnboardingRecord,
   isOnboardingSchemaError,
   normalizeCnpjDigits,
@@ -714,6 +719,14 @@ export async function POST(req: NextRequest) {
       const companyName = normalizeCompanyName(body?.companyName);
       const industry = normalizeIndustry(body?.industry);
       const companyLogoUrl = normalizeOptionalText(String(body?.companyLogoUrl || ""));
+      const previousLogoObjectPath = extractObjectPathFromPublicUrl(
+        ONBOARDING_LOGO_BUCKET,
+        ctx.onboarding.companyLogoUrl,
+      );
+      const nextLogoObjectPath = extractObjectPathFromPublicUrl(
+        ONBOARDING_LOGO_BUCKET,
+        companyLogoUrl,
+      );
       const cnpjDigits = normalizeCnpjDigits(String(body?.companyCnpj || ""));
       const isOnlineBusiness = normalizeBooleanInput(body?.isOnlineBusiness);
       const companyAddress = normalizeAddressText(body?.companyAddress, 180);
@@ -798,6 +811,20 @@ export async function POST(req: NextRequest) {
         fallbackError: "Nao foi possivel salvar os dados da empresa.",
       });
       if (!patched.ok) return patched.response;
+
+      if (previousLogoObjectPath && previousLogoObjectPath !== nextLogoObjectPath) {
+        await ctx.sb.storage.from(ONBOARDING_LOGO_BUCKET).remove([previousLogoObjectPath]);
+      }
+
+      try {
+        await cleanupPrimaryOnboardingLogoFolder({
+          sb: ctx.sb,
+          userId: ctx.onboarding.userId,
+          keepObjectPath: nextLogoObjectPath,
+        });
+      } catch (cleanupError) {
+        console.error("[onboarding] cleanup stale company logos error:", cleanupError);
+      }
 
       return NextResponse.json(
         { ok: true, onboarding: patched.onboarding },

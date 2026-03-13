@@ -2,6 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { readActiveSessionFromRequest } from "@/app/api/wz_AuthLogin/_active_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import {
+  cleanupPrimaryOnboardingLogoFolder,
+  extractObjectPathFromPublicUrl,
+  ONBOARDING_LOGO_BUCKET,
+} from "@/app/api/wz_users/_managed_storage";
+import {
   ensureOnboardingRecord,
   normalizeEmail,
   ONBOARDING_SCHEMA_HINT,
@@ -17,7 +22,6 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 };
 
-const ONBOARDING_LOGO_BUCKET = "wz-onboarding-logos";
 const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024;
 
 const ALLOWED_MIME_TYPES = new Set([
@@ -59,24 +63,6 @@ async function ensureLogoBucket(sb: ReturnType<typeof supabaseAdmin>) {
     return true;
   }
   return false;
-}
-
-function extractObjectPathFromPublicUrl(value?: string | null) {
-  const raw = String(value || "").trim();
-  if (!raw) return null;
-
-  try {
-    const parsed = new URL(raw);
-    const marker = `/storage/v1/object/public/${ONBOARDING_LOGO_BUCKET}/`;
-    const idx = parsed.pathname.indexOf(marker);
-    if (idx === -1) return null;
-
-    const objectPath = parsed.pathname.slice(idx + marker.length);
-    if (!objectPath) return null;
-    return decodeURIComponent(objectPath);
-  } catch {
-    return null;
-  }
 }
 
 export async function POST(req: NextRequest) {
@@ -187,7 +173,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const previousObjectPath = extractObjectPathFromPublicUrl(onboarding.record.companyLogoUrl);
+    const previousObjectPath = extractObjectPathFromPublicUrl(
+      ONBOARDING_LOGO_BUCKET,
+      onboarding.record.companyLogoUrl,
+    );
 
     const updated = await patchOnboardingRecord({
       sb,
@@ -216,6 +205,16 @@ export async function POST(req: NextRequest) {
       await sb.storage.from(ONBOARDING_LOGO_BUCKET).remove([previousObjectPath]);
     }
 
+    try {
+      await cleanupPrimaryOnboardingLogoFolder({
+        sb,
+        userId: onboarding.record.userId,
+        keepObjectPath: objectPath,
+      });
+    } catch (cleanupError) {
+      console.error("[onboarding-logo] cleanup stale logos error:", cleanupError);
+    }
+
     const refreshed = await ensureOnboardingRecord({
       sb,
       sessionUserId,
@@ -239,3 +238,103 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function DELETE(req: NextRequest) {
+  try {
+    const session = await readActiveSessionFromRequest(req);
+    if (!session) {
+      return NextResponse.json(
+        { ok: false, error: "Nao autenticado." },
+        { status: 401, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const sessionUserId = String(session.userId || "").trim();
+    const sessionEmail = normalizeEmail(session.email);
+    if (!sessionUserId || !sessionEmail) {
+      return NextResponse.json(
+        { ok: false, error: "Sessao invalida." },
+        { status: 401, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const sb = supabaseAdmin();
+    const onboarding = await ensureOnboardingRecord({
+      sb,
+      sessionUserId,
+      sessionEmail,
+    });
+
+    if (!onboarding.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            onboarding.schemaReady === false
+              ? ONBOARDING_SCHEMA_HINT
+              : "Nao foi possivel localizar onboarding para remover a logo.",
+        },
+        { status: onboarding.schemaReady === false ? 500 : 400, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const previousObjectPath = extractObjectPathFromPublicUrl(
+      ONBOARDING_LOGO_BUCKET,
+      onboarding.record.companyLogoUrl,
+    );
+
+    const updated = await patchOnboardingRecord({
+      sb,
+      recordId: onboarding.record.id,
+      patch: {
+        company_logo_url: null,
+      },
+    });
+
+    if (!updated.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            updated.schemaReady === false
+              ? ONBOARDING_SCHEMA_HINT
+              : "Nao foi possivel remover a logo do onboarding.",
+        },
+        { status: updated.schemaReady === false ? 500 : 400, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    if (previousObjectPath) {
+      await sb.storage.from(ONBOARDING_LOGO_BUCKET).remove([previousObjectPath]);
+    }
+
+    try {
+      await cleanupPrimaryOnboardingLogoFolder({
+        sb,
+        userId: onboarding.record.userId,
+      });
+    } catch (cleanupError) {
+      console.error("[onboarding-logo] cleanup folder on delete error:", cleanupError);
+    }
+
+    const refreshed = await ensureOnboardingRecord({
+      sb,
+      sessionUserId,
+      sessionEmail,
+    });
+
+    return NextResponse.json(
+      {
+        ok: true,
+        companyLogoUrl: null,
+        onboarding: refreshed.ok ? refreshed.record : onboarding.record,
+      },
+      { status: 200, headers: NO_STORE_HEADERS },
+    );
+  } catch (error) {
+    console.error("[onboarding-logo] unexpected delete error:", error);
+    return NextResponse.json(
+      { ok: false, error: "Erro inesperado ao remover logo de onboarding." },
+      { status: 500, headers: NO_STORE_HEADERS },
+    );
+  }
+}

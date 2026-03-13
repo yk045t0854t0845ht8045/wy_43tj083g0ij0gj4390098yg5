@@ -82,6 +82,30 @@ begin
       or (v_email is not null and lower(email) = v_email);
   end if;
 
+  if to_regclass('public.wz_bot_systems') is not null then
+    delete from public.wz_bot_systems
+    where
+      (v_wz_user_id is not null and (user_id = v_wz_user_id or auth_user_id = v_wz_user_id))
+      or (v_auth_user_id is not null and (user_id = v_auth_user_id or auth_user_id = v_auth_user_id))
+      or (v_email is not null and lower(email) = v_email);
+  end if;
+
+  if to_regclass('public.wz_company_onboarding') is not null then
+    delete from public.wz_company_onboarding
+    where
+      (v_wz_user_id is not null and (user_id = v_wz_user_id or auth_user_id = v_wz_user_id))
+      or (v_auth_user_id is not null and (user_id = v_auth_user_id or auth_user_id = v_auth_user_id))
+      or (v_email is not null and lower(email) = v_email);
+  end if;
+
+  if to_regclass('public.wz_onboarding') is not null then
+    delete from public.wz_onboarding
+    where
+      (v_wz_user_id is not null and (user_id = v_wz_user_id or auth_user_id = v_wz_user_id))
+      or (v_auth_user_id is not null and (user_id = v_auth_user_id or auth_user_id = v_auth_user_id))
+      or (v_email is not null and lower(email) = v_email);
+  end if;
+
   if to_regclass('public.wz_pending_auth') is not null and v_email is not null then
     delete from public.wz_pending_auth where lower(email) = v_email;
   end if;

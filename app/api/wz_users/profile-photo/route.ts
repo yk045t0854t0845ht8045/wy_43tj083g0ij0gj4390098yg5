@@ -1,6 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { readActiveSessionFromRequest } from "@/app/api/wz_AuthLogin/_active_session";
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
+import {
+  cleanupUserPhotoFolder,
+  extractObjectPathFromPublicUrl,
+  USER_PHOTO_BUCKET,
+} from "@/app/api/wz_users/_managed_storage";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -11,7 +16,6 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 };
 
-const USER_PHOTO_BUCKET = "wz-user-photos";
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 
 const ALLOWED_MIME_TYPES = new Set([
@@ -168,25 +172,6 @@ function pickFileExtension(file: File) {
   return cleanExt || "png";
 }
 
-function extractObjectPathFromPublicUrl(photoLink?: string | null) {
-  const raw = String(photoLink || "").trim();
-  if (!raw) return null;
-
-  try {
-    const parsed = new URL(raw);
-    const marker = `/storage/v1/object/public/${USER_PHOTO_BUCKET}/`;
-    const idx = parsed.pathname.indexOf(marker);
-    if (idx === -1) return null;
-
-    const objectPath = parsed.pathname.slice(idx + marker.length);
-    if (!objectPath) return null;
-
-    return decodeURIComponent(objectPath);
-  } catch {
-    return null;
-  }
-}
-
 export async function POST(req: NextRequest) {
   try {
     const session = await readActiveSessionFromRequest(req);
@@ -300,9 +285,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const previousObjectPath = extractObjectPathFromPublicUrl(userRow.photo_link);
+    const previousObjectPath = extractObjectPathFromPublicUrl(USER_PHOTO_BUCKET, userRow.photo_link);
     if (previousObjectPath && previousObjectPath !== objectPath) {
       await sb.storage.from(USER_PHOTO_BUCKET).remove([previousObjectPath]);
+    }
+
+    try {
+      await cleanupUserPhotoFolder({
+        sb,
+        userId: userRow.id,
+        keepObjectPath: objectPath,
+      });
+    } catch (cleanupError) {
+      console.error("[profile-photo] cleanup stale avatars error:", cleanupError);
     }
 
     return NextResponse.json(
@@ -346,7 +341,7 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const previousObjectPath = extractObjectPathFromPublicUrl(userRow.photo_link);
+    const previousObjectPath = extractObjectPathFromPublicUrl(USER_PHOTO_BUCKET, userRow.photo_link);
 
     const { error: updateError } = await sb
       .from("wz_users")
@@ -367,6 +362,15 @@ export async function DELETE(req: NextRequest) {
 
     if (previousObjectPath) {
       await sb.storage.from(USER_PHOTO_BUCKET).remove([previousObjectPath]);
+    }
+
+    try {
+      await cleanupUserPhotoFolder({
+        sb,
+        userId: userRow.id,
+      });
+    } catch (cleanupError) {
+      console.error("[profile-photo] cleanup folder on delete error:", cleanupError);
     }
 
     return NextResponse.json(

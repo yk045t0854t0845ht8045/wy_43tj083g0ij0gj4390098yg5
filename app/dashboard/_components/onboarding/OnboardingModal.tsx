@@ -452,6 +452,14 @@ const MONTHLY_CONVERSATION_TIER_OPTIONS: SelectOption[] = [
   { value: "3001_10000", label: "3.001 a 10.000 conversas/mes" },
   { value: "10001_plus", label: "Mais de 10.000 conversas/mes" },
 ];
+const MAX_COMPANY_LOGO_FILE_SIZE_BYTES = 1 * 1024 * 1024;
+const COMPANY_LOGO_ALLOWED_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+  "image/svg+xml",
+]);
 const WHATSAPP_QR_REGENERATE_COOLDOWN_MS = 4500;
 const WHATSAPP_REALTIME_SYNC_INTERVAL_MS = 1800;
 
@@ -686,6 +694,7 @@ export default function OnboardingModal({
 }: OnboardingModalProps) {
   const prefersReducedMotion = useReducedMotion();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const companyLogoFieldRef = useRef<HTMLDivElement | null>(null);
   const lastResolvedPostalCodeRef = useRef("");
   const loadedDraftKeyRef = useRef<string | null>(null);
   const latestFetchRequestIdRef = useRef(0);
@@ -701,6 +710,7 @@ export default function OnboardingModal({
   const [postalLookupLoading, setPostalLookupLoading] = useState(false);
   const [postalLookupMessage, setPostalLookupMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [companyLogoError, setCompanyLogoError] = useState<string | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(initialData);
   const [activeStep, setActiveStep] = useState<WizardStep>(normalizeStepFromOnboarding(initialData));
   const [companyName, setCompanyName] = useState(String(initialData?.companyName || ""));
@@ -752,6 +762,21 @@ export default function OnboardingModal({
   }, [activeStep]);
 
   const canGoBack = activeStep !== "company";
+
+  const clearCompanyLogoError = useCallback(() => {
+    setCompanyLogoError(null);
+  }, []);
+
+  const showCompanyLogoError = useCallback((message: string) => {
+    const nextMessage = String(message || "").trim() || "Nao foi possivel enviar a logo.";
+    setCompanyLogoError(nextMessage);
+    requestAnimationFrame(() => {
+      companyLogoFieldRef.current?.scrollIntoView({
+        block: "center",
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+      });
+    });
+  }, [prefersReducedMotion]);
 
   const leftSteps = useMemo(() => {
     return [
@@ -873,6 +898,9 @@ export default function OnboardingModal({
       const addressParts = splitAddressAndNumber(next.companyAddress || "");
       setOnboarding(next);
       setCompanyLogoUrl(String(next.companyLogoUrl || ""));
+      if (String(next.companyLogoUrl || "").trim()) {
+        setCompanyLogoError(null);
+      }
       if (allowCompanySync) {
         setCompanyName(String(next.companyName || ""));
         setCompanyCnpj(formatCnpj(next.companyCnpj || ""));
@@ -1336,6 +1364,7 @@ export default function OnboardingModal({
 
   const handleCompanyContinue = useCallback(async () => {
     setError(null);
+    clearCompanyLogoError();
     const validationError = isValidCompanyForm({
       companyName,
       industry,
@@ -1349,7 +1378,11 @@ export default function OnboardingModal({
       companyPostalCode,
     });
     if (validationError) {
-      setError(validationError);
+      if (validationError === "Envie a logo da empresa para continuar.") {
+        showCompanyLogoError(validationError);
+      } else {
+        setError(validationError);
+      }
       return;
     }
 
@@ -1371,11 +1404,18 @@ export default function OnboardingModal({
       }, { respectDirty: false });
       setActiveStep(normalizeStepFromOnboarding(payload.onboarding));
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Nao foi possivel salvar dados da empresa.");
+      const message =
+        saveError instanceof Error ? saveError.message : "Nao foi possivel salvar dados da empresa.";
+      if (message.toLowerCase().includes("logo")) {
+        showCompanyLogoError(message);
+      } else {
+        setError(message);
+      }
     } finally {
       setSaving(false);
     }
   }, [
+    clearCompanyLogoError,
     companyAddress,
     companyAddressNumber,
     companyCity,
@@ -1387,6 +1427,7 @@ export default function OnboardingModal({
     industry,
     isOnlineBusiness,
     postAction,
+    showCompanyLogoError,
   ]);
 
   const handleTeamContinue = useCallback(async () => {
@@ -1458,9 +1499,22 @@ export default function OnboardingModal({
 
   const handleLogoUpload = useCallback(async (file: File) => {
     setError(null);
+    clearCompanyLogoError();
+    if (file.size <= 0) {
+      showCompanyLogoError("Arquivo de logo vazio.");
+      return;
+    }
+    if (file.size > MAX_COMPANY_LOGO_FILE_SIZE_BYTES) {
+      showCompanyLogoError("A logo deve ter no maximo 1MB.");
+      return;
+    }
+    if (!COMPANY_LOGO_ALLOWED_MIME_TYPES.has(String(file.type || "").toLowerCase())) {
+      showCompanyLogoError("Formato invalido. Use PNG, JPG, WEBP ou SVG.");
+      return;
+    }
     const ext = pickFileExtension(file);
     if (!ext) {
-      setError("Arquivo de logo invalido.");
+      showCompanyLogoError("Arquivo de logo invalido.");
       return;
     }
     try {
@@ -1497,24 +1551,29 @@ export default function OnboardingModal({
         return next;
       });
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Falha ao enviar logo.");
+      showCompanyLogoError(
+        uploadError instanceof Error ? uploadError.message : "Falha ao enviar logo.",
+      );
     } finally {
       setUploadingLogo(false);
     }
-  }, [onUpdated, resolvedLogoApiPath]);
+  }, [clearCompanyLogoError, onUpdated, resolvedLogoApiPath, showCompanyLogoError]);
 
   const openLogoPicker = useCallback(() => {
+    clearCompanyLogoError();
+    setError(null);
     fileInputRef.current?.click();
-  }, []);
+  }, [clearCompanyLogoError]);
 
   const onLogoChange = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       if (!file) return;
+      clearCompanyLogoError();
       await handleLogoUpload(file);
       event.target.value = "";
     },
-    [handleLogoUpload],
+    [clearCompanyLogoError, handleLogoUpload],
   );
 
   if (!open) return null;
@@ -1672,7 +1731,7 @@ export default function OnboardingModal({
                             : "Preencha os dados da empresa para iniciarmos seu fluxo de atendimento."}
                         </p>
 
-                        <div className="mt-4">
+                        <div className="mt-4" ref={companyLogoFieldRef}>
                           <p className="text-[13px] font-medium text-black/62">
                             Logo da empresa <span className="text-[#d54f4f]">*</span>
                           </p>
@@ -1681,9 +1740,12 @@ export default function OnboardingModal({
                             onClick={openLogoPicker}
                             disabled={uploadingLogo}
                             className={cx(
-                              "mt-2 flex w-full items-center gap-3 rounded-2xl border border-dashed border-black/20 bg-white/75 px-3 py-3 text-left transition-colors",
+                              "mt-2 flex w-full items-center gap-3 rounded-2xl border border-dashed bg-white/75 px-3 py-3 text-left transition-colors",
+                              companyLogoError ? "border-[#d54f4f]/45" : "border-black/20",
                               uploadingLogo ? "cursor-not-allowed opacity-70" : "hover:bg-white",
                             )}
+                            aria-invalid={companyLogoError ? "true" : "false"}
+                            aria-describedby={companyLogoError ? "company-logo-error" : "company-logo-help"}
                           >
                             <span className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-black/10 bg-white">
                               {uploadingLogo ? (
@@ -1715,6 +1777,22 @@ export default function OnboardingModal({
                             onChange={onLogoChange}
                             className="hidden"
                           />
+                          <div className="mt-2 min-h-[18px]">
+                            {companyLogoError ? (
+                              <p
+                                id="company-logo-error"
+                                role="alert"
+                                aria-live="polite"
+                                className="text-[12px] font-medium text-[#c8453d]"
+                              >
+                                {companyLogoError}
+                              </p>
+                            ) : (
+                              <p id="company-logo-help" className="text-[12px] text-black/50">
+                                Se o upload falhar, o motivo aparece aqui no proprio campo da logo.
+                              </p>
+                            )}
+                          </div>
                         </div>
 
                         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
