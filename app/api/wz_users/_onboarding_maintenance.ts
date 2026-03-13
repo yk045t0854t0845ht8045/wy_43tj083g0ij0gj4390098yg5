@@ -27,6 +27,10 @@ function normalizeText(value?: string | null) {
   return clean || null;
 }
 
+function isRecordLike(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 function normalizeIso(value?: string | null) {
   const clean = String(value || "").trim();
   if (!clean) return null;
@@ -83,6 +87,38 @@ function parseIsoMs(value?: string | null) {
   const parsed = Date.parse(normalized);
   if (!Number.isFinite(parsed)) return null;
   return parsed;
+}
+
+function coercePrimaryOnboardingRows(data: unknown): PrimaryOnboardingRow[] {
+  if (!Array.isArray(data)) return [];
+
+  return data.filter(isRecordLike).map((row) => ({
+    id: typeof row.id === "string" ? row.id : null,
+    user_id: typeof row.user_id === "string" ? row.user_id : null,
+    updated_at: typeof row.updated_at === "string" ? row.updated_at : null,
+    completed:
+      typeof row.completed === "boolean" ||
+      typeof row.completed === "string" ||
+      typeof row.completed === "number"
+        ? row.completed
+        : null,
+  }));
+}
+
+function coerceCompanyOnboardingRows(data: unknown): CompanyOnboardingRow[] {
+  if (!Array.isArray(data)) return [];
+
+  return data.filter(isRecordLike).map((row) => ({
+    id: typeof row.id === "string" ? row.id : null,
+    user_id: typeof row.user_id === "string" ? row.user_id : null,
+    updated_at: typeof row.updated_at === "string" ? row.updated_at : null,
+    completed:
+      typeof row.completed === "boolean" ||
+      typeof row.completed === "string" ||
+      typeof row.completed === "number"
+        ? row.completed
+        : null,
+  }));
 }
 
 export function isOnboardingRecordAbandoned(params: {
@@ -249,7 +285,7 @@ async function loadAbandonedPrimaryOnboardingRows(params: {
     throw lookup.error;
   }
 
-  return (lookup.data || []) as PrimaryOnboardingRow[];
+  return coercePrimaryOnboardingRows(lookup.data);
 }
 
 async function loadAbandonedCompanyOnboardingRows(params: {
@@ -267,12 +303,12 @@ async function loadAbandonedCompanyOnboardingRows(params: {
 
   if (lookup.error) {
     if (isMissingTableError(lookup.error, "wz_company_onboarding")) {
-      return [] as CompanyOnboardingRow[];
+      return [];
     }
     throw lookup.error;
   }
 
-  return (lookup.data || []) as CompanyOnboardingRow[];
+  return coerceCompanyOnboardingRows(lookup.data);
 }
 
 export async function pruneAbandonedOnboarding(params: {

@@ -59,6 +59,29 @@ function isRecordLike(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function coerceStorageListItems(data: unknown): StorageListItem[] {
+  if (!Array.isArray(data)) return [];
+
+  return data.filter(isRecordLike).map((row) => ({
+    name: typeof row.name === "string" ? row.name : null,
+    id: typeof row.id === "string" ? row.id : null,
+    updated_at: typeof row.updated_at === "string" ? row.updated_at : null,
+    created_at: typeof row.created_at === "string" ? row.created_at : null,
+    metadata: isRecordLike(row.metadata) ? row.metadata : null,
+  }));
+}
+
+function coerceCleanupQueueRows(data: unknown): CleanupQueueRow[] {
+  if (!Array.isArray(data)) return [];
+
+  return data.filter(isRecordLike).map((row) => ({
+    id: typeof row.id === "string" ? row.id : null,
+    bucket: typeof row.bucket === "string" ? row.bucket : null,
+    object_path: typeof row.object_path === "string" ? row.object_path : null,
+    created_at: typeof row.created_at === "string" ? row.created_at : null,
+  }));
+}
+
 function coerceTablePageRows<T extends Record<string, unknown>>(data: unknown) {
   if (!Array.isArray(data)) {
     const emptyRows: T[] = [];
@@ -203,7 +226,7 @@ async function listStorageEntries(params: {
       throw error;
     }
 
-    const page = (Array.isArray(data) ? data : []) as StorageListItem[];
+    const page = coerceStorageListItems(data);
     for (const item of page) {
       const name = normalizeText(item.name);
       if (!name) continue;
@@ -560,7 +583,7 @@ export async function flushQueuedManagedStorageCleanup(params?: {
     throw error;
   }
 
-  const rows = (Array.isArray(data) ? data : []) as CleanupQueueRow[];
+  const rows = coerceCleanupQueueRows(data);
   const normalizedRows = rows
     .map((row) => {
       const id = normalizeText(row.id);
