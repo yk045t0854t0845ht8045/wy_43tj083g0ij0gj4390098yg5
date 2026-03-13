@@ -55,6 +55,21 @@ function normalizeBucket(value: unknown): ManagedStorageBucket | null {
   return null;
 }
 
+function isRecordLike(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function coerceTablePageRows<T extends Record<string, unknown>>(data: unknown) {
+  if (!Array.isArray(data)) {
+    const emptyRows: T[] = [];
+    return emptyRows;
+  }
+
+  // Supabase can expose dynamic-table results with broad error-array typings.
+  // Normalize only plain objects before projecting them to the requested row shape.
+  return data.filter(isRecordLike).map((row) => row as unknown as T);
+}
+
 function isMissingColumnError(error: unknown, column: string) {
   const code =
     typeof (error as { code?: unknown } | null)?.code === "string"
@@ -282,16 +297,17 @@ async function readTableRows<T extends Record<string, unknown>>(params: {
 
     if (error) {
       if (params.optional && isMissingTableError(error, params.table)) {
+        const emptyRows: T[] = [];
         return {
           ok: true as const,
           schemaReady: false as const,
-          rows: [] as T[],
+          rows: emptyRows,
         };
       }
       throw error;
     }
 
-    const page = (Array.isArray(data) ? data : []) as T[];
+    const page = coerceTablePageRows<T>(data);
     rows.push(...page);
 
     if (page.length < TABLE_SCAN_PAGE_SIZE) {
