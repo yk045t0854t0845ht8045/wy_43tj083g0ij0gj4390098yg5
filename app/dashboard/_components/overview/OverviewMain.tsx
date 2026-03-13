@@ -66,6 +66,8 @@ type PendingCompanySystemContext = {
   companyName: string | null;
 };
 
+const DASHBOARD_COMPACT_MEDIA_QUERY = "(max-width: 900.98px)";
+
 type PrimaryOnboardingSnapshot = {
   companyName?: string | null;
   whatsappConnected?: boolean;
@@ -1165,7 +1167,7 @@ export default function OverviewMain({
   useEffect(() => {
     const isCompactViewport =
       typeof window !== "undefined" &&
-      window.matchMedia?.("(max-width: 900px)")?.matches;
+      window.matchMedia?.(DASHBOARD_COMPACT_MEDIA_QUERY)?.matches;
 
     const becameReady = previousLoadingRef.current && !loadingConfig;
     const modeChanged = previousModeRef.current !== mode;

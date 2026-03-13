@@ -73,14 +73,16 @@ function UserAvatar({
   );
 }
 
+const COMPACT_SIDEBAR_MEDIA_QUERY = "(max-width: 900.98px)";
+
 function useIsCompactSidebarViewport() {
   const [isCompactViewport, setIsCompactViewport] = useState(() => {
     if (typeof window === "undefined") return false;
-    return window.matchMedia("(max-width: 900px)").matches;
+    return window.matchMedia(COMPACT_SIDEBAR_MEDIA_QUERY).matches;
   });
 
   useLayoutEffect(() => {
-    const mq = window.matchMedia("(max-width: 900px)");
+    const mq = window.matchMedia(COMPACT_SIDEBAR_MEDIA_QUERY);
 
     const apply = () => setIsCompactViewport(mq.matches);
     apply();
@@ -962,7 +964,7 @@ export default function Sidebar({
         aria-modal={isCompactViewport ? true : undefined}
         aria-label={isCompactViewport ? "Menu principal" : undefined}
         className={cx(
-          !isCompactViewport && "max-[900px]:hidden",
+          !isCompactViewport && "max-[900.98px]:hidden",
           "relative flex flex-col overflow-visible text-black",
           usesDimLock && "pointer-events-none select-none opacity-[0.52] saturate-[0.74]",
           isCompactViewport
