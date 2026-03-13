@@ -1,5 +1,9 @@
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
 import {
+  isOnboardingRecordAbandoned,
+  removeCompanyOnboardingRecord,
+} from "@/app/api/wz_users/_onboarding_maintenance";
+import {
   ensureOnboardingRecord,
   normalizeBoolean,
   normalizeCnpjDigits,
@@ -366,6 +370,46 @@ export async function ensureCompanyOnboardingRecord(params: {
   const email = base.record.email || sessionEmail;
   const primaryOnboardingId = base.record.id;
 
+  const resolveExistingRecord = async (row: WzCompanyOnboardingRow) => {
+    const record = mapCompanyOnboardingRow(row, {
+      userId,
+      authUserId,
+      email,
+      primaryOnboardingId,
+    });
+
+    if (
+      !isOnboardingRecordAbandoned({
+        updatedAt: record.updatedAt,
+        completed: record.completed,
+      })
+    ) {
+      return {
+        ok: true as const,
+        record,
+      };
+    }
+
+    try {
+      await removeCompanyOnboardingRecord({
+        sb: params.sb,
+        recordId: record.id,
+        userId: record.userId,
+      });
+    } catch (error) {
+      return {
+        ok: false as const,
+        schemaReady: true,
+        error,
+      };
+    }
+
+    return {
+      ok: true as const,
+      record: null as CompanyOnboardingRecord | null,
+    };
+  };
+
   const requestedId = normalizeOptionalText(params.companyOnboardingId);
   if (requestedId) {
     const byId = await queryCompanyOnboardingById({
@@ -375,15 +419,14 @@ export async function ensureCompanyOnboardingRecord(params: {
     });
     if (!byId.ok) return byId;
     if (byId.row) {
-      return {
-        ok: true as const,
-        record: mapCompanyOnboardingRow(byId.row, {
-          userId,
-          authUserId,
-          email,
-          primaryOnboardingId,
-        }),
-      };
+      const resolved = await resolveExistingRecord(byId.row);
+      if (!resolved.ok) return resolved;
+      if (resolved.record) {
+        return {
+          ok: true as const,
+          record: resolved.record,
+        };
+      }
     }
     if (!params.createIfMissing) {
       return {
@@ -401,15 +444,14 @@ export async function ensureCompanyOnboardingRecord(params: {
   });
   if (!incomplete.ok) return incomplete;
   if (incomplete.row) {
-    return {
-      ok: true as const,
-      record: mapCompanyOnboardingRow(incomplete.row, {
-        userId,
-        authUserId,
-        email,
-        primaryOnboardingId,
-      }),
-    };
+    const resolved = await resolveExistingRecord(incomplete.row);
+    if (!resolved.ok) return resolved;
+    if (resolved.record) {
+      return {
+        ok: true as const,
+        record: resolved.record,
+      };
+    }
   }
 
   if (!params.createIfMissing) {

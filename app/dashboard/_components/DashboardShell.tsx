@@ -45,6 +45,7 @@ const ONBOARDING_REQUIRED_STORAGE_PREFIX = "wz:onboarding:required:";
 const COMPANY_ONBOARDING_ACTIVE_STORAGE_PREFIX = "wz:company-onboarding:active:";
 const COMPANY_ONBOARDING_SYSTEM_PENDING_PREFIX = "wz:company-onboarding:pending-system:";
 const PASSWORD_SETUP_PROMPT_STORAGE_PREFIX = "wz:password-setup:prompt-shown:";
+const DASHBOARD_REQUEST_TIMEOUT_MS = 12000;
 
 type PendingCompanySystemContext = {
   id: string;
@@ -659,6 +660,8 @@ export default function DashboardShell({
     }
 
     let cancelled = false;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), DASHBOARD_REQUEST_TIMEOUT_MS);
     const restore = async () => {
       companyOnboardingRestoreInFlightRef.current = true;
       setCompanyOnboardingLoading(true);
@@ -672,6 +675,7 @@ export default function DashboardShell({
             "Cache-Control": "no-store",
             Pragma: "no-cache",
           },
+          signal: controller.signal,
         });
         if (!res.ok) {
           syncCompanyOnboardingActiveHint(null);
@@ -707,6 +711,7 @@ export default function DashboardShell({
       } catch {
         syncCompanyOnboardingActiveHint(null);
       } finally {
+        window.clearTimeout(timeoutId);
         if (!cancelled) {
           setCompanyOnboardingLoading(false);
         }
@@ -717,6 +722,8 @@ export default function DashboardShell({
     void restore();
     return () => {
       cancelled = true;
+      controller.abort();
+      window.clearTimeout(timeoutId);
     };
   }, [
     companyOnboardingData,
@@ -750,6 +757,8 @@ export default function DashboardShell({
     }
 
     let cancelled = false;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), DASHBOARD_REQUEST_TIMEOUT_MS);
     const validate = async () => {
       pendingCompanyContextValidationRef.current = true;
       try {
@@ -762,6 +771,7 @@ export default function DashboardShell({
             "Cache-Control": "no-store",
             Pragma: "no-cache",
           },
+          signal: controller.signal,
         });
         if (!res.ok) {
           syncPendingCompanySystemHint(null);
@@ -784,6 +794,7 @@ export default function DashboardShell({
       } catch {
         syncPendingCompanySystemHint(null);
       } finally {
+        window.clearTimeout(timeoutId);
         pendingCompanyContextValidationRef.current = false;
       }
     };
@@ -791,6 +802,8 @@ export default function DashboardShell({
     void validate();
     return () => {
       cancelled = true;
+      controller.abort();
+      window.clearTimeout(timeoutId);
     };
   }, [getCompanyPendingSystemKey, syncPendingCompanySystemHint]);
 
@@ -914,6 +927,8 @@ export default function DashboardShell({
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), DASHBOARD_REQUEST_TIMEOUT_MS);
 
     const checkOnboarding = async () => {
       setOnboardingLoading(true);
@@ -926,6 +941,7 @@ export default function DashboardShell({
             "Cache-Control": "no-store",
             Pragma: "no-cache",
           },
+          signal: controller.signal,
         });
         if (!res.ok) return;
 
@@ -949,6 +965,7 @@ export default function DashboardShell({
       } catch {
         // noop
       } finally {
+        window.clearTimeout(timeoutId);
         if (!cancelled) {
           setOnboardingLoading(false);
         }
@@ -959,6 +976,8 @@ export default function DashboardShell({
 
     return () => {
       cancelled = true;
+      controller.abort();
+      window.clearTimeout(timeoutId);
     };
   }, [syncOnboardingRequiredHint]);
 

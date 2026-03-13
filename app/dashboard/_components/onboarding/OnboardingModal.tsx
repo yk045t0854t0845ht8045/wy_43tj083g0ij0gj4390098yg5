@@ -296,6 +296,35 @@ function pickFileExtension(file: File) {
   return "";
 }
 
+function isAbortError(error: unknown) {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "name" in error &&
+      String((error as { name?: unknown }).name || "") === "AbortError",
+  );
+}
+
+function resolveRequestErrorMessage(error: unknown, fallback: string, timeoutFallback: string) {
+  if (isAbortError(error)) return timeoutFallback;
+  const message = error instanceof Error ? error.message : "";
+  return String(message || "").trim() || fallback;
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
 type SelectOption = {
   value: string;
   label: string;
@@ -460,6 +489,8 @@ const COMPANY_LOGO_ALLOWED_MIME_TYPES = new Set([
   "image/webp",
   "image/svg+xml",
 ]);
+const CLIENT_REQUEST_TIMEOUT_MS = 15000;
+const ONBOARDING_HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000;
 const WHATSAPP_QR_REGENERATE_COOLDOWN_MS = 4500;
 const WHATSAPP_REALTIME_SYNC_INTERVAL_MS = 1800;
 
@@ -704,6 +735,7 @@ export default function OnboardingModal({
   const hasLoadedOnboardingRef = useRef(Boolean(initialData));
   const qrGenerationInFlightRef = useRef(false);
   const lastQrGenerationAtRef = useRef(0);
+  const onboardingHeartbeatInFlightRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -777,6 +809,44 @@ export default function OnboardingModal({
       });
     });
   }, [prefersReducedMotion]);
+
+  const restoreCompanyFormFromOnboarding = useCallback((source?: OnboardingState | null) => {
+    const next = source || onboarding;
+    if (!next) return;
+    const addressParts = splitAddressAndNumber(next.companyAddress || "");
+    setCompanyName(String(next.companyName || ""));
+    setCompanyLogoUrl(String(next.companyLogoUrl || ""));
+    setCompanyCnpj(formatCnpj(next.companyCnpj || ""));
+    setIndustry(String(next.industry || ""));
+    setIsOnlineBusiness(Boolean(next.isOnlineBusiness));
+    setCompanyAddress(String(addressParts.street || ""));
+    setCompanyAddressNumber(String(addressParts.number || ""));
+    setCompanyCity(String(next.companyCity || ""));
+    setCompanyState(String(next.companyState || ""));
+    setCompanyPostalCode(formatPostalCode(next.companyPostalCode || ""));
+    lastResolvedPostalCodeRef.current = normalizePostalCodeDigits(next.companyPostalCode || "");
+    if (String(next.companyLogoUrl || "").trim()) {
+      setCompanyLogoError(null);
+    }
+  }, [onboarding]);
+
+  const restoreTeamFormFromOnboarding = useCallback((source?: OnboardingState | null) => {
+    const next = source || onboarding;
+    if (!next) return;
+    setTeamAgentsCount(normalizeTeamBucketFromCount(next.teamAgentsCount));
+    setOnboardingGoal(String(next.onboardingGoal || ""));
+    setMonthlyConversationsTier(String(next.monthlyConversationsTier || ""));
+  }, [onboarding]);
+
+  const navigateToStep = useCallback((nextStep: WizardStep) => {
+    if (nextStep === "company") {
+      restoreCompanyFormFromOnboarding();
+    }
+    if (nextStep === "team") {
+      restoreTeamFormFromOnboarding();
+    }
+    setActiveStep(nextStep);
+  }, [restoreCompanyFormFromOnboarding, restoreTeamFormFromOnboarding]);
 
   const leftSteps = useMemo(() => {
     return [
@@ -945,11 +1015,11 @@ export default function OnboardingModal({
         setError(null);
       }
       try {
-        const res = await fetch(resolvedApiPath, {
+        const res = await fetchWithTimeout(resolvedApiPath, {
           method: "GET",
           cache: "no-store",
           credentials: "include",
-        });
+        }, CLIENT_REQUEST_TIMEOUT_MS);
         const payload = (await res.json().catch(() => ({}))) as OnboardingApiPayload;
         if (!res.ok || !payload?.ok || !payload.onboarding) {
           throw new Error(String(payload?.error || "Nao foi possivel carregar onboarding."));
@@ -981,7 +1051,13 @@ export default function OnboardingModal({
         return payload;
       } catch (fetchError) {
         if (requestId === latestFetchRequestIdRef.current) {
-          setError(fetchError instanceof Error ? fetchError.message : "Falha ao carregar onboarding.");
+          setError(
+            resolveRequestErrorMessage(
+              fetchError,
+              "Falha ao carregar onboarding.",
+              "O onboarding demorou demais para responder. Tente novamente.",
+            ),
+          );
         }
         return null;
       } finally {
@@ -1005,13 +1081,13 @@ export default function OnboardingModal({
       lastQrGenerationAtRef.current = Date.now();
 
       try {
-        const res = await fetch(resolvedApiPath, {
+        const res = await fetchWithTimeout(resolvedApiPath, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           cache: "no-store",
           body: JSON.stringify({ action: "generate-whatsapp-qr" }),
-        });
+        }, CLIENT_REQUEST_TIMEOUT_MS);
         const payload = (await res.json().catch(() => ({}))) as OnboardingApiPayload;
         if (!res.ok || !payload?.ok || !payload.onboarding) {
           throw new Error(String(payload?.error || "Nao foi possivel gerar QR Code do WhatsApp."));
@@ -1039,7 +1115,13 @@ export default function OnboardingModal({
         return payload;
       } catch (generateError) {
         if (!opts?.silent) {
-          setError(generateError instanceof Error ? generateError.message : "Falha ao gerar QR Code.");
+          setError(
+            resolveRequestErrorMessage(
+              generateError,
+              "Falha ao gerar QR Code.",
+              "A geracao do QR Code demorou demais. Tente novamente.",
+            ),
+          );
         }
         return null;
       } finally {
@@ -1114,6 +1196,63 @@ export default function OnboardingModal({
       // Ignore corrupted draft.
     }
   }, [draftStorageKey, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!onboarding) return;
+    if (activeStep === "company") {
+      const savedCompanyExists =
+        Boolean(normalizeComparableText(onboarding.companyName)) ||
+        Boolean(normalizeComparableText(onboarding.industry)) ||
+        Boolean(normalizeComparableText(onboarding.companyLogoUrl));
+      const companyFormLooksEmpty =
+        !normalizeComparableText(companyName) &&
+        !normalizeComparableText(industry) &&
+        !normalizeComparableText(companyLogoUrl) &&
+        !normalizeComparableText(companyCnpj) &&
+        !normalizeComparableText(companyAddress) &&
+        !normalizeComparableText(companyAddressNumber) &&
+        !normalizeComparableText(companyCity) &&
+        !normalizeComparableText(companyState) &&
+        !normalizePostalCodeDigits(companyPostalCode);
+
+      if (savedCompanyExists && companyFormLooksEmpty) {
+        restoreCompanyFormFromOnboarding(onboarding);
+      }
+      return;
+    }
+
+    if (activeStep !== "team") return;
+    const savedTeamExists = Boolean(
+      onboarding.teamAgentsCount && onboarding.onboardingGoal && onboarding.monthlyConversationsTier,
+    );
+    const teamFormLooksEmpty =
+      !String(teamAgentsCount || "").trim() &&
+      !String(onboardingGoal || "").trim() &&
+      !String(monthlyConversationsTier || "").trim();
+
+    if (savedTeamExists && teamFormLooksEmpty) {
+      restoreTeamFormFromOnboarding(onboarding);
+    }
+  }, [
+    activeStep,
+    companyAddress,
+    companyAddressNumber,
+    companyCity,
+    companyCnpj,
+    companyLogoUrl,
+    companyName,
+    companyPostalCode,
+    companyState,
+    industry,
+    monthlyConversationsTier,
+    onboarding,
+    onboardingGoal,
+    open,
+    restoreCompanyFormFromOnboarding,
+    restoreTeamFormFromOnboarding,
+    teamAgentsCount,
+  ]);
 
   useEffect(() => {
     if (!open) return;
@@ -1277,6 +1416,67 @@ export default function OnboardingModal({
     void generateWhatsAppQr({ silent: true });
   }, [activeStep, generateWhatsAppQr, open]);
 
+  const sendPresenceHeartbeat = useCallback(async () => {
+    if (onboardingHeartbeatInFlightRef.current) return null;
+    if (!onboarding?.id || onboarding.completed) return null;
+
+    onboardingHeartbeatInFlightRef.current = true;
+    try {
+      const res = await fetchWithTimeout(resolvedApiPath, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        cache: "no-store",
+        body: JSON.stringify({ action: "heartbeat" }),
+      }, CLIENT_REQUEST_TIMEOUT_MS);
+      const payload = (await res.json().catch(() => ({}))) as OnboardingApiPayload;
+      if (!res.ok || !payload?.ok || !payload.onboarding) {
+        return null;
+      }
+      setOnboarding((current) => {
+        if (!current) return payload.onboarding || null;
+        return {
+          ...current,
+          updatedAt: payload.onboarding?.updatedAt || current.updatedAt,
+          completed: Boolean(payload.onboarding?.completed),
+          completedAt: payload.onboarding?.completedAt || current.completedAt,
+        };
+      });
+      return payload.onboarding;
+    } catch {
+      return null;
+    } finally {
+      onboardingHeartbeatInFlightRef.current = false;
+    }
+  }, [onboarding?.completed, onboarding?.id, resolvedApiPath]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!onboarding || onboarding.completed) return;
+
+    const triggerHeartbeat = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      void sendPresenceHeartbeat();
+    };
+
+    triggerHeartbeat();
+    const intervalId = window.setInterval(triggerHeartbeat, ONBOARDING_HEARTBEAT_INTERVAL_MS);
+    const onFocus = () => triggerHeartbeat();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        triggerHeartbeat();
+      }
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [onboarding?.completed, onboarding?.id, open, sendPresenceHeartbeat]);
+
   useEffect(() => {
     if (!open) return;
     if (activeStep !== "whatsapp") return;
@@ -1321,13 +1521,24 @@ export default function OnboardingModal({
       body: Record<string, unknown>,
       opts?: { respectDirty?: boolean },
     ): Promise<OnboardingApiSuccessPayload> => {
-      const res = await fetch(resolvedApiPath, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        cache: "no-store",
-        body: JSON.stringify(body),
-      });
+      let res: Response;
+      try {
+        res = await fetchWithTimeout(resolvedApiPath, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          cache: "no-store",
+          body: JSON.stringify(body),
+        }, CLIENT_REQUEST_TIMEOUT_MS);
+      } catch (actionError) {
+        throw new Error(
+          resolveRequestErrorMessage(
+            actionError,
+            "Falha ao salvar onboarding.",
+            "A operacao demorou demais para responder. Tente novamente.",
+          ),
+        );
+      }
       const payload = (await res.json().catch(() => ({}))) as OnboardingApiPayload;
       if (!res.ok || !payload?.ok || !payload.onboarding) {
         throw new Error(String(payload?.error || "Falha ao salvar onboarding."));
@@ -1485,17 +1696,17 @@ export default function OnboardingModal({
   const handleBackStep = useCallback(() => {
     setError(null);
     if (activeStep === "final") {
-      setActiveStep("team");
+      navigateToStep("team");
       return;
     }
     if (activeStep === "whatsapp") {
-      setActiveStep("team");
+      navigateToStep("team");
       return;
     }
     if (activeStep === "team") {
-      setActiveStep("company");
+      navigateToStep("company");
     }
-  }, [activeStep]);
+  }, [activeStep, navigateToStep]);
 
   const handleLogoUpload = useCallback(async (file: File) => {
     setError(null);
@@ -1521,11 +1732,11 @@ export default function OnboardingModal({
       setUploadingLogo(true);
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(resolvedLogoApiPath, {
+      const res = await fetchWithTimeout(resolvedLogoApiPath, {
         method: "POST",
         body: form,
         credentials: "include",
-      });
+      }, CLIENT_REQUEST_TIMEOUT_MS);
       const payload = (await res.json().catch(() => ({}))) as OnboardingApiPayload;
       if (!res.ok || !payload?.ok || !payload.companyLogoUrl) {
         throw new Error(String(payload?.error || "Nao foi possivel enviar a logo."));
@@ -1552,7 +1763,11 @@ export default function OnboardingModal({
       });
     } catch (uploadError) {
       showCompanyLogoError(
-        uploadError instanceof Error ? uploadError.message : "Falha ao enviar logo.",
+        resolveRequestErrorMessage(
+          uploadError,
+          "Falha ao enviar logo.",
+          "O upload da logo demorou demais. Tente novamente.",
+        ),
       );
     } finally {
       setUploadingLogo(false);
@@ -1640,7 +1855,7 @@ export default function OnboardingModal({
                         key={step.id}
                         type="button"
                         onClick={() => {
-                          if (done) setActiveStep(step.id);
+                          if (done) navigateToStep(step.id);
                         }}
                         className={cx(
                           "flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left transition-colors",

@@ -1,4 +1,8 @@
 import { supabaseAdmin } from "@/app/api/wz_AuthLogin/_supabase";
+import {
+  isOnboardingRecordAbandoned,
+  removePrimaryOnboardingRecord,
+} from "@/app/api/wz_users/_onboarding_maintenance";
 
 export type OnboardingUiStep =
   | "welcome"
@@ -447,6 +451,51 @@ async function createOnboardingRow(params: {
   };
 }
 
+async function resolveExistingOnboardingRow(params: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  row: WzOnboardingRow;
+  userId: string;
+  authUserId: string | null;
+  email: string;
+}) {
+  const record = mapOnboardingRow(params.row, {
+    userId: params.userId,
+    authUserId: params.authUserId,
+    email: params.email,
+  });
+
+  if (
+    !isOnboardingRecordAbandoned({
+      updatedAt: record.updatedAt,
+      completed: record.completed,
+    })
+  ) {
+    return {
+      ok: true as const,
+      record,
+    };
+  }
+
+  try {
+    await removePrimaryOnboardingRecord({
+      sb: params.sb,
+      recordId: record.id,
+      userId: record.userId,
+    });
+  } catch (error) {
+    return {
+      ok: false as const,
+      schemaReady: true,
+      error,
+    };
+  }
+
+  return {
+    ok: true as const,
+    record: null as OnboardingRecord | null,
+  };
+}
+
 export async function ensureOnboardingRecord(params: {
   sb: ReturnType<typeof supabaseAdmin>;
   sessionUserId: string;
@@ -480,14 +529,20 @@ export async function ensureOnboardingRecord(params: {
   });
   if (!byUser.ok) return byUser;
   if (byUser.row) {
-    return {
-      ok: true as const,
-      record: mapOnboardingRow(byUser.row, {
-        userId: resolvedUserId,
-        authUserId: resolvedAuthUserId,
-        email: resolvedEmail,
-      }),
-    };
+    const resolved = await resolveExistingOnboardingRow({
+      sb: params.sb,
+      row: byUser.row,
+      userId: resolvedUserId,
+      authUserId: resolvedAuthUserId,
+      email: resolvedEmail,
+    });
+    if (!resolved.ok) return resolved;
+    if (resolved.record) {
+      return {
+        ok: true as const,
+        record: resolved.record,
+      };
+    }
   }
 
   const byAuth = await queryOnboardingBy({
@@ -497,14 +552,20 @@ export async function ensureOnboardingRecord(params: {
   });
   if (!byAuth.ok) return byAuth;
   if (byAuth.row) {
-    return {
-      ok: true as const,
-      record: mapOnboardingRow(byAuth.row, {
-        userId: resolvedUserId,
-        authUserId: resolvedAuthUserId,
-        email: resolvedEmail,
-      }),
-    };
+    const resolved = await resolveExistingOnboardingRow({
+      sb: params.sb,
+      row: byAuth.row,
+      userId: resolvedUserId,
+      authUserId: resolvedAuthUserId,
+      email: resolvedEmail,
+    });
+    if (!resolved.ok) return resolved;
+    if (resolved.record) {
+      return {
+        ok: true as const,
+        record: resolved.record,
+      };
+    }
   }
 
   const byEmail = await queryOnboardingBy({
@@ -514,14 +575,20 @@ export async function ensureOnboardingRecord(params: {
   });
   if (!byEmail.ok) return byEmail;
   if (byEmail.row) {
-    return {
-      ok: true as const,
-      record: mapOnboardingRow(byEmail.row, {
-        userId: resolvedUserId,
-        authUserId: resolvedAuthUserId,
-        email: resolvedEmail,
-      }),
-    };
+    const resolved = await resolveExistingOnboardingRow({
+      sb: params.sb,
+      row: byEmail.row,
+      userId: resolvedUserId,
+      authUserId: resolvedAuthUserId,
+      email: resolvedEmail,
+    });
+    if (!resolved.ok) return resolved;
+    if (resolved.record) {
+      return {
+        ok: true as const,
+        record: resolved.record,
+      };
+    }
   }
 
   const created = await createOnboardingRow({

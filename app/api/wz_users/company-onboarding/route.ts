@@ -60,6 +60,7 @@ type OnboardingAction =
   | "save-company"
   | "save-team"
   | "set-step"
+  | "heartbeat"
   | "generate-whatsapp-qr"
   | "confirm-whatsapp"
   | "finish";
@@ -707,7 +708,7 @@ export async function GET(req: NextRequest) {
           ...ctx,
           onboarding,
         },
-        requireQr: onboarding.uiStep === "whatsapp",
+        requireQr: false,
       });
       if (!sync.ok) return sync.response;
       onboarding = sync.onboarding;
@@ -1036,6 +1037,31 @@ export async function POST(req: NextRequest) {
           ui_step: uiStep,
         },
         fallbackError: "Nao foi possivel atualizar etapa.",
+      });
+      if (!patched.ok) return patched.response;
+
+      return NextResponse.json(
+        { ok: true, onboarding: patched.onboarding },
+        { status: 200, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    if (action === "heartbeat") {
+      if (ctx.onboarding.completed) {
+        return NextResponse.json(
+          { ok: true, onboarding: ctx.onboarding },
+          { status: 200, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      const patched = await patchOnboardingAndRefresh({
+        ctx,
+        patch: {
+          welcome_confirmed: Boolean(ctx.onboarding.welcomeConfirmed),
+          completed: false,
+          completed_at: null,
+        },
+        fallbackError: "Nao foi possivel atualizar a presenca do onboarding.",
       });
       if (!patched.ok) return patched.response;
 
