@@ -1224,7 +1224,7 @@ export default function DashboardShell({
         lockMessage={sidebarLockMessage}
       />
 
-      <div className="relative min-w-0 w-full flex-1 overflow-y-auto bg-[#eff0f2] pt-[calc(env(safe-area-inset-top)+58px)] xl:pt-0">
+      <div className="relative min-w-0 w-full flex-1 overflow-y-auto bg-[#eff0f2]">
         <OverviewMain
           onboardingLocked={onboardingUiLocked}
           requestingAdditionalCompany={companyOnboardingLoading}

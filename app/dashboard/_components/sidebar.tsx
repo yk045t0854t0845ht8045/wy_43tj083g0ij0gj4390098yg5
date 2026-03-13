@@ -865,7 +865,7 @@ export default function Sidebar({
       <Script src="https://cdn.lordicon.com/lordicon.js" strategy="afterInteractive" />
 
       {isCompactViewport && (
-        <div className="fixed inset-x-0 top-0 z-[90] xl:hidden">
+        <div className="relative z-[90] w-full shrink-0 xl:hidden">
           <div className="border-b border-white/10 bg-[#0b0d11]/94 text-white shadow-[0_18px_44px_rgba(0,0,0,0.26)] backdrop-blur-[18px]">
             <div
               className="mx-auto flex items-center justify-between gap-3 px-3 pb-3 sm:px-4"
@@ -934,16 +934,15 @@ export default function Sidebar({
         </div>
       )}
 
-      {isCompactViewport && (
+      {isCompactViewport && mobileMenuOpen && (
         <button
           type="button"
           onClick={() => setMobileMenuOpen(false)}
           className={cx(
-            "fixed inset-0 z-[79] bg-[#050608]/36 backdrop-blur-[10px] transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] xl:hidden",
-            mobileMenuOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+            "fixed inset-0 z-[79] bg-[#050608]/36 opacity-100 backdrop-blur-[10px] transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] xl:hidden",
           )}
-          aria-hidden={!mobileMenuOpen}
-          tabIndex={mobileMenuOpen ? 0 : -1}
+          aria-hidden="true"
+          tabIndex={0}
         />
       )}
 
@@ -956,13 +955,11 @@ export default function Sidebar({
           "relative flex flex-col overflow-visible text-black",
           isCompactViewport
             ? cx(
-                "fixed inset-x-3 top-[76px] z-[85] max-h-[calc(100dvh-92px)]",
+                "fixed inset-x-3 top-[calc(env(safe-area-inset-top)+68px)] z-[85] max-h-[calc(100dvh-env(safe-area-inset-top)-84px)]",
                 "rounded-[30px] border border-white/14 bg-[#f6f6f7]/98 backdrop-blur-[18px]",
                 "shadow-[0_28px_80px_rgba(0,0,0,0.34)]",
                 "transform-gpu transition-[transform,opacity] duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
-                mobileMenuOpen
-                  ? "pointer-events-auto translate-y-0 opacity-100"
-                  : "pointer-events-none -translate-y-6 opacity-0",
+                mobileMenuOpen ? "pointer-events-auto translate-y-0 opacity-100" : "hidden",
               )
             : cx(
                 "fixed xl:static",
