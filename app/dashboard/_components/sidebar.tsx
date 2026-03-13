@@ -77,7 +77,7 @@ function useIsCompactSidebarViewport() {
   const [isCompactViewport, setIsCompactViewport] = useState(false);
 
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 1023px)");
+    const mq = window.matchMedia("(max-width: 1279px)");
 
     const apply = () => setIsCompactViewport(mq.matches);
     apply();
@@ -865,7 +865,7 @@ export default function Sidebar({
       <Script src="https://cdn.lordicon.com/lordicon.js" strategy="afterInteractive" />
 
       {isCompactViewport && (
-        <div className="fixed inset-x-0 top-0 z-[90] lg:hidden">
+        <div className="fixed inset-x-0 top-0 z-[90] xl:hidden">
           <div className="border-b border-white/10 bg-[#0b0d11]/94 text-white shadow-[0_18px_44px_rgba(0,0,0,0.26)] backdrop-blur-[18px]">
             <div
               className="mx-auto flex items-center justify-between gap-3 px-3 pb-3 sm:px-4"
@@ -939,7 +939,7 @@ export default function Sidebar({
           type="button"
           onClick={() => setMobileMenuOpen(false)}
           className={cx(
-            "fixed inset-0 z-[79] bg-[#050608]/36 backdrop-blur-[10px] transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:hidden",
+            "fixed inset-0 z-[79] bg-[#050608]/36 backdrop-blur-[10px] transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] xl:hidden",
             mobileMenuOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
           )}
           aria-hidden={!mobileMenuOpen}
@@ -965,16 +965,16 @@ export default function Sidebar({
                   : "pointer-events-none -translate-y-6 opacity-0",
               )
             : cx(
-                "fixed lg:static",
-                "inset-y-0 left-0 lg:inset-auto lg:left-auto",
-                "z-50 lg:z-auto",
+                "fixed xl:static",
+                "inset-y-0 left-0 xl:inset-auto xl:left-auto",
+                "z-50 xl:z-auto",
                 "w-[308px]",
                 "max-w-[calc(100vw-24px)]",
                 isCollapsed
-                  ? "lg:w-[92px] lg:min-w-[92px] lg:max-w-[92px]"
-                  : "lg:w-[308px] lg:min-w-[308px] lg:max-w-[308px]",
+                  ? "xl:w-[92px] xl:min-w-[92px] xl:max-w-[92px]"
+                  : "xl:w-[308px] xl:min-w-[308px] xl:max-w-[308px]",
                 "min-h-svh bg-[#f6f6f7]",
-                "shadow-[0_20px_50px_rgba(0,0,0,0.18)] lg:shadow-none",
+                "shadow-[0_20px_50px_rgba(0,0,0,0.18)] xl:shadow-none",
                 "transform-gpu transition-[width,min-width,max-width] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
               ),
         )}
@@ -1045,7 +1045,7 @@ export default function Sidebar({
                 type="button"
                 onClick={toggleSidebarCollapse}
                 className={cx(
-                  "hidden lg:flex",
+                  "hidden xl:flex",
                   "h-[36px] w-[36px]",
                   "items-center justify-center",
                   "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
@@ -1375,7 +1375,7 @@ export default function Sidebar({
         <div
           className={cx(
             "shrink-0 px-2 pb-3 pt-2",
-            isCompactViewport ? "px-3 sm:px-4" : isCollapsed ? "lg:px-3" : "lg:px-2",
+            isCompactViewport ? "px-3 sm:px-4" : isCollapsed ? "xl:px-3" : "xl:px-2",
           )}
         >
           <ul className="mb-2 space-y-[2px]">
@@ -1434,7 +1434,7 @@ export default function Sidebar({
               type="button"
               onClick={() => setDesktopCollapsed(false)}
               className={cx(
-                "mx-auto hidden lg:flex h-[42px] w-[42px] rounded-xl",
+                "mx-auto hidden xl:flex h-[42px] w-[42px] rounded-xl",
                 "items-center justify-center",
                 "transition-colors duration-200 ease-out hover:bg-white"
               )}
