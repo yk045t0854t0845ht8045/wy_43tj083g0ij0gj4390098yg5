@@ -1223,7 +1223,7 @@ export default function OverviewMain({
               animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
               exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -8, filter: "blur(4px)" }}
               transition={panelTransition}
-              className="space-y-4"
+              className="mx-auto w-full space-y-4 min-[901px]:max-w-[1200px]"
             >
               <div className={overviewCardsGridClassName}>
                 {loadingConfig ? (
