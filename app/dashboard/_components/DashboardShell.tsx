@@ -1212,7 +1212,7 @@ export default function DashboardShell({
   }, [disconnectCountdown, sessionDisconnected]);
 
   return (
-    <div className="min-h-screen bg-white flex flex-col min-[901px]:flex-row">
+    <div className="min-h-screen bg-[#eff0f2] flex flex-col min-[901px]:flex-row">
       <LoadingBase />
       <Sidebar
         activeMain="overview"
@@ -1224,7 +1224,7 @@ export default function DashboardShell({
         lockMessage={sidebarLockMessage}
       />
 
-      <div className="relative min-w-0 w-full flex-1 overflow-y-auto bg-[#eff0f2]">
+      <main className="min-w-0 flex-1">
         <OverviewMain
           onboardingLocked={onboardingUiLocked}
           requestingAdditionalCompany={companyOnboardingLoading}
@@ -1237,7 +1237,7 @@ export default function DashboardShell({
           onConsumePendingCompanySystem={handleConsumePendingCompanySystem}
         />
         <WyzerAIWidget />
-      </div>
+      </main>
 
       <ConfigMain
         open={configOpen}
