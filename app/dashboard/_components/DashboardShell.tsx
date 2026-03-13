@@ -1234,7 +1234,7 @@ export default function DashboardShell({
           lockVariant={sidebarLockVariant}
         />
 
-        <main className="w-full px-3 pb-4 pt-3 sm:px-5 sm:pb-6 sm:pt-4 lg:px-6 lg:py-6 min-[901px]:min-w-0 min-[901px]:flex-1">
+        <main className="grid w-full content-start px-3 pb-4 pt-3 sm:px-5 sm:pb-6 sm:pt-4 lg:px-6 lg:py-6 min-[901px]:min-w-0 min-[901px]:flex-1">
           <OverviewMain
             onboardingLocked={onboardingUiLocked}
             requestingAdditionalCompany={companyOnboardingLoading}

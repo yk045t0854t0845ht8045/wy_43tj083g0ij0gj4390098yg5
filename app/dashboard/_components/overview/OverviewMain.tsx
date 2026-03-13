@@ -582,6 +582,9 @@ export default function OverviewMain({
 }: OverviewMainProps) {
   const reduceMotion = useReducedMotion();
   const skeletonCardIndices = useMemo(() => Array.from({ length: SKELETON_CARD_COUNT }, (_, index) => index), []);
+  const contentRootRef = useRef<HTMLDivElement | null>(null);
+  const previousLoadingRef = useRef(true);
+  const previousModeRef = useRef<"cards" | "wizard" | "success">("cards");
 
   const [mode, setMode] = useState<"cards" | "wizard" | "success">("cards");
   const [activeTopic, setActiveTopic] = useState<WizardTopic>("messages");
@@ -1159,8 +1162,35 @@ export default function OverviewMain({
     return "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4";
   }, [hasSystem, loadingConfig, resolvedSystems.length]);
 
+  useEffect(() => {
+    const isCompactViewport =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(max-width: 900px)")?.matches;
+
+    const becameReady = previousLoadingRef.current && !loadingConfig;
+    const modeChanged = previousModeRef.current !== mode;
+
+    previousLoadingRef.current = loadingConfig;
+    previousModeRef.current = mode;
+
+    if (!isCompactViewport) return;
+    if (!becameReady && !modeChanged) return;
+
+    const root = contentRootRef.current;
+    if (!root) return;
+
+    const alignToTop = () => {
+      const top = Math.max(0, window.scrollY + root.getBoundingClientRect().top - 4);
+      window.scrollTo({ top, left: 0, behavior: "auto" });
+    };
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(alignToTop);
+    });
+  }, [loadingConfig, mode]);
+
   return (
-    <div className="w-full">
+    <div ref={contentRootRef} className="grid w-full content-start self-start">
       <style>{`
         @keyframes overviewSkeletonPulse {
           0%, 100% { opacity: 0.78; }
@@ -1224,7 +1254,7 @@ export default function OverviewMain({
             animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
             exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -8, filter: "blur(4px)" }}
             transition={panelTransition}
-            className="mx-auto w-full max-w-[1000px] space-y-4"
+            className="mx-auto w-full max-w-[1000px] self-start space-y-4"
           >
               <div className={overviewCardsGridClassName}>
                 {loadingConfig ? (
@@ -1445,7 +1475,7 @@ export default function OverviewMain({
             animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
             exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -10, filter: "blur(6px)" }}
             transition={panelTransition}
-            className="mx-auto w-full max-w-[1180px]"
+            className="mx-auto w-full max-w-[1180px] self-start"
           >
               <header className="mb-5">
                 <h2 className="text-[29px] font-semibold tracking-[-0.02em] text-black/86">
@@ -2044,7 +2074,7 @@ export default function OverviewMain({
             animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
             exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -8, filter: "blur(6px)" }}
             transition={panelTransition}
-            className="mx-auto w-full max-w-[860px]"
+            className="mx-auto w-full max-w-[860px] self-start"
           >
               <div className="flex w-full items-center justify-center py-3 sm:py-8">
                 <div className="w-full overflow-hidden rounded-[28px] bg-[#0f1013] p-6 text-white shadow-[0_26px_52px_rgba(0,0,0,0.28)] sm:p-8">
