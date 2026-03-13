@@ -254,7 +254,14 @@ export default function DashboardShell({
   const dashboardNavigationLocked = onboardingUiLocked || primarySystemSetupLocked;
   const sidebarLockMessage = onboardingUiLocked
     ? "Conclua o onboarding para liberar a navegacao"
-    : "";
+    : primarySystemSetupLocked
+      ? "Conclua a configuracao do sistema para liberar a navegacao"
+      : "";
+  const sidebarLockVariant = onboardingUiLocked
+    ? "overlay"
+    : primarySystemSetupLocked
+      ? "dim"
+      : undefined;
 
   const bumpOverviewSyncToken = useCallback(() => {
     setOverviewSyncToken((current) => current + 1);
@@ -1220,11 +1227,12 @@ export default function DashboardShell({
           activeMain="overview"
           userNickname={userNickname}
           userEmail={profileEmail}
-          userPhotoLink={profilePhotoLink}
-          onOpenConfig={handleOpenConfig}
-          locked={dashboardNavigationLocked}
-          lockMessage={sidebarLockMessage}
-        />
+        userPhotoLink={profilePhotoLink}
+        onOpenConfig={handleOpenConfig}
+        locked={dashboardNavigationLocked}
+        lockMessage={sidebarLockMessage}
+        lockVariant={sidebarLockVariant}
+      />
 
         <main className="min-w-0 w-full min-[901px]:flex-1">
           <OverviewMain

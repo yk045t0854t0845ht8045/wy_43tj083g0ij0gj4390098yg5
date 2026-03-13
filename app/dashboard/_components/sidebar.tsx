@@ -371,6 +371,7 @@ type Props = {
   onOpenConfig?: (section?: ConfigSectionId) => void;
   locked?: boolean;
   lockMessage?: string;
+  lockVariant?: "overlay" | "dim";
 };
 
 const SIDEBAR_COLLAPSE_STORAGE_KEY = "dashboard-sidebar-collapsed-v1";
@@ -402,6 +403,7 @@ export default function Sidebar({
   onOpenConfig,
   locked = false,
   lockMessage = "Conclua o onboarding para liberar a navegacao",
+  lockVariant = "overlay",
 }: Props) {
   const [transactionsOpen, setTransactionsOpen] = useState(
     () => activeMain === "transactions"
@@ -422,6 +424,8 @@ export default function Sidebar({
   const [activeMainState, setActiveMainState] = useState<MainItemId>(activeMain);
   const [activeSubState, setActiveSubState] = useState<SubItemId | null>(activeSub);
   const interactionsLocked = Boolean(locked);
+  const usesOverlayLock = interactionsLocked && lockVariant === "overlay";
+  const usesDimLock = interactionsLocked && lockVariant === "dim";
   const isCollapsed = !isCompactViewport && desktopCollapsed;
   const showCollapsedTooltips = isCollapsed && !isCompactViewport;
   const expandedSidebarLogoSrc = "/lg/topj4390tjg83gh43g.svg";
@@ -533,6 +537,7 @@ export default function Sidebar({
     setProfileMenuOpen(false);
     setHelpModalOpen(false);
     setPaymentsTooltipOpen(false);
+    setMobileMenuOpen(false);
   }, [interactionsLocked]);
 
   useEffect(() => {
@@ -867,7 +872,12 @@ export default function Sidebar({
       `}</style>
       <Script src="https://cdn.lordicon.com/lordicon.js" strategy="afterInteractive" />
 
-      <div className="relative z-[90] w-full shrink-0 min-[901px]:hidden">
+      <div
+        className={cx(
+          "relative z-[90] w-full shrink-0 min-[901px]:hidden",
+          usesDimLock && "pointer-events-none select-none opacity-[0.52] saturate-[0.72]"
+        )}
+      >
           <div className="border-b border-white/10 bg-[linear-gradient(135deg,#1a1b1f_0%,#0f1013_58%,#050608_100%)] text-white shadow-[0_18px_44px_rgba(0,0,0,0.26)]">
             <div
               className="mx-auto flex items-center justify-between gap-3 px-3 pb-2.5 sm:px-4"
@@ -954,6 +964,7 @@ export default function Sidebar({
         className={cx(
           !isCompactViewport && "max-[900px]:hidden",
           "relative flex flex-col overflow-visible text-black",
+          usesDimLock && "pointer-events-none select-none opacity-[0.52] saturate-[0.74]",
           isCompactViewport
             ? cx(
                 "fixed inset-x-0 bottom-0 z-[85] max-h-[min(78dvh,720px)] w-full",
@@ -1587,7 +1598,7 @@ export default function Sidebar({
           )}
         </div>
 
-        {interactionsLocked && (
+        {usesOverlayLock && (
           <div
             className="sidebar-lock-shell pointer-events-auto absolute inset-0 z-[180] flex flex-col backdrop-blur-[6px]"
             title={lockMessage}

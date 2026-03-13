@@ -813,9 +813,11 @@ export default function OverviewMain({
           !hasSystem)),
   );
 
+  const isPrimarySystemSetupFocusLocked = requiresInitialPrimarySystemSetup && mode === "wizard";
+
   useEffect(() => {
-    onPrimarySystemSetupLockChange?.(requiresInitialPrimarySystemSetup);
-  }, [onPrimarySystemSetupLockChange, requiresInitialPrimarySystemSetup]);
+    onPrimarySystemSetupLockChange?.(isPrimarySystemSetupFocusLocked);
+  }, [isPrimarySystemSetupFocusLocked, onPrimarySystemSetupLockChange]);
 
   useEffect(() => {
     return () => {
@@ -1158,7 +1160,7 @@ export default function OverviewMain({
   }, [hasSystem, loadingConfig, resolvedSystems.length]);
 
   return (
-    <section className="w-full px-3 pb-4 pt-2 sm:px-5 sm:pb-6 sm:pt-3 lg:px-6 lg:py-6">
+    <div className="w-full">
       <style>{`
         @keyframes overviewSkeletonPulse {
           0%, 100% { opacity: 0.78; }
@@ -1214,7 +1216,7 @@ export default function OverviewMain({
         }
       `}</style>
 
-      <div className="mx-auto w-full max-w-[1380px]">
+      <div className="mx-auto w-full max-w-[1380px] px-3 pb-4 sm:px-5 sm:pb-6 lg:px-6 lg:pb-6">
         <AnimatePresence mode="wait" initial={false}>
           {mode === "cards" ? (
             <motion.div
@@ -1900,7 +1902,7 @@ export default function OverviewMain({
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                          <div className="grid grid-cols-1 gap-4">
                             <article className="rounded-2xl bg-white/78 p-4 shadow-[0_10px_24px_rgba(0,0,0,0.045)] sm:p-5">
                               <h4 className="text-[14px] font-semibold text-black/80">
                                 Fluxo que entra em operacao
@@ -1911,17 +1913,6 @@ export default function OverviewMain({
                                 <li>Coleta automatica dos dados habilitados.</li>
                                 <li>Encerramento corporativo apos concluir o fluxo basico.</li>
                               </ul>
-                            </article>
-
-                            <article className="rounded-2xl bg-white/78 p-4 shadow-[0_10px_24px_rgba(0,0,0,0.045)] sm:p-5">
-                              <h4 className="text-[14px] font-semibold text-black/80">
-                                Escopo desta versao
-                              </h4>
-                              <p className="mt-3 text-[13px] leading-relaxed text-black/62">
-                                O atendimento automatico essencial continua rodando primeiro, mas
-                                as configuracoes de IA e fallback seguem sendo coletadas normalmente
-                                para nao perder contexto da empresa.
-                              </p>
                             </article>
                           </div>
                         </>
@@ -2135,6 +2126,6 @@ export default function OverviewMain({
           )}
         </AnimatePresence>
       </div>
-    </section>
+    </div>
   );
 }
