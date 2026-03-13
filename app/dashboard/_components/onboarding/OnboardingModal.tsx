@@ -586,6 +586,8 @@ const COMPANY_LOGO_ALLOWED_MIME_TYPES = new Set([
 const CLIENT_REQUEST_TIMEOUT_MS = 15000;
 const ONBOARDING_FETCH_MAX_ATTEMPTS = 3;
 const ONBOARDING_FETCH_RETRY_DELAY_MS = 900;
+const ONBOARDING_LOADING_RECOVERY_AFTER_MS = 2000;
+const ONBOARDING_LOADING_RECOVERY_MAX_ATTEMPTS = 3;
 const WHATSAPP_QR_REQUEST_TIMEOUT_MS = 70000;
 const WHATSAPP_QR_MAX_ATTEMPTS = 3;
 const WHATSAPP_QR_RETRY_DELAY_MS = 1800;
@@ -833,6 +835,8 @@ export default function OnboardingModal({
   const loadedDraftKeyRef = useRef<string | null>(null);
   const latestFetchRequestIdRef = useRef(0);
   const silentFetchInFlightRef = useRef(false);
+  const loadingRecoveryAttemptsRef = useRef(0);
+  const loadingRecoveryInFlightRef = useRef(false);
   const companyFormDirtyRef = useRef(false);
   const teamFormDirtyRef = useRef(false);
   const hasLoadedOnboardingRef = useRef(Boolean(initialData));
@@ -1222,11 +1226,13 @@ export default function OnboardingModal({
         if (requestId === latestFetchRequestIdRef.current) {
           setBootstrapSettled(true);
         }
+        loadingRecoveryInFlightRef.current = false;
         if (silent) {
           silentFetchInFlightRef.current = false;
         }
         if (!silent) {
           if (requestId === latestFetchRequestIdRef.current) {
+            loadingRecoveryAttemptsRef.current = 0;
             setLoading(false);
           }
         }
@@ -1358,6 +1364,28 @@ export default function OnboardingModal({
     if (!open) return;
     void fetchOnboarding({ silent: hasLoadedOnboardingRef.current });
   }, [fetchOnboarding, open]);
+
+  useEffect(() => {
+    if (!open || !loading) {
+      loadingRecoveryAttemptsRef.current = 0;
+      loadingRecoveryInFlightRef.current = false;
+      return;
+    }
+
+    const timerId = window.setInterval(() => {
+      if (!open || !loading) return;
+      if (loadingRecoveryAttemptsRef.current >= ONBOARDING_LOADING_RECOVERY_MAX_ATTEMPTS) return;
+      if (loadingRecoveryInFlightRef.current) return;
+      loadingRecoveryInFlightRef.current = true;
+      loadingRecoveryAttemptsRef.current += 1;
+      void fetchOnboarding();
+    }, ONBOARDING_LOADING_RECOVERY_AFTER_MS);
+
+    return () => {
+      loadingRecoveryInFlightRef.current = false;
+      window.clearInterval(timerId);
+    };
+  }, [fetchOnboarding, loading, open]);
 
   useEffect(() => {
     if (open) return;

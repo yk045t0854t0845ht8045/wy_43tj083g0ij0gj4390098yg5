@@ -46,6 +46,7 @@ const WHATSAPP_QR_WAIT_TIMEOUT_MS = 12000;
 const WHATSAPP_QR_MAX_ACQUIRE_WINDOW_MS = 1000 * 60;
 const WHATSAPP_QR_MAX_FORCED_RESTARTS = 2;
 const WHATSAPP_CONNECTING_STALE_MS = 45000;
+const WHATSAPP_SOFT_SYNC_TIMEOUT_MS = 2000;
 const WHATSAPP_PROVIDER_NAME = "self-hosted-baileys";
 const ONBOARDING_GOAL_OPTIONS = new Set(["support", "sales", "scheduling", "billing", "mixed"]);
 const MONTHLY_CONVERSATION_OPTIONS = new Set([
@@ -101,6 +102,23 @@ const ONBOARDING_ALLOWED_STEPS = new Set<OnboardingUiStep>([
 function getErrorMessage(error: unknown, fallback: string) {
   const message = String((error as { message?: unknown } | null)?.message || "").trim();
   return message || fallback;
+}
+
+async function runWithSoftTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise.then((value) => ({ timedOut: false as const, value })),
+      new Promise<{ timedOut: true }>((resolve) => {
+        timeoutId = setTimeout(() => resolve({ timedOut: true }), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 function scheduleOnboardingMaintenance(params: {
@@ -735,17 +753,23 @@ export async function GET(req: NextRequest) {
         (onboarding.uiStep === "final" && !onboarding.whatsappConnected));
 
     if (shouldSyncWhatsApp) {
-      const sync = await syncWhatsAppWithProvider({
-        ctx: {
-          ...ctx,
-          onboarding,
-        },
-        requireQr: false,
-      });
-      if (!sync.ok) {
+      const syncAttempt = await runWithSoftTimeout(
+        syncWhatsAppWithProvider({
+          ctx: {
+            ...ctx,
+            onboarding,
+          },
+          requireQr: false,
+        }),
+        WHATSAPP_SOFT_SYNC_TIMEOUT_MS,
+      );
+      if (syncAttempt.timedOut) {
+        whatsappState = onboarding.whatsappConnected ? "open" : "connecting";
+      } else if (!syncAttempt.value.ok) {
         console.error("[company-onboarding] soft WhatsApp sync failure on GET");
         whatsappState = onboarding.whatsappConnected ? "open" : "error";
       } else {
+        const sync = syncAttempt.value;
         onboarding = sync.onboarding;
         whatsappState = sync.whatsappState;
         qrCodeDataUrl = sync.qrCodeDataUrl;
@@ -1020,14 +1044,30 @@ export async function POST(req: NextRequest) {
       });
       if (!patched.ok) return patched.response;
 
-      const sync = await syncWhatsAppWithProvider({
-        ctx: {
-          ...ctx,
-          onboarding: patched.onboarding,
-        },
-        requireQr: true,
-      });
-      if (!sync.ok) {
+      const syncAttempt = await runWithSoftTimeout(
+        syncWhatsAppWithProvider({
+          ctx: {
+            ...ctx,
+            onboarding: patched.onboarding,
+          },
+          requireQr: true,
+        }),
+        WHATSAPP_SOFT_SYNC_TIMEOUT_MS,
+      );
+      if (syncAttempt.timedOut) {
+        return NextResponse.json(
+          {
+            ok: true,
+            onboarding: patched.onboarding,
+            whatsappState: "connecting",
+            whatsappProvider: WHATSAPP_PROVIDER_NAME,
+            providerConfigured: isOwnWhatsAppProviderConfigured(),
+          },
+          { status: 200, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      if (!syncAttempt.value.ok) {
         console.error("[company-onboarding] soft WhatsApp bootstrap failure after save-team");
         return NextResponse.json(
           {
@@ -1040,6 +1080,8 @@ export async function POST(req: NextRequest) {
           { status: 200, headers: NO_STORE_HEADERS },
         );
       }
+
+      const sync = syncAttempt.value;
 
       return NextResponse.json(
         {
