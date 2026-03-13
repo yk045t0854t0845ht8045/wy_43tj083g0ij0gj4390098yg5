@@ -374,6 +374,7 @@ type Props = {
   locked?: boolean;
   lockMessage?: string;
   lockVariant?: "overlay" | "dim";
+  compactViewport?: boolean;
 };
 
 const SIDEBAR_COLLAPSE_STORAGE_KEY = "dashboard-sidebar-collapsed-v1";
@@ -406,11 +407,14 @@ export default function Sidebar({
   locked = false,
   lockMessage = "Conclua o onboarding para liberar a navegacao",
   lockVariant = "overlay",
+  compactViewport,
 }: Props) {
   const [transactionsOpen, setTransactionsOpen] = useState(
     () => activeMain === "transactions"
   );
-  const isCompactViewport = useIsCompactSidebarViewport();
+  const detectedCompactViewport = useIsCompactSidebarViewport();
+  const isCompactViewport =
+    typeof compactViewport === "boolean" ? compactViewport : detectedCompactViewport;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [collapseLoaded, setCollapseLoaded] = useState(false);
@@ -876,7 +880,7 @@ export default function Sidebar({
 
       <div
         className={cx(
-          "relative z-[90] w-full shrink-0 min-[901px]:hidden",
+          isCompactViewport ? "relative z-[90] w-full shrink-0" : "hidden",
           usesDimLock && "pointer-events-none select-none opacity-[0.52] saturate-[0.72]"
         )}
       >
@@ -951,7 +955,7 @@ export default function Sidebar({
           type="button"
           onClick={() => setMobileMenuOpen(false)}
           className={cx(
-            "fixed inset-0 z-[79] bg-[#050608]/36 backdrop-blur-[10px] transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] min-[901px]:hidden",
+            "fixed inset-0 z-[79] bg-[#050608]/36 backdrop-blur-[10px] transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
           )}
           aria-hidden="true"
           tabIndex={0}
@@ -964,7 +968,6 @@ export default function Sidebar({
         aria-modal={isCompactViewport ? true : undefined}
         aria-label={isCompactViewport ? "Menu principal" : undefined}
         className={cx(
-          !isCompactViewport && "max-[900.98px]:hidden",
           "relative flex flex-col overflow-visible text-black",
           usesDimLock && "pointer-events-none select-none opacity-[0.52] saturate-[0.74]",
           isCompactViewport
