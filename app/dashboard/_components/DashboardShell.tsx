@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WyzerAIWidget } from "@/app/wyzerai/page";
 import LoadingBase from "./LoadingBase";
 import Sidebar from "./sidebar";
@@ -48,7 +48,6 @@ const PASSWORD_SETUP_PROMPT_STORAGE_PREFIX = "wz:password-setup:prompt-shown:";
 const DASHBOARD_REQUEST_TIMEOUT_MS = 12000;
 const DASHBOARD_FETCH_MAX_ATTEMPTS = 3;
 const DASHBOARD_FETCH_RETRY_DELAY_MS = 900;
-const DASHBOARD_COMPACT_MEDIA_QUERY = "(max-width: 900.98px)";
 
 type PendingCompanySystemContext = {
   id: string;
@@ -108,23 +107,6 @@ function buildLoginRedirectUrlClient() {
 
 async function waitFor(ms: number) {
   await new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function useIsCompactDashboardViewport() {
-  const [isCompactViewport, setIsCompactViewport] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.matchMedia(DASHBOARD_COMPACT_MEDIA_QUERY).matches;
-  });
-
-  useLayoutEffect(() => {
-    const mq = window.matchMedia(DASHBOARD_COMPACT_MEDIA_QUERY);
-    const apply = () => setIsCompactViewport(mq.matches);
-    apply();
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
-  }, []);
-
-  return isCompactViewport;
 }
 
 async function fetchJsonWithRetry<T>(params: {
@@ -210,7 +192,6 @@ export default function DashboardShell({
   userTwoFactorDisabledAt = null,
   userAccountCreatedAt = null,
 }: DashboardShellProps) {
-  const isCompactViewport = useIsCompactDashboardViewport();
   const [configOpen, setConfigOpen] = useState(false);
   const [configSection, setConfigSection] = useState<ConfigSectionId>("my-account");
   const [profileEmail, setProfileEmail] = useState<string>(
@@ -1241,8 +1222,8 @@ export default function DashboardShell({
     <div className="min-h-screen overflow-x-hidden bg-[#eff0f2]">
       <LoadingBase />
 
-      <div className={isCompactViewport ? "flex min-h-screen flex-col" : "flex min-h-screen flex-row items-stretch"}>
-        <div className={isCompactViewport ? "w-full shrink-0" : "contents"}>
+      <div className="flex min-h-screen flex-col min-[901px]:flex-row min-[901px]:items-stretch">
+        <div className="w-full shrink-0 min-[901px]:contents">
           <Sidebar
             activeMain="overview"
             userNickname={userNickname}
@@ -1252,7 +1233,6 @@ export default function DashboardShell({
             locked={dashboardNavigationLocked}
             lockMessage={sidebarLockMessage}
             lockVariant={sidebarLockVariant}
-            compactViewport={isCompactViewport}
           />
         </div>
 

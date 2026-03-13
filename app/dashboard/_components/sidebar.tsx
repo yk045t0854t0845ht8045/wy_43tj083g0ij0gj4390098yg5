@@ -83,12 +83,31 @@ function useIsCompactSidebarViewport() {
 
   useLayoutEffect(() => {
     const mq = window.matchMedia(COMPACT_SIDEBAR_MEDIA_QUERY);
-
-    const apply = () => setIsCompactViewport(mq.matches);
+    const apply = () => {
+      const byQuery = mq.matches;
+      const byWidth =
+        typeof window !== "undefined" && Number.isFinite(window.innerWidth)
+          ? window.innerWidth <= 900.98
+          : false;
+      setIsCompactViewport(byQuery || byWidth);
+    };
     apply();
 
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
+    if (typeof mq.addEventListener === "function") {
+      mq.addEventListener("change", apply);
+    } else {
+      mq.addListener(apply);
+    }
+    window.addEventListener("resize", apply);
+
+    return () => {
+      if (typeof mq.removeEventListener === "function") {
+        mq.removeEventListener("change", apply);
+      } else {
+        mq.removeListener(apply);
+      }
+      window.removeEventListener("resize", apply);
+    };
   }, []);
 
   return isCompactViewport;
@@ -374,7 +393,6 @@ type Props = {
   locked?: boolean;
   lockMessage?: string;
   lockVariant?: "overlay" | "dim";
-  compactViewport?: boolean;
 };
 
 const SIDEBAR_COLLAPSE_STORAGE_KEY = "dashboard-sidebar-collapsed-v1";
@@ -407,14 +425,11 @@ export default function Sidebar({
   locked = false,
   lockMessage = "Conclua o onboarding para liberar a navegacao",
   lockVariant = "overlay",
-  compactViewport,
 }: Props) {
   const [transactionsOpen, setTransactionsOpen] = useState(
     () => activeMain === "transactions"
   );
-  const detectedCompactViewport = useIsCompactSidebarViewport();
-  const isCompactViewport =
-    typeof compactViewport === "boolean" ? compactViewport : detectedCompactViewport;
+  const isCompactViewport = useIsCompactSidebarViewport();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [collapseLoaded, setCollapseLoaded] = useState(false);
@@ -880,7 +895,7 @@ export default function Sidebar({
 
       <div
         className={cx(
-          isCompactViewport ? "relative z-[90] w-full shrink-0" : "hidden",
+          "relative z-[90] w-full shrink-0 min-[901px]:hidden",
           usesDimLock && "pointer-events-none select-none opacity-[0.52] saturate-[0.72]"
         )}
       >
@@ -992,6 +1007,7 @@ export default function Sidebar({
                     isCollapsed
                       ? "w-[92px] min-w-[92px] max-w-[92px]"
                       : "w-[308px] min-w-[308px] max-w-[308px]",
+                    "max-[900.98px]:hidden",
                     "min-h-screen bg-[#f6f6f7]",
                     "shadow-none",
                     "transform-gpu transition-[width,min-width,max-width] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",

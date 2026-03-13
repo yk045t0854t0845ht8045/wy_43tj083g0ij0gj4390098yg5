@@ -6291,7 +6291,7 @@ function AuthorizedAppsContent() {
                 <div
                   key={provider.id}
                   className={cx(
-                    "relative z-[1] flex items-center gap-4 px-4 py-5 overflow-visible hover:z-[260] focus-within:z-[260]",
+                    "relative z-[1] flex min-w-0 items-center gap-4 px-4 py-5 overflow-visible hover:z-[260] focus-within:z-[260]",
                     idx > 0 && "border-t border-black/10",
                   )}
                 >
@@ -6384,12 +6384,18 @@ function AuthorizedAppsContent() {
                       </span>
                     </div>
                     {provider.provider === "password" ? (
-                      <p className="mt-1 text-[13px] text-black/56">
-                        Email de acesso: {maskedLinkedEmail || "indisponível"}
+                      <p className="mt-1 flex min-w-0 items-center gap-1 whitespace-nowrap text-[13px] text-black/56">
+                        <span className="shrink-0">Email de acesso:</span>
+                        <span className="min-w-0 truncate" title={maskedLinkedEmail || "indisponível"}>
+                          {maskedLinkedEmail || "indisponível"}
+                        </span>
                       </p>
                     ) : maskedLinkedEmail ? (
-                      <p className="mt-1 text-[13px] text-black/56">
-                        Email vinculado: {maskedLinkedEmail}
+                      <p className="mt-1 flex min-w-0 items-center gap-1 whitespace-nowrap text-[13px] text-black/56">
+                        <span className="shrink-0">Email vinculado:</span>
+                        <span className="min-w-0 truncate" title={maskedLinkedEmail}>
+                          {maskedLinkedEmail}
+                        </span>
                       </p>
                     ) : null}
                   </div>
@@ -6633,6 +6639,25 @@ function formatDeviceSeenLabel(value?: string | null) {
   return `há ${base}`;
 }
 
+function formatDeviceLocationLabel(value?: string | null) {
+  const clean = String(value || "").trim();
+  if (!clean) return "Localização indisponível";
+
+  const withoutTrailingHost = clean
+    .replace(/\s+\(([a-z0-9.-]+(?::\d+)?)\)\s*$/i, (_, host: string) => {
+      const normalizedHost = String(host || "").trim().toLowerCase();
+      if (!normalizedHost) return "";
+      const looksLikeHost =
+        normalizedHost === "localhost" ||
+        normalizedHost.includes(".") ||
+        normalizedHost.includes(":");
+      return looksLikeHost ? "" : ` (${host})`;
+    })
+    .trim();
+
+  return withoutTrailingHost || "Localização indisponível";
+}
+
 function DevicesContent() {
   const mountedRef = useRef(true);
   const pollInFlightRef = useRef(false);
@@ -6873,7 +6898,7 @@ function DevicesContent() {
             <div>
               <p className="text-[15px] font-semibold text-black/78">{resolvedCurrentDevice.label}</p>
               <p className="mt-1 text-[15px] text-black/58">
-                {resolvedCurrentDevice.location || "Localização indisponível"}
+                {formatDeviceLocationLabel(resolvedCurrentDevice.location)}
                 {resolvedCurrentDevice.lastSeenAt
                   ? ` - ${formatDeviceSeenLabel(resolvedCurrentDevice.lastSeenAt)}`
                   : ""}
@@ -6898,7 +6923,7 @@ function DevicesContent() {
                 <div className="min-w-0 flex-1">
                   <p className="text-[15px] font-semibold text-black/78">{device.label}</p>
                   <p className="mt-1 truncate text-[15px] text-black/58">
-                    {device.location || "Localização indisponível"} - {formatDeviceSeenLabel(device.lastSeenAt)}
+                    {formatDeviceLocationLabel(device.location)} - {formatDeviceSeenLabel(device.lastSeenAt)}
                   </p>
                 </div>
                 <button
@@ -6961,7 +6986,7 @@ function DevicesContent() {
                   <div className="mt-4 rounded-xl border border-black/12 bg-white/80 px-4 py-3">
                     <p className="text-[14px] font-semibold text-black/78">{confirmingDevice.label}</p>
                     <p className="mt-1 text-[14px] text-black/58">
-                      {confirmingDevice.location || "Localização indisponível"}
+                      {formatDeviceLocationLabel(confirmingDevice.location)}
                     </p>
                   </div>
 
