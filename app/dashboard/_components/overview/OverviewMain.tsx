@@ -1192,7 +1192,7 @@ export default function OverviewMain({
   }, [loadingConfig, mode]);
 
   return (
-    <div ref={contentRootRef} className="grid w-full content-start self-start">
+    <div ref={contentRootRef} className="w-full self-start">
       <style>{`
         @keyframes overviewSkeletonPulse {
           0%, 100% { opacity: 0.78; }

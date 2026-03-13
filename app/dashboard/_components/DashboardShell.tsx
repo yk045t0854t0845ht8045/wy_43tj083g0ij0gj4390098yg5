@@ -1222,19 +1222,21 @@ export default function DashboardShell({
     <div className="min-h-screen overflow-x-hidden bg-[#eff0f2]">
       <LoadingBase />
 
-      <div className="min-h-screen min-[901px]:flex min-[901px]:items-stretch">
-        <Sidebar
-          activeMain="overview"
-          userNickname={userNickname}
-          userEmail={profileEmail}
-          userPhotoLink={profilePhotoLink}
-          onOpenConfig={handleOpenConfig}
-          locked={dashboardNavigationLocked}
-          lockMessage={sidebarLockMessage}
-          lockVariant={sidebarLockVariant}
-        />
+      <div className="flex min-h-screen flex-col min-[901px]:flex-row min-[901px]:items-stretch">
+        <div className="w-full shrink-0 min-[901px]:contents">
+          <Sidebar
+            activeMain="overview"
+            userNickname={userNickname}
+            userEmail={profileEmail}
+            userPhotoLink={profilePhotoLink}
+            onOpenConfig={handleOpenConfig}
+            locked={dashboardNavigationLocked}
+            lockMessage={sidebarLockMessage}
+            lockVariant={sidebarLockVariant}
+          />
+        </div>
 
-        <main className="grid w-full content-start px-3 pb-4 pt-3 sm:px-5 sm:pb-6 sm:pt-4 lg:px-6 lg:py-6 min-[901px]:min-w-0 min-[901px]:flex-1">
+        <main className="flex w-full min-w-0 flex-1 flex-col px-3 pb-4 pt-3 sm:px-5 sm:pb-6 sm:pt-4 lg:px-6 lg:py-6">
           <OverviewMain
             onboardingLocked={onboardingUiLocked}
             requestingAdditionalCompany={companyOnboardingLoading}
