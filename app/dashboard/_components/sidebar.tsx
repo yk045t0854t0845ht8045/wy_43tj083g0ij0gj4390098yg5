@@ -448,8 +448,9 @@ export default function Sidebar({
   const interactionsLocked = Boolean(locked);
   const usesOverlayLock = interactionsLocked && lockVariant === "overlay";
   const usesDimLock = interactionsLocked && lockVariant === "dim";
-  const isCollapsed = !isCompactViewport && desktopCollapsed;
-  const showCollapsedTooltips = isCollapsed && !isCompactViewport;
+  const compactLayoutActive = isCompactViewport || mobileMenuOpen;
+  const isCollapsed = !compactLayoutActive && desktopCollapsed;
+  const showCollapsedTooltips = isCollapsed && !compactLayoutActive;
   const expandedSidebarLogoSrc = "/lg/topj4390tjg83gh43g.svg";
   const collapsedSidebarLogoSrc = "/logo-m.svg";
   const preferredSidebarLogoSrc = isCollapsed
@@ -580,7 +581,7 @@ export default function Sidebar({
   }, [isCompactViewport]);
 
   useEffect(() => {
-    if (!isCompactViewport || !mobileMenuOpen) return;
+    if (!mobileMenuOpen) return;
 
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -594,7 +595,7 @@ export default function Sidebar({
       document.body.style.overflow = prevOverflow;
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [isCompactViewport, mobileMenuOpen]);
+  }, [mobileMenuOpen]);
 
   useEffect(() => {
     if (!helpModalOpen) return;
@@ -755,7 +756,7 @@ export default function Sidebar({
   const openHelpModal = () => {
     if (interactionsLocked) return;
     setProfileMenuOpen(false);
-    if (isCompactViewport) {
+    if (compactLayoutActive) {
       setMobileMenuOpen(false);
     }
     setHelpModalOpen(true);
@@ -807,7 +808,7 @@ export default function Sidebar({
 
   const toggleSidebarCollapse = () => {
     if (interactionsLocked) return;
-    if (isCompactViewport) return;
+    if (compactLayoutActive) return;
     setDesktopCollapsed((v) => !v);
   };
 
@@ -966,14 +967,15 @@ export default function Sidebar({
           </div>
       </div>
 
-      {isCompactViewport && mobileMenuOpen && typeof document !== "undefined"
+      {mobileMenuOpen && typeof document !== "undefined"
         ? createPortal(
             <button
               type="button"
               onClick={() => setMobileMenuOpen(false)}
               className={cx(
-                "fixed inset-0 z-[940] bg-[#050608]/36 backdrop-blur-[10px] transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                "fixed inset-0 z-[940] bg-[#050608]/36 backdrop-blur-[10px] transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] min-[901px]:hidden",
               )}
+              style={{ zIndex: 3200 }}
               aria-hidden="true"
               tabIndex={0}
             />,
@@ -984,18 +986,18 @@ export default function Sidebar({
       {(() => {
         const sidebarPanelLayer = (
           <>
-        {(!isCompactViewport || mobileMenuOpen) && (
+        {(!compactLayoutActive || mobileMenuOpen) && (
           <aside
-            id={isCompactViewport ? "dashboard-mobile-sidebar" : undefined}
-            role={isCompactViewport ? "dialog" : undefined}
-            aria-modal={isCompactViewport ? true : undefined}
-            aria-label={isCompactViewport ? "Menu principal" : undefined}
+            id={mobileMenuOpen ? "dashboard-mobile-sidebar" : undefined}
+            role={mobileMenuOpen ? "dialog" : undefined}
+            aria-modal={mobileMenuOpen ? true : undefined}
+            aria-label={mobileMenuOpen ? "Menu principal" : undefined}
             className={cx(
               "relative flex flex-col overflow-visible text-black",
-              usesDimLock && "pointer-events-none select-none opacity-[0.52] saturate-[0.74]",
-              isCompactViewport
+              usesDimLock && !mobileMenuOpen && "pointer-events-none select-none opacity-[0.52] saturate-[0.74]",
+              mobileMenuOpen
                 ? cx(
-                    "fixed inset-x-0 bottom-0 z-[950] max-h-[min(78dvh,720px)] w-full pointer-events-auto",
+                    "fixed inset-x-0 bottom-0 w-full pointer-events-auto min-[901px]:hidden",
                     "rounded-t-[28px] border-t border-white/14 bg-[#f6f6f7]/98 backdrop-blur-[18px]",
                     "shadow-[0_-24px_60px_rgba(0,0,0,0.28)]",
                     "will-change-transform"
@@ -1011,15 +1013,23 @@ export default function Sidebar({
                     "transform-gpu transition-[width,min-width,max-width] duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
                   ),
             )}
+            style={
+              mobileMenuOpen
+                ? {
+                    zIndex: 3210,
+                    maxHeight: "min(78dvh, 720px)",
+                  }
+                : undefined
+            }
           >
         <div
           className={cx(
-            isCompactViewport ? "px-4 pb-0 pt-3" : "pt-2.5",
+            compactLayoutActive ? "px-4 pb-0 pt-3" : "pt-2.5",
             "transition-[padding] duration-[300ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-            !isCompactViewport && (isCollapsed ? "px-3" : "px-2"),
+            !compactLayoutActive && (isCollapsed ? "px-3" : "px-2"),
           )}
         >
-          {isCompactViewport && (
+          {compactLayoutActive && (
             <div className="mb-3 flex justify-center">
               <span className="h-1.5 w-12 rounded-full bg-black/14" aria-hidden="true" />
             </div>
@@ -1035,7 +1045,7 @@ export default function Sidebar({
                 "h-[44px]",
                 "flex items-center overflow-hidden",
                 "transition-[width,padding] duration-[320ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-                isCompactViewport
+                compactLayoutActive
                   ? "flex-1 justify-start px-2"
                   : isCollapsed
                     ? "w-[44px] px-0 justify-center"
@@ -1062,7 +1072,7 @@ export default function Sidebar({
                 className={cx(
                   "object-contain shrink-0",
                   "transition-[width,height,transform] duration-[320ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-                  isCompactViewport
+                  compactLayoutActive
                     ? "h-9 w-auto max-w-[132px]"
                     : isCollapsed
                       ? "h-7 w-7"
@@ -1078,7 +1088,7 @@ export default function Sidebar({
                 type="button"
                 onClick={toggleSidebarCollapse}
                 className={cx(
-                  isCompactViewport ? "hidden" : "flex",
+                  compactLayoutActive ? "hidden" : "flex",
                   "h-[36px] w-[36px]",
                   "items-center justify-center",
                   "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
@@ -1095,7 +1105,7 @@ export default function Sidebar({
               type="button"
               onClick={() => setMobileMenuOpen(false)}
               className={cx(
-                isCompactViewport ? "flex" : "hidden",
+                compactLayoutActive ? "flex" : "hidden",
                 "h-[44px] w-[44px] rounded-xl",
                 "items-center justify-center",
                 "transition-transform duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.98]"
@@ -1113,7 +1123,7 @@ export default function Sidebar({
           className={cx(
             "mt-3 flex-1 overscroll-contain",
             showCollapsedTooltips ? "overflow-visible" : "overflow-y-auto",
-            isCompactViewport ? "px-4 pb-2" : isCollapsed ? "px-3" : "px-2"
+            compactLayoutActive ? "px-4 pb-2" : isCollapsed ? "px-3" : "px-2"
           )}
         >
           <LayoutGroup id="sidebar-active-pills">
@@ -1408,7 +1418,7 @@ export default function Sidebar({
         <div
           className={cx(
             "shrink-0 px-2 pb-3 pt-2",
-            isCompactViewport ? "px-4 pb-[max(16px,env(safe-area-inset-bottom))]" : isCollapsed ? "px-3" : "px-2",
+            compactLayoutActive ? "px-4 pb-[max(16px,env(safe-area-inset-bottom))]" : isCollapsed ? "px-3" : "px-2",
           )}
         >
           <ul className="mb-2 space-y-[2px]">
@@ -1467,7 +1477,7 @@ export default function Sidebar({
               type="button"
               onClick={() => setDesktopCollapsed(false)}
               className={cx(
-                isCompactViewport ? "hidden" : "mx-auto flex",
+                compactLayoutActive ? "hidden" : "mx-auto flex",
                 "h-[42px] w-[42px] rounded-xl",
                 "items-center justify-center",
                 "transition-colors duration-200 ease-out hover:bg-white"
@@ -1674,7 +1684,7 @@ export default function Sidebar({
           </>
         );
 
-        if (isCompactViewport && typeof document !== "undefined") {
+        if (mobileMenuOpen && typeof document !== "undefined") {
           return createPortal(sidebarPanelLayer, document.body);
         }
 
