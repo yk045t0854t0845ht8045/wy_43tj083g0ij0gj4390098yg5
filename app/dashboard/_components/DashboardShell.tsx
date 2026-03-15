@@ -48,6 +48,7 @@ const PASSWORD_SETUP_PROMPT_STORAGE_PREFIX = "wz:password-setup:prompt-shown:";
 const DASHBOARD_REQUEST_TIMEOUT_MS = 12000;
 const DASHBOARD_FETCH_MAX_ATTEMPTS = 3;
 const DASHBOARD_FETCH_RETRY_DELAY_MS = 900;
+const MOBILE_TOPBAR_SAFE_OFFSET = "88px";
 
 type PendingCompanySystemContext = {
   id: string;
@@ -1219,11 +1220,11 @@ export default function DashboardShell({
   }, [disconnectCountdown, sessionDisconnected]);
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#eff0f2]">
+    <div className="min-h-[100dvh] overflow-x-hidden bg-[#eff0f2]">
       <LoadingBase />
 
-      <div className="flex min-h-screen flex-col min-[901px]:flex-row min-[901px]:items-stretch">
-        <div className="w-full shrink-0 min-[901px]:contents">
+      <div className="relative flex min-h-[100dvh] flex-col min-[901px]:flex-row">
+        <div className="fixed inset-x-0 top-0 z-40 min-[901px]:static min-[901px]:inset-auto min-[901px]:z-auto">
           <Sidebar
             activeMain="overview"
             userNickname={userNickname}
@@ -1236,19 +1237,21 @@ export default function DashboardShell({
           />
         </div>
 
-        <main className="flex w-full min-w-0 flex-1 flex-col px-3 pb-4 pt-3 sm:px-5 sm:pb-6 sm:pt-4 lg:px-6 lg:py-6">
-          <OverviewMain
-            onboardingLocked={onboardingUiLocked}
-            requestingAdditionalCompany={companyOnboardingLoading}
-            pendingCompanySystemContext={pendingCompanySystemContext}
-            primaryOnboardingState={onboardingData}
-            syncToken={overviewSyncToken}
-            primarySystemReadyToken={primarySystemReadyToken}
-            onPrimarySystemSetupLockChange={setPrimarySystemSetupLocked}
-            onRequestAddSystemOnboarding={startAdditionalCompanyOnboarding}
-            onConsumePendingCompanySystem={handleConsumePendingCompanySystem}
-          />
-          <WyzerAIWidget />
+        <main className="min-w-0 flex-1 px-3 pb-4 pt-[calc(env(safe-area-inset-top)+88px)] sm:px-5 sm:pb-6 sm:pt-[calc(env(safe-area-inset-top)+96px)] lg:px-6 min-[901px]:pt-6 min-[901px]:pb-6">
+          <div className="mx-auto w-full max-w-[1600px]">
+            <OverviewMain
+              onboardingLocked={onboardingUiLocked}
+              requestingAdditionalCompany={companyOnboardingLoading}
+              pendingCompanySystemContext={pendingCompanySystemContext}
+              primaryOnboardingState={onboardingData}
+              syncToken={overviewSyncToken}
+              primarySystemReadyToken={primarySystemReadyToken}
+              onPrimarySystemSetupLockChange={setPrimarySystemSetupLocked}
+              onRequestAddSystemOnboarding={startAdditionalCompanyOnboarding}
+              onConsumePendingCompanySystem={handleConsumePendingCompanySystem}
+            />
+            <WyzerAIWidget />
+          </div>
         </main>
       </div>
 

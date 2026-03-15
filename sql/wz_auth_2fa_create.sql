@@ -170,3 +170,4 @@ exception
     raise notice 'wz_auth_2fa backfill ignorado: %', sqlerrm;
 end;
 $$;
+-- new

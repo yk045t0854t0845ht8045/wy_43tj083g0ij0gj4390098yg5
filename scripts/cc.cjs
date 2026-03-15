@@ -36,3 +36,4 @@ rl.question("Motivo do Commit: ", (answer) => {
   runGit(["commit", "-m", commitMessage]);
   runGit(["push"]);
 });
+// código geral por ia
