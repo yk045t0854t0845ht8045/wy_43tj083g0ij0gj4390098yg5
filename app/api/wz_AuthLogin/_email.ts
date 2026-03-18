@@ -267,6 +267,52 @@ function recipientAccepted(accepted: unknown[], target: string) {
   });
 }
 
+function errorText(error: unknown) {
+  const asRecord =
+    error && typeof error === "object" ? (error as Record<string, unknown>) : null;
+  return [
+    String(asRecord?.message || ""),
+    String(asRecord?.response || ""),
+    String(asRecord?.command || ""),
+    String(asRecord?.code || ""),
+  ]
+    .join(" ")
+    .trim()
+    .toLowerCase();
+}
+
+function isRetryableSmtpError(error: unknown) {
+  const asRecord =
+    error && typeof error === "object" ? (error as Record<string, unknown>) : null;
+  const code = String(asRecord?.code || "")
+    .trim()
+    .toUpperCase();
+  if (
+    code === "ETIMEDOUT" ||
+    code === "ESOCKET" ||
+    code === "ECONNECTION" ||
+    code === "ECONNRESET" ||
+    code === "EPIPE" ||
+    code === "EAI_AGAIN" ||
+    code === "ENOTFOUND"
+  ) {
+    return true;
+  }
+
+  const responseCode = Number(asRecord?.responseCode);
+  if (Number.isFinite(responseCode) && responseCode >= 400 && responseCode < 500) {
+    return true;
+  }
+
+  const msg = errorText(error);
+  return (
+    msg.includes("timeout") ||
+    msg.includes("temporar") ||
+    msg.includes("try again") ||
+    msg.includes("connection closed")
+  );
+}
+
 async function sendSmtpEmail(payload: SendEmailPayload) {
   const target = must("to", payload.to).toLowerCase();
   const subject = must("subject", payload.subject);
@@ -275,21 +321,56 @@ async function sendSmtpEmail(payload: SendEmailPayload) {
 
   const config = getSmtpConfig();
   const transporter = getTransporter(config);
+  const maxAttempts = 3;
+  let info: Awaited<ReturnType<Transporter["sendMail"]>> | null = null;
+  let lastError: unknown = null;
 
-  const info = await transporter.sendMail({
-    from: config.from,
-    to: target,
-    subject,
-    text,
-    html,
-    headers: {
-      "X-Mailer": "Wyzer SMTP Mailer",
-    },
-  });
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      info = await transporter.sendMail({
+        from: config.from,
+        to: target,
+        subject,
+        text,
+        html,
+        headers: {
+          "X-Mailer": "Wyzer SMTP Mailer",
+        },
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+      const retryable = isRetryableSmtpError(error);
+      if (!retryable || attempt >= maxAttempts) {
+        throw error;
+      }
+      const waitMs = Math.min(1500, 250 * attempt);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
+
+  if (!info) {
+    throw (
+      (lastError instanceof Error ? lastError : null) ||
+      new Error("Falha ao enviar e-mail SMTP.")
+    );
+  }
 
   const accepted = Array.isArray(info.accepted) ? info.accepted : [];
-  if (!recipientAccepted(accepted, target)) {
+  const rejected = Array.isArray(info.rejected) ? info.rejected : [];
+  const rejectedTarget = recipientAccepted(rejected, target);
+  if (rejectedTarget) {
     console.error("[SMTP] send rejected:", {
+      to: target,
+      accepted: info.accepted,
+      rejected: info.rejected,
+      response: info.response,
+    });
+    throw new Error("SMTP rejeitou o destinatario do e-mail.");
+  }
+
+  if (accepted.length > 0 && !recipientAccepted(accepted, target)) {
+    console.error("[SMTP] send uncertain:", {
       to: target,
       accepted: info.accepted,
       rejected: info.rejected,

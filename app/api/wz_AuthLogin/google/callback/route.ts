@@ -547,6 +547,27 @@ function isMissingColumnError(error: unknown, column: string) {
   );
 }
 
+function isMissingTableError(error: unknown, table: string) {
+  const code =
+    typeof (error as { code?: unknown } | null)?.code === "string"
+      ? String((error as { code?: string }).code)
+      : "";
+  const message = String((error as { message?: unknown } | null)?.message || "").toLowerCase();
+  const details = String((error as { details?: unknown } | null)?.details || "").toLowerCase();
+  const needle = String(table || "").trim().toLowerCase();
+  if (!needle) return false;
+  if (code === "42P01" || code === "PGRST205") return true;
+  return (
+    (message.includes(needle) || details.includes(needle)) &&
+    (message.includes("does not exist") ||
+      details.includes("does not exist") ||
+      message.includes("relation") ||
+      details.includes("relation") ||
+      message.includes("table") ||
+      details.includes("table"))
+  );
+}
+
 function isUniqueViolation(error: unknown) {
   const code =
     typeof (error as { code?: unknown } | null)?.code === "string"
@@ -582,6 +603,129 @@ function isPhoneConstraintViolation(error: unknown) {
       message.includes("phone_e164") ||
       details.includes("phone_e164"))
   );
+}
+
+function extractErrorCode(error: unknown) {
+  return typeof (error as { code?: unknown } | null)?.code === "string"
+    ? String((error as { code?: string }).code)
+    : "";
+}
+
+function extractErrorText(error: unknown) {
+  const message = String((error as { message?: unknown } | null)?.message || "");
+  const details = String((error as { details?: unknown } | null)?.details || "");
+  const hint = String((error as { hint?: unknown } | null)?.hint || "");
+  const name = error instanceof Error ? error.name : "";
+  return [name, message, details, hint].join(" ").toLowerCase();
+}
+
+function isEmailDeliveryError(error: unknown) {
+  const text = extractErrorText(error);
+  const code = extractErrorCode(error).toUpperCase();
+  if (
+    code === "ETIMEDOUT" ||
+    code === "ESOCKET" ||
+    code === "ECONNECTION" ||
+    code === "ECONNRESET" ||
+    code === "EPIPE" ||
+    code === "EAI_AGAIN" ||
+    code === "ENOTFOUND"
+  ) {
+    return true;
+  }
+  return (
+    text.includes("smtp") ||
+    text.includes("sendmail") ||
+    text.includes("missing env: smtp_") ||
+    text.includes("missing env: wz_email_from")
+  );
+}
+
+function isWzUsersSchemaError(error: unknown) {
+  return (
+    isMissingTableError(error, "wz_users") ||
+    isMissingColumnError(error, "id") ||
+    isMissingColumnError(error, "email") ||
+    isMissingColumnError(error, "auth_user_id")
+  );
+}
+
+function isPendingAuthSchemaError(error: unknown) {
+  return (
+    isMissingTableError(error, "wz_pending_auth") ||
+    isMissingColumnError(error, "email") ||
+    isMissingColumnError(error, "flow") ||
+    isMissingColumnError(error, "stage")
+  );
+}
+
+function isAuthChallengesSchemaError(error: unknown) {
+  return (
+    isMissingTableError(error, "wz_auth_challenges") ||
+    isMissingColumnError(error, "email") ||
+    isMissingColumnError(error, "channel") ||
+    isMissingColumnError(error, "code_hash") ||
+    isMissingColumnError(error, "salt") ||
+    isMissingColumnError(error, "expires_at")
+  );
+}
+
+function mapGoogleUnexpectedLoginError(error: unknown, stage: string) {
+  const errCode = extractErrorCode(error);
+  const errText = extractErrorText(error);
+
+  if (errCode === "WZ_OAUTH_LINKED_USER_NOT_FOUND") {
+    return "Conta Google vinculada com referencia invalida. Contate o suporte para corrigir o vinculo.";
+  }
+
+  if (isPhoneConstraintViolation(error)) {
+    return (
+      "Nao foi possivel concluir seu cadastro Google por regra de telefone da conta. " +
+      "Execute a migracao sql/wz_users_phone_e164_oauth_fix.sql e tente novamente."
+    );
+  }
+
+  if (errCode === "23502" && errText.includes("phone_e164")) {
+    return (
+      "O schema atual exige phone_e164 no cadastro OAuth. " +
+      "Execute a migracao sql/wz_users_phone_e164_oauth_fix.sql e tente novamente."
+    );
+  }
+
+  if (isWzUsersSchemaError(error)) {
+    return "Schema de usuarios incompleto para login Google. Revise as migracoes de wz_users e tente novamente.";
+  }
+
+  if (isPendingAuthSchemaError(error)) {
+    return (
+      "Schema de pending auth incompleto para OAuth. " +
+      "Execute sql/wz_pending_auth_google_flow.sql e tente novamente."
+    );
+  }
+
+  if (isAuthChallengesSchemaError(error)) {
+    return (
+      "Schema de desafios de login ausente. " +
+      "Execute sql/wz_auth_challenges_create.sql e tente novamente."
+    );
+  }
+
+  if (isEmailDeliveryError(error)) {
+    return (
+      "Login Google validado, mas o envio do codigo por e-mail falhou. " +
+      "Verifique SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/WZ_EMAIL_FROM."
+    );
+  }
+
+  if (errText.includes("session_secret/wz_auth_secret")) {
+    return "Configuracao de sessao ausente no servidor. Defina SESSION_SECRET ou WZ_AUTH_SECRET.";
+  }
+
+  if (stage === "exchange_pkce_code") {
+    return "Nao foi possivel validar o retorno do Google agora. Tente novamente.";
+  }
+
+  return "Erro inesperado no login Google. Tente novamente.";
 }
 
 async function queryWzUsersRows(params: {
@@ -1420,7 +1564,9 @@ export async function GET(req: NextRequest) {
     return fail("Codigo OAuth ausente. Reinicie o login com Google.");
   }
 
+  let stage = "validate_pkce_verifier";
   try {
+    stage = "validate_pkce_verifier";
     const codeVerifier = normalizePkceVerifier(
       stateRes.ok ? String(stateRes.payload.cv || "") : "",
     );
@@ -1428,6 +1574,7 @@ export async function GET(req: NextRequest) {
       return fail("Sessao OAuth invalida. Reinicie o login com Google.");
     }
 
+    stage = "exchange_pkce_code";
     const exchange = await exchangeGooglePkceCode({
       code,
       codeVerifier,
@@ -1456,6 +1603,7 @@ export async function GET(req: NextRequest) {
     }
     const hasPasswordProvider = hasPasswordProviderInAuthUser(user);
 
+    stage = "lookup_provider_identity";
     const sb = supabaseAdmin();
     const nowIso = new Date().toISOString();
     const providerUserId = parseGoogleProviderUserId(user);
@@ -1482,6 +1630,7 @@ export async function GET(req: NextRequest) {
     const linkedUserId = identityLookup.userId;
 
     if (oauthIntent === "connect") {
+      stage = "connect_read_active_session";
       const activeSession = await readActiveSessionFromRequest(req, {
         seedIfMissing: false,
       });
@@ -1505,6 +1654,7 @@ export async function GET(req: NextRequest) {
         return fail("Sessao invalida para conectar Google.");
       }
 
+      stage = "connect_find_target_user";
       const targetUser = await findConnectTargetWzUser({
         sb,
         sessionUserId: activeUserId || expectedUserId,
@@ -1518,6 +1668,7 @@ export async function GET(req: NextRequest) {
         return fail("Esta conta Google ja esta conectada a outra conta.");
       }
 
+      stage = "connect_upsert_provider_link";
       const connectUpsert = await upsertLoginProviderRecord({
         sb,
         userId: targetUser.id,
@@ -1552,6 +1703,7 @@ export async function GET(req: NextRequest) {
       return res;
     }
 
+    stage = "find_or_create_wz_user";
     const wzUser = await findOrCreateGoogleWzUser({
       sb,
       email,
@@ -1563,6 +1715,7 @@ export async function GET(req: NextRequest) {
     });
     const accountEmail = normalizeEmail(wzUser.email) || email;
 
+    stage = "upsert_login_provider";
     const loginUpsert = await upsertLoginProviderRecord({
       sb,
       userId: wzUser.userId,
@@ -1592,6 +1745,7 @@ export async function GET(req: NextRequest) {
     const effectivePhone = currentPhone || googlePhoneCandidate || null;
 
     if (!currentPhone && googlePhoneCandidate) {
+      stage = "update_phone_from_provider";
       await updateWzUserBestEffort({
         sb,
         userId: wzUser.userId,
@@ -1602,6 +1756,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (!wzUser.isNew) {
+      stage = "trusted_bypass";
       const trustedRedirect = await tryTrustedGoogleBypass({
         sb,
         req,
@@ -1618,6 +1773,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    stage = "upsert_pending_onboarding";
     await upsertPendingGoogleOnboarding({
       sb,
       email: accountEmail,
@@ -1627,11 +1783,13 @@ export async function GET(req: NextRequest) {
       nowIso,
     });
 
+    stage = "create_email_challenge";
     await createEmailChallenge({
       sb,
       email: accountEmail,
     });
 
+    stage = "final_redirect";
     const onboardingNext = wzUser.mustCreatePassword
       ? appendGooglePasswordSetupQuery(safeNext)
       : safeNext;
@@ -1645,21 +1803,7 @@ export async function GET(req: NextRequest) {
     applyNoStore(res);
     return res;
   } catch (error) {
-    console.error("[google-callback] error:", error);
-    const errCode =
-      typeof (error as { code?: unknown } | null)?.code === "string"
-        ? String((error as { code?: string }).code)
-        : "";
-    if (errCode === "WZ_OAUTH_LINKED_USER_NOT_FOUND") {
-      return fail(
-        "Conta Google vinculada com referencia invalida. Contate o suporte para corrigir o vinculo.",
-      );
-    }
-    if (isPhoneConstraintViolation(error)) {
-      return fail(
-        "Nao foi possivel concluir seu cadastro Google por regra de telefone da conta. Tente novamente em instantes.",
-      );
-    }
-    return fail("Erro inesperado no login Google. Tente novamente.");
+    console.error("[google-callback] error:", { stage, error });
+    return fail(mapGoogleUnexpectedLoginError(error, stage));
   }
 }
